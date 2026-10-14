@@ -1,9 +1,0 @@
-# shadowtls 子模块
-AddPreviewTest(ShadowtlsConnSession.cpp)
-target_link_libraries(ShadowtlsConnSession PRIVATE PreviewTransport PreviewProtocolShadowtls PreviewTestSupport)
-
-AddPreviewTest(ShadowtlsCodecDeep.cpp)
-target_link_libraries(ShadowtlsCodecDeep PRIVATE PreviewProtocolShadowtls PreviewTestSupport)
-
-AddPreviewTest(ShadowtlsRelay.cpp)
-target_link_libraries(ShadowtlsRelay PRIVATE PreviewProtocolShadowtls PreviewTransport PreviewTestSupport)

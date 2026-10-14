@@ -1,9 +1,0 @@
-# middleware 子模块测试
-AddPreviewTest(AuthMiddlewareTest.cpp)
-target_link_libraries(AuthMiddlewareTest PRIVATE PreviewFoundation PreviewRuntime PreviewTestSupport)
-AddPreviewTest(MiddlewarePipelineTest.cpp)
-target_link_libraries(MiddlewarePipelineTest PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewTestSupport)
-AddPreviewTest(PreviewMiddlewareTest.cpp)
-target_link_libraries(PreviewMiddlewareTest PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewTestSupport)
-AddPreviewTest(TimeoutRelayTest.cpp)
-target_link_libraries(TimeoutRelayTest PRIVATE PreviewTransport PreviewRuntime PreviewTestSupport)

@@ -6,7 +6,7 @@ schema-version: 1
 
 baseline:
   file: PrismPreviewClient.yaml
-    proxy-node-count: 46
+  proxy-node-count: 47
   policy-groups:
     - PrismPreview-Active
     - PrismPreview-Verified
@@ -102,14 +102,14 @@ status-contract:
     - "VMess Reality TCP"
     - "Hysteria2 QUIC"
 
+pending-rule: >-
+  六个 active 节点使用 TCP；Trojan 由 NativeTls 提供协议原生 TLS 接入，
+  其它 active 节点使用裸 TCP。verified-manual 仅表示各自历史真实请求证据，
+  当前完整验收见无兼容层执行状态。TUIC v5 QUIC 客户端保留在 Pending 组：
+  当前 Matrix JSON 只配置 Hysteria2，不能把独立 TUIC Application 运行
+  当成该默认矩阵已经发布 TUIC；此节点不加入已验证的 ProtocolMatrix 组。
+
 entries:
-  pending-rule: >-
-    The six active entries use TCP. Trojan uses its protocol-native TLS
-    admission with the Preview NativeTls context; the other five active
-    entries use bare TCP with tls false and udp false. verified-manual entries
-    have a repeatable real-client payload result and are available only in the
-    verified/manual matrix group. Remaining pending entries are excluded from
-    the active/default, health, and verified matrix groups.
 
   - name: "SOCKS5 TCP Cert"
     status: active
@@ -432,6 +432,12 @@ entries:
     carrier: quic
     transport: quic/udp
     sni: hysteria2-gateway-e2e
+  - name: "TUIC v5 QUIC"
+    status: server-side pending
+    protocol: tuic
+    carrier: quic
+    transport: quic/udp
+    sni: tuic-gateway-e2e
   - name: "Trojan Reality TCP"
     status: verified-manual
     protocol: trojan

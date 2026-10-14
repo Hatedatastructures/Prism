@@ -210,7 +210,7 @@ function Invoke-PreviewSmokeCase {
         }
         if (-not $Process.HasExited) {
             $TimedOut = $true
-            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+            Stop-PreviewProcess -Process $Process | Out-Null
         }
         $ExitCode = if ($TimedOut) { 124 } else { $Process.ExitCode }
         $Combined = ((Get-Content -LiteralPath $StdoutPath -Raw -ErrorAction SilentlyContinue),
@@ -237,7 +237,7 @@ function Invoke-PreviewSmokeCase {
     } finally {
         $Watch.Stop()
         if ($Process -and -not $Process.HasExited) {
-            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+            Stop-PreviewProcess -Process $Process | Out-Null
         }
     }
 }
@@ -377,8 +377,8 @@ try {
                 $ClientPath = $SmokeClient
                 if ([string]::IsNullOrWhiteSpace($ClientPath)) {
                     $Candidates = @(
-                        (Join-Path $RepoRoot 'build/tests/Preview/integration/InteropPrismL4.exe'),
-                        (Join-Path $RepoRoot 'build/tests/Preview/integration/InteropPrismL4')
+                        (Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropPrismL4.exe'),
+                        (Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropPrismL4')
                     )
                     $ClientPath = $Candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
                 } else {

@@ -1,0 +1,18 @@
+# http 子模块测试
+AddPreviewTest(Http11ConnectTest.cpp)
+target_sources(Http11ConnectTest PRIVATE Http11ConnectParsingTest.cpp)
+target_link_libraries(Http11ConnectTest PRIVATE PreviewTransport PreviewNet PreviewProtocolHttp PreviewTestSupport)
+AddPreviewTest(Http11ForwardRequestTest.cpp)
+target_sources(Http11ForwardRequestTest PRIVATE Http11ForwardRequestFramingTest.cpp)
+target_link_libraries(Http11ForwardRequestTest PRIVATE PreviewTransport PreviewNet PreviewProtocolHttp PreviewTestSupport)
+AddPreviewTest(Http11ForwardResponseTest.cpp)
+target_link_libraries(Http11ForwardResponseTest PRIVATE PreviewTransport PreviewNet PreviewProtocolHttp PreviewTestSupport)
+AddPreviewTest(HttpForwardResponseTest.cpp)
+target_link_libraries(HttpForwardResponseTest PRIVATE PreviewTransport PreviewNet PreviewProtocolHttp PreviewTestSupport)
+AddPreviewTest(HttpForwardSecurityTest.cpp)
+target_link_libraries(HttpForwardSecurityTest PRIVATE PreviewFoundation PreviewTransport PreviewNet PreviewRuntime PreviewComposition PreviewProtocolHttp PreviewTestSupport)
+
+# 同一 owner 的正式职责头与行为场景，复用既有 target。
+target_sources(Http11ForwardResponseTest PRIVATE
+    Http11BindingRetirementTest.cpp
+)

@@ -1,0 +1,11 @@
+# crypto 子模块测试
+AddPreviewTest(CoreAead.cpp)
+target_link_libraries(CoreAead PRIVATE PreviewFoundation PreviewTestSupport)
+AddPreviewTest(CryptoPrimitiveCoverage.cpp)
+AddPreviewTest(ExceptionCoverage.cpp)
+target_link_libraries(CryptoPrimitiveCoverage PRIVATE PreviewFoundation PreviewTestSupport)
+target_sources(CryptoPrimitiveCoverage PRIVATE CryptoExceptionTestSupport.hpp)
+target_link_libraries(ExceptionCoverage PRIVATE PreviewFoundation PreviewTestSupport)
+target_sources(ExceptionCoverage PRIVATE CryptoExceptionTestSupport.hpp)
+
+

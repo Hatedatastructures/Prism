@@ -1,0 +1,5 @@
+AddPreviewTest(QuicOwnershipTest.cpp)
+target_link_libraries(QuicOwnershipTest PRIVATE PreviewFoundation PreviewTransport PreviewProtocolQuicNative)
+target_sources(QuicOwnershipTest PRIVATE ../../../TestSupport/Preview/QuicFactory.hpp)
+AddPreviewTest(NativeDatagramInboxTest.cpp)
+target_link_libraries(NativeDatagramInboxTest PRIVATE PreviewProtocolQuicNative PreviewTestSupport)

@@ -17,7 +17,7 @@
 #include <string_view>
 
 #include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Foundation/Fault/Handling.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Middleware/Pipeline.hpp>
 #include <Preview/Transport/Pad.hpp>
@@ -31,7 +31,7 @@ namespace Preview::Middleware::Builtin
     /**
      * @class PadMiddleware
      * @brief 填充中间件
-     * @details 根据 ctx.pad 配置决定是否包装 PadTransport。
+     * @details 根据 Operation.Pad 配置决定是否包装 PadTransport。
      */
     class PadMiddleware final : public Middleware
     {
@@ -46,29 +46,22 @@ namespace Preview::Middleware::Builtin
 
         /**
          * @brief 按配置包装填充传输
-         * @param Inbound 入站传输（可能被 pad 包装）
-         * @param ctx 管线上下文（消费 pad 配置）
-         * @return success 恒（pad 是可选装饰）
+         * @param Inbound 借用至完成的入站传输；启用时由 PadTransport 接收原传输所有权。
+         * @param Operation 借用至完成的管线上下文；只读消费已编译 pad 配置与 worker byte pool。
+         * @return 正式失败值；配置或资源错误保留其领域码。
+         * @note 在调用方 executor 执行；不独立取消或关闭传输，最终关闭由 Session relay owner 负责。
          */
-        auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
-            -> Net::awaitable<Preview::Fault::Code> override
+        auto Handle(Preview::SharedTransmission &Inbound, Context &Operation)
+            -> Net::awaitable<Preview::Fault::Failure> override
         {
-            if (ctx.pad && ctx.pad->Enabled && Inbound)
+            if (Operation.Pad && Operation.Pad->Enabled && Inbound)
             {
-                Preview::Transport::PadConfig cfg;
-                constexpr auto MaxTarget = static_cast<std::size_t>((std::numeric_limits<std::uint16_t>::max)());
-                const auto MinSize = (std::min)(ctx.pad->MinSize, MaxTarget);
-                const auto MaxSize = (std::min)((std::max)(MinSize, ctx.pad->MaxSize), MaxTarget);
-                cfg.PadTargets = std::to_string(MinSize);
-                if (MinSize != MaxSize)
-                {
-                    cfg.PadTargets += '-';
-                    cfg.PadTargets += std::to_string(MaxSize);
-                }
-                cfg.MaxPadBytes = static_cast<std::uint16_t>(MaxSize);
-                Inbound = std::make_shared<Preview::Transport::PadTransport>(Inbound, cfg);
+                if (!Operation.Pad->Policy || !Operation.Bytes)
+                    co_return Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable};
+                Inbound = std::make_shared<Preview::Transport::PadTransport>(std::move(Inbound),
+                    Preview::Transport::PadOptions{Operation.Pad->Policy, Operation.Bytes, {}});
             }
-            co_return Preview::Fault::Code::Success;
+            co_return Preview::Fault::Failure{};
         }
     };
 

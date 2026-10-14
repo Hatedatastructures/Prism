@@ -9,7 +9,7 @@
     "Tcp": [
       {
         "Id": "tcp-matrix",
-        "Address": "192.168.0.106",
+        "Address": "127.0.0.1",
         "Port": 18080,
         "Timeout": 5000
       }
@@ -17,7 +17,7 @@
     "Udp": [
       {
         "Id": "udp-matrix",
-        "Address": "192.168.0.106",
+        "Address": "127.0.0.1",
         "Port": 18080,
         "Timeout": 5000
       }
@@ -25,7 +25,7 @@
     "Quic": [
       {
         "Id": "quic-matrix",
-        "Address": "192.168.0.106",
+        "Address": "127.0.0.1",
         "Port": 18080,
         "Timeout": 5000
       }
@@ -71,8 +71,8 @@
     },
     {
       "Id": "protocol-shadowsocks2022",
-      "Name": "shadowsocks2022",
-      "Builtin": "shadowsocks2022",
+      "Name": "ss2022",
+      "Builtin": "ss2022",
       "Requires": []
     },
     {
@@ -267,7 +267,7 @@
       "MuxModes": [],
       "Priority": 20,
       "Recognition": {
-        "Domain": "www.cloudflare.com"
+        "Pattern": "www.cloudflare.com"
       }
     },
     {
@@ -279,7 +279,7 @@
       "MuxModes": [],
       "Priority": 20,
       "Recognition": {
-        "Domain": "http.preview"
+        "Pattern": "http.preview"
       }
     },
     {
@@ -291,7 +291,7 @@
       "MuxModes": [],
       "Priority": 20,
       "Recognition": {
-        "Domain": "socks5.preview"
+        "Pattern": "socks5.preview"
       }
     },
     {
@@ -303,7 +303,7 @@
       "MuxModes": [],
       "Priority": 20,
       "Recognition": {
-        "Domain": "www.bing.com"
+        "Pattern": "www.bing.com"
       }
     },
     {
@@ -317,7 +317,7 @@
       ],
       "Priority": 30,
       "Recognition": {
-        "Domain": "vless-smux.preview"
+        "Pattern": "vless-smux.preview"
       }
     },
     {
@@ -331,7 +331,7 @@
       ],
       "Priority": 30,
       "Recognition": {
-        "Domain": "vless-yamux.preview"
+        "Pattern": "vless-yamux.preview"
       }
     },
     {
@@ -345,7 +345,7 @@
       ],
       "Priority": 30,
       "Recognition": {
-        "Domain": "vless-h2mux.preview"
+        "Pattern": "vless-h2mux.preview"
       }
     },
     {
@@ -357,7 +357,7 @@
       "MuxModes": [],
       "Priority": 20,
       "Recognition": {
-        "Domain": "trojan.preview"
+        "Pattern": "trojan.preview"
       }
     },
     {
@@ -371,7 +371,7 @@
       ],
       "Priority": 30,
       "Recognition": {
-        "Domain": "trojan-smux.preview"
+        "Pattern": "trojan-smux.preview"
       }
     },
     {
@@ -383,7 +383,7 @@
       "MuxModes": [],
       "Priority": 20,
       "Recognition": {
-        "Domain": "vmess.preview"
+        "Pattern": "vmess.preview"
       }
     },
     {
@@ -397,7 +397,7 @@
       ],
       "Priority": 30,
       "Recognition": {
-        "Domain": "vmess-yamux.preview"
+        "Pattern": "vmess-yamux.preview"
       }
     },
     {
@@ -409,7 +409,7 @@
       "MuxModes": [],
       "Priority": 100,
       "Recognition": {
-        "Domain": "www.microsoft.com"
+        "Pattern": "www.microsoft.com"
       }
     },
     {
@@ -421,7 +421,7 @@
       "MuxModes": [],
       "Priority": 100,
       "Recognition": {
-        "Domain": "trojan.microsoft.com"
+        "Pattern": "trojan.microsoft.com"
       }
     },
     {
@@ -433,7 +433,7 @@
       "MuxModes": [],
       "Priority": 100,
       "Recognition": {
-        "Domain": "vmess.microsoft.com"
+        "Pattern": "vmess.microsoft.com"
       }
     },
     {

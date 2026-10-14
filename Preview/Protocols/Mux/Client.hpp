@@ -63,13 +63,7 @@ namespace Preview::Mux
             if (Session_)
             {
                 auto PreviousSession = std::move(Session_);
-                Net::co_spawn(
-                    PreviousSession->Executor(),
-                    [PreviousSession]() -> Net::awaitable<void>
-                    {
-                        co_await PreviousSession->Close();
-                    },
-                    Net::detached);
+                PreviousSession->RequestClose();
             }
             auto OptionsValue = Options;
             OptionsValue.Role = Preview::Role::Client;
@@ -107,10 +101,7 @@ namespace Preview::Mux
             {
                 return;
             }
-            Net::co_spawn(
-                Session->Executor(),
-                [Session]() -> Net::awaitable<void> { co_await Session->Close(); },
-                Net::detached);
+            Session->RequestClose();
         }
 
         /**

@@ -1,0 +1,5752 @@
+{
+  "capturedAt": "2026-10-07T16:04:46.828Z",
+  "parserLib": "C:\\Users\\C1373\\AppData\\Roaming\\npm\\node_modules\\@colbymchenry\\codegraph\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib",
+  "files": [
+    {
+      "path": "Preview/Account/Account.hpp",
+      "sha256": "7986d67eb12b0931928de902a3296797eda63b59de68df8c5310a5f8d53b72d2",
+      "lines": 14
+    },
+    {
+      "path": "Preview/Account/Authenticator.hpp",
+      "sha256": "026225ae5c69517f06d760da0698d9ab7292530e52ef31aebfe931915f423601",
+      "lines": 207
+    },
+    {
+      "path": "Preview/Account/Credential.hpp",
+      "sha256": "ed864bee881fe96620a6ed0bd0004774b7faa559a2937d7dca168cb250f0f612",
+      "lines": 210
+    },
+    {
+      "path": "Preview/Account/Directory.hpp",
+      "sha256": "6a3ed43c2dec8e2b0bf85af102dc6e5a3805bcca82be9e3c9653d975bc17aac1",
+      "lines": 284
+    },
+    {
+      "path": "Preview/Account/Lease.hpp",
+      "sha256": "6811fbf412c5b6c02bd134a78cfbd69e22a815e69aaf8fd5786dbf8abc0f7b0c",
+      "lines": 222
+    },
+    {
+      "path": "Preview/Account/Rate.hpp",
+      "sha256": "13e19eb3c0df742de5c5cecc5bb28f02e350a23c7af20dcfd7863932139806ac",
+      "lines": 384
+    },
+    {
+      "path": "Preview/Account/Record.hpp",
+      "sha256": "dab98a1dbe119d4da3a9278da23e988c42a692e9a4c4883bed400307685638f9",
+      "lines": 149
+    },
+    {
+      "path": "Preview/Account/Runtime.hpp",
+      "sha256": "dee87be6e15395813ab33fb2c18cb3e27205587c12d284688a326c11bb1e11d6",
+      "lines": 335
+    },
+    {
+      "path": "Preview/Account/SecureBytes.hpp",
+      "sha256": "5c2d02d71995f8e932d8d49158d30aef9f48367029aa8c54a7d7e619c39261a4",
+      "lines": 86
+    },
+    {
+      "path": "Preview/Application/Application.hpp",
+      "sha256": "355f6f1e416f256688a1f91cdae8447b30c163f4437172a4e773dca24e9be784",
+      "lines": 113
+    },
+    {
+      "path": "Preview/Application/Assembly/AccountAssembly.hpp",
+      "sha256": "3f063f896872569bf696388b70f9245c4ceb2208f574b48ac983c1e49f62b3c9",
+      "lines": 347
+    },
+    {
+      "path": "Preview/Application/Assembly/CapabilityAssembly.hpp",
+      "sha256": "8b5467056a23d0344fa1dd3c4200ee9868bebc83cbffb179a295c559d66510af",
+      "lines": 47
+    },
+    {
+      "path": "Preview/Application/Assembly/ConfigurationAssembly.hpp",
+      "sha256": "3ff72a9c791bada11048cb039653abcd225bdf3a9e47102771fe2bf3077cd10d",
+      "lines": 70
+    },
+    {
+      "path": "Preview/Application/Assembly/DnsAssembly.hpp",
+      "sha256": "fd41623ce8d617c73dd897951b9e792a6ec9e1d9e0dfb2da690bb07a3c76fef5",
+      "lines": 28
+    },
+    {
+      "path": "Preview/Application/Assembly/NetworkAssembly.hpp",
+      "sha256": "2595524799800fb57418fabbef1e116226a5b526d025f8ec3632c628add57cb7",
+      "lines": 191
+    },
+    {
+      "path": "Preview/Application/Assembly/ProtocolAssembly.hpp",
+      "sha256": "3e59cbf9ca8a46c444266f7c35eea8895f556ef06e739432c46fa2a551bc8f66",
+      "lines": 113
+    },
+    {
+      "path": "Preview/Application/Assembly/ProviderAssembly.hpp",
+      "sha256": "6a61100499a19206ca785f4af2693fbdadc67aff0145b2ba53e912dfaf173cf6",
+      "lines": 23
+    },
+    {
+      "path": "Preview/Application/BoundaryStartup.hpp",
+      "sha256": "2ead11b6bdfaccc6e80a4b532778149e8d4e3f675e9eae65a503b9263e4018fa",
+      "lines": 409
+    },
+    {
+      "path": "Preview/Application/ClosingFailure.hpp",
+      "sha256": "b8fd9d8f8407e6e31b17963d27fdd18e75571c22203375168da94e55fd07c23d",
+      "lines": 38
+    },
+    {
+      "path": "Preview/Application/ConfigurationStartup.hpp",
+      "sha256": "351fb061357cfca18123b4bad21e8d37be77a5a40afed8a661f25f0ff0123c8a",
+      "lines": 341
+    },
+    {
+      "path": "Preview/Application/Configuration/Configuration.hpp",
+      "sha256": "0e721b9ea178dd9ca8d133f4165881dc825ad1a2e65e6ecdd27cbd8deaab8ac4",
+      "lines": 18
+    },
+    {
+      "path": "Preview/Application/Configuration/ConfigurationError.hpp",
+      "sha256": "4a1ec4afae3d929fc8b37eb20a34b8a142e7703cc9ae980a5a5707cf3f2b64c5",
+      "lines": 57
+    },
+    {
+      "path": "Preview/Application/Configuration/ConfigurationGeneration.hpp",
+      "sha256": "c98604c5759a3a8bb8e34401ebb97838a2ce410a3facb22197d42997eb5db612",
+      "lines": 107
+    },
+    {
+      "path": "Preview/Application/Configuration/ConfigurationParser.hpp",
+      "sha256": "dd8ff9e07ce220e1fb1beb505a29eb32194459a230797868ffa2c0c27d1b1608",
+      "lines": 206
+    },
+    {
+      "path": "Preview/Application/Configuration/ConfigurationStore.hpp",
+      "sha256": "492934c59b2be0817c38ebe0f3918f16529452b311f32c4f9620b98b90ac366c",
+      "lines": 72
+    },
+    {
+      "path": "Preview/Application/Configuration/ConfigurationValidator.hpp",
+      "sha256": "471851dd439659ae3f567a86ab2bf95ca82b02931a49068518e8d71ab742d646",
+      "lines": 41
+    },
+    {
+      "path": "Preview/Application/Configuration/GenerationBuilder.hpp",
+      "sha256": "4f05f6cbb7544535ebda74218e6e0ee9b7b40b74e99fbc49aecf9150b7da36cf",
+      "lines": 142
+    },
+    {
+      "path": "Preview/Application/Configuration/PreparedConfiguration.hpp",
+      "sha256": "af1ac93bb2924441a3964d89a8b53e31483ed5924ad6528b8fae570ede8722e3",
+      "lines": 360
+    },
+    {
+      "path": "Preview/Application/Configuration/PreviewConfiguration.hpp",
+      "sha256": "2bd8b63ccfd4ae436f607fa153cbfd8e66a385f07d2574c9263117c5fa4ddfdf",
+      "lines": 252
+    },
+    {
+      "path": "Preview/Application/Configuration/PreviewConfigurationJson.hpp",
+      "sha256": "0c831a25e46887b44a3e7bd241b62e00ea1458e07cd22b320dd74e877892ab26",
+      "lines": 372
+    },
+    {
+      "path": "Preview/Application/Configuration/PreviewConfigurationSchema.hpp",
+      "sha256": "43b63f238e31318b03d839b045156fb9b97c1455a2e77e2edb1abd897ef4f148",
+      "lines": 80
+    },
+    {
+      "path": "Preview/Application/Configuration/PublicSettingsValidator.hpp",
+      "sha256": "67a01cb6b4c1f75c45e29e40f9c13ca35c24d9680a3ad787bf06bb8af8afad81",
+      "lines": 184
+    },
+    {
+      "path": "Preview/Application/Configuration/ReferenceGraph.hpp",
+      "sha256": "474cfb949ac606d6aa51c82cd365b523ac8fa32febd1e3e591e90d9169f482d6",
+      "lines": 64
+    },
+    {
+      "path": "Preview/Application/Configuration/ReloadCoordinator.hpp",
+      "sha256": "025819fd26af15f30ac98e8b2fc6d1043e5e7bff84f7df1faadcf9b16e35ca4f",
+      "lines": 120
+    },
+    {
+      "path": "Preview/Application/Configuration/ResolvedSecrets.hpp",
+      "sha256": "bec3c8297b9f401e37a5705a26a5a1711c9996a5c028c5adaa379e2b25713295",
+      "lines": 61
+    },
+    {
+      "path": "Preview/Application/Configuration/SecretRefResolver.hpp",
+      "sha256": "233faa0b0d785e5316ba354127e6d2d7871467f015e2be037dcef8118cf79c1b",
+      "lines": 87
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/CapabilityValidation.hpp",
+      "sha256": "0699ec1718fadf9f015bb187a620059189d6d64f41af7e0fdd3c1ed19978ac44",
+      "lines": 127
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/CarrierValidation.hpp",
+      "sha256": "a28a44fdad65d15f71c1fc1f2d5a7feda04f54e59f83659d883e9504628e588e",
+      "lines": 495
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/CommonValidation.hpp",
+      "sha256": "c34e72465c88532fde034180ff01a2393741a7485451d548f8eb43ebb2e03cf2",
+      "lines": 76
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/ConfigurationValidation.hpp",
+      "sha256": "7bd9c7a9643d7626f49a184a6c607c9c1573ca3de4b9f287a14790d48f6c40c6",
+      "lines": 96
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/ProtocolIndependentValidation.hpp",
+      "sha256": "25f4bcfbe8a15001e615963c568d7cf7364325becb61f39a7d58863f998d8061",
+      "lines": 476
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/ReferenceValidation.hpp",
+      "sha256": "68ada0f2c63a7c9fd1acd9b4a9058dbbdbc9068e1e14a63450298be1defb45b2",
+      "lines": 588
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/SchemaValidation.hpp",
+      "sha256": "3c54682eb35c13171698eeaecfea613deef6bec78e2bcd01942707281dcbd362",
+      "lines": 277
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/SecretValidation.hpp",
+      "sha256": "b7e29846054ad0420c1c66d9d30da793cb51ae5a9edf7566713e559a6644fa7d",
+      "lines": 75
+    },
+    {
+      "path": "Preview/Application/Configuration/Validation/ValidationTypes.hpp",
+      "sha256": "4b1bce6179aa702c17a2f24e736fab279451ff9948c9227e55485e972a46c48a",
+      "lines": 42
+    },
+    {
+      "path": "Preview/Application/Definition.hpp",
+      "sha256": "498e81b5ba5926fe4f586572440d4b6365be66fb28466eee3075616e1bca404a",
+      "lines": 115
+    },
+    {
+      "path": "Preview/Application/DiagnoseRuntime.hpp",
+      "sha256": "24b0bb678456785523c0e9ddfbc91c411516caefb77a06eeab4a2d2129f6d5ac",
+      "lines": 261
+    },
+    {
+      "path": "Preview/Application/Main/PreviewMain.hpp",
+      "sha256": "9a28239bf20d5f3e32c01024fe4d00d001bb9ba9484bffa78c96e37dd49a85c3",
+      "lines": 66
+    },
+    {
+      "path": "Preview/Application/OperationsStartup.hpp",
+      "sha256": "9c66ddd75d6d1c751ab53463d63024829441b82bc931e18759f6e5a2f5daa43c",
+      "lines": 410
+    },
+    {
+      "path": "Preview/Application/ProtocolAcceptors.hpp",
+      "sha256": "1ae310c8947653c8042b15e2bee0881b37baf6720712dad70980c074c3021d17",
+      "lines": 525
+    },
+    {
+      "path": "Preview/Application/ProtocolCarrierRegistration.hpp",
+      "sha256": "47559577f88803d13a945baf304f6c9a0e72e65d9496d29f86058014ef99255f",
+      "lines": 325
+    },
+    {
+      "path": "Preview/Application/ProtocolProfile.hpp",
+      "sha256": "30c2a3a402d90056d2472de71179af83f8e47df31393cf5064f4bc5807a83674",
+      "lines": 489
+    },
+    {
+      "path": "Preview/Application/RealityCarrierRegistration.hpp",
+      "sha256": "cb8f9a6e014a239ebe8540a12129a49b5eed464954e7356a6dc5f9da43e15c62",
+      "lines": 85
+    },
+    {
+      "path": "Preview/Application/RuntimeState.hpp",
+      "sha256": "b3955af3c163e0385d5c9bbd411d29192800cd8473d03d7427ebd7611a535ec5",
+      "lines": 155
+    },
+    {
+      "path": "Preview/Application/Shutdown.hpp",
+      "sha256": "8d9bae563c8d62236c1b2966a7a9eebe328fbf4a1672d20354f30842c2f525e9",
+      "lines": 420
+    },
+    {
+      "path": "Preview/Application/Startup/BoundaryPhase.hpp",
+      "sha256": "5f4b8918f51791f82486e79c728bbb26bb169a96946f549d42441967095539a0",
+      "lines": 60
+    },
+    {
+      "path": "Preview/Application/Startup/DatagramServices.hpp",
+      "sha256": "d82abc69e1c6f416dadd2c2822457bb9af0da2e8c53d1ff54beaf26144846cc5",
+      "lines": 51
+    },
+    {
+      "path": "Preview/Application/Startup/GenerationPhase.hpp",
+      "sha256": "d048f48f0eee987ba2e5e0c7efba22dab8f5ac43dcd02d0107785820a0b1a691",
+      "lines": 272
+    },
+    {
+      "path": "Preview/Application/Startup/OperationsPhase.hpp",
+      "sha256": "2937c9c59aa68a16c5f1f4a3190846d6eb2496313cbafa5c53739f9f2cdaecfc",
+      "lines": 33
+    },
+    {
+      "path": "Preview/Application/Startup/ProcessServices.hpp",
+      "sha256": "f809ae9561a418d20f8dd309943f82144f9b8c7dec040766b76aeda1e8e9a65b",
+      "lines": 75
+    },
+    {
+      "path": "Preview/Application/Startup/ProtocolServices.hpp",
+      "sha256": "caaf8bbe6aabfb901d929b1881b54e26eb0dd02cc24ac3f05091b3040fa7a603",
+      "lines": 121
+    },
+    {
+      "path": "Preview/Application/Startup/PublishPhase.hpp",
+      "sha256": "ff687f1b7f4792bc83537115020d03e5bf8a440d478fa75589025a819efa7e82",
+      "lines": 55
+    },
+    {
+      "path": "Preview/Application/Startup/QuicServices.hpp",
+      "sha256": "e66d495193c1f98ca537992c2747d6ea085d72bb761d2699fe4daeb9b3677b52",
+      "lines": 20
+    },
+    {
+      "path": "Preview/Application/Startup/Start.hpp",
+      "sha256": "e8d7672cd5e9837c519d8b68ac08d66c5fea5dc734c5c4af660cf0d675e4b046",
+      "lines": 93
+    },
+    {
+      "path": "Preview/Application/Startup/StartupErrors.hpp",
+      "sha256": "3ba08f04fdf5063f3c25937768986a614afd5af63a3c6941d20f69fe1d6069b7",
+      "lines": 45
+    },
+    {
+      "path": "Preview/Application/Startup/StartupTransaction.hpp",
+      "sha256": "15608ce7892ca0cbb31dd0db38f137f077e9cf8a64b6c9642c67378abff0dce6",
+      "lines": 38
+    },
+    {
+      "path": "Preview/Application/TrustTunnelCredentials.hpp",
+      "sha256": "2385e4c91b83ef877aae6a543b178321f9c0463a25a2fbb11db5e495ecc36d92",
+      "lines": 37
+    },
+    {
+      "path": "Preview/Boundary/Contract/BoundaryDispatcher.hpp",
+      "sha256": "2c607fd8dfaaba31f8adc23d5f1dd7586cf3185b1894eccea6d815be3986073a",
+      "lines": 185
+    },
+    {
+      "path": "Preview/Boundary/Datagram/DatagramAssociation.hpp",
+      "sha256": "cf3fd4e51266c1bfd38e11a883049dabdc8fd2c11ae1068e1e4ebb58f0fc5d3d",
+      "lines": 276
+    },
+    {
+      "path": "Preview/Boundary/Datagram/DatagramClassifier.hpp",
+      "sha256": "bf1c8ac7bf4b365fd2fc1bcbb02f7163e143db47a96e1f9729f20663e9a28214",
+      "lines": 331
+    },
+    {
+      "path": "Preview/Boundary/Datagram/DatagramListener.hpp",
+      "sha256": "7f155b0a21b3e50f283ca0ed17c4900cc316f6ead046c3b2370a30b66e695691",
+      "lines": 348
+    },
+    {
+      "path": "Preview/Boundary/Datagram/DatagramSender.hpp",
+      "sha256": "dc6ca8cb658724bb88482b181e0be0e7560b12918962e6448d745831dacd85f2",
+      "lines": 32
+    },
+    {
+      "path": "Preview/Boundary/Quic/QuicConnectionRegistry.hpp",
+      "sha256": "ffa4d3e2129f8f46e67fdf1a6ddd557cc2ff31c5b99cb5553dcf98591da55ab9",
+      "lines": 135
+    },
+    {
+      "path": "Preview/Boundary/Quic/QuicPacketGateway.hpp",
+      "sha256": "4155e081b54e7fbfcd05ca0659bba70ad8f64c15a7919a3ceb59c7ff178164c5",
+      "lines": 275
+    },
+    {
+      "path": "Preview/Composition/Builtin/Builtin.hpp",
+      "sha256": "f4bc6db1662e7c0028cc7598b2e5d9ba266d1788e8f12a71deb52cdd42c40d37",
+      "lines": 8
+    },
+    {
+      "path": "Preview/Composition/Builtin/Capability.hpp",
+      "sha256": "f563f2335622f3cf92a7670274fe8beb8622e1bd0c80aadaa6c4a5ba9dc785d9",
+      "lines": 218
+    },
+    {
+      "path": "Preview/Composition/Builtin/Descriptor.hpp",
+      "sha256": "28c309b01bfd33ed13cb0f602f561d95611dfeefa01bea479379df6c0aa82468",
+      "lines": 59
+    },
+    {
+      "path": "Preview/Composition/Builtin/Freeze.hpp",
+      "sha256": "6e6122011c56200f6ca48b52223faddab86c4e189c1bb8bb226045d43987fde9",
+      "lines": 19
+    },
+    {
+      "path": "Preview/Composition/Builtin/ProtocolBuiltins.hpp",
+      "sha256": "d60f6de958e3ab92cabbdd3422fa81df87cdc66a0b5e0d588c02b86f589b08c7",
+      "lines": 204
+    },
+    {
+      "path": "Preview/Composition/Builtin/Registry.hpp",
+      "sha256": "1b6ddc0c80dbfbd5c1811466db0f827fd08b0f7dc3506ab3e16f8a38c85c496e",
+      "lines": 108
+    },
+    {
+      "path": "Preview/Composition/Builtin/Snapshot.hpp",
+      "sha256": "c1205306fcd1605bd3932b4565868f790dafc833b9108e56293057713e787892",
+      "lines": 184
+    },
+    {
+      "path": "Preview/Composition/Protocol/ProtocolCatalog.hpp",
+      "sha256": "c4c846415f9824bdb7be9804e2caefc673ab38dbc9ff850885f321f12c026a33",
+      "lines": 212
+    },
+    {
+      "path": "Preview/Composition/Provider/ConfigurationCompiler.hpp",
+      "sha256": "82249b7874cc8226075507ba131bbb772f750df52bd843d1b78bb9ca17df1f17",
+      "lines": 36
+    },
+    {
+      "path": "Preview/Composition/Provider/ProviderCatalog.hpp",
+      "sha256": "c1f61c3907c30173d2c8d22aa6982db772b6c79ce7a79c42a4663ab3faae1cea",
+      "lines": 380
+    },
+    {
+      "path": "Preview/Composition/Recognition/AnytlsCarrier.hpp",
+      "sha256": "a89de697079b1819d3fc629c77f30c02564db39ad034b56dbb9c303c4fda287d",
+      "lines": 109
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "sha256": "b625fd7ed866faee22dd1e3d218dca3dff887bc8eb74aeae305afab42122f61a",
+      "lines": 261
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactoryHelpers.hpp",
+      "sha256": "a41e4cbe396b663dc221eedaf6500282896d7c9744b76627030235f34dee5b77",
+      "lines": 414
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateModel.hpp",
+      "sha256": "fe6420e3fedc64ddf0f5d31cabdc07720d109a3c94828bcdf6f62304657cafbe",
+      "lines": 109
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateRegistry.hpp",
+      "sha256": "f6621f16400e78c80e4984875c2e6efc66ea5f5ef41db02addc2186bdfa57772",
+      "lines": 416
+    },
+    {
+      "path": "Preview/Composition/Recognition/LayeredCandidateFactory.hpp",
+      "sha256": "a24c010f64d4dc22fbdd8d0129bd2fc7459be0533feda6a64c26dd13a1fac432",
+      "lines": 200
+    },
+    {
+      "path": "Preview/Composition/Recognition/ProfileBuilder.hpp",
+      "sha256": "2a2d8246105c1f4cd92ecf3ea0aa5719065e6b1dfd05560566376adb8a7a0d27",
+      "lines": 314
+    },
+    {
+      "path": "Preview/Composition/Recognition/ProtocolMatrix.hpp",
+      "sha256": "bffcbabdb3cfe935a0cda7732c7b23cf59e0f0a93e6e10659e3de332b866253f",
+      "lines": 181
+    },
+    {
+      "path": "Preview/Composition/Recognition/RestlsCarrier.hpp",
+      "sha256": "ebc27e0f1efcbc486b78261a5c6dc50282665ae5a90b64d3d909414df610f527",
+      "lines": 170
+    },
+    {
+      "path": "Preview/Composition/Recognition/ShadowtlsCarrier.hpp",
+      "sha256": "c713455d1bb0542b5c7b2ff2fe8275c2505c8fe8473eb6e4671b56fbc33ef1b6",
+      "lines": 156
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCandidateFactory.hpp",
+      "sha256": "87a19c190214fb7359ac87d0af966ab67d173e7e6ccd31aa5f2462a438b17cb3",
+      "lines": 184
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCandidateModel.hpp",
+      "sha256": "5bc68ca9d2e82029f804f3fecea18650b7f9c474390f64fc0cf474248dd2f319",
+      "lines": 80
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "sha256": "9b959624370f3b25d53cdf41ec54ea658fc5cf70dc00c8e2f21c0fe1bf3f5a4d",
+      "lines": 307
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsRecognitionHelpers.hpp",
+      "sha256": "53f8a87b372bf12aeb58d62399f5754adadd5f3ea860ce71c39345cff08f5c17",
+      "lines": 338
+    },
+    {
+      "path": "Preview/Composition/Recognition/TrusttunnelCandidate.hpp",
+      "sha256": "54c4d4807574db8bdd6a0393e96db04507d3a07263c809085200263a093912c1",
+      "lines": 101
+    },
+    {
+      "path": "Preview/Contract/Carrier/FacadeCarrier.hpp",
+      "sha256": "d4972358dde18d449739f8aacb5b6dd7add10fca8de17f60eefcf1a7ea53131e",
+      "lines": 486
+    },
+    {
+      "path": "Preview/Contract/Ingress/DataPlane.hpp",
+      "sha256": "be7eb1af60f7a3daaf173e450fb8fe9fd0e577c0f94ff3c912ceaa2226c23e95",
+      "lines": 209
+    },
+    {
+      "path": "Preview/Contract/Ingress/DatagramSession.hpp",
+      "sha256": "e0f918855cc0427a47e6dc790a9d30a0532e62ddf13152aa1139b8e2a4c49e52",
+      "lines": 26
+    },
+    {
+      "path": "Preview/Contract/Ingress/InboundAdmission.hpp",
+      "sha256": "733eb849a26bde910588dea601ace47c2a2effb24b47bcd6034a2c163c58cd06",
+      "lines": 31
+    },
+    {
+      "path": "Preview/Contract/Ingress/MuxSession.hpp",
+      "sha256": "307f5cf9650e6e4cb7bbab0f7d93e9ea0372a159284252e48c04e8ed6840e5d5",
+      "lines": 31
+    },
+    {
+      "path": "Preview/Contract/Ingress/Protocol.hpp",
+      "sha256": "daaba0c12504e4d2749da7b6114c7dcd430e779321c944e9c1bf4a90e9a63fb1",
+      "lines": 52
+    },
+    {
+      "path": "Preview/Contract/Ingress/ProtocolConfiguration.hpp",
+      "sha256": "28156553abc42eb8e447b0033d57e9c6328c9452f48290bc866e8a618518851a",
+      "lines": 35
+    },
+    {
+      "path": "Preview/Contract/Ingress/ProviderFailure.hpp",
+      "sha256": "93053f6d6e4307fe4450dbe6d63fcc142a04ed3ae82ccdea736ff15b52da3da1",
+      "lines": 16
+    },
+    {
+      "path": "Preview/Contract/Ingress/QuicConnection.hpp",
+      "sha256": "f5e4a094cc1bb338c67684345ecdc98d03a318afabaa4280775852eaa145fc02",
+      "lines": 61
+    },
+    {
+      "path": "Preview/Contract/Ingress/RawDatagramIngress.hpp",
+      "sha256": "26e31a510fe0c6906ddb603065df2581d74accc2311c01d43d05fe281490aeba",
+      "lines": 36
+    },
+    {
+      "path": "Preview/Contract/Ingress/RequestMetadata.hpp",
+      "sha256": "b7bca05b84aa7b116a987147a1b7a1877c45b2e9c6003b8bb69061d2aab09291",
+      "lines": 16
+    },
+    {
+      "path": "Preview/Contract/Ingress/StreamFactory.hpp",
+      "sha256": "a76c3eb02f3dab658c19cbf1ae7b24ed80bfb218ade57196edde14aca85eeab3",
+      "lines": 24
+    },
+    {
+      "path": "Preview/Contract/Services/Authentication.hpp",
+      "sha256": "46f14957e94e895612157792a4d4d61dbbc6fbbe1705d8cfb5402cba16e2193b",
+      "lines": 19
+    },
+    {
+      "path": "Preview/Contract/Services/Datagram.hpp",
+      "sha256": "e7ff36f975708fe5f213226699b26988ebdbda7a00a34b2c469c1f17e8dc7860",
+      "lines": 31
+    },
+    {
+      "path": "Preview/Contract/Services/DatagramEgress.hpp",
+      "sha256": "60329b9078ff14660360bb9d58b1d58b693801ef611434734c1aede57181bfb7",
+      "lines": 38
+    },
+    {
+      "path": "Preview/Contract/Services/Quic.hpp",
+      "sha256": "1547e58fafa91dcb2f7008bc08704f86b3bfe6d16f3e49ab694d896d7d784a6d",
+      "lines": 26
+    },
+    {
+      "path": "Preview/Contract/Services/Stream.hpp",
+      "sha256": "26a22e4be9c592bf1f4acda72f8ba3c80c1d6f240ae93a7436d3edcd05a18a45",
+      "lines": 48
+    },
+    {
+      "path": "Preview/Foundation/ByteSpan.hpp",
+      "sha256": "9e1d5a9b8d149c64b860c0f3c25467316b2fa1c8527fb5f9a950554cf7892fdd",
+      "lines": 286
+    },
+    {
+      "path": "Preview/Foundation/Cancellation/Mode.hpp",
+      "sha256": "a4a733cd6970afbda98954193083c18ff12fb066f1852366e8d03aa154c8d1da",
+      "lines": 27
+    },
+    {
+      "path": "Preview/Foundation/Cancellation/Types.hpp",
+      "sha256": "5cb3faefa6fc9ca0515291c52ac13c86ea4f26c1e87ef73a379bc83c37649950",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Foundation/CodecTraits.hpp",
+      "sha256": "c743c184a8c64c2495d202c40ef83086711340b7ca1d205b0b2bc2fe60d486ae",
+      "lines": 135
+    },
+    {
+      "path": "Preview/Foundation/Error.hpp",
+      "sha256": "7f113944ea8f3980620d2794d1b909090eaf35d95bbbc4537b556a6902760fc2",
+      "lines": 210
+    },
+    {
+      "path": "Preview/Foundation/Error/Code.hpp",
+      "sha256": "a93072faa3ec3b8bbd0c345c6bd0c2ada617f1f19ce3037bec390b7cc15306d9",
+      "lines": 33
+    },
+    {
+      "path": "Preview/Foundation/Error/Error.hpp",
+      "sha256": "316cb80cfe1af9c08a64337a8cecd5299288ef08fd8d8f95fc4d7af3b237945e",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Foundation/Error/Expected.hpp",
+      "sha256": "a5a4707140cfcc53fb81eda61292b01d01924c5f94816730cf8cd8e85a6ce53e",
+      "lines": 30
+    },
+    {
+      "path": "Preview/Foundation/Exception/Deviant.hpp",
+      "sha256": "225ce14a4b582b887b3ebba5e168410c9cd1d5a30106e4fb775eb467ac5c1249",
+      "lines": 158
+    },
+    {
+      "path": "Preview/Foundation/Exception/Network.hpp",
+      "sha256": "e33069473c064cb28bdfa27f4d39e95c97ab86f38f35eb32cc511e08c91dd2b0",
+      "lines": 111
+    },
+    {
+      "path": "Preview/Foundation/Exception/Protocol.hpp",
+      "sha256": "079c8b2b1d346a310dbb6a6a87dd1bc5f7d1525b55a7b4b8eb5a42df3e2cd4f3",
+      "lines": 116
+    },
+    {
+      "path": "Preview/Foundation/Exception/Security.hpp",
+      "sha256": "986acb1968da0b52ca4274e1762bb672ff27e99d6248de6b3beca030f23ae57f",
+      "lines": 111
+    },
+    {
+      "path": "Preview/Foundation/Executor/Affinity.hpp",
+      "sha256": "87b7109ccbe40ef843237f47635a4c6d91d72f307fb22c5e403909277b4eaf38",
+      "lines": 29
+    },
+    {
+      "path": "Preview/Foundation/Executor/ClosingStorage.hpp",
+      "sha256": "3895b1d05f8626632cffb31e09d2d60556704d050ecd4a86ae7adf29bcdd9ff5",
+      "lines": 102
+    },
+    {
+      "path": "Preview/Foundation/Executor/ContextOwner.hpp",
+      "sha256": "a63e5630943bab919aceabd0eda500efec181f1e693405422de11ee835c1b7af",
+      "lines": 64
+    },
+    {
+      "path": "Preview/Foundation/Executor/ExecutorReclaimer.hpp",
+      "sha256": "a928e9879e43d1f242a23570ed0f532810221f85477e584349dae2090a362742",
+      "lines": 155
+    },
+    {
+      "path": "Preview/Foundation/Executor/Types.hpp",
+      "sha256": "4787799ff203da89ff2437bc774e66b8723e85f05665cb7c3bdb800114ec9878",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Foundation/Fault/Code.hpp",
+      "sha256": "c2367635ffd2ad00321cd1a662b0d475c79d4e82c265e81ddcdf30af1f261bc7",
+      "lines": 275
+    },
+    {
+      "path": "Preview/Foundation/Fault/Compatible.hpp",
+      "sha256": "3f296ec65000dc3beabc667654a2c1d3192f8c3a061968589aeb4a8d5f3ca4c9",
+      "lines": 218
+    },
+    {
+      "path": "Preview/Foundation/Fault/Handling.hpp",
+      "sha256": "6b24d6e761e53881bea379ff46b982fa6c1de1dec5001dcdf23c3c05b0288f60",
+      "lines": 236
+    },
+    {
+      "path": "Preview/Foundation/FlatBuffer.hpp",
+      "sha256": "e85fe7e610a4a77cc6ea1111780030b1c35c695bcccdc33bf5fe3cf576ec5f15",
+      "lines": 245
+    },
+    {
+      "path": "Preview/Foundation/Foundation.hpp",
+      "sha256": "ce9dfbd4cbd14d485cd2c8d0f84324d98d999fc7e0d79c4b347c0f499a14cbdc",
+      "lines": 45
+    },
+    {
+      "path": "Preview/Foundation/Generation/Lifetime.hpp",
+      "sha256": "43d0479237057903105ea732e0e701b07538ec3e6b3539563478798aac07749c",
+      "lines": 15
+    },
+    {
+      "path": "Preview/Foundation/Identifier/Id.hpp",
+      "sha256": "9ace3be6b784a6ea89a7a836bbe2f1b5390ee29e1cf5d226ac2bcbee1ca80e02",
+      "lines": 140
+    },
+    {
+      "path": "Preview/Foundation/Identifier/Identifier.hpp",
+      "sha256": "1bc27647c91ca0b8b573fa9197dc01854d5363744169bdad728914e4129d8ccb",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Foundation/Identifier/Types.hpp",
+      "sha256": "948ace1227a8294e802051282dd91b7b4f1cefa2e94344b91a443ef86175a442",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Foundation/Memory/Container.hpp",
+      "sha256": "8a26323b20f1a8062d2c74d0d76bf33d648896ac6a07c3718b3915770aa4f2a4",
+      "lines": 88
+    },
+    {
+      "path": "Preview/Foundation/Memory/CowMap.hpp",
+      "sha256": "e442cf8db7c9d9a6b506bc1f0f519f359902fb9a989fe3c3960f1752dd3a4cd7",
+      "lines": 135
+    },
+    {
+      "path": "Preview/Foundation/Memory/Domain.hpp",
+      "sha256": "61d828fb7056f0791ae8d544944979a49d6170e4e5b29fd6319cb7925ef021b2",
+      "lines": 29
+    },
+    {
+      "path": "Preview/Foundation/Memory/Pointer.hpp",
+      "sha256": "78f02783b1f4fd50b099d89c821bb9787bcdf8c04bb200c2a24131674417a275",
+      "lines": 256
+    },
+    {
+      "path": "Preview/Foundation/Memory/Pool.hpp",
+      "sha256": "6e8930d1e7a4c274d2aa59cc8dea2479e890ab98ccac5faa4c02faf5a7c8e598",
+      "lines": 219
+    },
+    {
+      "path": "Preview/Foundation/Memory/Types.hpp",
+      "sha256": "3ab2198f47bccc8eac56780a9a9615312b8a58c2bb1e26abb159ceafcd9c10d5",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Foundation/Parser.hpp",
+      "sha256": "bcb36d69163891efc8b189c941752d6918c29a8d930d38dbd5eb19fc2f1021d9",
+      "lines": 318
+    },
+    {
+      "path": "Preview/Foundation/Role.hpp",
+      "sha256": "cc53ba0d9e303d79acb11782ce4163e43a7215a08d338ba2f2997780ef71a272",
+      "lines": 23
+    },
+    {
+      "path": "Preview/Foundation/SessionBase.hpp",
+      "sha256": "f834aed131a5e44b66f19ce0b42cee5444b16b1fcc5d5985a70e99c1f198dbd6",
+      "lines": 84
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Aead.hpp",
+      "sha256": "145e4a08f034cf2abaaeeb21c77380e12be85e6d9e60541d14b6008957d4dd81",
+      "lines": 454
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Base64.hpp",
+      "sha256": "3eab9a4fee7df15e429fe30ae181ef3ae778ca02cfe52c1638706fa240f7cfad",
+      "lines": 237
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Blake3.hpp",
+      "sha256": "7fb899c6da72823562a8d9a78e095e55007cb87fbe9390b30fc7434431c920f7",
+      "lines": 142
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Block.hpp",
+      "sha256": "0ee0cf440afaa469c4bbd049ed9ce55ebdb2e87b5f8d1b1e98c2b05371f44730",
+      "lines": 155
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Crypto.hpp",
+      "sha256": "5555183a89fecf4e9dbd72abc2d180630f21044ceed24579aed406953cdd7dbc",
+      "lines": 16
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Hkdf.hpp",
+      "sha256": "45a67dd02ad1456a040ca88d814fa4ac442f0ca9cf17e1795cdca4f31b47c20b",
+      "lines": 363
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Random.hpp",
+      "sha256": "edf8ec3f364c755d6c71994dd36d1d64a241076701f8d2e847c4c94165b680d0",
+      "lines": 67
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Sha224.hpp",
+      "sha256": "0bf34ede84dfdee3b3037baab254afcb082d4b0d54bf8651e68c43834f760157",
+      "lines": 75
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/X25519.hpp",
+      "sha256": "c9dd2429d8183e1f7b0630d03df6e528f5cccd695a1422c1efbd2478b7d09f1c",
+      "lines": 179
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/ContextState.hpp",
+      "sha256": "8b22dc99dfce0122b34e86cef459e8c72301a8fb596cddfc5f77a7b0df1e2427",
+      "lines": 422
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/AsyncBackendState.hpp",
+      "sha256": "969143180b94cd13910e0522a68b6ae4e636e16cce28e283374a4781f097deb2",
+      "lines": 171
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/AsyncSubmission.hpp",
+      "sha256": "864a885811ca07e8b7c19461ddd73f443844a3802f874bd36239c7c5e01720a1",
+      "lines": 281
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/BackendBridge.hpp",
+      "sha256": "2bb11938c8cdaddb9854bc88bfd57faef9f896155e7ed31fb649329dfa9476c3",
+      "lines": 75
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/BackendLifecycle.hpp",
+      "sha256": "6ae565b73f3d0a1cda7eaf70abb1337acb970e0dd9bb88ef0699e81c8d549dfb",
+      "lines": 365
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/ContextDecoder.hpp",
+      "sha256": "40fbb7c6eddf2c7e38a04fafe0e15b5a63476d55b9c13f46fde9f930e7e2ec3e",
+      "lines": 553
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/SinkSet.hpp",
+      "sha256": "1dc33fdad508aa6e393218d48114762d94a4d9536ca0ae26b5ef28c3ced63b20",
+      "lines": 372
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/SubmissionRecord.hpp",
+      "sha256": "326c92c200f16ae8430097f083669532a19454205afa286a743166bfca3cc2ae",
+      "lines": 59
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/SubmissionRequest.hpp",
+      "sha256": "d0b8f4f546fc192d2502263e7e3d42ebb185709cc2f1cead5c723c493b6df37c",
+      "lines": 26
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Facade.hpp",
+      "sha256": "60952b52fd1163b4e67e92f781e830a3ea239cf2db50ce45645fd012c50cc0de",
+      "lines": 489
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/FieldCatalog.hpp",
+      "sha256": "66e0458a40b1cfe56da33709787371f549b2fc0bf202f1e0bb164cea86ed0eee",
+      "lines": 123
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/FieldCodec.hpp",
+      "sha256": "e984c5ba5c9a3a53b66636c18052440511a1bd4e4feb9f93d8bc1c4ff874080c",
+      "lines": 175
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/FieldKey.hpp",
+      "sha256": "b49ead828e18bfa527bbd7c8cbe52120d03fd7e4371d052d560680ba3795f594",
+      "lines": 235
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Observability.hpp",
+      "sha256": "a97e6978be9ae30ee503b3e12a6d4488273d1fe5c6ba75eb62ad8370903b5074",
+      "lines": 377
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/PrefixCache.hpp",
+      "sha256": "c7275d6d751fc4ae6725b4923428b4d6bea519b08150045e40fdb445268de052",
+      "lines": 124
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/RenderMode.hpp",
+      "sha256": "7af91c024ba48e91152f3a9ad3df0eff016d93d04422dd73d6996dddcf14b0ce",
+      "lines": 22
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/RuntimeOptions.hpp",
+      "sha256": "75d1b7dc6bd0191b54d74223a75ddb6042fcebda4f56e0fd5eddf5ea69c3afa0",
+      "lines": 132
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/SubmissionReceipt.hpp",
+      "sha256": "fe0d25682ab6a583526952142c0132c3e0edf6ad20f1d0a275bd3b4f9c13b954",
+      "lines": 56
+    },
+    {
+      "path": "Preview/Foundation/Utility/Rate/TokenBucket.hpp",
+      "sha256": "1591ee854039d60661bcb977c69c2e1f6fe897dc68732b6c34d9f9d39891ce8d",
+      "lines": 251
+    },
+    {
+      "path": "Preview/Foundation/Utility/TrafficSink.hpp",
+      "sha256": "56e12b8704b4831af09ec4c719a0a97c36ff4d6b68c49ecd241cb7d2c9b1aab0",
+      "lines": 82
+    },
+    {
+      "path": "Preview/Lifecycle/CancellationDomain.hpp",
+      "sha256": "4a14a7e745dbc72a2d97d83a0a16730107654075939134d3bb992015d0cd52c0",
+      "lines": 269
+    },
+    {
+      "path": "Preview/Lifecycle/CloseFailure.hpp",
+      "sha256": "c2d1deeece784a94033b763bab75c18ebe57edfba2562d2a1c73a014fc620cd7",
+      "lines": 17
+    },
+    {
+      "path": "Preview/Lifecycle/DrainBarrier.hpp",
+      "sha256": "b98f8eda195523178530b0131b144a2c50415ebba2421ad9ce7e5bcd35d3e64f",
+      "lines": 212
+    },
+    {
+      "path": "Preview/Lifecycle/DrainReservation.hpp",
+      "sha256": "b434e4aa3b551890be571795ea86d27343bc27fb2ebb2da521f57c4823d4853f",
+      "lines": 21
+    },
+    {
+      "path": "Preview/Lifecycle/FailureBoundary.hpp",
+      "sha256": "82b5bb4e870dbed93053f903366ec430fdd2bfcb0e8ea9c7e6331315faba9647",
+      "lines": 64
+    },
+    {
+      "path": "Preview/Lifecycle/Lifecycle.hpp",
+      "sha256": "dfb26c39b59a5471452af49d339c59b3a2ba451c99726818bcc98d660581658c",
+      "lines": 12
+    },
+    {
+      "path": "Preview/Lifecycle/TaskRegistry.hpp",
+      "sha256": "cfb57101d0fe1b20931bfe1c483fc6df5b62b3bcfc4703d369fd46f760b89ce5",
+      "lines": 595
+    },
+    {
+      "path": "Preview/Lifecycle/TaskRegistryCommands.hpp",
+      "sha256": "cf5fc8dad371a5e2526930bc7ce67bf6dca17a063dc501ffd9ea87cc75ab4580",
+      "lines": 44
+    },
+    {
+      "path": "Preview/Lifecycle/TaskRegistryState.hpp",
+      "sha256": "5d95f4bee9d54e90a553d2a1f4a14243cac09fff608a0a51d9bed25ff53cfb42",
+      "lines": 128
+    },
+    {
+      "path": "Preview/Lifecycle/TaskState.hpp",
+      "sha256": "6c1957adfd5a1e43b8cc2fc244b9f13aba41c8ab715bf20f2d924ac043d9972b",
+      "lines": 365
+    },
+    {
+      "path": "Preview/Net/Datagram/Egress.hpp",
+      "sha256": "9c430a2bd95d1ece867eef6a61ba8a0d301a749b9003125bc3c964dc120dbc85",
+      "lines": 56
+    },
+    {
+      "path": "Preview/Net/Dialer/Dialer.hpp",
+      "sha256": "1492bffc4e79b54a0bd2b8f77ea8c1d5053a7c500ab62e0db80fcac6911815c7",
+      "lines": 154
+    },
+    {
+      "path": "Preview/Net/Dns/Answer.hpp",
+      "sha256": "8753be07976392fe85a785bbe40246f536495d1567825daf5f497e07deb8add2",
+      "lines": 216
+    },
+    {
+      "path": "Preview/Net/Dns/Cache.hpp",
+      "sha256": "bf6c6eaa15cba96fcd9f09fd37b402ca72a1aa11cbd095b5847bfa2e692739f6",
+      "lines": 393
+    },
+    {
+      "path": "Preview/Net/Dns/Coalescer.hpp",
+      "sha256": "59143d5ef7bb9c8aa4f0eb4c0f32a188914aef20633df4332c2c4186c8c96ca7",
+      "lines": 283
+    },
+    {
+      "path": "Preview/Net/Dns/Config.hpp",
+      "sha256": "5bdf06ff57e7b2ca186aee2871101568e2f4ec103bc987e02771def374b6d22d",
+      "lines": 308
+    },
+    {
+      "path": "Preview/Net/Dns/ConnPool.hpp",
+      "sha256": "1731339b8a29722bdd3e78f264c623d4951209a8ce5e091db19af9fe3d502b05",
+      "lines": 161
+    },
+    {
+      "path": "Preview/Net/Dns/Detail/ConfigOptions.hpp",
+      "sha256": "35c9b2d3dbc850833e72578a01ad84b55000f46cf5530095721699824d8f33a6",
+      "lines": 64
+    },
+    {
+      "path": "Preview/Net/Dns/Detail/EndpointResolver.hpp",
+      "sha256": "217c08b92bab72323cd46001b646dd431a265e201b5504ff6747bcfba3dfd2e2",
+      "lines": 71
+    },
+    {
+      "path": "Preview/Net/Dns/Detail/Exchange.hpp",
+      "sha256": "b65daa6a9094514af240b3c8bb31e726da1415263585451ec24e5de0da1bfe7b",
+      "lines": 95
+    },
+    {
+      "path": "Preview/Net/Dns/Detail/Fallback.hpp",
+      "sha256": "6ca60a9cf9970eb68c72ba8af324853f84976f10ee8deb43dcbd8513da7dd5e9",
+      "lines": 131
+    },
+    {
+      "path": "Preview/Net/Dns/Detail/Maintenance.hpp",
+      "sha256": "a5765a874b6ffc15bc7f9de7184ff304775d5c668f1aa1a63cd31b4798aab398",
+      "lines": 49
+    },
+    {
+      "path": "Preview/Net/Dns/Detail/QueryExecutor.hpp",
+      "sha256": "ed74d1b03b8c0f4dd048e5a4efb0fca7c3a91fb6e8e06ca01a225af6c4a164b0",
+      "lines": 457
+    },
+    {
+      "path": "Preview/Net/Dns/Doh.hpp",
+      "sha256": "de9c7b070d9508f2cbb38d307419de8186792003f7bc31dfd151906a76bd4326",
+      "lines": 235
+    },
+    {
+      "path": "Preview/Net/Dns/Format.hpp",
+      "sha256": "5ea9c9bd52208069021c7853516d01a7b3d2c5233e3376d5322ea197fc888e55",
+      "lines": 589
+    },
+    {
+      "path": "Preview/Net/Dns/Resolver.hpp",
+      "sha256": "db85c97096ea33dd12c5387eff4756cc461df4c3196febb287522e252cbf4214",
+      "lines": 591
+    },
+    {
+      "path": "Preview/Net/Dns/Rules.hpp",
+      "sha256": "c63c854487f060dbf8149d636c34f8911f0024718bdfe0a52513b89e5ed36125",
+      "lines": 490
+    },
+    {
+      "path": "Preview/Net/Dns/Transport.hpp",
+      "sha256": "159af63da9eb96526eea85ece3a367dbd0449caca575789fd1750405a033d90b",
+      "lines": 421
+    },
+    {
+      "path": "Preview/Net/Dns/Types.hpp",
+      "sha256": "a794b88043ca015dba4b47fe28af4e3088167d671b692cf77c7749d51991c70b",
+      "lines": 55
+    },
+    {
+      "path": "Preview/Net/Dns/Upstream.hpp",
+      "sha256": "139b97133b60825716d821d6dd32688615610942df270b6bffbbd49fff8ce1af",
+      "lines": 295
+    },
+    {
+      "path": "Preview/Net/Relay/Pump.hpp",
+      "sha256": "fd8d6d4773654d101c2b2762e5af8d7d2be3d10471ef74a9e21c1bfb5925e5ad",
+      "lines": 102
+    },
+    {
+      "path": "Preview/Net/Relay/Relay.hpp",
+      "sha256": "7e6c06aabb128c7e843084090959e8536cb959999ffa56d59f8d9ca24c4d38eb",
+      "lines": 49
+    },
+    {
+      "path": "Preview/Net/Relay/State.hpp",
+      "sha256": "b608bf015a82fa2d74e2d3335cb49550e211e66f0e2d4018e498e98f59c871d0",
+      "lines": 123
+    },
+    {
+      "path": "Preview/Net/Services/StreamEgress.hpp",
+      "sha256": "8ebed4a873c9c4bdce50e3f65c30b2af3a273527cf3933c42ba5908d6f9fdfed",
+      "lines": 42
+    },
+    {
+      "path": "Preview/Net/Services/StreamRelay.hpp",
+      "sha256": "e34764212847708dd7f7cddf9ce10fdd4813764a8634dc006dc65448948e5cc7",
+      "lines": 57
+    },
+    {
+      "path": "Preview/Net/Services/WorkerDialService.hpp",
+      "sha256": "aa606c6c676bc8dd16dab0eb4cdcf7fb88aad037cd6b5999a06ecdfd9540a3ff",
+      "lines": 130
+    },
+    {
+      "path": "Preview/Net/Target.hpp",
+      "sha256": "00e35bad6a6efbf3f3cdae407ef19dd42e7a71201a23f52ef745b8c7db185111",
+      "lines": 37
+    },
+    {
+      "path": "Preview/Net/UdpRelay.hpp",
+      "sha256": "328c884bba72dd3ac4def1a5dbcd6e54ac975072e88f154107785631958c8ae2",
+      "lines": 398
+    },
+    {
+      "path": "Preview/Operations/Commands.hpp",
+      "sha256": "19d35a2f2107c7f93dabf4168231f83f1062989f6cc1f32a67649a4425afb4ae",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Operations/HttpConnection.hpp",
+      "sha256": "4dc04d97fb6d2613a478506a417899fb9c5bfa510a0830614a99c47479fb8462",
+      "lines": 471
+    },
+    {
+      "path": "Preview/Operations/HttpServer.hpp",
+      "sha256": "c45573e73c820219101e40d979ad174b647bf6a0f6e013eb5a795e20909a9ba3",
+      "lines": 307
+    },
+    {
+      "path": "Preview/Operations/Models.hpp",
+      "sha256": "2fb9ac303adef0e7c5a5da661f127ceabe1c7b2075f091f712e95b0e2849c540",
+      "lines": 351
+    },
+    {
+      "path": "Preview/Operations/Operations.hpp",
+      "sha256": "6f8f5ee24d439cfbbdfdfb2c2765faa2b2e6c86dde8c25973c96ed97971aa03b",
+      "lines": 10
+    },
+    {
+      "path": "Preview/Operations/Queries.hpp",
+      "sha256": "19d35a2f2107c7f93dabf4168231f83f1062989f6cc1f32a67649a4425afb4ae",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Operations/Redaction.hpp",
+      "sha256": "e1db8d7cb405d57acc54c889d23440d37fcdd28268298b28b790c2da8473ba4d",
+      "lines": 111
+    },
+    {
+      "path": "Preview/Operations/Router.hpp",
+      "sha256": "b69e60a608954636209467fb795be7878bf30c6991cea936d3b47999158e3e50",
+      "lines": 434
+    },
+    {
+      "path": "Preview/Operations/Routes/HttpJson.hpp",
+      "sha256": "ece01fb1f9cb1f1f665c83f720580dee6d4cba5e1efbdc4d6fbbf02af24932e3",
+      "lines": 600
+    },
+    {
+      "path": "Preview/Operations/Routes/RequestParser.hpp",
+      "sha256": "8d1b1d017925c9dde3e82b711c534cdb7e04756c06b21b2e73ac87be64358109",
+      "lines": 238
+    },
+    {
+      "path": "Preview/Operations/Routes/RouteDispatch.hpp",
+      "sha256": "0d2475b659471f5497b66882bf1b8047044ce1c32cdee1d427717745570a4443",
+      "lines": 474
+    },
+    {
+      "path": "Preview/Performance/StatisticsBenchmark.hpp",
+      "sha256": "afde605f28fb0575d7a8746d1f927381ce36f277c3cd2ceb0139a854d10d09e8",
+      "lines": 76
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Anytls.hpp",
+      "sha256": "5cdfa36cc4aac3194bdfa05d022f84824b8063ec535b5b85b806b11ed1aa3687",
+      "lines": 109
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Codec.hpp",
+      "sha256": "71904e3837479948e0d179da3a0b06b70f30b45a6160424f62bf0768018c1466",
+      "lines": 108
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Conn.hpp",
+      "sha256": "e7fac0f176da0bbb71da5b116901587a139ddddfa46a8fe7f42a957b4fdc138d",
+      "lines": 289
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Frame.hpp",
+      "sha256": "d46747d868b58ff3f38b0adbdae4f3bcefc75426298546f0c7f6f145da05e964",
+      "lines": 65
+    },
+    {
+      "path": "Preview/Protocols/Anytls/IngressFactory.hpp",
+      "sha256": "761c9cd78b30829cacba15340e861ffa19af465be5cb177f786911a6373dada3",
+      "lines": 48
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Relay.hpp",
+      "sha256": "6f90b4c059cff1034ac4ac2156ed9f190738bd09f51d5ead7783af1d0f275b1c",
+      "lines": 157
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Session.hpp",
+      "sha256": "9004a763c564851d40021ec233c6ac93fea9940051134fc4230a42c4680b0ca7",
+      "lines": 121
+    },
+    {
+      "path": "Preview/Protocols/Anytls/State.hpp",
+      "sha256": "e5239b669b5cb1cd9c79f078f6049a574598d91720517cf919748f5325b18b61",
+      "lines": 90
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Stream.hpp",
+      "sha256": "b17ac1a00c3a97813023cc38cfc80577ace4f94dc3a550eff4c15768678f8763",
+      "lines": 74
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Target.hpp",
+      "sha256": "215873a74489b8a1f4fbff86d26be62fc95eccf491cd02228eeda507b6c0aa97",
+      "lines": 23
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Types.hpp",
+      "sha256": "c5d7003982490167fb61b3e5c2f3b7ba029644a7c69990db8e46cb7b92875ebd",
+      "lines": 31
+    },
+    {
+      "path": "Preview/Protocols/Anytls/Writer.hpp",
+      "sha256": "d899c04dc65e9d331122b7b65639af1e66a04096601d720ca477ca4ce101dc85",
+      "lines": 102
+    },
+    {
+      "path": "Preview/Protocols/Common/Address.hpp",
+      "sha256": "96d6026131bd747423c8324f9bb8f6fc9a4e713528ceeb785a771da1e0a63536",
+      "lines": 340
+    },
+    {
+      "path": "Preview/Protocols/Common/BindingLifetime.hpp",
+      "sha256": "57646b40cf6db112450a20a31417d02e422b63fb922b35925d64bf2d1978fe78",
+      "lines": 267
+    },
+    {
+      "path": "Preview/Protocols/Common/DatagramBinding.hpp",
+      "sha256": "1d14f3e1f12c01045f478fdcd9b5757751217e0b95c92138c0e645b8310d142f",
+      "lines": 25
+    },
+    {
+      "path": "Preview/Protocols/Common/DatagramDeadline.hpp",
+      "sha256": "cd43445fa1eda8ead938c4da2fa00eb2a8ace429ccb10ecebe9d994d2c3886d6",
+      "lines": 36
+    },
+    {
+      "path": "Preview/Protocols/Common/DatagramObservation.hpp",
+      "sha256": "61b252abedbb68eb2167520cc724b8ba8c3bc746204a9fa84ceb3c6a70e4a40e",
+      "lines": 54
+    },
+    {
+      "path": "Preview/Protocols/Common/DatagramRelay.hpp",
+      "sha256": "15ff06b6aaf02807fd0bef15f6badce9fd698173aef45c5d80316e2571cafa93",
+      "lines": 227
+    },
+    {
+      "path": "Preview/Protocols/Common/Form.hpp",
+      "sha256": "ea43e6ba318cc91a035c502d94fa15a21c74ab5e2353a15ffe89000a95235e16",
+      "lines": 38
+    },
+    {
+      "path": "Preview/Protocols/Common/Framing.hpp",
+      "sha256": "e33ad1d8a08f34336a1e458c7f2572f4559c3b5a33b3689a103b1b953999c64d",
+      "lines": 101
+    },
+    {
+      "path": "Preview/Protocols/Common/Mux.hpp",
+      "sha256": "315bb7882f1304434db2ed085e4c83c706cd947ad1a0bca0915ebf86c995fb18",
+      "lines": 50
+    },
+    {
+      "path": "Preview/Protocols/Common/QuicBindingState.hpp",
+      "sha256": "8016a4cc5e2b5d2ee37fb7ce557ed8ed73219db35a892a3008aa05aeee47d5c5",
+      "lines": 80
+    },
+    {
+      "path": "Preview/Protocols/Common/QuicPreparation.hpp",
+      "sha256": "97c04f4b76a85fbc12296df59380d2bfce1ce3eb5c68caacb6a47935ea0a346c",
+      "lines": 62
+    },
+    {
+      "path": "Preview/Protocols/Common/Read.hpp",
+      "sha256": "0bb2a3214656fbda5fdb6c3a210c86d76a8a2e12dee9213e2469116703fc39d7",
+      "lines": 119
+    },
+    {
+      "path": "Preview/Protocols/Ech/Ech.hpp",
+      "sha256": "ff7a02c033ac6fb8ddc1f76df85084cc1fe04316b00bf91afd0f42b45a81bd09",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Protocols/Ech/Keygen.hpp",
+      "sha256": "c76402f4cf113d9490c492172bb2b2fc12e69e602a0458e4ecec2ee0e3e340ac",
+      "lines": 243
+    },
+    {
+      "path": "Preview/Protocols/Ech/Scan.hpp",
+      "sha256": "b4928ca9e8b6e242620a08499a738f362beacc26759ffcc769c5af326a5de67c",
+      "lines": 130
+    },
+    {
+      "path": "Preview/Protocols/Ech/Types.hpp",
+      "sha256": "74dcca6ae74d2ca4ff886166a5af83ab83c01f415187e8db4c5ec623df2ada96",
+      "lines": 27
+    },
+    {
+      "path": "Preview/Protocols/Gun/Codec.hpp",
+      "sha256": "5c3e907d38dffc80f5d679648e48a8c24ba4f23f699789a2440f95b0839b3293",
+      "lines": 180
+    },
+    {
+      "path": "Preview/Protocols/Gun/Conn.hpp",
+      "sha256": "63874409832c0f675a759ecb0299698aca11168c5b83d290bc7d4ca8afb3e881",
+      "lines": 327
+    },
+    {
+      "path": "Preview/Protocols/Gun/Grpc.hpp",
+      "sha256": "ac5a6bacbab199dbff009bc6bbd3a60c2a3db7c5bac28a47c4db88f8818b757c",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcFraming.hpp",
+      "sha256": "69d549af4d18e75f177227365efd289293c599827e6fa4fed862d2c052dcac82",
+      "lines": 130
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcMetadata.hpp",
+      "sha256": "7cfeafe520dbfc9eabd7bb9fbbccad9c32719d69f4b17da1ff2af6d17e287378",
+      "lines": 76
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcSession.hpp",
+      "sha256": "7f6ebc46167b20fbe39cffd4e0c3c1e311d6d026464860b175c8d0d123c62065",
+      "lines": 329
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcStream.hpp",
+      "sha256": "3cff9f29a4bc32c9ad69b8c201d519be1cc50c8bebb42209fb2583e64778e150",
+      "lines": 326
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcTypes.hpp",
+      "sha256": "a8986b9b027261532aba7ce774c1441d4ba03b6d1e0668979fd7fb68f86114f0",
+      "lines": 53
+    },
+    {
+      "path": "Preview/Protocols/Gun/Gun.hpp",
+      "sha256": "cb1e5bbb84ffd6f912f590059aecfaf29e280e160aef087a85f06f327f79a13c",
+      "lines": 78
+    },
+    {
+      "path": "Preview/Protocols/Gun/Types.hpp",
+      "sha256": "f575efbc868b540f22f602d4d61d2d377175971ef92eb5a1352fa6fae0dace41",
+      "lines": 38
+    },
+    {
+      "path": "Preview/Protocols/Http1/Conn.hpp",
+      "sha256": "2affc362ec599b035cd950b26e420ccf0d5417107666feba12c7d5c14c27bf52",
+      "lines": 319
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardRequest.hpp",
+      "sha256": "dff619096e32750e86283dc28d5b057ffaead67b859c99fa284c585f3a61987f",
+      "lines": 224
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardRequestFraming.hpp",
+      "sha256": "25f3ce099cdda82177942607a059dbaa7bced1937c4a40ce90dac03a0419366a",
+      "lines": 201
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardRequestTransport.hpp",
+      "sha256": "8613480bdae8edb817ccd0ec14c91090b210089a09fed4985fe1c8e461c3ba33",
+      "lines": 556
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardRequestUpgrade.hpp",
+      "sha256": "00d6a34791a2891ed9b71cb998ba8620518f27904779674d5e8cd43c39203403",
+      "lines": 180
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardResponseFields.hpp",
+      "sha256": "66366095757898071856b887a6e3a6479fef45d49f5c05db4727a21684f106a2",
+      "lines": 406
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardResponseFraming.hpp",
+      "sha256": "1174fd58e285d289c36c1077774e5e6126847bcc1f84a505d7f37ad12b6dd331",
+      "lines": 127
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardResponseFramingDetail.hpp",
+      "sha256": "9b4f543cfdb8c646e51f2ffcfa49f7efbf5b7ea105e8a2cdfa26ce7b284c6201",
+      "lines": 578
+    },
+    {
+      "path": "Preview/Protocols/Http1/ForwardResponseTransport.hpp",
+      "sha256": "360cfb9296d8f0cdcae3ba59ecc70e1d30c80055207392809dd1fefeb49cfcb3",
+      "lines": 250
+    },
+    {
+      "path": "Preview/Protocols/Http1/HeaderFields.hpp",
+      "sha256": "e3c2d725c638447c563ca6716e52a9dec4635f4f02ee5afebbcc210721e000c5",
+      "lines": 436
+    },
+    {
+      "path": "Preview/Protocols/Http1/IngressFactory.hpp",
+      "sha256": "7b73f682bb20eb9f35fac63af4dbd3a6991e93d1e4222a3c7e629f7890564f82",
+      "lines": 246
+    },
+    {
+      "path": "Preview/Protocols/Http1/Parser.hpp",
+      "sha256": "f99b279ca5c556d49f8c1693dd3f42cf5251c49fdb07dbf079aa05d3c17d482d",
+      "lines": 452
+    },
+    {
+      "path": "Preview/Protocols/Http2/Codec.hpp",
+      "sha256": "ceb2ae58f6897324c4d6388ad0c7c2cb999666f3ebc0eb093454240e3ded745c",
+      "lines": 565
+    },
+    {
+      "path": "Preview/Protocols/Http2/Detail/CodecState.hpp",
+      "sha256": "6fa027895d53a8beb1955a13966387acb1c74898e240456ab232a97b1afc913f",
+      "lines": 42
+    },
+    {
+      "path": "Preview/Protocols/Http2/Detail/ConnectionState.hpp",
+      "sha256": "ae8e6eeb709a929df75475eb19fb5d7756600bf968514244a68a9b32663ba969",
+      "lines": 178
+    },
+    {
+      "path": "Preview/Protocols/Http2/Detail/FrameProcessor.hpp",
+      "sha256": "abda6c829b3c979ddfba697f97b150db65e19001b4144f7017bfd371370d3101",
+      "lines": 362
+    },
+    {
+      "path": "Preview/Protocols/Http2/Detail/SessionImpl.hpp",
+      "sha256": "6f4d445633c697d5e65173535d8cf5f3173a72293afa7eb05a8e57f67fb1eb49",
+      "lines": 109
+    },
+    {
+      "path": "Preview/Protocols/Http2/Detail/StreamController.hpp",
+      "sha256": "477bbc117eed749905a1d8711277307a1a9454762e1a1aa716936c6597d21f13",
+      "lines": 424
+    },
+    {
+      "path": "Preview/Protocols/Http2/Frame.hpp",
+      "sha256": "25006676c26e3e06a0f5bd3b0d02445a02c194ec057dae41625011c765262273",
+      "lines": 363
+    },
+    {
+      "path": "Preview/Protocols/Http2/Impl.hpp",
+      "sha256": "e05282389d9e3d404f2b31dae1a7ea04e9fdde75d8be4cb0d744ff5e3d1d3c1f",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Protocols/Http2/Session.hpp",
+      "sha256": "a17cba05799d6b6fb6e1623864d60ff8cfc4ab95d3613b5355b7c4cc1d1c4070",
+      "lines": 156
+    },
+    {
+      "path": "Preview/Protocols/Http2/Stream.hpp",
+      "sha256": "9ef7503d1c193d6d2bd17f905b505340b2bc57467f42be3f8896e44a34adf3c8",
+      "lines": 238
+    },
+    {
+      "path": "Preview/Protocols/Http3/Auth.hpp",
+      "sha256": "c028a5532067829e5a9b5b8d28dc4fc4f44094d4cf7f3d6386747228d5458578",
+      "lines": 212
+    },
+    {
+      "path": "Preview/Protocols/Http3/Decoder.hpp",
+      "sha256": "1e0e12bd3f844b1b330841a961205d55d3713772aa444b1745d30b2c1c08db67",
+      "lines": 330
+    },
+    {
+      "path": "Preview/Protocols/Http3/Detail/SessionCallbacks.hpp",
+      "sha256": "4c77ab2bbc882e8be35887bc670ae1bf99d3f1abe6cda97baabb9c38e8f61750",
+      "lines": 167
+    },
+    {
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "sha256": "3075901bc688d2f0441884face6b742111ef4941ec9fb409e303ce702a67e8f8",
+      "lines": 221
+    },
+    {
+      "path": "Preview/Protocols/Http3/Detail/SessionInput.hpp",
+      "sha256": "4daac993c8145d64a1a93d9eff5c4396a893d5197b75220167e590843705a0b3",
+      "lines": 43
+    },
+    {
+      "path": "Preview/Protocols/Http3/Detail/SessionLifecycle.hpp",
+      "sha256": "5131439130052e8236f72f12ec4da8eef7b512d4f31084f1b1983a121954ad3e",
+      "lines": 72
+    },
+    {
+      "path": "Preview/Protocols/Http3/Detail/SessionOutput.hpp",
+      "sha256": "d8765f27cb5fb0a9ecd25dba6c4ef718eab9b35d1c871404a686905319eed0fd",
+      "lines": 188
+    },
+    {
+      "path": "Preview/Protocols/Http3/Detail/Varint.hpp",
+      "sha256": "96d08900f81e80f57108b0961d13a500958384c56f9b0167ea8d02ae15eb318a",
+      "lines": 132
+    },
+    {
+      "path": "Preview/Protocols/Http3/DynamicTable.hpp",
+      "sha256": "fa00dfdc2422c97277a7f2cdcccb8ad691b4c0ef4ef2d8007b1bc4ff57a7d8dd",
+      "lines": 44
+    },
+    {
+      "path": "Preview/Protocols/Http3/Encoder.hpp",
+      "sha256": "2916e66dae826944d6c878a43deb6cb5ba8ea2ca2c330763a0cc8c624c0de1c7",
+      "lines": 178
+    },
+    {
+      "path": "Preview/Protocols/Http3/Huffman.hpp",
+      "sha256": "bc0503f439ac004deb51bf8cb101dcb5a31fbe0dbaa4aebe1cac55457920f2ba",
+      "lines": 419
+    },
+    {
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "sha256": "3f39f1125eec03949fbb5988532f49a0886c1c2c86b1f0d7ce124577b2636462",
+      "lines": 589
+    },
+    {
+      "path": "Preview/Protocols/Http3/NativeServer.hpp",
+      "sha256": "e0a3392a76513fa55520771c80d5477d6f6566c759cc5ba171f0f941e300b4c9",
+      "lines": 544
+    },
+    {
+      "path": "Preview/Protocols/Http3/Qpack.hpp",
+      "sha256": "8d2b2345b11eb063cb6c1605734067547bc7f018824b35cd549367d603fc5553",
+      "lines": 49
+    },
+    {
+      "path": "Preview/Protocols/Http3/Server.hpp",
+      "sha256": "78576568546ea43db50cdea27197430bf8eb520a6ca9d0bee57eacdc52448f93",
+      "lines": 112
+    },
+    {
+      "path": "Preview/Protocols/Http3/ServerFactory.hpp",
+      "sha256": "a53c29c2cfbd35fcba56d334e116ca5e52d37a33f3b611c3bb2f69d0a24d3372",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Protocols/Http3/Session.hpp",
+      "sha256": "9d058fc358982ea06ba404402537a250cb63baf7b1a763f4b268e33112769809",
+      "lines": 21
+    },
+    {
+      "path": "Preview/Protocols/Http3/StaticTable.hpp",
+      "sha256": "c61c7cd22b07ee48d9459dc34e0972631885b287f4fc767af4001179d766947a",
+      "lines": 340
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Admission.hpp",
+      "sha256": "932e468215305730e0921fb788c2f0df8eaabbea7388c60f24aeeff452ceb0bf",
+      "lines": 588
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Binding.hpp",
+      "sha256": "323efd62cd310d9fad9dc7ed2c3ab278b27100665b1336548ccf5f63b1a19ffe",
+      "lines": 47
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Codec.hpp",
+      "sha256": "3e2d446b6f5c7dabd1973567cca623f1a7d69b45f32558a47c70fd3f90ac8b39",
+      "lines": 524
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Conn.hpp",
+      "sha256": "ebe6c96681c7e26cc16c30792f4250520058e0c2e7d1f26be116d0dec264a506",
+      "lines": 591
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/DatagramSession.hpp",
+      "sha256": "5189c34cd232a1d43157c38c3dbac50178966362d248d7de2a5ae4840e0417ca",
+      "lines": 236
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Dgram.hpp",
+      "sha256": "af23af62818b4e8f87ada1b47a78994f1821dacebfe8cd380d899d9236a56d18",
+      "lines": 573
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Http3Auth.hpp",
+      "sha256": "4bfef555f100fa732faec3337e97385c4825121b0156833a90ecc3ea10eb7d5d",
+      "lines": 553
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Hysteria2.hpp",
+      "sha256": "c15bdcd966e6e060077a7fee4e476ba4c97e34dd270d837b271be67aa5e4cf79",
+      "lines": 259
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Io.hpp",
+      "sha256": "e1d84a97194910ddf9216f490f26254c6c59b8e462ff17d6543a4452ae21fd8d",
+      "lines": 86
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/NativeSession.hpp",
+      "sha256": "45b55fc328b2ba121a9e6d771156f647a19922ae98290835e4c8962a97ae1e2d",
+      "lines": 71
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Prepared.hpp",
+      "sha256": "e972a747368ce7447286ad9bcee269a9fa89978e1b305d9908fc2c55bc50b1b1",
+      "lines": 35
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/ServiceBinding.hpp",
+      "sha256": "fa74ec72291b21ad25a3d99c9bb862b3eee56ee75862cccb9ca27e2a0703478a",
+      "lines": 109
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/StreamSession.hpp",
+      "sha256": "7c1a866db83e51676a3a5024d6c09808d12ccc7a232f04358834b783213ce0db",
+      "lines": 377
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Types.hpp",
+      "sha256": "004927eb51aa77dc60f7d29d64ec13b99edeb0f87080aaeb9e51e878593822b2",
+      "lines": 69
+    },
+    {
+      "path": "Preview/Protocols/Mux/Client.hpp",
+      "sha256": "7ebe868e477a1d11e71fa151b7c0f4945245bed47aac7e7a1a6a4d1f36fe8327",
+      "lines": 152
+    },
+    {
+      "path": "Preview/Protocols/Mux/Codec.hpp",
+      "sha256": "367c73c860b9d9c512a1cd7eb4f7389e308b2598070be93a038f9d350ce7a863",
+      "lines": 69
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Client.hpp",
+      "sha256": "1e0e64e492e57ec40a44604e15ec879905de96c957339dab5a051239148385f9",
+      "lines": 25
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Codec.hpp",
+      "sha256": "ff50ce3694212f8b7a3f956e7f340c1b70b843f489ad24cfed33d4e19a35cd54",
+      "lines": 347
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/H2Mux.hpp",
+      "sha256": "862ef7788aa2f5ac35ac43231040743072554f903a977f65e317bc70b12ed6e1",
+      "lines": 62
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Http2Dispatch.hpp",
+      "sha256": "32dbde9c07819cfb31ab96955b54215cda5f8975dbf4f5bbe40bd62d772fc0e7",
+      "lines": 139
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Http2Server.hpp",
+      "sha256": "c2b578b35721099c9a0fa7968733d5c77b10b028c790bd78668e527348319c9b",
+      "lines": 130
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Http2State.hpp",
+      "sha256": "bebc2aec3a05716f80aeeed15f28a7352f4b48d31875593237ccb8f3f057d378",
+      "lines": 71
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Http2Stream.hpp",
+      "sha256": "9e547c4ed97ff976f16971ecf0758c6c917329c50f93b5a7f77c8515635ca703",
+      "lines": 215
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Server.hpp",
+      "sha256": "e67809a3ff0eab9704124a2c0f107e1545f49f1f2644d22fc639dc96b4dc5ba0",
+      "lines": 25
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Session.hpp",
+      "sha256": "d238e013187cf045547dcbd1a879446e6d291c0bdb81c63473bc3e02bb8d43db",
+      "lines": 43
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Types.hpp",
+      "sha256": "332e4dd0169503713ef347293604c9706054a6dbec957b2611b6f179e04d5775",
+      "lines": 50
+    },
+    {
+      "path": "Preview/Protocols/Mux/RootBinding.hpp",
+      "sha256": "dd1fc7b930c7aa17ab6de22380413afd4de52a4ae9cd6c3e7b770e6e641be3eb",
+      "lines": 63
+    },
+    {
+      "path": "Preview/Protocols/Mux/RootChild.hpp",
+      "sha256": "4e8b838e24a0231612f277d06556eb110f9c7f3515ce40a459d7fc99a6e73aed",
+      "lines": 114
+    },
+    {
+      "path": "Preview/Protocols/Mux/RootRegistry.hpp",
+      "sha256": "76899f7b24d2ac050e5a23836d8251bc0e42b65fc7ffa004b4edae673f289292",
+      "lines": 43
+    },
+    {
+      "path": "Preview/Protocols/Mux/RootSession.hpp",
+      "sha256": "9e5cf7bb6cf8da8e8ec509c2f3bc577e36d6268531bbc94fa2be280ebd8aec3f",
+      "lines": 114
+    },
+    {
+      "path": "Preview/Protocols/Mux/RootState.hpp",
+      "sha256": "7f7d3ca26189d4ccf51cf18f01c602422e17d7e35083a782e8ffb02277c33b54",
+      "lines": 108
+    },
+    {
+      "path": "Preview/Protocols/Mux/Server.hpp",
+      "sha256": "812ee09c16191302397f6c773953e2fc49ca680a08911a3b2238cdf0ff7c25bf",
+      "lines": 152
+    },
+    {
+      "path": "Preview/Protocols/Mux/Session.hpp",
+      "sha256": "585efd432c39d5030e61a7c1481b68ee9de3f53fa4f9f2ce01905d4b9640219c",
+      "lines": 15
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionContract.hpp",
+      "sha256": "0740d7ac4e66e03a8305b75cf38fcb2b0a0534bd120d1022f43c0cb33512b5e2",
+      "lines": 231
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionFlowControl.hpp",
+      "sha256": "e80e77ac1ee747b948703eba09c32554965ae93fbda96507da3808ae15abb6a5",
+      "lines": 298
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionFrames.hpp",
+      "sha256": "19f311b93e826a9b9c30128accdb22ce0b6056b88c9f6b289537278adba2b605",
+      "lines": 299
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionReadLoop.hpp",
+      "sha256": "d083fd08fcb89a7ec375caca8e937963a5d776bad2ae5ccb3c8f21f9740e1948",
+      "lines": 51
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionState.hpp",
+      "sha256": "112fa0f068666582d97fae3de2d78ff89b092b0d51b78e0e4320f423af38e8ba",
+      "lines": 191
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionTeardown.hpp",
+      "sha256": "3d3dce005faa3b4a13c251bcbbcb5a63d1cb5a04812c27dd15e0379dac65958e",
+      "lines": 195
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionWriteLoop.hpp",
+      "sha256": "34e4f37a47da57c0135ade5a6a615104d7309c2c4e93e0f0fea585b264832275",
+      "lines": 62
+    },
+    {
+      "path": "Preview/Protocols/Mux/SessionWriter.hpp",
+      "sha256": "0f42e754d0e017fafac79e53704629ee4aff58895af91bc94648b1edd938d2d6",
+      "lines": 192
+    },
+    {
+      "path": "Preview/Protocols/Mux/SingMux/Codec.hpp",
+      "sha256": "7ba881fe99846c7e068ae1df6ff8921d7c40a88ac3058f0590633746787e6436",
+      "lines": 162
+    },
+    {
+      "path": "Preview/Protocols/Mux/SingMux/Handshake.hpp",
+      "sha256": "d4d67c74deec84fd52556aa02d3ff776848caa97d50b0fe019bff2aa3a9ff56c",
+      "lines": 165
+    },
+    {
+      "path": "Preview/Protocols/Mux/SingMux/Stream.hpp",
+      "sha256": "1227216442d8ec61ed55be1b910e46dd8c6ab152dca334dac38344c669e56fc7",
+      "lines": 143
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Client.hpp",
+      "sha256": "aeeb5d420f5c43238bca574516edfae594509ac5a5c24a35a0b0d9205506fff1",
+      "lines": 25
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Codec.hpp",
+      "sha256": "62fc288dfb04f1d410f121f6b874c09453fe0f9bd9fc548c640ac5af6162242b",
+      "lines": 311
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Server.hpp",
+      "sha256": "419655ef7b86c59672ccd93ed84ec5a504de4c80dc06455b54bdbeefc88a1ac2",
+      "lines": 25
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Session.hpp",
+      "sha256": "0441551015338750cc5c0bb1e1919b0f2bcab8c2638bf59b17394f152536fd8d",
+      "lines": 43
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Smux.hpp",
+      "sha256": "eb0bdc8b0fdc2158a3f34ce75572c0b335ad066ffffa46a1dcc3130205078121",
+      "lines": 62
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Types.hpp",
+      "sha256": "7d6f24147664a85cd93e0169039b7a7299408882c6e006e290ed5987c48abc69",
+      "lines": 53
+    },
+    {
+      "path": "Preview/Protocols/Mux/Stream.hpp",
+      "sha256": "8f6a7c96b5250c526f670296deeca069c99502c955a4190987aee97f73d09754",
+      "lines": 228
+    },
+    {
+      "path": "Preview/Protocols/Mux/StreamState.hpp",
+      "sha256": "4eb62b28824faab42361ca36305287e9acdb08a13fb16b28bec4382eb251e6c1",
+      "lines": 434
+    },
+    {
+      "path": "Preview/Protocols/Mux/Types.hpp",
+      "sha256": "31174e61684d3386ae55e80d4d1f3d9e5c064febffb640e12e64b62ee2594f99",
+      "lines": 30
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Client.hpp",
+      "sha256": "f49572cf4bfb661b9954911f9cdeb109cf20f4db2b9070d5c8e45874e1cb88cd",
+      "lines": 25
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Codec.hpp",
+      "sha256": "0dbacae218f90746481602c251fd4ca250bcfb41a5130023efaed8fa78a22ba4",
+      "lines": 521
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Server.hpp",
+      "sha256": "69b4f5c077d47bdd6f56e6f2bb04b2923afada3db74cf9b3ec003851b97eaebe",
+      "lines": 25
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Session.hpp",
+      "sha256": "768dce25cca48c957cf47052827e1227c06693c592d3ad6e0853fd13c1692f49",
+      "lines": 43
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Types.hpp",
+      "sha256": "568cee98f3a36233cf50deec80c01fe3564cd7b0e1dc8afa1eb46d612720a522",
+      "lines": 110
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Yamux.hpp",
+      "sha256": "6d59ea0cee2995c8db59d5b7d4a333e587cd43137a88c13b14310fdf5e6e389d",
+      "lines": 62
+    },
+    {
+      "path": "Preview/Protocols/Native/Conn.hpp",
+      "sha256": "5535f40361e5dd328e74fdb450b792a6b22ccf0abf50052fc825b7cea3bb0bee",
+      "lines": 135
+    },
+    {
+      "path": "Preview/Protocols/Native/Native.hpp",
+      "sha256": "a3c383a95d5a317b0225e5b365454fc7c7fb1a6db3bfdb0a67b7e22b73dbea61",
+      "lines": 11
+    },
+    {
+      "path": "Preview/Protocols/Native/Types.hpp",
+      "sha256": "3a80fd12caf8a686302ef94e91404d88d959f3472888d6c820d983b31064ffa4",
+      "lines": 29
+    },
+    {
+      "path": "Preview/Protocols/Quic/ConnectionLifecycle.hpp",
+      "sha256": "8b5c588960629fd6c2b7a5e21ac2b35efb97557f25bb6b287d17ffa44d2d2a53",
+      "lines": 101
+    },
+    {
+      "path": "Preview/Protocols/Quic/DatagramAdapter.hpp",
+      "sha256": "87771323a1dbcdc4396e925bb5e9071a89451076bb5e0e393e3ba3c7a6026eb7",
+      "lines": 182
+    },
+    {
+      "path": "Preview/Protocols/Quic/DatagramInbox.hpp",
+      "sha256": "66295273bbc7ee4c8d7ddbc55b8a2552b21dc4d03325fef9c0dab44eb07516d9",
+      "lines": 114
+    },
+    {
+      "path": "Preview/Protocols/Quic/GatewayCommon.hpp",
+      "sha256": "e310626b1c68aefb899fe73a9eb2e7c7a9204b7ad201d1fb88f0d7d9f4f37bf2",
+      "lines": 402
+    },
+    {
+      "path": "Preview/Protocols/Quic/Native.hpp",
+      "sha256": "ffdcd35bb026f7a34116fff4828869a7f33a2d1133471bc6b9a2df9713bba2c6",
+      "lines": 355
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "sha256": "b9189520743b17215d6abcc532bb915e64e2b313e50e714a049e7002105de2a8",
+      "lines": 572
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "sha256": "fd58f2f184c13e2ec878830ffac7845582980f89597b52577fbd94c6604d1b72",
+      "lines": 359
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeConnectionDatagrams.hpp",
+      "sha256": "4c259946cbb66640f9910d38eacf1856dee88a8a52ed3b44c6344722a8fc248e",
+      "lines": 142
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeConnectionLifecycle.hpp",
+      "sha256": "aa23a3cfc8c3b9e204f77d400002063c2d0a9d91db5025e8664d8374e33735ec",
+      "lines": 361
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeConnectionProviders.hpp",
+      "sha256": "8fa6e82c91a0166093447521ef9e1f2d3ec7975d0631726dbdf6a8407c2a3db8",
+      "lines": 252
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeConnectionStreams.hpp",
+      "sha256": "63a5d06b7ed0b81a7082db55441f115f0f7b3ebaa04fff705cef888c9187d35b",
+      "lines": 412
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeConnectionTransport.hpp",
+      "sha256": "6b7a173e9c893f14230da40f6f0a92b4549c1962ba7c440a765cfd4fcd9e94e6",
+      "lines": 492
+    },
+    {
+      "path": "Preview/Protocols/Quic/NativeFacades.hpp",
+      "sha256": "9a2a2f8924faaf5dba882faddb355ee26a82e061525fb52ec571f6ba5709d884",
+      "lines": 336
+    },
+    {
+      "path": "Preview/Protocols/Quic/StreamAdapter.hpp",
+      "sha256": "d2262ea5d4e25d6bd40107dd36498a3894fbb9cbb777db4ab65a2ae62b7ec4b1",
+      "lines": 243
+    },
+    {
+      "path": "Preview/Protocols/Reality/Carrier.hpp",
+      "sha256": "de143168a804da08be5d42a8b53b95c0252beebae76e5f4ff953d6f1c630c379",
+      "lines": 191
+    },
+    {
+      "path": "Preview/Protocols/Reality/CarrierHandshake.hpp",
+      "sha256": "a0546cf8d75e57de3ae16d66cdb434e0d5cf4c187596274a40c25ee02fc741e7",
+      "lines": 252
+    },
+    {
+      "path": "Preview/Protocols/Reality/CarrierRecord.hpp",
+      "sha256": "439c9c6c9ddc1e41034afa2ebb55d8cdc481b74f4255e6f492f10170482483dd",
+      "lines": 138
+    },
+    {
+      "path": "Preview/Protocols/Reality/CarrierStream.hpp",
+      "sha256": "b023abc20407e29e809db49dc5bd0f767b06b2bfa52d46b19238f4e1572da309",
+      "lines": 175
+    },
+    {
+      "path": "Preview/Protocols/Reality/Codec.hpp",
+      "sha256": "27773600805dbfb3aad20aacfc0a7f0e3052f2f8c321c82e0b6c66bc9f79a24f",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Protocols/Reality/Conn.hpp",
+      "sha256": "a736c9e217dba5cdd5380e49a04f269a54b884b500ecde1f94437a57add64433",
+      "lines": 354
+    },
+    {
+      "path": "Preview/Protocols/Reality/KeyMaterial.hpp",
+      "sha256": "ff6c3f9113800379612562b372524ab7b8575292c445d4f37ca9f6c4a53c49bb",
+      "lines": 293
+    },
+    {
+      "path": "Preview/Protocols/Reality/Prepared.hpp",
+      "sha256": "ee27daaa8d48142a073ab6b6aa847564fafefd66b61ff82a2ba800474218df03",
+      "lines": 291
+    },
+    {
+      "path": "Preview/Protocols/Reality/Reality.hpp",
+      "sha256": "306faf396044e698abe1645b9ae3c37aba6f6152837953719f56a3fd33b82c6f",
+      "lines": 228
+    },
+    {
+      "path": "Preview/Protocols/Reality/Response.hpp",
+      "sha256": "a5191855a7df1f62422ec62831cf8301df692e80877c60e883f857b184ada7a3",
+      "lines": 242
+    },
+    {
+      "path": "Preview/Protocols/Reality/SessionId.hpp",
+      "sha256": "1db5e6955f32e32ab6ac2053daa8da60884165b5e4210a971a3fc1cabe95c30a",
+      "lines": 214
+    },
+    {
+      "path": "Preview/Protocols/Reality/Tls13.hpp",
+      "sha256": "1f714c54947a48ad03b41e567abd27ba6f831576dafeea8553fe6df65709ac79",
+      "lines": 381
+    },
+    {
+      "path": "Preview/Protocols/Reality/Types.hpp",
+      "sha256": "843a05f44ac9b9c712f5698e61b828e34c6e25e07707daa1076229c00fb76def",
+      "lines": 35
+    },
+    {
+      "path": "Preview/Protocols/Restls/Carrier.hpp",
+      "sha256": "3e9668b46e96fd53da8d48d263e96f8a59e0463f6f4961ffa8f21dbfe4453a45",
+      "lines": 164
+    },
+    {
+      "path": "Preview/Protocols/Restls/Codec.hpp",
+      "sha256": "83e840d5014391df65ddd7b3a98f54775099a9e08c9ce8dc77b1caae3e7f1daa",
+      "lines": 539
+    },
+    {
+      "path": "Preview/Protocols/Restls/Conn.hpp",
+      "sha256": "13bf8bcb88b2be5a8b498e91314be45acfa036749246314bb99dc0e62fcf337f",
+      "lines": 564
+    },
+    {
+      "path": "Preview/Protocols/Restls/Restls.hpp",
+      "sha256": "fe97230398a87d49b4e099ecc496def1183e2f7ba3a50b9f4059e387eb7ff47f",
+      "lines": 107
+    },
+    {
+      "path": "Preview/Protocols/Restls/Server.hpp",
+      "sha256": "bef4bcb3b68296da01337c250892ec053eef75eeb5269ccda19956d3d486fb61",
+      "lines": 449
+    },
+    {
+      "path": "Preview/Protocols/Restls/Types.hpp",
+      "sha256": "90ffe91b2e8979bf2d72d13f9566a002956051f7dbaa2074eaecb6d46d9162d2",
+      "lines": 86
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Binding.hpp",
+      "sha256": "73e62fea1c15bac321cfb112e37a63ed0140dfef79708d30ce0f01a9b2d08085",
+      "lines": 177
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/ChunkCodec.hpp",
+      "sha256": "f81a56539be64e6ec52af2582d6f6afb79ba65bd0883983f9fc887f95e4e914f",
+      "lines": 518
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Codec.hpp",
+      "sha256": "65123ab81bbe92e18b434a983f29b48e2438f5b50ee636ef8eeaddc2a3ef17b0",
+      "lines": 16
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Conn.hpp",
+      "sha256": "5a6c3769ce15fdb912747cd07484bc8df79f6a0662db647b2f2b7fc0ff631e84",
+      "lines": 187
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/ConnDatagram.hpp",
+      "sha256": "dce50b02e0b85659e48934ddb7f4d8a9a5fb9c71ce4292d8357cac314ea6403a",
+      "lines": 227
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/ConnHandshake.hpp",
+      "sha256": "d462bc238981c282dba2a86efa1e6d7a42bed6e6e9c8a3cfa6c38b6edf04b9d8",
+      "lines": 312
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/ConnRecord.hpp",
+      "sha256": "cd67871b6127cbf40cb92f620685a44ec12a2852730aa9452ef5f37a26b4e7f1",
+      "lines": 268
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/ConnSession.hpp",
+      "sha256": "76eb6ae90fac8268e2d7baacc22b6ba8ae2eff5bdcdfa3330a66dc837e847c6b",
+      "lines": 104
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Dgram.hpp",
+      "sha256": "183a4ae46e84d7123f737ce66277285ef10e2af41d38a228ff90188bf5e84668",
+      "lines": 473
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/GatewayState.hpp",
+      "sha256": "eed107e13831f51fec241fab03969250408f213d7ebd2766be792822ea98d770",
+      "lines": 127
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/KeyDerivation.hpp",
+      "sha256": "aa273f09b78192ae1c497bdbf3605e23b98aca181465c3087007c9a9736e55fe",
+      "lines": 67
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Prepared.hpp",
+      "sha256": "d4f2c030b4c8b6a73117a226983cfd754a0560a0dc00255c03ece4689d196f38",
+      "lines": 81
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/RequestCodec.hpp",
+      "sha256": "77391d838649709cee86647d94750d64a3f5ea93a4510fca3dafe830c0c17760",
+      "lines": 12
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/RequestState.hpp",
+      "sha256": "c4622be9cdfd49c27a01893cc28f9abaf8da30d2a2ab01ab540b4163e0644dc7",
+      "lines": 349
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/RequestWire.hpp",
+      "sha256": "f48569c16e87579ad8949f16ad26aec8addfa0d6a06d011e65aba734409db907",
+      "lines": 310
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/ResponseCodec.hpp",
+      "sha256": "9691c4487492d411962205c2937829de7f387480c4ec84fe4068bc5a3fef8736",
+      "lines": 599
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp",
+      "sha256": "97d9af9dbcf8574f7dd842f0191d8befe3d565ca830c4c9e975cd229b446934c",
+      "lines": 239
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Ss2022Gateway.hpp",
+      "sha256": "13465ff3d0aeda17018c14f148a038e970b13e8f7ae9056bcffeeab0a87c242c",
+      "lines": 223
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/TcpAdmission.hpp",
+      "sha256": "a9629f5a47a002e468561900d65afcff41b06d6aa10a2447814c2237d97b7d11",
+      "lines": 81
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/Types.hpp",
+      "sha256": "3002c3790c51d10df7be45e8cd7227557331ea6f53bcf3794e5e1460e88033ce",
+      "lines": 107
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Carrier.hpp",
+      "sha256": "6e98b9c938aca21057ba4a4dec4a835a298be6db95f48170fc80109d83585e8a",
+      "lines": 76
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/ClientHello.hpp",
+      "sha256": "b350e3f1e0e8ca529f3e2240707ac7f85d77ee20a215b89f914759589d4f4dc0",
+      "lines": 374
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Codec.hpp",
+      "sha256": "104e05a7750b57befcc049013e4c60572fb83c1a8557284f84722c5bc918410c",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Conn.hpp",
+      "sha256": "c4055f2b8d9b215f4dd5824661e5cbebee6ba6115edb761216ab655d496bf168",
+      "lines": 516
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Io.hpp",
+      "sha256": "df9bf2d2bd1a4aea267b46238eb159c5ce5a7649f539b9c5d182c3b56b1bc106",
+      "lines": 142
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/RecordProtector.hpp",
+      "sha256": "2592ccc69d36e5e7f4ad0705cd2927b95590559a5df009134a343f60f58bdb1d",
+      "lines": 365
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Server.hpp",
+      "sha256": "b541824b21ea57f94b86d747395526b8d8a4de20b0550d01467bb01d0df8571e",
+      "lines": 489
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Shadowtls.hpp",
+      "sha256": "5d51a28a1314b1a328dac5e844a05fee3bf913ae5a9fcf950d0cf194910faa62",
+      "lines": 158
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Types.hpp",
+      "sha256": "e9a1a1af08f08524b843b89fa9b3541794f362d9245ae5806816dc5fb11d9664",
+      "lines": 76
+    },
+    {
+      "path": "Preview/Protocols/Shadowtls/Wire.hpp",
+      "sha256": "6345012364a82f7a2e004ee615d89e253eca252a1a3654118931574eecbe62a5",
+      "lines": 42
+    },
+    {
+      "path": "Preview/Protocols/Socks5/AddressCodec.hpp",
+      "sha256": "fd47c8fa5e5ae8f6db15aff234244e99a52b859f41326907eb3259fcbf51c6e9",
+      "lines": 152
+    },
+    {
+      "path": "Preview/Protocols/Socks5/AssociationFactory.hpp",
+      "sha256": "bde35a5f3b13d454deb37a22c7cae40769ea12fbed0a10f568371a4bab68d2a7",
+      "lines": 31
+    },
+    {
+      "path": "Preview/Protocols/Socks5/AuthCodec.hpp",
+      "sha256": "115180577d9db859108dbd6a45bb865414b1f84c58ff3e57a8018bbafbdd7e8c",
+      "lines": 80
+    },
+    {
+      "path": "Preview/Protocols/Socks5/BeastCodec.hpp",
+      "sha256": "002841285d6af95f891992b2be0f4cb83cb0420525ed0f44591b37b359c1b4bb",
+      "lines": 347
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Binding.hpp",
+      "sha256": "686a60bf57d7430b885573fa9f5fbe7528c4395c09e6e255e6f3dd07fc5b18bd",
+      "lines": 201
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Codec.hpp",
+      "sha256": "4ea1a6234ad3d0cb035d40e606e91c11966146eb8c7c660e37126c229b4b1236",
+      "lines": 15
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Conn.hpp",
+      "sha256": "336111a873e32ef244f1f5963c01a2a95c9c0500348c3a141768fe4869774c83",
+      "lines": 192
+    },
+    {
+      "path": "Preview/Protocols/Socks5/ConnAuth.hpp",
+      "sha256": "05f14fda62b1115fb044dd1811eaee3630ed6f169d512d976e761ad27ce73d57",
+      "lines": 138
+    },
+    {
+      "path": "Preview/Protocols/Socks5/ConnHandshake.hpp",
+      "sha256": "ce7e05111a41fc443b56d1b5b4b67d1ddfa42b31b675b9af31b1dcad6bd497b5",
+      "lines": 381
+    },
+    {
+      "path": "Preview/Protocols/Socks5/ConnTransport.hpp",
+      "sha256": "11399fc8092571d572098e3097413c6c4f6220912b62cfbc3edc1a4ad3bf4be8",
+      "lines": 223
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Dgram.hpp",
+      "sha256": "a1fde38c6bf7df115a93a8e750fa7c96cc57d61e2368b2bab31f4c27d0cde186",
+      "lines": 289
+    },
+    {
+      "path": "Preview/Protocols/Socks5/MessageCodec.hpp",
+      "sha256": "cd8e396e050c7cc73d484beaa0d4bf1435cc9e29355da89438b40be693b8866b",
+      "lines": 310
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Prepared.hpp",
+      "sha256": "72fcf66da46a3c08bf3076adc0f806ef173a82dc60f4d2c28711c5936f59fef4",
+      "lines": 55
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Reply.hpp",
+      "sha256": "1b6b77bda1391ce668ecc1ebdfd27bfa0a38c86da279cbf2713d3ea6daf2b1cf",
+      "lines": 80
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Socks5.hpp",
+      "sha256": "b761b8902b117df9e4315296ac5fd8f0446db70ed5277c91cff11078ef3dbdce",
+      "lines": 165
+    },
+    {
+      "path": "Preview/Protocols/Socks5/TransportCodec.hpp",
+      "sha256": "59ec6e6f41d0e875be448f44fa9265d866808b9d547ba4fd3da1a8d7a3f0e1d6",
+      "lines": 112
+    },
+    {
+      "path": "Preview/Protocols/Socks5/Types.hpp",
+      "sha256": "06acd5232abf6936561c70db442421ff442dfe169eaf3ba8ad9b7863fa8559bf",
+      "lines": 172
+    },
+    {
+      "path": "Preview/Protocols/Socks5/UdpAssoc.hpp",
+      "sha256": "0ad5e473e021b158b80c90d06fb64fb39d5e5fc40798123327d6fd0004ac2d26",
+      "lines": 482
+    },
+    {
+      "path": "Preview/Protocols/Trojan/AddressCodec.hpp",
+      "sha256": "bc4a709c31d58f6bbad5d26b9eb5b2ec1755ab6de387fae62a02e917f2cb988b",
+      "lines": 119
+    },
+    {
+      "path": "Preview/Protocols/Trojan/BeastCodec.hpp",
+      "sha256": "1aff332f152df1b0f5b99baf5b729f5bdf766f95277b4b905ce77e6bb558c937",
+      "lines": 245
+    },
+    {
+      "path": "Preview/Protocols/Trojan/Codec.hpp",
+      "sha256": "3aca2f524dc274e733b99c71cb7a4bbb14e4005b1a9f03c88db2b7964b002563",
+      "lines": 16
+    },
+    {
+      "path": "Preview/Protocols/Trojan/Conn.hpp",
+      "sha256": "1c57bd09e36863da2857b1a6fdfc1c4a1812d1f3f7718971e6251e25aff8a5a6",
+      "lines": 557
+    },
+    {
+      "path": "Preview/Protocols/Trojan/CredentialCodec.hpp",
+      "sha256": "d1596c7ce3b60804dd575a5e312910fcca0dd36291943ddcd884bf4a6774f823",
+      "lines": 67
+    },
+    {
+      "path": "Preview/Protocols/Trojan/DatagramSession.hpp",
+      "sha256": "3d290e56b2c981c46302913767989425d1249515e5eb5a8b4b3ba98fa07e54a6",
+      "lines": 60
+    },
+    {
+      "path": "Preview/Protocols/Trojan/Dgram.hpp",
+      "sha256": "adfa6009b78955bfba59d7b3a214b32d5ce1dbc575046fb1a3873ca356e5ed9a",
+      "lines": 341
+    },
+    {
+      "path": "Preview/Protocols/Trojan/IngressFactory.hpp",
+      "sha256": "213f4f2bcec3d20506340eb6c4da5e8aabb30f96c54967110bf6f36ba06d8653",
+      "lines": 50
+    },
+    {
+      "path": "Preview/Protocols/Trojan/RequestCodec.hpp",
+      "sha256": "50b3287dc7c218e8eb1ba6888496bc729ee9726edf8ee982bdaa568568f9a771",
+      "lines": 138
+    },
+    {
+      "path": "Preview/Protocols/Trojan/Trojan.hpp",
+      "sha256": "2b69b5a8cffc5629c6027c43fa8ea9149ea7836abeca68d2ec3327cfc4ad539a",
+      "lines": 238
+    },
+    {
+      "path": "Preview/Protocols/Trojan/Types.hpp",
+      "sha256": "f41f59f7cb3552ab3376726927e965d76eaed25080f48c07e7affa11b5ff5dc9",
+      "lines": 66
+    },
+    {
+      "path": "Preview/Protocols/Trojan/UdpCodec.hpp",
+      "sha256": "8f41dbd329abf9fc250a74858e2d9dd2c60d2133c8abeec309d9967a2314a02e",
+      "lines": 104
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Codec.hpp",
+      "sha256": "476e717e1faa8b8e2c6b723bd5ce077626cd0a84ceb215bb7bc4c8cf4149563f",
+      "lines": 144
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Conn.hpp",
+      "sha256": "50438f4c50f958ffbee0c1a038b6cf8681b477b27c1ff7bccb9df1beb7090176",
+      "lines": 382
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Dgram.hpp",
+      "sha256": "6b28bf00095bad53d21ea256fa597c380d22c8ee88dcec58dfc289a1f4b1b2f3",
+      "lines": 292
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Http2.hpp",
+      "sha256": "117007a1b8870edc6eb483d9e5b20e287088854d84bddb2c3dec11578332d33e",
+      "lines": 14
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Http2Client.hpp",
+      "sha256": "542f8daaed84bec67dbdddd159f95026c38d5447f600f1149a3268ccdd162d33",
+      "lines": 298
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Http2Server.hpp",
+      "sha256": "26624698159f0a210f3dcf2e06ff21a215add14209f8de63388eacf123feebf5",
+      "lines": 370
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Http2Stream.hpp",
+      "sha256": "a19d2aab24d2d8c50f64010fdd709fcac868c448fb916399502ed8cbe7fed27d",
+      "lines": 411
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Http2Wire.hpp",
+      "sha256": "34491807c496648811072a2eec327c0cf967006e94c56077e3e894c3ec9f2304",
+      "lines": 189
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/IngressFactory.hpp",
+      "sha256": "3240fd0aae37911039a84741c478e18ded7c8065d9ccafa4428cdf84f5823720",
+      "lines": 407
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Trusttunnel.hpp",
+      "sha256": "b29e8c0db1b5df86c382e58ad692ab1401a60021e616496b10b84a35f5d0038d",
+      "lines": 144
+    },
+    {
+      "path": "Preview/Protocols/Trusttunnel/Types.hpp",
+      "sha256": "66cf60577d659b7701f4d7c03dcba791663ab15be766149de066449724d8a6a1",
+      "lines": 46
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Admission.hpp",
+      "sha256": "7b9da75ff89f0a18917dc805d2a9207f8a0dd59af9bcf22aee34ceab0f61b0c6",
+      "lines": 235
+    },
+    {
+      "path": "Preview/Protocols/Tuic/AdmissionRuntime.hpp",
+      "sha256": "d864b47694c1e60a5817558b815909263f454ad0c4e87b1ca5f3b6fbdd7415bc",
+      "lines": 569
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Binding.hpp",
+      "sha256": "df6ce6da21638db108246debbe2ce7e3d9a1c091e1d555996e872423fe6b9b30",
+      "lines": 47
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Codec.hpp",
+      "sha256": "79e6e807dc12116a981e1d73586f44da95451735963423450c3234b742500e63",
+      "lines": 493
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Conn.hpp",
+      "sha256": "eba27071ef06f237475a6284aa8737f2ac5c17b4da7e9d41af6bd7e2493cbdb7",
+      "lines": 233
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnAuth.hpp",
+      "sha256": "6de6b98b0398c56f24f425fa84bdeca2d48cd67b85aa00f14b287886f4a8ee7d",
+      "lines": 212
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnDatagram.hpp",
+      "sha256": "06aef67631dd0b8ce26f192942a0bb15643a01da7776cf94c1b009571a254350",
+      "lines": 108
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnIo.hpp",
+      "sha256": "b3c9346402acf102124225ba10e0dc85327535f7044d5fc7e0f16b29c793c28a",
+      "lines": 307
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnSession.hpp",
+      "sha256": "70d48c361c4633130da5e72c899d9f7c1ba36b3b45088a71ee73f4a28e93b1fd",
+      "lines": 246
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnStream.hpp",
+      "sha256": "f46d6d3f4dd80c3827989a768f3267f3f36b7fbc9797a43bd37d774fb8d9b603",
+      "lines": 144
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Dgram.hpp",
+      "sha256": "8120c13c698a13dce608267696f584f5a984e50a9effde94cee96cffb38bfbd1",
+      "lines": 409
+    },
+    {
+      "path": "Preview/Protocols/Tuic/NativeSession.hpp",
+      "sha256": "dd2ad586ce0ebe9f87c55704919035f2849377cb61aad2c861a4f580f8a7e114",
+      "lines": 58
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Prepared.hpp",
+      "sha256": "702d529b6b3e1747ad316aa8e9fc3a72093a305d5ddb0f638467922d430cf269",
+      "lines": 55
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ServiceBinding.hpp",
+      "sha256": "f7b0d35423fc18abcc6196763d4cad0ad570ea587f0ac2d7a97bf4292b12caed",
+      "lines": 86
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Tuic.hpp",
+      "sha256": "488a157cba79abc0f5a5604dea6605dfaa15437cfbb2870e2bafc884e02b9a81",
+      "lines": 293
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Types.hpp",
+      "sha256": "dc5e1a26061ffc3147d258964a075c8f344c3971d407dd445726d6d4a6e0fa91",
+      "lines": 107
+    },
+    {
+      "path": "Preview/Protocols/Vless/AddressCodec.hpp",
+      "sha256": "2d6a2a3c79097809a8d087fd2e4c4ad907e247b78c1411f0acca7855caffe04a",
+      "lines": 221
+    },
+    {
+      "path": "Preview/Protocols/Vless/AssociationFactory.hpp",
+      "sha256": "b2bc3c38ea65db7ec7cb1bd402a41bde90b6411b651e778a21d1db985d69b7fa",
+      "lines": 31
+    },
+    {
+      "path": "Preview/Protocols/Vless/BeastCodec.hpp",
+      "sha256": "c3dbb15fd38b00ce6a2eb5013ffef05ff1b6be5d579e5eb8a06184ed40641627",
+      "lines": 219
+    },
+    {
+      "path": "Preview/Protocols/Vless/Codec.hpp",
+      "sha256": "a22666fb13ee50f58e76dead0aa29960b62d9af4cda25f57c55159a10d0c051d",
+      "lines": 15
+    },
+    {
+      "path": "Preview/Protocols/Vless/Conn.hpp",
+      "sha256": "0874b3c5594975518cab71c8df9554b91f756647de0c104398c7cfd3ef6bf01b",
+      "lines": 497
+    },
+    {
+      "path": "Preview/Protocols/Vless/Dgram.hpp",
+      "sha256": "20246c53591895417e131d55f913279652f990e7487b71516f567ed21e7b3daa",
+      "lines": 385
+    },
+    {
+      "path": "Preview/Protocols/Vless/IngressFactory.hpp",
+      "sha256": "aff4a794c90e2b1b23ff8659c5251d4bb37b0a24a0113d292da857fe3ec41d61",
+      "lines": 56
+    },
+    {
+      "path": "Preview/Protocols/Vless/RequestCodec.hpp",
+      "sha256": "b7c2dd57e26a2a35be82a5050871ae367677abda9cdc562a41dc038ff16e26b3",
+      "lines": 147
+    },
+    {
+      "path": "Preview/Protocols/Vless/Types.hpp",
+      "sha256": "68059f068d7d9cbe476a485ea0d101c27939d2e995f1d7f6d7b017f10b2def39",
+      "lines": 82
+    },
+    {
+      "path": "Preview/Protocols/Vless/UdpCodec.hpp",
+      "sha256": "1a8d0ac53b5e50617c3511f2f4557ec0acdcecf540b3016b6701f42ea4b377c5",
+      "lines": 89
+    },
+    {
+      "path": "Preview/Protocols/Vless/UdpTunnel.hpp",
+      "sha256": "85a9cc62af32b9d6e54e16cd24e83be79dedf32c6ed963f821ac526106967071",
+      "lines": 436
+    },
+    {
+      "path": "Preview/Protocols/Vless/Vless.hpp",
+      "sha256": "3812dd9c400d9ca3047fc82d87dea291109e3956bf9990077b73a90579a3e786",
+      "lines": 238
+    },
+    {
+      "path": "Preview/Protocols/Vless/Xudp/Association.hpp",
+      "sha256": "6d85d12b3aea4f0296b189adbddf7cf8213d27663cf220b5a5ac4d9ea328c6dd",
+      "lines": 171
+    },
+    {
+      "path": "Preview/Protocols/Vless/Xudp/Codec.hpp",
+      "sha256": "692f0bc18b029d62fd1898cf4a8b44f3caeb3404e9d8dbbe7157c39d98cb3621",
+      "lines": 267
+    },
+    {
+      "path": "Preview/Protocols/Vless/Xudp/RootSession.hpp",
+      "sha256": "4bf1bc2c976bd1f35a340da8e5063d908cfe193479164531e389e0851a79683a",
+      "lines": 71
+    },
+    {
+      "path": "Preview/Protocols/Vless/Xudp/State.hpp",
+      "sha256": "baf1caf65e9008e4c649101edce5bb3a20de65da7876153ce2d55c63365dfb96",
+      "lines": 76
+    },
+    {
+      "path": "Preview/Protocols/Vless/Xudp/Writer.hpp",
+      "sha256": "205192e770e09d89bb451745f0c75dddd47d589743a56796640d402f20bd2542",
+      "lines": 93
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Auth.hpp",
+      "sha256": "20020ffdcce93bb480486343330d5f6dbeb18f75e29980d9271d32ea41ab9abd",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Protocols/Vmess/AuthCrypto.hpp",
+      "sha256": "99dd7be940c223cc4d2ff1b6389fe4e01268868a9532ad27685063f44af6854e",
+      "lines": 368
+    },
+    {
+      "path": "Preview/Protocols/Vmess/AuthHeader.hpp",
+      "sha256": "e271912c9d360dd9cc61e9ea729db5fc3bc0227d4e759c37cb555fe21f40c14b",
+      "lines": 206
+    },
+    {
+      "path": "Preview/Protocols/Vmess/AuthId.hpp",
+      "sha256": "12398e94a85c34207669a8734236527d585d77b8117c373e1a489d397f01b961",
+      "lines": 169
+    },
+    {
+      "path": "Preview/Protocols/Vmess/AuthKdf.hpp",
+      "sha256": "9d4fc6715b70ac72f2503f4c153e8925fba44f026d65df286d610c75866d6139",
+      "lines": 62
+    },
+    {
+      "path": "Preview/Protocols/Vmess/ChunkCodec.hpp",
+      "sha256": "acff2a88cf5079537b921d58d490e13bace72b2a45888d0ce25928d15e515bf2",
+      "lines": 493
+    },
+    {
+      "path": "Preview/Protocols/Vmess/ChunkMask.hpp",
+      "sha256": "c8851899b274eaacf4d23e1faf7e319275d2a162c62c60eea81b7e3c81f76c17",
+      "lines": 169
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Codec.hpp",
+      "sha256": "b76913b97c95a6293500b84a347b2197220c134170c6ada36fe368e4ffb2a10c",
+      "lines": 16
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Conn.hpp",
+      "sha256": "d9fe307bee270f1912d066d3b6deefbd1ad6cbbb366be9d7ce210746bf395d74",
+      "lines": 171
+    },
+    {
+      "path": "Preview/Protocols/Vmess/ConnChunk.hpp",
+      "sha256": "6c90e76e6ea91ab6f1d23952a198cf75a78adbbf59cb6e4ccb5d9f17b566cb01",
+      "lines": 286
+    },
+    {
+      "path": "Preview/Protocols/Vmess/ConnHandshake.hpp",
+      "sha256": "adbb9d7473d05657d6c8ee9f198c8780e826200825f1cd8ee377f2dc95a306b7",
+      "lines": 404
+    },
+    {
+      "path": "Preview/Protocols/Vmess/ConnIo.hpp",
+      "sha256": "190b928206bc8fc887a15d915a4444832e77957a763eff3edd9f0d3658fe59d5",
+      "lines": 163
+    },
+    {
+      "path": "Preview/Protocols/Vmess/ConnSession.hpp",
+      "sha256": "0d79e247c698bca542dfaf721464e1b73d4601873189ce996110770886499789",
+      "lines": 125
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Credentials.hpp",
+      "sha256": "1e21d75ae3e03fabcae162cecedceca96c81323a37d24d60df6d848372d41bc5",
+      "lines": 46
+    },
+    {
+      "path": "Preview/Protocols/Vmess/DatagramSession.hpp",
+      "sha256": "3f42872dbd604df6d37a7b30f5615e665f6a386dc3ec0c4e0f01cfe659d58853",
+      "lines": 56
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Dgram.hpp",
+      "sha256": "e580703a8cd0f02c214e1a80c1853ddac2f7e6b0e94d5f9d0bc739274861794a",
+      "lines": 221
+    },
+    {
+      "path": "Preview/Protocols/Vmess/IngressFactory.hpp",
+      "sha256": "bb9865a7d08e48b39756fefbd70efe35fd102011c72aaf09e7fb09267312a3e8",
+      "lines": 140
+    },
+    {
+      "path": "Preview/Protocols/Vmess/RequestCodec.hpp",
+      "sha256": "029de7608bea007300e1fa967dd56c454d9920a76656ba5a0b29769e0a7d7fff",
+      "lines": 514
+    },
+    {
+      "path": "Preview/Protocols/Vmess/ResponseCodec.hpp",
+      "sha256": "12b0af27617b94c3bd0c583a3bd5307786be5e4f0fc514bc8b187f7796d6c4ff",
+      "lines": 153
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Types.hpp",
+      "sha256": "fb22f9ad6493a950a45fc49ed5e737a6a0a309c54216717785558e420b13b288",
+      "lines": 164
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Vmess.hpp",
+      "sha256": "7c81ad052e865072c9dd8be90fd29cc3734e342bbbde93a561b3099b59ba296f",
+      "lines": 198
+    },
+    {
+      "path": "Preview/Protocols/Ws/Codec.hpp",
+      "sha256": "d5d491fe4fe0f4fa6361cff97d85ab7f688f38df1da51cd69956eb7f840002d6",
+      "lines": 244
+    },
+    {
+      "path": "Preview/Protocols/Ws/Conn.hpp",
+      "sha256": "54a11c8101fb80456c41602e832430d358e01244585cf5a7a708278cca08e518",
+      "lines": 190
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnClose.hpp",
+      "sha256": "1d10f036fac2580023e6ee41cb477cb7ce9997b28b74ae459c102b2d61c15fc1",
+      "lines": 114
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnFrame.hpp",
+      "sha256": "b213e48277b43ac69cfbee417a4ae02f5fcdd2c33e39aae8c95316de7b994b4c",
+      "lines": 462
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnHandshake.hpp",
+      "sha256": "d7401974daf6f48bc4eed83e456ff93d3283630e3586426f7abdabba3698d2ac",
+      "lines": 346
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnSession.hpp",
+      "sha256": "27a1b9806cc43ce239cdba15b48d88def6896e4dd0c34f44a322e44055a56d5c",
+      "lines": 128
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnStream.hpp",
+      "sha256": "a9b451b56e113e3c80d5d074d10cc8a17e23fd2f28ef371513ab4ace567692e4",
+      "lines": 144
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnTransport.hpp",
+      "sha256": "27d4aedbae1833f1719e6d4b1826cf4c0846a2b3020fbd1fc752b86ec85a0a64",
+      "lines": 172
+    },
+    {
+      "path": "Preview/Protocols/Ws/Types.hpp",
+      "sha256": "bd366ba55ae9f6d2220ba9decdc80ce1ea62fd3beb64b95632b3b4dc19795b11",
+      "lines": 43
+    },
+    {
+      "path": "Preview/Protocols/Ws/Ws.hpp",
+      "sha256": "84dc27b620930d7dd62b5609a61bd3e58f58db10d9f7e5830972908629f1a046",
+      "lines": 111
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/ClientTls.hpp",
+      "sha256": "38097868818937cc984ac50d51ec917e931b047efa12fb7763fb967a52c608c8",
+      "lines": 92
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/Common.hpp",
+      "sha256": "75a8f319c4df8b27501cea6f28a488c1d6fae2e75277803f7b70adb5f21c7f8b",
+      "lines": 35
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/Conn.hpp",
+      "sha256": "dc27f0f0fc80917f562ee16aedbc7dd466530e56fb90025b9d6c4fe8a167dbed",
+      "lines": 20
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/Entry.hpp",
+      "sha256": "8a3a65df5096762af96eae642b0860664bf2d68cd05d7a0546efddf4677872b9",
+      "lines": 50
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/SplitClient.hpp",
+      "sha256": "716b9ee611827ba4ba19a4a7dcc53328be5ffe3136fc3993e714993e8a420850",
+      "lines": 285
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/SplitPath.hpp",
+      "sha256": "4de6fc9437e7c2b33581ccffbc526a52fc3d5c25b9f593f257a3b04c045f199e",
+      "lines": 110
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/SplitServer.hpp",
+      "sha256": "ced641255e290791e038b643af8e521f624f9a8fd49235c6ee326ffcdde697ab",
+      "lines": 427
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/SplitTransport.hpp",
+      "sha256": "1a15716db608806154f70f88c13952bec5302cb14b7f9930427e05e9463f2ee1",
+      "lines": 298
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/StreamClient.hpp",
+      "sha256": "f8020720fa4e28cf1b2f6604b1685f9622e7a9cb622a1c2da8b10ded5b81c33d",
+      "lines": 289
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/StreamServer.hpp",
+      "sha256": "22a61628c7ae4e7912bd9de17d26b0f382130d67010a83c4d7f0157d710ab0d3",
+      "lines": 212
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/StreamTransport.hpp",
+      "sha256": "150807dfe40c17632452eb006da6b4dac5ac6ce6b36238302b81c903104b33a5",
+      "lines": 383
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/Types.hpp",
+      "sha256": "70c8e663e58604d0bb248a865d55ac2a862807e30b187d7f529688ca87c48d64",
+      "lines": 43
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/Wire.hpp",
+      "sha256": "7c6144266b5f945799d4974c69a2cfcf3637d3cd27d6ebb60973b208b51464b3",
+      "lines": 178
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/Xhttp.hpp",
+      "sha256": "4c1560b8d60d3b4c6a823f2cf40dd65a7f61d98e7c3df893fe1f37b058241ef7",
+      "lines": 11
+    },
+    {
+      "path": "Preview/Resource/ProcessResources.hpp",
+      "sha256": "69512671f36ae0729fb15871a57720d56513d7900fb4c1eb59aec827582673cb",
+      "lines": 61
+    },
+    {
+      "path": "Preview/Resource/Resource.hpp",
+      "sha256": "471b23ec0cbc0a93880d52cb63da4162f035050cb4ec0792ba6fc4d360eb8770",
+      "lines": 8
+    },
+    {
+      "path": "Preview/Resource/SessionResources.hpp",
+      "sha256": "a78154fc8df6e422b31a10e9e05687bde489bec6c425e8b09b2b575830eed3d5",
+      "lines": 57
+    },
+    {
+      "path": "Preview/Resource/StreamResources.hpp",
+      "sha256": "c384d47fdbd09c9dfe191c8e4e01ae59bfb210a9c437a7c7a38aafea77215673",
+      "lines": 60
+    },
+    {
+      "path": "Preview/Resource/WorkerResources.hpp",
+      "sha256": "77db15acc8fdb494544bff59aa833891b60e16c005ef8a45b0563f26bdcdce9f",
+      "lines": 180
+    },
+    {
+      "path": "Preview/Runtime/ActiveTransports.hpp",
+      "sha256": "b42eb44e851426797f3959163f52009fabc5b62256f8474b440583e937cef557",
+      "lines": 74
+    },
+    {
+      "path": "Preview/Runtime/AffinityBalancer.hpp",
+      "sha256": "0382792ce8cd02493ced4b9b419f4a4828f4cd3a260726f4785eac0404a969a0",
+      "lines": 52
+    },
+    {
+      "path": "Preview/Runtime/Listener.hpp",
+      "sha256": "8bad5b925f464a8fb30cda8cb8816c17936e896561509155958c5422d823a172",
+      "lines": 596
+    },
+    {
+      "path": "Preview/Runtime/ListenerCompletion.hpp",
+      "sha256": "42c62ed81f2c2690082aee1a735743cc86aff31ecf1b265104874a22fc8e474c",
+      "lines": 89
+    },
+    {
+      "path": "Preview/Runtime/ListenerConnectionGate.hpp",
+      "sha256": "25b43039cd3354d5c5bd27657afd03e1008c054fd4e4e7caae0e5d8c064e70e7",
+      "lines": 58
+    },
+    {
+      "path": "Preview/Runtime/Mailbox.hpp",
+      "sha256": "397d542f9b708ab9e0ea4b11182408989b0e0d5d2d6788b02c975262c4a6d64d",
+      "lines": 192
+    },
+    {
+      "path": "Preview/Runtime/Middleware/Builtin/Dial.hpp",
+      "sha256": "1b64eb1237c70ac19ff07e7001c06592ae0dcba3698a125349b9e88a57b9b998",
+      "lines": 93
+    },
+    {
+      "path": "Preview/Runtime/Middleware/Builtin/Pad.hpp",
+      "sha256": "0d2a786b180e6103d53568ed018dc5dfadf2a57715ea431faffe22a83a3d1b3a",
+      "lines": 75
+    },
+    {
+      "path": "Preview/Runtime/Middleware/Builtin/Relay.hpp",
+      "sha256": "fd86a8640e2f3619414ad7dcaa1a3aaa75f4a8aedb183bcb5b76e5e01b0401d5",
+      "lines": 55
+    },
+    {
+      "path": "Preview/Runtime/Middleware/Builtin/Throttle.hpp",
+      "sha256": "3e9c6a682e4d667419eb42f7bfa2d69a8dd83861678a50de58e4400e53b63f46",
+      "lines": 198
+    },
+    {
+      "path": "Preview/Runtime/Middleware/Context.hpp",
+      "sha256": "d1f3194704273f7149e5719c42d869fc3e52289b7ea7510e6dda5f417624afe2",
+      "lines": 125
+    },
+    {
+      "path": "Preview/Runtime/Middleware/Pipeline.hpp",
+      "sha256": "48a972a21b38600bd906732c7aab8df652e2f8c144b4f548eb22e7843176aa6f",
+      "lines": 107
+    },
+    {
+      "path": "Preview/Runtime/Process.hpp",
+      "sha256": "568997aafe71f409103e8917ff1b7abf8506379126ffa71583de26c5fb59fc9d",
+      "lines": 114
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Candidate.hpp",
+      "sha256": "61b05594d31e88bc33e2e8937a3b5d39b4f275d5db3e93abff632b4d1f0edc9c",
+      "lines": 181
+    },
+    {
+      "path": "Preview/Runtime/Recognition/CandidateHandle.hpp",
+      "sha256": "c39dcfdc987cd2607e45ddf2d274a2ca9d48cef728b7c90934af68b1504048fb",
+      "lines": 164
+    },
+    {
+      "path": "Preview/Runtime/Recognition/CandidateSelection.hpp",
+      "sha256": "32986fc5e9166424f9d67c41524b7e872512ecdb856434262f97798b3a8af2b0",
+      "lines": 125
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ConfiguredAcceptor.hpp",
+      "sha256": "7b8190fe7a6482c16ec79da855a3dc46b060a256fbf0f024d47f0c36001cff84",
+      "lines": 99
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ConfiguredMode.hpp",
+      "sha256": "a871542d2086c0dafda2fb099824a8d29ccfc368f9636a40c8cdd966bbafe0de",
+      "lines": 459
+    },
+    {
+      "path": "Preview/Runtime/Recognition/DecisionTable.hpp",
+      "sha256": "5f7ff11118b2858b02d2c1a99ea5e2b121a706f1dafa0ad2d1df307a6ff51587",
+      "lines": 285
+    },
+    {
+      "path": "Preview/Runtime/Recognition/DeterministicMode.hpp",
+      "sha256": "46cda858100544296aa5f92cfdf58c4e060fd50ecc3f38adbd08a7c00500147e",
+      "lines": 56
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialAttempt.hpp",
+      "sha256": "e578a0b19987bb435637a6b4ac0a949b9a4ea00acc2b17801ccb56dfad947bc0",
+      "lines": 178
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialCleanup.hpp",
+      "sha256": "df969ed67f623a4c0abd49a39610fa340fcfd5d951f580b3bd691ba3504e5b1e",
+      "lines": 149
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialDecision.hpp",
+      "sha256": "2af268e2927a46e3b32bb8c9cf8d5d2471c7449b28ec173a878b7b0ba73d9436",
+      "lines": 119
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialMode.hpp",
+      "sha256": "074ced6d36f6c8e14a1897355ac73b4b28b8c64d33cb8795ba468e844a3c2b71",
+      "lines": 277
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialModel.hpp",
+      "sha256": "6fbbc6f5751871083f35a41f9f156ba6ae335b3bea6520f54d17a830076c7756",
+      "lines": 82
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialPlan.hpp",
+      "sha256": "edbb4d7e5135ff15dc845813f0b0ab28316c12f31e5d8be86eeb98129886dd6a",
+      "lines": 120
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Probe.hpp",
+      "sha256": "51c3edcfc50da5e9ba6626038936450155109af1763ea638f431d33759fa82ff",
+      "lines": 172
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ProbeBuffer.hpp",
+      "sha256": "67af21f5051e5141c15c14ebb73017c6244d0972a90cdf370a0b7e96f51c2436",
+      "lines": 250
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Profile.hpp",
+      "sha256": "3c9b84306c9b8127c22467bed23f17a779f782b26d66fa3f43ef7d15a67f8c7f",
+      "lines": 259
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ProfileDecision.hpp",
+      "sha256": "c3f6a8b95c0daa6834c03b3349b5ccab56bd0d84eef3d44c63d847832371da46",
+      "lines": 51
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ProfileModel.hpp",
+      "sha256": "e2a8d7fd773c16efec7483a389a7302db7e06f97fefb7cebe01442f0511fde90",
+      "lines": 38
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ProfileRoutes.hpp",
+      "sha256": "e4e4aee669b75f9e5b97b36be14ad4ea6ab2c10580d33f92d8c2a02bbd609b05",
+      "lines": 233
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ProfileTypes.hpp",
+      "sha256": "1298497816e89d3e3868d3b45d7b6197ee452735c5ea6b0e2ec71d20334b59f6",
+      "lines": 179
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ProfileValidation.hpp",
+      "sha256": "6d6c33dce780700105f4a47ea173cc0581d05ca20de433f85c60b7203302d080",
+      "lines": 298
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Protocol.hpp",
+      "sha256": "22ae97b9233ae6f29a1490a480273fdf6b24071fbd662d6fcfaa4bf6c8743a8b",
+      "lines": 107
+    },
+    {
+      "path": "Preview/Runtime/Recognition/RawIngressProbe.hpp",
+      "sha256": "614cf724462611b6bc6e52b76ec2bb8a974f6fbabbb31948120258d009264388",
+      "lines": 151
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Recognition.hpp",
+      "sha256": "182fb3e28f709ca21616b37226c7e6e77f349060bd0c4bc413222e3e3b5dbe4d",
+      "lines": 60
+    },
+    {
+      "path": "Preview/Runtime/Recognition/RecognitionConfig.hpp",
+      "sha256": "281ec7d1cdbbf626601cf7d54765b2d12120c9a36f2c0eb6502a9a11439a5143",
+      "lines": 386
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Route.hpp",
+      "sha256": "a05202e2f8af3af63051469102670db01e0526951c42b6aec0efb969d749e073",
+      "lines": 286
+    },
+    {
+      "path": "Preview/Runtime/Recognition/SchemeExecutor.hpp",
+      "sha256": "6866f5272710e844ddbaf7c312d4da723750753c209021cf54054d85662886c7",
+      "lines": 108
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Tls.hpp",
+      "sha256": "5ecd66825bc7f1ffb79e24d7eeb8dc11bd12f694094248cbdf38f11110f11f56",
+      "lines": 598
+    },
+    {
+      "path": "Preview/Runtime/Recognition/TlsRecordReader.hpp",
+      "sha256": "f45d878faa2b18c901bcf01c73a742396e1156ed906cfbe29114396bcebf84a6",
+      "lines": 118
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Types.hpp",
+      "sha256": "7514e7e0db97a8dbb381b1d9208865017e0c06cca5be755dfab1ed982979e498",
+      "lines": 266
+    },
+    {
+      "path": "Preview/Runtime/Session.hpp",
+      "sha256": "e3ca548f8c59f6acb2a529846af991452730cce39191062cd14f3b9c733af8fe",
+      "lines": 254
+    },
+    {
+      "path": "Preview/Runtime/SessionControl.hpp",
+      "sha256": "3ee5656882eeb2477682222d83029920872f83ac2dec4e3924c9851cfe05a6e3",
+      "lines": 590
+    },
+    {
+      "path": "Preview/Runtime/SessionIdAllocator.hpp",
+      "sha256": "1a1391661fd3b84da4f08ab438c7c8992597eac5f01c9c3d9cca363fdcde19ef",
+      "lines": 37
+    },
+    {
+      "path": "Preview/Runtime/SessionRegistry.hpp",
+      "sha256": "bc55548060d4fd46cd79bfa97f21ca0469b0198420f49e58dd4bb4bd25bf1053",
+      "lines": 437
+    },
+    {
+      "path": "Preview/Runtime/SessionRegistryModel.hpp",
+      "sha256": "6ed8d29eca0c4b5d25a0c88a9256260ef20dcdbd9db87b6a253b2faed0b1c18b",
+      "lines": 32
+    },
+    {
+      "path": "Preview/Runtime/SessionRegistryStorage.hpp",
+      "sha256": "3586d3ca147daef37ea47d43eb1e3200c624b0248776f685563a9cde6413fef2",
+      "lines": 267
+    },
+    {
+      "path": "Preview/Runtime/SessionServices.hpp",
+      "sha256": "e61c8bcfe1b7345caf7c885722e6158e0abe76e77f3da26210518575763ac215",
+      "lines": 88
+    },
+    {
+      "path": "Preview/Runtime/Session/ClosePolicy.hpp",
+      "sha256": "b3f882baf8867706d61666406ecb21dcfbbd4adab9fa0b320abd1fc92c1a10a6",
+      "lines": 182
+    },
+    {
+      "path": "Preview/Runtime/Session/DataPlaneRelay.hpp",
+      "sha256": "7e1eefcb73829f2ba67bf57682593758800848d6e5f6f04bda36a011ac016190",
+      "lines": 240
+    },
+    {
+      "path": "Preview/Runtime/Session/LogState.hpp",
+      "sha256": "b12bc282a41b23be76db6e15c5fc68f7fae244d8c8bcaa9ad1fbca23b158d4d7",
+      "lines": 159
+    },
+    {
+      "path": "Preview/Runtime/Session/Logging.hpp",
+      "sha256": "74782b96ec088ccc2182ef4a662901eb0e194cf6fcaf3de630e898e4728a07fd",
+      "lines": 284
+    },
+    {
+      "path": "Preview/Runtime/Session/RecognitionAdmission.hpp",
+      "sha256": "8585f059b833de63efc19e2945013ccf6466aa1a74ab669a3437a7212fa9c19a",
+      "lines": 369
+    },
+    {
+      "path": "Preview/Runtime/Session/RecognitionLogging.hpp",
+      "sha256": "f4ed7a4ed8cfbd66c4bd10ad62142a8f9e5eb946e5756640984f6e15b009d464",
+      "lines": 353
+    },
+    {
+      "path": "Preview/Runtime/Session/RunContext.hpp",
+      "sha256": "aeb8f316343b9043f0d751a2a5ba31e0521aac952aae811749eb481b8254ed7a",
+      "lines": 68
+    },
+    {
+      "path": "Preview/Runtime/Statistics.hpp",
+      "sha256": "b850aa5f8afd4098e5796e9a5fe68e19d7ee3633d59b29ddc8bbbe92bd82d9b8",
+      "lines": 196
+    },
+    {
+      "path": "Preview/Runtime/Worker.hpp",
+      "sha256": "4a9cd64c136b9c391b8d94abedeb526eeaa40bec550b0857af3d3b101e381c68",
+      "lines": 314
+    },
+    {
+      "path": "Preview/Runtime/WorkerGroup.hpp",
+      "sha256": "786d259533a9ba62a2a3b644a278afcf807c21e804b3245fa256031bbf052c1d",
+      "lines": 164
+    },
+    {
+      "path": "Preview/Statistics/Counters.hpp",
+      "sha256": "8c5719fc7c3690a5c8982f90948a6ce1d6bf0640a1f279fa4faeff7f6447a9fd",
+      "lines": 4
+    },
+    {
+      "path": "Preview/Statistics/EventRing.hpp",
+      "sha256": "75769408e026b482417988f82607059ef64e1bd2d17ecb74af6c009065680bf9",
+      "lines": 180
+    },
+    {
+      "path": "Preview/Statistics/Events.hpp",
+      "sha256": "bcc7ff268fc5229f2f2fb6e4c5c969263caa7177523a10716889535335210ef7",
+      "lines": 3
+    },
+    {
+      "path": "Preview/Statistics/Redaction.hpp",
+      "sha256": "a1593449d6e398e02a17bb82c61733d3edb951b6f679ce0c32f2680375a1e9c8",
+      "lines": 219
+    },
+    {
+      "path": "Preview/Statistics/Snapshots.hpp",
+      "sha256": "1b37ca7ea8ca9c1a2d0491abba35262e42f4c45b5ac4db5bf01c936edf47fff8",
+      "lines": 135
+    },
+    {
+      "path": "Preview/Statistics/SparseCounters.hpp",
+      "sha256": "8f1131b40444f1ce9c185536320e76d916b9fde688e38d312f3f9c9181b53a90",
+      "lines": 145
+    },
+    {
+      "path": "Preview/Statistics/Statistics.hpp",
+      "sha256": "1e390970838a70db86eb6f85c1f410a6ffbbca623782fbf39044aa9161d66430",
+      "lines": 13
+    },
+    {
+      "path": "Preview/Statistics/Trace.hpp",
+      "sha256": "1d79a4bbc62601732813d088e7da1d6e842b3d642d6bc68a01b2ded253b01b22",
+      "lines": 20
+    },
+    {
+      "path": "Preview/Statistics/TrafficDelta.hpp",
+      "sha256": "eec79ba1857eba2da52ab5d672f7fa8ae04954d14d1e109aff8b5dd52b14c295",
+      "lines": 103
+    },
+    {
+      "path": "Preview/Statistics/Types.hpp",
+      "sha256": "e03fd1a2cde8cab843ddc013f3d35e55d50ab8427c15b565b90b272dab9f8069",
+      "lines": 129
+    },
+    {
+      "path": "Preview/Transport/Algorithm.hpp",
+      "sha256": "e522a27de6793fd6a718cf8cce708540809f2a7af8bfdeb4065c0d0e88e694ef",
+      "lines": 170
+    },
+    {
+      "path": "Preview/Transport/Connector.hpp",
+      "sha256": "d754b62cdf2f31b2e80dcc2782160ba3c02f053b4cacd24b632d67c64fa1dbc2",
+      "lines": 485
+    },
+    {
+      "path": "Preview/Transport/Encrypted.hpp",
+      "sha256": "cf9dd1670e9daf15bbc8ddc82a9295ad46c23fe2bb6da326db8aaf35b3cc455c",
+      "lines": 407
+    },
+    {
+      "path": "Preview/Transport/MemoryStream.hpp",
+      "sha256": "ac2cd1f57ccf6b6c9cc19a5b113471c994c2d1ac261ed618acc6498bd1272cd9",
+      "lines": 297
+    },
+    {
+      "path": "Preview/Transport/NativeTls.hpp",
+      "sha256": "fd8f96b34fc70186a6c700863117c9ff52ca2736a01022fe5b388db1079853c1",
+      "lines": 156
+    },
+    {
+      "path": "Preview/Transport/Pad.hpp",
+      "sha256": "12c92eb672549f2cfdbc0a502d6783015006ed11242690aa7a68158d86b5c80e",
+      "lines": 425
+    },
+    {
+      "path": "Preview/Transport/Preview.hpp",
+      "sha256": "af2c96b9af7adaa21dd18fddb57e62c6f25e9cac5e61bf808a4e6912c77c1ae7",
+      "lines": 321
+    },
+    {
+      "path": "Preview/Transport/Reliable.hpp",
+      "sha256": "c1aec1231f83ff9390e7235b85dd50fc0aebcf0e0c063019c79c14b32701a43d",
+      "lines": 440
+    },
+    {
+      "path": "Preview/Transport/Replay.hpp",
+      "sha256": "d911d1e1e65d641411eceefb2f214a665930820f855760ab5e92443052a1e0d4",
+      "lines": 202
+    },
+    {
+      "path": "Preview/Transport/Snapshot.hpp",
+      "sha256": "538eb02b2418d29456176dd0445943c15cca6675c15ea543929b36c5659093e2",
+      "lines": 248
+    },
+    {
+      "path": "Preview/Transport/Stream.hpp",
+      "sha256": "9f7e746bb1bfafbd3ec8f69244dd4fced3feca78056ac7b01b1305f3e46b5916",
+      "lines": 53
+    },
+    {
+      "path": "Preview/Transport/Transmission.hpp",
+      "sha256": "cf3461637b1fd4171567dc6cc05764e5570ee9a19f227a48882b4970a7f8c7e5",
+      "lines": 444
+    },
+    {
+      "path": "Preview/Transport/Unreliable.hpp",
+      "sha256": "963fab67dad09614c603b91db0edf0b7ab239edec0ec8ec9e9b7de66e302dbc7",
+      "lines": 515
+    },
+    {
+      "path": "Preview/Transport/UnreliableEndpoint.hpp",
+      "sha256": "ac784f8ab11e8446977ab086c4470106c898e1091874fcf4d30b940b2ed0227f",
+      "lines": 146
+    }
+  ],
+  "functions": 5094,
+  "lambdas": 460,
+  "declarations": 5656,
+  "problems": [
+    {
+      "kind": "parameters",
+      "path": "Preview/Application/Assembly/AccountAssembly.hpp",
+      "start": 226,
+      "end": 230,
+      "name": "AccountMatchesQuicCredential",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Application/BoundaryStartup.hpp",
+      "start": 286,
+      "end": 306,
+      "spanLines": 21,
+      "bodyLines": 18,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Application/BoundaryStartup.hpp",
+      "start": 165,
+      "end": 183,
+      "spanLines": 19,
+      "bodyLines": 17,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Application/Configuration/Validation/ProtocolIndependentValidation.hpp",
+      "start": 384,
+      "end": 387,
+      "name": "ReadScriptNumber",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Application/Configuration/Validation/ProtocolIndependentValidation.hpp",
+      "start": 162,
+      "end": 166,
+      "name": "ValidateServerNameList",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Application/Configuration/Validation/ReferenceValidation.hpp",
+      "start": 350,
+      "end": 354,
+      "name": "ValidateProtocolBindings",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Application/Configuration/Validation/ReferenceValidation.hpp",
+      "start": 239,
+      "end": 244,
+      "name": "ValidateProtocols",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Application/Main/PreviewMain.hpp",
+      "start": 40,
+      "end": 63,
+      "spanLines": 24,
+      "bodyLines": 22,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Application/OperationsStartup.hpp",
+      "start": 316,
+      "end": 355,
+      "spanLines": 40,
+      "bodyLines": 39,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Application/OperationsStartup.hpp",
+      "start": 275,
+      "end": 302,
+      "spanLines": 28,
+      "bodyLines": 27,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Application/ProtocolAcceptors.hpp",
+      "start": 188,
+      "end": 198,
+      "spanLines": 11,
+      "bodyLines": 9,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Application/ProtocolProfile.hpp",
+      "start": 224,
+      "end": 228,
+      "name": "AppendRecognitionCandidate",
+      "count": 10,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/AnytlsCarrier.hpp",
+      "start": 57,
+      "end": 79,
+      "spanLines": 23,
+      "bodyLines": 21,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Composition/Recognition/CandidateRegistry.hpp",
+      "start": 285,
+      "end": 290,
+      "name": "BuildFrom",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/RestlsCarrier.hpp",
+      "start": 149,
+      "end": 167,
+      "spanLines": 19,
+      "bodyLines": 17,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/ShadowtlsCarrier.hpp",
+      "start": 125,
+      "end": 138,
+      "spanLines": 14,
+      "bodyLines": 11,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/TlsCandidateFactory.hpp",
+      "start": 74,
+      "end": 84,
+      "spanLines": 11,
+      "bodyLines": 9,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Composition/Recognition/TlsCandidateFactory.hpp",
+      "start": 30,
+      "end": 34,
+      "name": "Make",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 174,
+      "end": 224,
+      "spanLines": 51,
+      "bodyLines": 47,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 167,
+      "end": 171,
+      "name": "MakeGunServerAccept",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 135,
+      "end": 157,
+      "spanLines": 23,
+      "bodyLines": 20,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 91,
+      "end": 122,
+      "spanLines": 32,
+      "bodyLines": 29,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 54,
+      "end": 69,
+      "spanLines": 16,
+      "bodyLines": 14,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Composition/Recognition/TlsRecognitionHelpers.hpp",
+      "start": 113,
+      "end": 117,
+      "name": "InspectFeatures",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Foundation/Utility/Diagnose/ContextState.hpp",
+      "start": 370,
+      "end": 382,
+      "spanLines": 13,
+      "bodyLines": 12,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/AsyncBackendState.hpp",
+      "start": 80,
+      "end": 82,
+      "name": "AsyncBackendState",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/AsyncSubmission.hpp",
+      "start": 269,
+      "end": 270,
+      "name": "QueueFailure",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Foundation/Utility/Diagnose/Facade.hpp",
+      "start": 184,
+      "end": 186,
+      "name": "SubmitFormatted",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Foundation/Utility/Diagnose/FieldCodec.hpp",
+      "start": 28,
+      "end": 40,
+      "spanLines": 13,
+      "bodyLines": 12,
+      "limit": 10
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Lifecycle/TaskRegistry.hpp",
+      "start": 378,
+      "end": 520,
+      "name": "SpawnTracked",
+      "bodyLines": 141,
+      "limit": 120
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Lifecycle/TaskRegistry.hpp",
+      "start": 444,
+      "end": 514,
+      "spanLines": 71,
+      "bodyLines": 70,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Net/Dns/Answer.hpp",
+      "start": 149,
+      "end": 206,
+      "spanLines": 58,
+      "bodyLines": 57,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Net/Dns/Detail/Fallback.hpp",
+      "start": 82,
+      "end": 85,
+      "name": "ResolveFallback",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Net/Dns/Format.hpp",
+      "start": 529,
+      "end": 547,
+      "spanLines": 19,
+      "bodyLines": 18,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Net/Dns/Format.hpp",
+      "start": 438,
+      "end": 450,
+      "spanLines": 13,
+      "bodyLines": 12,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Net/Dns/Resolver.hpp",
+      "start": 516,
+      "end": 544,
+      "spanLines": 29,
+      "bodyLines": 27,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Net/Dns/Upstream.hpp",
+      "start": 223,
+      "end": 241,
+      "spanLines": 19,
+      "bodyLines": 17,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Net/UdpRelay.hpp",
+      "start": 86,
+      "end": 121,
+      "spanLines": 36,
+      "bodyLines": 32,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Operations/Router.hpp",
+      "start": 265,
+      "end": 268,
+      "name": "Router",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Operations/Router.hpp",
+      "start": 173,
+      "end": 176,
+      "name": "State",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Operations/Router.hpp",
+      "start": 155,
+      "end": 165,
+      "spanLines": 11,
+      "bodyLines": 10,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Operations/Router.hpp",
+      "start": 116,
+      "end": 127,
+      "spanLines": 12,
+      "bodyLines": 10,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Operations/Routes/HttpJson.hpp",
+      "start": 454,
+      "end": 497,
+      "spanLines": 44,
+      "bodyLines": 43,
+      "limit": 10
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Operations/Routes/RequestParser.hpp",
+      "start": 99,
+      "end": 236,
+      "name": "ParseRequest",
+      "bodyLines": 136,
+      "limit": 120
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Operations/Routes/RouteDispatch.hpp",
+      "start": 434,
+      "end": 445,
+      "spanLines": 12,
+      "bodyLines": 11,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Operations/Routes/RouteDispatch.hpp",
+      "start": 179,
+      "end": 182,
+      "name": "ReadCorrelation",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Operations/Routes/RouteDispatch.hpp",
+      "start": 165,
+      "end": 168,
+      "name": "ReadBooleanParameter",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Operations/Routes/RouteDispatch.hpp",
+      "start": 136,
+      "end": 139,
+      "name": "ReadParameter",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Common/Address.hpp",
+      "start": 121,
+      "end": 152,
+      "spanLines": 32,
+      "bodyLines": 31,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Gun/GrpcSession.hpp",
+      "start": 210,
+      "end": 226,
+      "spanLines": 17,
+      "bodyLines": 16,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Gun/GrpcSession.hpp",
+      "start": 191,
+      "end": 209,
+      "spanLines": 19,
+      "bodyLines": 18,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Gun/GrpcStream.hpp",
+      "start": 206,
+      "end": 234,
+      "spanLines": 29,
+      "bodyLines": 28,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Gun/GrpcStream.hpp",
+      "start": 183,
+      "end": 205,
+      "spanLines": 23,
+      "bodyLines": 22,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http2/Codec.hpp",
+      "start": 108,
+      "end": 112,
+      "name": "EncodeInt",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http2/Detail/FrameProcessor.hpp",
+      "start": 251,
+      "end": 255,
+      "name": "FinishHeaders",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http2/Detail/FrameProcessor.hpp",
+      "start": 37,
+      "end": 42,
+      "name": "FrameProcessor",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Auth.hpp",
+      "start": 116,
+      "end": 120,
+      "name": "ResponseHead",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionCallbacks.hpp",
+      "start": 134,
+      "end": 138,
+      "name": "Session::CbEndStream",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionCallbacks.hpp",
+      "start": 118,
+      "end": 123,
+      "name": "Session::CbStopSending",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionCallbacks.hpp",
+      "start": 91,
+      "end": 97,
+      "name": "Session::CbRecvData",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionCallbacks.hpp",
+      "start": 63,
+      "end": 68,
+      "name": "Session::CbEndHeaders",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionCallbacks.hpp",
+      "start": 34,
+      "end": 42,
+      "name": "Session::CbRecvHeader",
+      "count": 8,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionCallbacks.hpp",
+      "start": 13,
+      "end": 17,
+      "name": "Session::CbBeginHeaders",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 197,
+      "end": 201,
+      "name": "SubmitResponseHeaders",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 171,
+      "end": 178,
+      "name": "ReadResponseBody",
+      "count": 7,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 165,
+      "end": 169,
+      "name": "CbEndStream",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 159,
+      "end": 164,
+      "name": "CbStopSending",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 152,
+      "end": 158,
+      "name": "CbRecvData",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 146,
+      "end": 151,
+      "name": "CbEndHeaders",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 137,
+      "end": 145,
+      "name": "CbRecvHeader",
+      "count": 8,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionContract.hpp",
+      "start": 132,
+      "end": 136,
+      "name": "CbBeginHeaders",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionOutput.hpp",
+      "start": 172,
+      "end": 179,
+      "name": "Session::ReadResponseBody",
+      "count": 7,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/SessionOutput.hpp",
+      "start": 135,
+      "end": 139,
+      "name": "Session::SubmitResponseHeaders",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/Varint.hpp",
+      "start": 83,
+      "end": 87,
+      "name": "WriteVarint",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/Detail/Varint.hpp",
+      "start": 27,
+      "end": 31,
+      "name": "ReadVarint",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 551,
+      "end": 558,
+      "name": "ReadRequestBody",
+      "count": 7,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 533,
+      "end": 533,
+      "name": "CbResetStream",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 528,
+      "end": 528,
+      "name": "CbStopSending",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 517,
+      "end": 517,
+      "name": "CbEndStream",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 511,
+      "end": 512,
+      "name": "CbRecvData",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 499,
+      "end": 500,
+      "name": "CbEndHeaders",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 465,
+      "end": 473,
+      "name": "CbRecvHeader",
+      "count": 8,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Http3/NativeClient.hpp",
+      "start": 453,
+      "end": 453,
+      "name": "CbBeginHeaders",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Hysteria2/Conn.hpp",
+      "start": 65,
+      "end": 69,
+      "name": "Conn",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/GatewayCommon.hpp",
+      "start": 141,
+      "end": 145,
+      "name": "RegisterTypedConnection",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/GatewayCommon.hpp",
+      "start": 108,
+      "end": 112,
+      "name": "RegisterConnection",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 495,
+      "end": 500,
+      "name": "NewConnectionId",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 486,
+      "end": 490,
+      "name": "VersionNegotiation",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 478,
+      "end": 483,
+      "name": "RecvDatagram",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 471,
+      "end": 477,
+      "name": "StreamClose",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 461,
+      "end": 469,
+      "name": "RecvStreamData",
+      "count": 8,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 454,
+      "end": 460,
+      "name": "RecvCryptoData",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 446,
+      "end": 450,
+      "name": "AddHandshakeData",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 440,
+      "end": 445,
+      "name": "SetWriteSecret",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnection.hpp",
+      "start": 434,
+      "end": 439,
+      "name": "SetReadSecret",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 303,
+      "end": 308,
+      "name": "NativeConnection::NewConnectionId",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 252,
+      "end": 256,
+      "name": "NativeConnection::VersionNegotiation",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 213,
+      "end": 218,
+      "name": "NativeConnection::RecvDatagram",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 193,
+      "end": 199,
+      "name": "NativeConnection::StreamClose",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 158,
+      "end": 166,
+      "name": "NativeConnection::RecvStreamData",
+      "count": 8,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 146,
+      "end": 152,
+      "name": "NativeConnection::RecvCryptoData",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 92,
+      "end": 96,
+      "name": "NativeConnection::AddHandshakeData",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 69,
+      "end": 74,
+      "name": "NativeConnection::SetWriteSecret",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Quic/NativeConnectionCallbacks.hpp",
+      "start": 46,
+      "end": 51,
+      "name": "NativeConnection::SetReadSecret",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Protocols/Reality/Carrier.hpp",
+      "start": 49,
+      "end": 189,
+      "name": "MakeFacadeCarrier",
+      "bodyLines": 139,
+      "limit": 120
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Reality/Carrier.hpp",
+      "start": 54,
+      "end": 188,
+      "spanLines": 135,
+      "bodyLines": 132,
+      "limit": 10
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Protocols/Reality/CarrierHandshake.hpp",
+      "start": 67,
+      "end": 212,
+      "name": "ParseClientHello",
+      "bodyLines": 144,
+      "limit": 120
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Reality/KeyMaterial.hpp",
+      "start": 229,
+      "end": 243,
+      "spanLines": 15,
+      "bodyLines": 12,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Reality/KeyMaterial.hpp",
+      "start": 78,
+      "end": 101,
+      "spanLines": 24,
+      "bodyLines": 23,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Reality/SessionId.hpp",
+      "start": 184,
+      "end": 199,
+      "spanLines": 16,
+      "bodyLines": 15,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Reality/Tls13.hpp",
+      "start": 339,
+      "end": 343,
+      "name": "DecryptTlsRecord",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Reality/Tls13.hpp",
+      "start": 310,
+      "end": 315,
+      "name": "EncryptTlsRecord",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Reality/Tls13.hpp",
+      "start": 142,
+      "end": 147,
+      "name": "Aes128GcmOpen",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Reality/Tls13.hpp",
+      "start": 85,
+      "end": 90,
+      "name": "Aes128GcmSeal",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Reality/Tls13.hpp",
+      "start": 56,
+      "end": 60,
+      "name": "ExpandTls13Label",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Restls/Carrier.hpp",
+      "start": 86,
+      "end": 161,
+      "spanLines": 76,
+      "bodyLines": 74,
+      "limit": 10
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Protocols/Restls/Conn.hpp",
+      "start": 142,
+      "end": 291,
+      "name": "async_read_some",
+      "bodyLines": 147,
+      "limit": 120
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Shadowsocks2022/ChunkCodec.hpp",
+      "start": 250,
+      "end": 253,
+      "name": "AeadOpen",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Shadowsocks2022/ChunkCodec.hpp",
+      "start": 125,
+      "end": 129,
+      "name": "AeadSeal",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Shadowsocks2022/ChunkCodec.hpp",
+      "start": 65,
+      "end": 68,
+      "name": "AeadSeal",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Protocols/Shadowsocks2022/ResponseCodec.hpp",
+      "start": 451,
+      "end": 597,
+      "name": "ParseUdpPacket",
+      "bodyLines": 146,
+      "limit": 120
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Shadowtls/Carrier.hpp",
+      "start": 44,
+      "end": 73,
+      "spanLines": 30,
+      "bodyLines": 28,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Shadowtls/RecordProtector.hpp",
+      "start": 151,
+      "end": 153,
+      "name": "RecordProtector",
+      "count": 6,
+      "limit": 3
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Protocols/Shadowtls/Server.hpp",
+      "start": 204,
+      "end": 357,
+      "name": "Run",
+      "bodyLines": 151,
+      "limit": 120
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Socks5/ConnHandshake.hpp",
+      "start": 72,
+      "end": 76,
+      "name": "WriteHandshake",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Trojan/Conn.hpp",
+      "start": 66,
+      "end": 70,
+      "name": "Conn",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Trusttunnel/Http2Client.hpp",
+      "start": 198,
+      "end": 234,
+      "spanLines": 37,
+      "bodyLines": 36,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Trusttunnel/Http2Client.hpp",
+      "start": 158,
+      "end": 174,
+      "spanLines": 17,
+      "bodyLines": 15,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Tuic/Conn.hpp",
+      "start": 54,
+      "end": 58,
+      "name": "Conn",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Tuic/ConnSession.hpp",
+      "start": 40,
+      "end": 44,
+      "name": "ConnSession",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Vless/Conn.hpp",
+      "start": 63,
+      "end": 67,
+      "name": "Conn",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Vmess/AuthCrypto.hpp",
+      "start": 148,
+      "end": 152,
+      "name": "ValidAesGcmInput",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Vmess/AuthId.hpp",
+      "start": 98,
+      "end": 113,
+      "spanLines": 16,
+      "bodyLines": 15,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Vmess/AuthKdf.hpp",
+      "start": 38,
+      "end": 56,
+      "spanLines": 19,
+      "bodyLines": 18,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Vmess/AuthKdf.hpp",
+      "start": 43,
+      "end": 55,
+      "spanLines": 13,
+      "bodyLines": 11,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Vmess/Conn.hpp",
+      "start": 48,
+      "end": 49,
+      "name": "Conn",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Vmess/ConnSession.hpp",
+      "start": 38,
+      "end": 42,
+      "name": "ConnSession",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Xhttp/Entry.hpp",
+      "start": 22,
+      "end": 26,
+      "name": "Connect",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Xhttp/SplitClient.hpp",
+      "start": 247,
+      "end": 251,
+      "name": "ConnectSplit",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/SplitClient.hpp",
+      "start": 197,
+      "end": 225,
+      "spanLines": 29,
+      "bodyLines": 28,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/SplitClient.hpp",
+      "start": 129,
+      "end": 156,
+      "spanLines": 28,
+      "bodyLines": 27,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/SplitClient.hpp",
+      "start": 94,
+      "end": 110,
+      "spanLines": 17,
+      "bodyLines": 15,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/SplitServer.hpp",
+      "start": 358,
+      "end": 392,
+      "spanLines": 35,
+      "bodyLines": 34,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Xhttp/SplitServer.hpp",
+      "start": 154,
+      "end": 158,
+      "name": "HandleSplitServerHeaders",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Xhttp/StreamClient.hpp",
+      "start": 252,
+      "end": 256,
+      "name": "ConnectStream",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamClient.hpp",
+      "start": 169,
+      "end": 202,
+      "spanLines": 34,
+      "bodyLines": 33,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamClient.hpp",
+      "start": 99,
+      "end": 122,
+      "spanLines": 24,
+      "bodyLines": 20,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamClient.hpp",
+      "start": 84,
+      "end": 97,
+      "spanLines": 14,
+      "bodyLines": 12,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamClient.hpp",
+      "start": 69,
+      "end": 83,
+      "spanLines": 15,
+      "bodyLines": 12,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamClient.hpp",
+      "start": 53,
+      "end": 66,
+      "spanLines": 14,
+      "bodyLines": 13,
+      "limit": 10
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Protocols/Xhttp/StreamServer.hpp",
+      "start": 51,
+      "end": 201,
+      "name": "Run",
+      "bodyLines": 150,
+      "limit": 120
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamServer.hpp",
+      "start": 165,
+      "end": 198,
+      "spanLines": 34,
+      "bodyLines": 32,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamServer.hpp",
+      "start": 103,
+      "end": 146,
+      "spanLines": 44,
+      "bodyLines": 41,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamServer.hpp",
+      "start": 91,
+      "end": 101,
+      "spanLines": 11,
+      "bodyLines": 9,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Protocols/Xhttp/StreamServer.hpp",
+      "start": 73,
+      "end": 86,
+      "spanLines": 14,
+      "bodyLines": 13,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Protocols/Xhttp/StreamTransport.hpp",
+      "start": 265,
+      "end": 266,
+      "name": "WriteRequest",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Runtime/Listener.hpp",
+      "start": 350,
+      "end": 355,
+      "name": "RunSession",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Runtime/Listener.hpp",
+      "start": 128,
+      "end": 134,
+      "name": "AdmissionRequest",
+      "count": 7,
+      "limit": 3
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Runtime/Recognition/ConfiguredMode.hpp",
+      "start": 73,
+      "end": 215,
+      "name": "Recognize",
+      "bodyLines": 141,
+      "limit": 120
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Runtime/Recognition/MixedTrialMode.hpp",
+      "start": 46,
+      "end": 258,
+      "name": "Recognize",
+      "bodyLines": 211,
+      "limit": 120
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Runtime/Recognition/RawIngressProbe.hpp",
+      "start": 115,
+      "end": 117,
+      "name": "Rejected",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Runtime/Recognition/Route.hpp",
+      "start": 92,
+      "end": 104,
+      "spanLines": 13,
+      "bodyLines": 11,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Runtime/SessionControl.hpp",
+      "start": 500,
+      "end": 513,
+      "spanLines": 14,
+      "bodyLines": 13,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Runtime/SessionControl.hpp",
+      "start": 360,
+      "end": 370,
+      "spanLines": 11,
+      "bodyLines": 10,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Runtime/SessionControl.hpp",
+      "start": 204,
+      "end": 207,
+      "name": "ReportErrorOnExecutor",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Runtime/Session/LogState.hpp",
+      "start": 92,
+      "end": 105,
+      "spanLines": 14,
+      "bodyLines": 11,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Runtime/Session/RecognitionLogging.hpp",
+      "start": 316,
+      "end": 323,
+      "name": "WriteRecognitionFailure",
+      "count": 7,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Runtime/Session/RecognitionLogging.hpp",
+      "start": 243,
+      "end": 247,
+      "name": "WriteLog",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Runtime/Session/RecognitionLogging.hpp",
+      "start": 52,
+      "end": 57,
+      "name": "WriteRecognition",
+      "count": 5,
+      "limit": 3
+    },
+    {
+      "kind": "function",
+      "path": "Preview/Statistics/Redaction.hpp",
+      "start": 96,
+      "end": 217,
+      "name": "RedactSensitiveText",
+      "bodyLines": 121,
+      "limit": 120
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Transport/Connector.hpp",
+      "start": 442,
+      "end": 476,
+      "spanLines": 35,
+      "bodyLines": 34,
+      "limit": 10
+    },
+    {
+      "kind": "parameters",
+      "path": "Preview/Transport/Connector.hpp",
+      "start": 363,
+      "end": 366,
+      "name": "PostCompletion",
+      "count": 4,
+      "limit": 3
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Transport/Connector.hpp",
+      "start": 234,
+      "end": 250,
+      "spanLines": 17,
+      "bodyLines": 16,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Transport/Connector.hpp",
+      "start": 175,
+      "end": 215,
+      "spanLines": 41,
+      "bodyLines": 40,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Transport/Encrypted.hpp",
+      "start": 360,
+      "end": 373,
+      "spanLines": 14,
+      "bodyLines": 13,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Transport/Reliable.hpp",
+      "start": 238,
+      "end": 249,
+      "spanLines": 12,
+      "bodyLines": 11,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Transport/Transmission.hpp",
+      "start": 210,
+      "end": 226,
+      "spanLines": 17,
+      "bodyLines": 16,
+      "limit": 10
+    },
+    {
+      "kind": "lambda",
+      "path": "Preview/Transport/Transmission.hpp",
+      "start": 167,
+      "end": 183,
+      "spanLines": 17,
+      "bodyLines": 16,
+      "limit": 10
+    }
+  ],
+  "parseErrors": [],
+  "parseRecoveries": [
+    {
+      "path": "Preview/Account/Authenticator.hpp",
+      "start": 150,
+      "end": 150,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Account/Directory.hpp",
+      "start": 56,
+      "end": 56,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Account/Runtime.hpp",
+      "start": 159,
+      "end": 159,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Application/Configuration/ConfigurationStore.hpp",
+      "start": 21,
+      "end": 21,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Application/Configuration/SecretRefResolver.hpp",
+      "start": 85,
+      "end": 85,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Application/ProtocolProfile.hpp",
+      "start": 228,
+      "end": 228,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Application/ProtocolProfile.hpp",
+      "start": 228,
+      "end": 228,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Boundary/Quic/QuicPacketGateway.hpp",
+      "start": 66,
+      "end": 66,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Builtin/ProtocolBuiltins.hpp",
+      "start": 199,
+      "end": 199,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Builtin/ProtocolBuiltins.hpp",
+      "start": 191,
+      "end": 191,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Builtin/Registry.hpp",
+      "start": 25,
+      "end": 25,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 255,
+      "end": 255,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 249,
+      "end": 249,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 243,
+      "end": 243,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 237,
+      "end": 237,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 231,
+      "end": 231,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 231,
+      "end": 231,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 223,
+      "end": 223,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 204,
+      "end": 204,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 185,
+      "end": 185,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 169,
+      "end": 169,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 162,
+      "end": 162,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 131,
+      "end": 131,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 124,
+      "end": 124,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 102,
+      "end": 102,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 86,
+      "end": 86,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 71,
+      "end": 71,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateFactory.hpp",
+      "start": 71,
+      "end": 71,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateRegistry.hpp",
+      "start": 220,
+      "end": 220,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateRegistry.hpp",
+      "start": 196,
+      "end": 196,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateRegistry.hpp",
+      "start": 184,
+      "end": 184,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateRegistry.hpp",
+      "start": 172,
+      "end": 172,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/CandidateRegistry.hpp",
+      "start": 148,
+      "end": 148,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/ProfileBuilder.hpp",
+      "start": 308,
+      "end": 308,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/ProfileBuilder.hpp",
+      "start": 252,
+      "end": 252,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/ProfileBuilder.hpp",
+      "start": 201,
+      "end": 201,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCandidateFactory.hpp",
+      "start": 33,
+      "end": 33,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 170,
+      "end": 170,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 169,
+      "end": 169,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 133,
+      "end": 133,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 81,
+      "end": 81,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Composition/Recognition/TlsCarrierHelpers.hpp",
+      "start": 79,
+      "end": 79,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Contract/Carrier/FacadeCarrier.hpp",
+      "start": 157,
+      "end": 157,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Contract/Carrier/FacadeCarrier.hpp",
+      "start": 126,
+      "end": 126,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Foundation/Exception/Deviant.hpp",
+      "start": 53,
+      "end": 53,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Aead.hpp",
+      "start": 156,
+      "end": 156,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Foundation/Utility/Crypto/Aead.hpp",
+      "start": 144,
+      "end": 144,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Foundation/Utility/Diagnose/Detail/ContextDecoder.hpp",
+      "start": 42,
+      "end": 42,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Lifecycle/CancellationDomain.hpp",
+      "start": 170,
+      "end": 170,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Lifecycle/FailureBoundary.hpp",
+      "start": 26,
+      "end": 26,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Lifecycle/TaskRegistry.hpp",
+      "start": 333,
+      "end": 333,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Lifecycle/TaskRegistry.hpp",
+      "start": 322,
+      "end": 322,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Lifecycle/TaskState.hpp",
+      "start": 203,
+      "end": 203,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Net/Dialer/Dialer.hpp",
+      "start": 60,
+      "end": 60,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Net/Dns/Rules.hpp",
+      "start": 275,
+      "end": 275,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Net/Dns/Upstream.hpp",
+      "start": 48,
+      "end": 48,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Net/UdpRelay.hpp",
+      "start": 70,
+      "end": 70,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Models.hpp",
+      "start": 225,
+      "end": 225,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Models.hpp",
+      "start": 214,
+      "end": 214,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Models.hpp",
+      "start": 213,
+      "end": 213,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Router.hpp",
+      "start": 388,
+      "end": 388,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Router.hpp",
+      "start": 268,
+      "end": 268,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Router.hpp",
+      "start": 267,
+      "end": 267,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Router.hpp",
+      "start": 257,
+      "end": 257,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Routes/HttpJson.hpp",
+      "start": 595,
+      "end": 595,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Operations/Routes/HttpJson.hpp",
+      "start": 580,
+      "end": 580,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Gun/Conn.hpp",
+      "start": 54,
+      "end": 54,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcSession.hpp",
+      "start": 185,
+      "end": 185,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcSession.hpp",
+      "start": 34,
+      "end": 34,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcSession.hpp",
+      "start": 33,
+      "end": 33,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Gun/GrpcStream.hpp",
+      "start": 47,
+      "end": 47,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Gun/Gun.hpp",
+      "start": 60,
+      "end": 60,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Gun/Gun.hpp",
+      "start": 39,
+      "end": 39,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Http1/Parser.hpp",
+      "start": 404,
+      "end": 404,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Http2/Detail/SessionImpl.hpp",
+      "start": 87,
+      "end": 87,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Hysteria2/Conn.hpp",
+      "start": 69,
+      "end": 69,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Client.hpp",
+      "start": 145,
+      "end": 145,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Client.hpp",
+      "start": 57,
+      "end": 57,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Codec.hpp",
+      "start": 35,
+      "end": 35,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/H2Mux.hpp",
+      "start": 57,
+      "end": 57,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/H2Mux.hpp",
+      "start": 42,
+      "end": 42,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/H2Mux/Session.hpp",
+      "start": 38,
+      "end": 38,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Server.hpp",
+      "start": 145,
+      "end": 145,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Server.hpp",
+      "start": 57,
+      "end": 57,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Codec.hpp",
+      "start": 34,
+      "end": 34,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Session.hpp",
+      "start": 38,
+      "end": 38,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Smux.hpp",
+      "start": 57,
+      "end": 57,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Smux/Smux.hpp",
+      "start": 42,
+      "end": 42,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Codec.hpp",
+      "start": 59,
+      "end": 59,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Session.hpp",
+      "start": 38,
+      "end": 38,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Yamux.hpp",
+      "start": 57,
+      "end": 57,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Mux/Yamux/Yamux.hpp",
+      "start": 42,
+      "end": 42,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Native/Conn.hpp",
+      "start": 78,
+      "end": 78,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Quic/GatewayCommon.hpp",
+      "start": 111,
+      "end": 111,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/RequestState.hpp",
+      "start": 59,
+      "end": 59,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Shadowsocks2022/RequestWire.hpp",
+      "start": 197,
+      "end": 197,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Socks5/ConnHandshake.hpp",
+      "start": 274,
+      "end": 274,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Trojan/Conn.hpp",
+      "start": 70,
+      "end": 70,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Conn.hpp",
+      "start": 113,
+      "end": 113,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Conn.hpp",
+      "start": 112,
+      "end": 112,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Conn.hpp",
+      "start": 111,
+      "end": 111,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/Conn.hpp",
+      "start": 58,
+      "end": 58,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnAuth.hpp",
+      "start": 195,
+      "end": 195,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnAuth.hpp",
+      "start": 194,
+      "end": 194,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnAuth.hpp",
+      "start": 193,
+      "end": 193,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Tuic/ConnSession.hpp",
+      "start": 44,
+      "end": 44,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Vless/Conn.hpp",
+      "start": 67,
+      "end": 67,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Conn.hpp",
+      "start": 49,
+      "end": 49,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Vmess/Conn.hpp",
+      "start": 48,
+      "end": 48,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Vmess/RequestCodec.hpp",
+      "start": 293,
+      "end": 293,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Ws/Conn.hpp",
+      "start": 91,
+      "end": 91,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Ws/Conn.hpp",
+      "start": 90,
+      "end": 90,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnHandshake.hpp",
+      "start": 138,
+      "end": 138,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Ws/ConnHandshake.hpp",
+      "start": 137,
+      "end": 137,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/Entry.hpp",
+      "start": 26,
+      "end": 26,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/SplitTransport.hpp",
+      "start": 50,
+      "end": 50,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Protocols/Xhttp/StreamTransport.hpp",
+      "start": 54,
+      "end": 54,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Middleware/Builtin/Dial.hpp",
+      "start": 46,
+      "end": 46,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ConfiguredMode.hpp",
+      "start": 225,
+      "end": 225,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/ConfiguredMode.hpp",
+      "start": 74,
+      "end": 74,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/DeterministicMode.hpp",
+      "start": 46,
+      "end": 46,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/DeterministicMode.hpp",
+      "start": 36,
+      "end": 36,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialMode.hpp",
+      "start": 268,
+      "end": 268,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/MixedTrialMode.hpp",
+      "start": 47,
+      "end": 47,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/Recognition.hpp",
+      "start": 40,
+      "end": 40,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Recognition/TlsRecordReader.hpp",
+      "start": 35,
+      "end": 35,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/SessionControl.hpp",
+      "start": 545,
+      "end": 545,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/SessionControl.hpp",
+      "start": 538,
+      "end": 538,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/SessionControl.hpp",
+      "start": 121,
+      "end": 121,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Runtime/Session/RecognitionLogging.hpp",
+      "start": 57,
+      "end": 57,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Statistics/TrafficDelta.hpp",
+      "start": 30,
+      "end": 30,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Transport/Connector.hpp",
+      "start": 62,
+      "end": 62,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    },
+    {
+      "path": "Preview/Transport/Pad.hpp",
+      "start": 82,
+      "end": 82,
+      "type": "type_identifier",
+      "reason": "empty-default-argument"
+    }
+  ]
+}

@@ -11,7 +11,6 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -48,7 +47,7 @@ namespace Preview::Socks5
      * @tparam Memory 会话内存策略（默认 8KB Arena；可注入自定义策略）
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Dgram : public Preview::Transmission, public std::enable_shared_from_this<Dgram<Memory>>
+    class Dgram : public Preview::Transmission
     {
     public:
         /// 内存策略类型（对外暴露）
@@ -58,7 +57,9 @@ namespace Preview::Socks5
          * @brief 构造函数（工厂调用）
          * @param Stream 底层流连接（已握手，所有权移交）
          */
-        explicit Dgram(SharedTransmission Stream) : NextLayer_(std::move(Stream))
+        explicit Dgram(SharedTransmission Stream)
+            : Preview::Transmission(Stream ? Stream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Stream))
         {
         }
 
@@ -67,6 +68,10 @@ namespace Preview::Socks5
          */
         [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return Preview::Transmission::Executor();
+            }
             return NextLayer_->Executor();
         }
 
@@ -80,129 +85,180 @@ namespace Preview::Socks5
 
         /**
          * @brief 发送一个 UDP 数据报（WriteTo 语义）
-         * @param dest 目标地址
-         * @param payload 载荷
-         * @return 错误码
+         * @param Destination 按值持有的目标地址，协程帧独立持有其值。
+         * @param Payload 借用载荷；调用方须保持其存储有效且不变，直到 awaitable 完成。
+         * @return Error；底层传输失败映射为 Error::IoError。
          * @details 报文格式 [RSV 2B][FRAG 1B][ATYP][ADDR][PORT][payload]。
+         *          底层写操作遵循 Transmission 固定的 Activity executor。
+         *          同方向的发送调用必须串行，遵循 Transmission 的 span 借用和同向发起契约。
+         * @note Cancel() 请求取消；Close() 向下层转交最终关闭，成功仅表示命令已接管。
+         *       释放 owner 前须等待本层及下层各自 Activity()->Drain()。
          */
-        [[nodiscard]] auto AsyncSendTo(const Address &dest, std::span<const std::uint8_t> payload)
+        [[nodiscard]] auto AsyncSendTo(
+            Address Destination,
+            std::span<const std::uint8_t> Payload)
             -> Net::awaitable<Error>
         {
-            BuildUdpDatagram(dest, payload, TxWire_);
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            BuildUdpDatagram(Destination, Payload, TxWire_);
+            if (TxWire_.empty())
+            {
+                co_return Error::BadAddress;
+            }
             std::size_t Done = 0;
             while (Done < TxWire_.size())
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_write_some(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done), ec);
-                if (ec)
+                const auto Part = co_await WriteSome(
+                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done));
+                if (Part.Failure.Failed())
                 {
                     co_return Error::IoError;
                 }
-                if (N == 0)
+                if (Part.Bytes == 0)
                 {
                     co_return Error::BrokenPipe; // 底层零字节写入，防死循环
                 }
-                if (N > TxWire_.size() - Done)
+                if (Part.Bytes > TxWire_.size() - Done)
                 {
                     co_return Error::BadLength;
                 }
-                Done += N;
+                Done += Part.Bytes;
             }
             co_return Error::None;
         }
 
         /**
          * @brief 接收一个 UDP 数据报（ReadFrom 语义）
-         * @param src 输出源地址
-         * @param payload 输出载荷
+         * @param Source 输出源地址
+         * @param Payload 输出载荷
          * @return 错误码
          * @details 经底层流连接预读缓冲精确分段读取：
          * RSV(2) + FRAG(1) + ATYP + ADDR + PORT(2) + payload。
          */
-        [[nodiscard]] auto AsyncReceiveFrom(Address &src, std::vector<std::uint8_t> &payload)
+        [[nodiscard]] auto AsyncReceiveFrom(
+            Address &Source,
+            std::vector<std::uint8_t> &Payload)
             -> Net::awaitable<Error>
         {
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
             // 1. RSV(2) + FRAG(1)
-            std::array<std::uint8_t, 3> head{};
-            const auto HeadError = co_await ReadExact(std::span<std::uint8_t>(head));
+            std::array<std::uint8_t, 3> Head{};
+            const auto HeadError = co_await ReadExact(std::span<std::uint8_t>(Head));
             if (HeadError != Error::None)
                 co_return HeadError;
-            if (head[0] != 0 || head[1] != 0 || head[2] != 0)
+            if (Head[0] != 0 || Head[1] != 0 || Head[2] != 0)
             {
                 co_return Error::BadMessage;
             }
 
             // 2. ATYP + ADDR + PORT
-            std::array<std::uint8_t, 1> atyp{};
-            const auto AtypError = co_await ReadExact(std::span<std::uint8_t>(atyp));
+            std::array<std::uint8_t, 1> AddressTypeByte{};
+            const auto AtypError = co_await ReadExact(std::span<std::uint8_t>(AddressTypeByte));
             if (AtypError != Error::None)
                 co_return AtypError;
-            src.Type = static_cast<AddressType>(atyp[0]);
-            auto Err = co_await ReadAddressBody(src);
-            if (Err != Error::None)
+            Source.Type = static_cast<AddressType>(AddressTypeByte[0]);
+            const auto AddressError = co_await ReadAddressBody(Source);
+            if (AddressError != Error::None)
             {
-                co_return Err;
+                co_return AddressError;
             }
-            std::array<std::uint8_t, 2> port{};
-            const auto PortError = co_await ReadExact(std::span<std::uint8_t>(port));
+            std::array<std::uint8_t, 2> Port{};
+            const auto PortError = co_await ReadExact(std::span<std::uint8_t>(Port));
             if (PortError != Error::None)
                 co_return PortError;
-            src.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
+            Source.Port = static_cast<std::uint16_t>(Port[0]) << 8 | Port[1];
 
             // 3. 剩余为 payload（单次读取，超读由流连接缓冲保留）
-            std::array<std::uint8_t, 512> chunk{};
-            std::error_code ec;
-            const auto N =
-                co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
-            if (ec)
+            std::array<std::uint8_t, 512> Chunk{};
+            const auto Part = co_await ReadSome(AsBytes(std::span<std::uint8_t>(Chunk)));
+            if (Part.Failure.Failed())
             {
+                if (Part.Failure.Code == Preview::Fault::Code::Eof)
+                {
+                    co_return Error::UnexpectedEof;
+                }
                 co_return Error::IoError;
             }
-            if (N == 0)
+            if (Part.Bytes == 0)
             {
                 co_return Error::UnexpectedEof;
             }
-            if (N > chunk.size())
+            if (Part.Bytes > Chunk.size())
             {
                 co_return Error::BadLength;
             }
-            payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+            Payload.assign(Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(Part.Bytes));
             co_return Error::None;
         }
 
         /**
          * @brief 透传读取（底层流原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(
+                    Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
+            }
+            NextLayer_->ReadSome(Buffer, std::move(Handler));
         }
 
         /**
          * @brief 透传写入（底层流原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(
+                    Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
+            }
+            NextLayer_->WriteSome(Buffer, std::move(Handler));
+        }
+
+        /** @brief 真实写半关闭转交底层流；读取方向保持可用。 */
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(
+                    Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
+            }
+            NextLayer_->WriteShutdown(std::move(Handler));
         }
 
         /**
          * @brief 关闭底层流连接
          */
-        void Close() override
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
-            NextLayer_->Close();
+            if (!NextLayer_)
+            {
+                return {};
+            }
+            return NextLayer_->Close();
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
-            NextLayer_->Cancel();
+            if (!NextLayer_)
+            {
+                return {};
+            }
+            return NextLayer_->Cancel();
         }
 
         /**
@@ -240,41 +296,40 @@ namespace Preview::Socks5
     private:
         /**
          * @brief 精确读取指定字节数
-         * @param dst 目标缓冲区
+         * @param Destination 目标缓冲区
          * @return 错误码；None 表示完整读取，BadLength 表示底层违反窗口契约
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> Net::awaitable<Error>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Destination) -> Net::awaitable<Error>
         {
             std::size_t Done = 0;
-            while (Done < dst.size())
+            while (Done < Destination.size())
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
-                if (ec || N == 0)
+                const auto Part = co_await ReadSome(AsBytes(Destination.subspan(Done)));
+                if (Part.Failure.Failed() || Part.Bytes == 0)
                 {
                     co_return Error::IoError;
                 }
-                if (N > dst.size() - Done)
+                if (Part.Bytes > Destination.size() - Done)
                 {
                     co_return Error::BadLength;
                 }
-                Done += N;
+                Done += Part.Bytes;
             }
             co_return Error::None;
         }
 
         /**
          * @brief 读取地址体（ATYP 已由调用方解析）
-         * @param addr 输出地址
+         * @param AddressValue 输出地址
          * @return 错误码
          * @note 转发层：统一实现见 Protocol/common::ReadAddressBody
          */
-        [[nodiscard]] auto ReadAddressBody(Address &addr) -> Net::awaitable<Error>
+        [[nodiscard]] auto ReadAddressBody(Address &AddressValue) -> Net::awaitable<Error>
         {
-            return Preview::Protocol::Common::ReadAddressBody(
-                addr, [this](std::span<std::uint8_t> dst) -> Net::awaitable<bool>
+            return Preview::Socks5::ReadAddressBody(
+                AddressValue, [this](std::span<std::uint8_t> Destination) -> Net::awaitable<bool>
                 {
-                    co_return (co_await ReadExact(dst)) != Error::None;
+                    co_return (co_await ReadExact(Destination)) != Error::None;
                 });
         }
 

@@ -1,156 +1,142 @@
 /**
  * @file Session.hpp
- * @brief HTTP/2 会话抽象（接口骨架）
- * @details HTTP/2 会话层：连接/流/帧编解码/优先级管理。
- * 设计目标：
- * 1. 定义统一契约（H2Session），供 h2mux、grpc、CONNECT 代理复用
- * 2. 生产实现基于 nghttp2（见 src/prism/Protocol/multiplex/h2mux/control.cpp）
- * 3. 测试可注入内存实现（无 nghttp2 依赖）验证协议逻辑
- * @note 本文件仅定义接口契约；nghttp2 具体封装见生产库
- *       Protocol/multiplex/h2mux/control.cpp。
+ * @brief HTTP/2 会话唯一公共 owner。
+ * @details 本 facade 只公开连接与 stream 操作；帧、HPACK、接收 credit 和 native
+ *          dispatch 状态由 Detail::SessionState 独占。构造时复制执行器与服务端角色，
+ *          同步 Feed/Collect/提交调用必须由该执行器串行驱动；AwaitWritable 在同一执行器
+ *          挂起并可取消。Session 不拥有底层传输，也不启动后台协程。连接 owner 停止驱动、
+ *          收集待发数据并排空传输活动后销毁 Session 和关闭底层传输。
  */
 
 #pragma once
 
-#include <boost/asio/any_io_executor.hpp>
-#include <boost/asio/awaitable.hpp>
+#include <Preview/Protocols/Http2/Detail/SessionState.hpp>
+#include <Preview/Protocols/Http2/Types.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 
 #include <cstddef>
+#include <expected>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <span>
-#include <string>
-#include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
-
-#include <Preview/Protocols/Http2/Frame.hpp>
-#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Http2
 {
 
-    namespace Net = boost::asio;
-
-    /// HTTP 头键值对
-    struct Header
-    {
-        std::string Name;  ///< 头名称（小写）
-        std::string value; ///< 头值（保留以兼容现有调用方）
-    };
-
-    /// 头列表（保持顺序）
-    using HeaderList = std::vector<Header>;
-
     /**
-     * @class H2Session
-     * @brief HTTP/2 会话接口
-     * @details 统一 h2 会话契约：
-     * - 帧收发（Feed/Collect）
-     * - 流管理（OpenStream/ResetStream）
-     * - 头/数据提交（SubmitHeaders/SubmitData）
-     * - 事件回调（OnHeaders/OnData/OnStreamClose）
+     * @class Session
+     * @brief 可直接消费的 HTTP/2 会话 facade。
+     * @details 不可复制或移动，避免 Detail owner 保存的回调目标失效。输入 span 和头字段
+     *          仅借用到同步调用返回；被接受的发送字节由内部 frame queue 拥有。
      */
-    class H2Session
+    class Session final : public H2Session
     {
     public:
-        virtual ~H2Session() = default;
-
         /**
-         * @brief 投喂流数据（传输层 → h2 状态机）
-         * @param Data 收到的字节流
-         * @param Error 错误码输出
-         * @return 处理是否成功
+         * @brief 创建 HTTP/2 会话。
+         * @param Executor 会话保存的 Asio 执行器。
+         * @param IsServer 是否为服务端角色。
+         * @details 调用者拥有 Session 与底层传输，并在 Executor 上串行驱动会话。同步状态
+         *          操作没有取消点；AwaitWritable 的取消只结束该等待，不销毁 Session。
+         *          Session 仅释放协议状态，不负责底层传输最终关闭；连接 owner 在停止
+         *          Feed/Collect 并排空传输活动后完成销毁和关闭。
          */
-        [[nodiscard]] virtual auto Feed(
+        explicit Session(Net::any_io_executor Executor, bool IsServer)
+            : State_(std::make_unique<Detail::SessionState>(
+                  std::move(Executor), IsServer, *this))
+        {
+        }
+
+        ~Session() override = default;
+
+        Session(const Session &) = delete;
+        auto operator=(const Session &) -> Session & = delete;
+        Session(Session &&) = delete;
+        auto operator=(Session &&) -> Session & = delete;
+
+        [[nodiscard]] auto Feed(
             std::span<const std::byte> Data,
-            std::error_code &Error) -> bool = 0;
+            std::error_code &ErrorCode) -> bool override
+        {
+            return State_->Feed(Data, ErrorCode);
+        }
 
-        /**
-         * @brief 收集待发送帧（h2 状态机 → 传输层）
-         * @param Output 输出缓冲区
-         * @return 是否还有更多待发数据
-         */
-        [[nodiscard]] virtual auto Collect(std::vector<std::byte> &Output) -> bool = 0;
+        [[nodiscard]] auto Collect(std::vector<std::byte> &Output) -> bool override
+        {
+            return State_->Collect(Output);
+        }
 
-        /**
-         * @brief 打开新流
-         * @param Headers 初始头（伪头 + 普通头）
-         * @param EndStream 是否立即结束流
-         * @return 流 ID；<0 失败
-         */
-        [[nodiscard]] virtual auto OpenStream(
+        [[nodiscard]] auto OpenStream(
             const HeaderList &Headers,
-            bool EndStream) -> std::int32_t = 0;
+            bool EndStream) -> std::expected<std::int32_t, Preview::Fault::Failure> override
+        {
+            return State_->OpenStream(Headers, EndStream);
+        }
 
-        /**
-         * @brief 提交头到已开流
-         * @param StreamId 流 ID
-         * @param Headers 头列表
-         * @param EndStream 是否结束流
-         * @return 成功返回 0
-         */
-        [[nodiscard]] virtual auto SubmitHeaders(
+        [[nodiscard]] auto SubmitHeaders(
             std::int32_t StreamId,
             const HeaderList &Headers,
-            bool EndStream) -> std::int32_t = 0;
+            bool EndStream) -> std::expected<void, Preview::Fault::Failure> override
+        {
+            return State_->SubmitHeaders(StreamId, Headers, EndStream);
+        }
 
-        /**
-         * @brief 提交数据到流
-         * @param StreamId 流 ID
-         * @param Data 数据载荷
-         * @param EndStream 是否结束流
-         * @return 成功返回 0
-         */
-        [[nodiscard]] virtual auto SubmitData(
+        [[nodiscard]] auto SubmitData(
             std::int32_t StreamId,
             std::span<const std::byte> Data,
-            bool EndStream) -> std::int32_t = 0;
+            bool EndStream) -> SubmitDataStatus override
+        {
+            return State_->SubmitData(StreamId, Data, EndStream);
+        }
 
-        /**
-         * @brief 确认应用层已经消费收到的 DATA
-         * @param StreamId 数据所属流
-         * @param Bytes 已消费的 DATA 帧载荷字节数
-         * @details 实现必须分别恢复连接窗口和流窗口，并生成对应的
-         * WINDOW_UPDATE 帧。Bytes 超过 31 位增量时必须拆分为多个帧。
-         */
-        virtual auto ConsumeData(std::int32_t StreamId, std::size_t Bytes) -> void = 0;
-
-        /**
-         * @brief 重置流（RST_STREAM）
-         * @param StreamId 流 ID
-         * @param ErrorCode 错误码
-         * @return 成功返回 0
-         */
-        [[nodiscard]] virtual auto ResetStream(
+        [[nodiscard]] auto AwaitWritable(
             std::int32_t StreamId,
-            std::uint32_t ErrorCode)
-            -> std::int32_t = 0;
+            std::size_t RequiredBytes)
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>> override
+        {
+            return State_->AwaitWritable(StreamId, RequiredBytes);
+        }
 
-        /**
-         * @brief 获取执行器
-         */
-        [[nodiscard]] virtual auto Executor() const -> Net::any_io_executor = 0;
+        auto ConsumeData(std::int32_t StreamId, std::size_t Bytes) -> void override
+        {
+            State_->ConsumeData(StreamId, Bytes);
+        }
 
-        // ── 事件回调（协议层订阅） ──
+        [[nodiscard]] auto ResetStream(
+            std::int32_t StreamId,
+            std::uint32_t ErrorCode) -> std::expected<void, Preview::Fault::Failure> override
+        {
+            return State_->ResetStream(StreamId, ErrorCode);
+        }
 
-        /// 收到流头（OnHeaders）
-        std::function<void(
-            std::int32_t StreamId,
-            const HeaderList &Headers,
-            bool EndStream)> OnHeaders;
-        /// 收到流数据（OnData）
-        std::function<void(
-            std::int32_t StreamId,
-            std::span<const std::byte> Data)> OnData;
-        /// 流关闭（OnStreamClose）
-        std::function<void(
-            std::int32_t StreamId,
-            std::uint32_t ErrorCode)> OnStreamClose;
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
+        {
+            return State_->Executor();
+        }
+
+        /** @brief 把 SETTINGS 编码进会话自有发送队列。 */
+        auto SendSettings(std::span<const SettingsEntry> Entries = {}) -> void
+        {
+            State_->SendSettings(Entries);
+        }
+
+        /** @brief 把 PING 编码进会话自有发送队列。 */
+        auto SendPing(std::span<const std::byte, 8> Opaque) -> void
+        {
+            State_->SendPing(Opaque);
+        }
+
+        /** @brief 把 GOAWAY 编码进会话自有发送队列。 */
+        auto SendGoaway(std::uint32_t LastStreamId, std::uint32_t ErrorCode) -> void
+        {
+            State_->SendGoaway(LastStreamId, ErrorCode);
+        }
+
+    private:
+        std::unique_ptr<Detail::SessionState> State_;
     };
-
-    /// 会话共享指针
-    using SharedH2Session = std::shared_ptr<H2Session>;
 
 } // namespace Preview::Http2

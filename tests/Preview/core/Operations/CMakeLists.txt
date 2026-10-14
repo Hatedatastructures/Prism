@@ -1,5 +1,0 @@
-AddPreviewTest(Task10OperationsTest.cpp)
-target_link_libraries(Task10OperationsTest PRIVATE PreviewComposition PreviewOperations)
-
-AddPreviewTest(OperationsHttpTest.cpp)
-target_link_libraries(OperationsHttpTest PRIVATE PreviewApplication PreviewOperations)

@@ -13,15 +13,23 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/asio/awaitable.hpp>
 
 #include <cstddef>
+#include <expected>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <system_error>
 
+#include <Preview/Contract/Io/CarrierActivity.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Protocols/Common/IoBridge.hpp>
+#include <Preview/Protocols/Quic/Detail/StreamAdapterActivity.hpp>
+#include <Preview/Transport/Detail/IoCompletion.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Quic
@@ -42,13 +50,9 @@ namespace Preview::Quic
 
         /**
          * @brief 获取流操作执行器
-         * @details 默认空执行器仅用于兼容轻量测试 provider；原生 QUIC
-         *          provider 应返回其状态所属 executor，front 会拒绝不亲和的 provider。
+         * @details provider 必须返回其状态所属的真实 executor；适配器不创建隐式执行域。
          */
-        [[nodiscard]] virtual auto Executor() const -> Net::any_io_executor
-        {
-            return {};
-        }
+        [[nodiscard]] virtual auto Executor() const -> Net::any_io_executor = 0;
 
         /**
          * @brief 异步读取流数据
@@ -71,19 +75,30 @@ namespace Preview::Quic
             std::error_code &ErrorCode) -> Net::awaitable<std::size_t> = 0;
 
         /**
-         * @brief 关闭流（发送 FIN）
+         * @brief 请求终止整条流的读写两侧。
+         * @details Native provider 使用 ngtcp2_conn_shutdown_stream 中止流；该操作不等价于有序 FIN 半关闭。
          */
-        virtual auto Close() -> void = 0;
+        using ControlResult = std::expected<void, Preview::Fault::Failure>;
+        [[nodiscard]] virtual auto Close() -> ControlResult = 0;
+
+        /** @brief 返回该 stream provider 的真实操作与 native terminal 回执。 */
+        [[nodiscard]] virtual auto Activity() const noexcept
+            -> std::shared_ptr<Preview::Contract::CarrierActivity> = 0;
 
         /**
-         * @brief 只关闭写方向并保留读方向
-         * @details 默认实现回退为完整关闭；支持半关闭的 QUIC provider
-         *          应覆盖该方法。
+         * @brief 只关闭写方向并保留读方向。
+         * @details awaitable 持有实际 provider 至 FIN 入包及 UDP sender 完成发送；成功只确认本地提交。
+         *          失败按原 Fault::Failure 返回，不能退化为完整 Close。
          */
-        virtual auto ShutdownWrite() -> void
-        {
-            Close();
-        }
+        using ShutdownResult = std::expected<void, Preview::Fault::Failure>;
+        [[nodiscard]] virtual auto ShutdownWrite() -> Net::awaitable<ShutdownResult> = 0;
+
+        /**
+         * @brief 等待对端对已提交 FIN 的 QUIC transport acknowledgement。
+         * @details 必须先成功完成 ShutdownWrite；UDP sender 完成不代表收到对端 ACK。
+         */
+        [[nodiscard]] virtual auto WaitForWriteAcknowledgement()
+            -> Net::awaitable<ShutdownResult> = 0;
 
         /**
          * @brief 获取流 ID
@@ -110,6 +125,19 @@ namespace Preview::Quic
      */
     class StreamAdapter final : public Transmission
     {
+        [[nodiscard]] static auto ResolveExecutor(
+            const Net::any_io_executor &Executor,
+            const SharedStreamProvider &Provider) -> Net::any_io_executor
+        {
+            if (Provider)
+            {
+                const auto ProviderExecutor = Provider->Executor();
+                if (ProviderExecutor) return ProviderExecutor;
+            }
+            if (Executor) return Executor;
+            throw std::invalid_argument("StreamAdapter requires an executor");
+        }
+
     public:
         /**
          * @brief 构造函数
@@ -117,8 +145,10 @@ namespace Preview::Quic
          * @param Provider 流提供者（所有权移交）
          */
         StreamAdapter(Net::any_io_executor Executor, SharedStreamProvider Provider)
-            : Ex_(Provider && Provider->Executor() ? Provider->Executor() : std::move(Executor)),
-              Provider_(std::move(Provider))
+            : Preview::Transmission(ResolveExecutor(Executor, Provider)),
+              Ex_(ResolveExecutor(Executor, Provider)),
+              Provider_(std::move(Provider)),
+              Activity_(MakeActivity(Preview::Transmission::Activity(), Provider_))
         {
         }
 
@@ -128,6 +158,12 @@ namespace Preview::Quic
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
             return Ex_;
+        }
+
+        [[nodiscard]] auto Activity() const noexcept
+            -> std::shared_ptr<Preview::Contract::CarrierActivity> override
+        {
+            return Activity_;
         }
 
         /**
@@ -141,77 +177,97 @@ namespace Preview::Quic
 
         /**
          * @brief 异步读取（委托提供者）
+         * @details 结果与借用沿正式前门交付一次；提供者缺失时交付确定失败。
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            if (!Provider_)
-            {
-                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
-                co_return 0;
-            }
-            const auto Read = co_await Provider_->Read(Buffer, ErrorCode);
-            if (!ErrorCode && Read > Buffer.size())
-            {
-                ErrorCode = make_error_code(Error::BadLength);
-                co_return 0;
-            }
-            co_return Read;
+            Preview::Protocols::StartPartialRead(
+                Preview::Protocols::PartialReadInput<StreamAdapter>{Owner(), Buffer, Executor()},
+                std::move(Handler));
         }
 
         /**
          * @brief 异步写入（委托提供者）
          */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            if (!Provider_)
-            {
-                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
-                co_return 0;
-            }
-            const auto Written = co_await Provider_->Write(Buffer, ErrorCode);
-            if (!ErrorCode && Written > Buffer.size())
-            {
-                ErrorCode = make_error_code(Error::BadLength);
-                co_return 0;
-            }
-            co_return Written;
+            Preview::Protocols::StartPartialWrite(
+                Preview::Protocols::PartialWriteInput<StreamAdapter>{Owner(), Buffer, Executor()},
+                std::move(Handler));
+        }
+
+        /**
+         * @brief 真实写半关闭：委托提供者的 ShutdownWrite 并交付一次结果。
+         */
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            Net::co_spawn(
+                Ex_,
+                CompleteWriteShutdown(Owner(), std::move(Handler)),
+                Net::detached);
         }
 
         /**
          * @brief 关闭流
+         * @return 命令交付成功；实际退出由 Activity()->Drain() 另行等待。
          */
-        auto Close() -> void override
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
-            if (Provider_)
-            {
-                Provider_->Close();
-            }
+            return Provider_->Close();
         }
 
         /**
-         * @brief 取消挂起操作
+         * @brief 取消挂起操作：与关闭同一提供者路径，不宣称已经关闭。
          */
-        auto Cancel() -> void override
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
-            if (Provider_)
-            {
-                Provider_->Close();
-            }
+            return Provider_->Close();
         }
 
-        /**
-         * @brief 半关闭流的写方向并发送 FIN
-         */
-        auto Shutdown() -> void override
+        /** @brief 数据面部分读取实现，由正式前门复用。 */
+        [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
         {
-            if (Provider_)
+            if (!Provider_)
             {
-                Provider_->ShutdownWrite();
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(std::make_error_code(std::errc::bad_file_descriptor))};
             }
+            std::error_code ErrorCode;
+            const auto Read = co_await Provider_->Read(Buffer, ErrorCode);
+            if (Read > Buffer.size())
+            {
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(make_error_code(Error::BadLength))};
+            }
+            if (ErrorCode)
+            {
+                co_return Preview::IoResult{Read, Preview::Fault::FromNative(ErrorCode)};
+            }
+            co_return Preview::IoResult{Read, {}};
+        }
+
+        /** @brief 数据面部分写入实现，由正式前门复用；保留提供者短写事实。 */
+        [[nodiscard]] auto WritePartial(std::span<const std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            if (!Provider_)
+            {
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(std::make_error_code(std::errc::bad_file_descriptor))};
+            }
+            std::error_code ErrorCode;
+            const auto Written = co_await Provider_->Write(Buffer, ErrorCode);
+            if (Written > Buffer.size())
+            {
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(make_error_code(Error::BadLength))};
+            }
+            if (ErrorCode)
+            {
+                co_return Preview::IoResult{Written, Preview::Fault::FromNative(ErrorCode)};
+            }
+            co_return Preview::IoResult{Written, {}};
         }
 
         /**
@@ -233,8 +289,70 @@ namespace Preview::Quic
         }
 
     private:
+        [[nodiscard]] static auto MakeActivity(
+            std::shared_ptr<Preview::Contract::CarrierActivity> Parent,
+            const SharedStreamProvider &Provider) -> std::shared_ptr<Detail::StreamAdapterActivity>
+        {
+            if (!Provider)
+            {
+                throw std::invalid_argument("QUIC stream adapter requires a provider");
+            }
+            const auto ProviderActivity = Provider->Activity();
+            if (!ProviderActivity)
+            {
+                throw std::invalid_argument("QUIC stream provider requires an activity owner");
+            }
+            return std::make_shared<Detail::StreamAdapterActivity>(
+                std::move(Parent), ProviderActivity);
+        }
+
+        /** @brief 等待真实 FIN 结果并只交付一次 typed completion。 */
+        [[nodiscard]] static auto CompleteWriteShutdown(
+            std::shared_ptr<StreamAdapter> Owner,
+            Completion Handler) -> Net::awaitable<void>
+        {
+            Preview::IoResult Result;
+            if (!Owner->Provider_)
+            {
+                Result.Failure = Preview::Fault::FromNative(
+                    std::make_error_code(std::errc::bad_file_descriptor));
+            }
+            else
+            {
+                try
+                {
+                    const auto Shutdown = co_await Owner->Provider_->ShutdownWrite();
+                    if (!Shutdown)
+                    {
+                        Result.Failure = Shutdown.error();
+                    }
+                }
+                catch (const std::system_error &Error)
+                {
+                    Result.Failure = Preview::Fault::FromNative(Error.code());
+                }
+                catch (const std::bad_alloc &)
+                {
+                    Result.Failure = {Preview::Fault::Code::ResourceUnavailable};
+                }
+                catch (...)
+                {
+                    Result.Failure = {Preview::Fault::Code::IoError};
+                }
+            }
+            Preview::Transport::Detail::PostResult(
+                Owner->Executor(), std::move(Handler), std::move(Result));
+        }
+
+        /** @brief 完成交付前的 owner 借用；存活由本次传输预约与调用者共同保证。 */
+        [[nodiscard]] auto Owner() -> std::shared_ptr<StreamAdapter>
+        {
+            return std::static_pointer_cast<StreamAdapter>(Transmission::shared_from_this());
+        }
+
         Net::any_io_executor Ex_;       ///< 执行器
         SharedStreamProvider Provider_; ///< 流提供者（独占所有权）
+        std::shared_ptr<Detail::StreamAdapterActivity> Activity_; ///< 聚合前门与 stream provider 实物回执
     };
 
     /// 适配器共享指针

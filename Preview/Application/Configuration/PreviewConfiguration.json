@@ -28,7 +28,12 @@
     "NativeTls": {
         "Enabled": false,
         "CertificateFile": "",
-        "PrivateKeyFile": ""
+        "PrivateKeyFile": "",
+        "Ech": {
+            "Enabled": false,
+            "PrivateKeyFile": "",
+            "EchConfigFile": ""
+        }
     },
     "Builtins": [],
     "Protocols": [
@@ -86,7 +91,8 @@
     "Operations": {
         "Enabled": true,
         "Endpoint": "127.0.0.1:9090",
-        "Timeout": 1000
+        "Timeout": 1000,
+        "WebDirectory": null
     },
     "HotReload": {
         "Enabled": true,

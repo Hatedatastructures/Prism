@@ -1,0 +1,63 @@
+# Account 所有权与正式合同
+
+Application为进程创建一个AccountStore，各Protocol.Id在冷装配注册CredentialScope，协议只消费CredentialIndexView。不能按协议族另建store，也不能把配置数组位置当AccountId；Application自己的名字→ID registry决定稳定身份。
+
+AccountMaterials冷拥有全部scope凭据与明确配置的显示名，不创建runtime。AccountBinding一次pin AccountMaterials、PolicySnapshot、AccountRuntime；所有索引行都指向此Binding。AccountRuntime只拥有实际连接/stream/字节/速率账本及撤销位，没有currentPolicy、PolicyFor或第二次policy发布。
+
+## 冷更新与稳定索引
+
+AccountStore.PrepareUpsert接受一个完整AccountDefinition，替换该AccountId的全部scope材料。PrepareReplacement接受完整配置集合，PrepareRemove接受实际AccountId。它们返回move-only PreparedAccountUpdate，Base/Next由token保活，准备失败不部分发布。
+
+Commit接受token左值。瞬时Busy拒绝保留token供控制owner按deadline重试；Base冲突是Blocked，不自动覆盖其他更新。成功先封止被移除runtime，再一次发布完整Snapshot。Bindings按AccountId排序，ForEach顺序与分页稳定，FindById采用lower_bound；重排配置不重新分配身份。
+
+Scope是数值typed身份，零无效。CompileScope冷取得固定ordinal，最多64个，进程生命周期不回收再用；热只读取一个Snapshot并直接索引该ordinal，不按realm名称查找。CredentialIndex冷按Kind/Digest排序，热通过二分范围定位并最终比较真实秘密。不同非空identity可共享同scope密码；空identity通配不得与同秘密的命名identity产生歧义。
+
+ForEachCredential只在冷路径枚举当前scope指定Kind，callback接收Binding和CredentialMaterial两项，返回void；Snapshot在全部同步回调期间保活。不得保存借用material去异步使用，确需保留则pin其Binding。
+
+## 独立策略版本
+
+PolicyVersion是独立强类型，不是Application配置generation。Store内每个新准备的Binding取得单调版本，完整批次中各账户各取得一个版本；放弃准备可以产生空隙，耗尽返回值失败，不回绕。会话的Application Generation仍由所属Runtime/Configuration记录，不能拿PolicyVersion填它。
+
+成功lease pin自身Binding/PolicySnapshot。旧lease使用旧Quota与Rate视图；更新不重置活动连接、stream、字节或rate账本。相同AccountId的所有scope复用store唯一runtime。弱runtime登记在旧Binding/lease/准备token仍持有owner时保留；remove/readd不能制造并行账本或清掉旧撤销。
+
+## 热认证与真实资源
+
+AuthenticationRequest只同步借用Credential/Identity，可要求AccountId和RequiredPolicyVersion；不携带万能服务上下文。Authenticate返回expected<AccountLease,Fault::Failure>，成功身份、显示名、策略由lease唯一Binding派生，不再维护Accepted/AccountId/stringIdentity复制结果。未配置显示名保持空，不从请求wire label伪造canonical身份。
+
+InspectCredential返回expected<bool,Failure>：成功false是纯miss，真实SHA失败保留cause；不能用expected的success本身当作匹配true。Inspect不申请lease、不消耗rate。额外材料、认证、wire owner仍归协议Detail，不进Application业务switch。
+
+认证先取得共享process root槽，立即建立move-only owner，再取得连接quota与未提交rate预约。最终提交在账户同一准入原子检查撤销；失败归还连接、slot和未提交rate，普通错误不throw/catch或等待。rate成功单位只在最终commit写入。
+
+## 根/child/字节生命周期
+
+AccountLease的root槽同时pin真实pool和Binding。Release原子封止root新child，不关闭socket；已有child继续持有根连接quota，最后child退出后才释放连接。StreamAdmission仅复制实际根槽引用，不复制连接lease，不允许在root已释放或账户已撤销后取得新child。
+
+StreamLease move-only，取得与归还精确stream quota和child计数。ByteLease move-only，按其Binding的旧Quota限额保留实际字节额度，析构/Release归还；Reduce只归还自己实际拥有部分，超额拒绝，不清零其他owner。Runtime额度操作是private，不能由调用者传Limit=0绕过冻结策略。
+
+账户对象不拥有I/O关闭者、半关闭或executor。协议owner仍负责cancel/half-close、任务drain和最终socket关闭，然后释放lease；账户Revoke只封止新准入。CloseSessions命令的真实结束由M32兑现，不把Revoke回执称为存量会话已关闭。
+
+## 速率账本与竞争
+
+一个runtime有一个RateLedger，最多8个保留policy视图。每个成功单位向所有尚在保活的窗口视图共同记账；各窗口按实际时间自然到期，策略准备不会从零重置使用量。新窗口准备继承当前未到期使用量；旧lease的策略冻结，但不能和新策略双花同一ledger。
+
+StrictGlobal所有worker共享限额；WorkerSharded的per-worker上取整和MaxOvershoot保留。WorkerCount从冷StoreOptions冻结，实际Application传真实worker数。limited策略拒绝零或回退时间；Unlimited保留无时钟输入行为，零时间依赖已有账本时间或最初的1ms记录，不创建系统时钟猜测。
+
+RateReservation是同步、不跨co_await的短事务能力，整个消费只一次非阻塞gate预约，竞争是Busy/ResourceUnavailable，不冒充RateLimited。准备、CompileScope、Commit同样有值拒绝，没有生产atomic.wait/mutex。调用者需要重试时在自己的异步控制deadline内等待，不能在认证热路径忙等。
+
+## 真实默认容量与错误
+
+|资源|默认/上限|
+|---|---|
+|account runtime登记|4096，旧Binding/lease/token保活的owner也占用|
+|process root lease槽|4096，冷可配置至65536，closing/引用仍在则不归还|
+|typed scope ordinal|64，固定进程注册身份|
+|凭据输入|默认64KiB，冷最多1MiB；Identity借用采用同一输入预算|
+|worker身份|最多4096，Application必须传实际数，standalone rate原语使用上限支持既有独立场景|
+|保留rate policy视图|每ledger8个；满返回PolicyViews原因，不强行释放旧owner|
+|stream|MaxStreams业务quota及实际协议/task预算；没有虚构128 child-slot限制|
+
+Failure保留Fault::Code和Native的Preview.Account category/value，区分撤销、连接/stream/byte quota、rate、Busy、root槽、policy视图、scope/account登记、坏凭据、miss、策略版本冲突/耗尽。只在后台/冷诊断生成message，业务不从字符串猜错误。
+
+冷材料/资源构造可以分配并在非法材料时抛分类构造异常；所有request认证与释放无项目throw/catch、动态成功文本复制或版本忙等。SecureBytes退休复用Crypto::SecretScope可靠擦除。
+
+当前源码阶段没有执行编译、测试、真实认证、互操作或性能测量。既有用例只迁移实际API，策略共享账本及canonical身份的新合同冲突在M08-ContractConflicts.md逐项记录，不能引用旧测试数字宣称当前通过。

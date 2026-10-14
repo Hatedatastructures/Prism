@@ -29,7 +29,7 @@ namespace Preview::Recognition
      */
     struct ProbeResult
     {
-        ProtocolType Type{ProtocolType::Unknown}; ///< 检测到的协议类型
+        Preview::Contract::ProtocolType Type{Preview::Contract::ProtocolType::Unknown}; ///< 检测到的协议类型
         std::array<std::byte, 24> PreRead{};       ///< 预读数据
         std::size_t PreReadSize{0};               ///< 预读字节数
         bool success{false};                        ///< 检测成功（类型非 unknown）
@@ -108,7 +108,7 @@ namespace Preview::Recognition
      * @param transport 底层传输
      * @param MaxSize 最大预读字节数（≤ 24）
      * @return 探测结果
-     * @details 预读数据保留在结果中，调用方可用 WrapWithPreview 回注。
+     * @details 预读数据保留在结果中，调用方可用 WrapPreread 回注。
      */
     [[nodiscard]] inline auto Probe(Transmission &transport, std::size_t MaxSize = MaxProbeSize)
         -> Net::awaitable<ProbeResult>
@@ -119,11 +119,10 @@ namespace Preview::Recognition
         std::array<std::uint8_t, MaxProbeSize> Bytes{};
         while (Result.PreReadSize < Peek)
         {
-            std::error_code ec;
-            const auto N = co_await transport.async_read_some(
+            const auto Part = co_await transport.ReadSome(
                 std::span<std::byte>(Result.PreRead.data() + Result.PreReadSize,
-                                     Peek - Result.PreReadSize),
-                ec);
+                                     Peek - Result.PreReadSize));
+            const auto N = Part.Bytes;
             if (N > Peek - Result.PreReadSize)
             {
                 co_return Result;
@@ -135,11 +134,11 @@ namespace Preview::Recognition
             }
             Result.PreReadSize += N;
             Result.Type = Detect(std::span<const std::uint8_t>(Bytes.data(), Result.PreReadSize));
-            if (ec || N == 0)
+            if (Part.Failure.Failed() || N == 0)
             {
                 co_return Result;
             }
-            if (Result.Type != ProtocolType::Unknown)
+            if (Result.Type != Preview::Contract::ProtocolType::Unknown)
             {
                 Result.success = true;
                 break;
@@ -157,16 +156,23 @@ namespace Preview::Recognition
      * @brief 预读数据回注（Preview 包装）
      * @param transport 已消费预读的传输
      * @param preread 预读数据
-     * @return 包装后的传输（回放预读）
+     * @param bytes 真实有界池；前缀块由此取得并保活至耗尽
+     * @return 包装后的传输（回放预读）；空前缀返回原载体，池失败返回空 owner
      */
-    [[nodiscard]] inline auto WrapPreread(SharedTransmission transport, std::span<const std::byte> preread)
-        -> SharedTransmission
+    [[nodiscard]] inline auto WrapPreread(SharedTransmission transport, std::span<const std::byte> preread,
+                                          std::shared_ptr<Preview::Memory::BytePool> bytes) -> SharedTransmission
     {
         if (preread.empty())
         {
             return transport;
         }
-        return Preview::Transport::WrapWithPreview(std::move(transport), preread);
+        const auto Created = Preview::Transport::PreviewTransport::Create(
+            transport, Preview::Transport::PrefixInput{preread, std::move(bytes), {}});
+        if (!Created)
+        {
+            return {};
+        }
+        return *Created;
     }
 
 } // namespace Preview::Recognition

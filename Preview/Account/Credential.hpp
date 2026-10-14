@@ -191,12 +191,9 @@ namespace Preview::Account
             Difference = static_cast<std::uint8_t>(Difference | (Left.Size() != Right.Size()));
             for (std::size_t Index = 0; Index < Length; ++Index)
             {
-                const auto LeftByte = Index < Left.Size()
-                                          ? std::to_integer<std::uint8_t>(Left.Bytes()[Index])
-                                          : std::uint8_t{0};
-                const auto RightByte = Index < Right.Size()
-                                           ? std::to_integer<std::uint8_t>(Right.Bytes()[Index])
-                                           : std::uint8_t{0};
+                std::uint8_t LeftByte = 0U, RightByte = 0U;
+                if (Index < Left.Size()) { LeftByte = std::to_integer<std::uint8_t>(Left.Bytes()[Index]); }
+                if (Index < Right.Size()) { RightByte = std::to_integer<std::uint8_t>(Right.Bytes()[Index]); }
                 Difference = static_cast<std::uint8_t>(Difference | (LeftByte ^ RightByte));
             }
             return Difference == 0;

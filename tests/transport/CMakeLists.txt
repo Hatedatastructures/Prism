@@ -7,3 +7,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(QuicE2E PRIVATE -O3)
     endif()
 endif()
+
+AddProductionTest(EncryptedTest.cpp)
+
+AddProductionTest(PreviewDeep.cpp)

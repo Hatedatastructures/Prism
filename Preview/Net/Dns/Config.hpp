@@ -174,6 +174,9 @@ namespace Preview::Network::Dns
         std::uint32_t TtlMax{86400};                   ///< 缓存 TTL 上限钳制（秒）
         std::uint32_t TimeoutMs{4000};                 ///< 默认查询超时（毫秒）
         std::size_t MaxConnsPerServer{4};              ///< 每服务器最大闲置连接数（0 = 禁用池）
+        std::size_t MaxIdleConnsPerPool{64};           ///< 每个协议连接池的闲置连接总数上限
+        std::size_t MaxFlights{4096};                  ///< 并发 single-flight 上限
+        std::size_t MaxWaitersPerFlight{64};           ///< 每个 flight 的等待者上限
     };
 
     namespace Detail

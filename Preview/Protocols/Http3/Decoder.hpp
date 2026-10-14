@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <Preview/Foundation/Memory/Container.hpp>
+#include <Preview/Protocols/Http3/HeaderLimits.hpp>
 #include <Preview/Protocols/Http3/Detail/Varint.hpp>
 #include <Preview/Protocols/Http3/Huffman.hpp>
 #include <Preview/Protocols/Http3/StaticTable.hpp>
@@ -24,9 +25,6 @@
 namespace Preview::Http3::Qpack
 {
 
-    inline constexpr std::size_t MaxHeaderBlockBytes = 64 * 1024;
-    inline constexpr std::size_t MaxHeaderFields = 128;
-    inline constexpr std::size_t MaxFieldBytes = 16 * 1024;
 
     /**
      * @struct HeaderField
@@ -58,18 +56,18 @@ namespace Preview::Http3::Qpack
                 return false;
             }
             const bool Huffman = (Input[Offset] & 0x08) != 0;
-            std::uint64_t Length = 0;
-            std::size_t Consumed = 0;
-            if (!ReadVarint(Input.subspan(Offset), 3, Length, Consumed))
+            const auto Integer = ReadVarint(Input.subspan(Offset), 3);
+            if (!Integer)
             {
                 return false;
             }
-            Offset += Consumed;
+            Offset += Integer->Consumed;
+            const auto Length = Integer->Value;
             if (Length > Input.size() - Offset)
             {
                 return false;
             }
-            if (Length > MaxFieldBytes)
+            if (Length > HeaderLimits::MaxFieldBytes)
             {
                 return false;
             }
@@ -91,7 +89,7 @@ namespace Preview::Http3::Qpack
                     {
                         return false;
                     }
-                    if (OutputLength > MaxFieldBytes)
+                    if (OutputLength > HeaderLimits::MaxFieldBytes)
                     {
                         return false;
                     }
@@ -106,7 +104,7 @@ namespace Preview::Http3::Qpack
                 {
                     return false;
                 }
-                if (Heap.size() > MaxFieldBytes)
+                if (Heap.size() > HeaderLimits::MaxFieldBytes)
                 {
                     return false;
                 }
@@ -138,18 +136,18 @@ namespace Preview::Http3::Qpack
                 return false;
             }
             const bool Huffman = (Input[Offset] & 0x80) != 0;
-            std::uint64_t Length = 0;
-            std::size_t Consumed = 0;
-            if (!ReadVarint(Input.subspan(Offset), 7, Length, Consumed))
+            const auto Integer = ReadVarint(Input.subspan(Offset), 7);
+            if (!Integer)
             {
                 return false;
             }
-            Offset += Consumed;
+            Offset += Integer->Consumed;
+            const auto Length = Integer->Value;
             if (Length > Input.size() - Offset)
             {
                 return false;
             }
-            if (Length > MaxFieldBytes)
+            if (Length > HeaderLimits::MaxFieldBytes)
             {
                 return false;
             }
@@ -171,7 +169,7 @@ namespace Preview::Http3::Qpack
                     {
                         return false;
                     }
-                    if (OutputLength > MaxFieldBytes)
+                    if (OutputLength > HeaderLimits::MaxFieldBytes)
                     {
                         return false;
                     }
@@ -186,7 +184,7 @@ namespace Preview::Http3::Qpack
                 {
                     return false;
                 }
-                if (Heap.size() > MaxFieldBytes)
+                if (Heap.size() > HeaderLimits::MaxFieldBytes)
                 {
                     return false;
                 }
@@ -215,7 +213,7 @@ namespace Preview::Http3::Qpack
         -> Preview::Memory::Vector<HeaderField>
     {
         Preview::Memory::Vector<HeaderField> Fields(MemoryResource);
-        if (Data.size() > MaxHeaderBlockBytes)
+        if (Data.size() > HeaderLimits::MaxHeaderSectionBytes)
         {
             return Fields;
         }
@@ -226,36 +224,35 @@ namespace Preview::Http3::Qpack
             return std::move(Fields);
         };
         std::size_t Offset = 0;
-        std::uint64_t RequiredCount = 0;
-        std::size_t Consumed = 0;
-        if (!Detail::ReadVarint(Data.subspan(Offset), 8, RequiredCount, Consumed))
+        const auto RequiredCount = Detail::ReadVarint(Data.subspan(Offset), 8);
+        if (!RequiredCount)
         {
             return Fail();
         }
-        Offset += Consumed;
-        if (RequiredCount != 0)
+        Offset += RequiredCount->Consumed;
+        if (RequiredCount->Value != 0)
         {
             return Fail();
         }
 
-        std::uint64_t Base = 0;
         if (Offset > Data.size())
         {
             return Fail();
         }
-        if (!Detail::ReadVarint(Data.subspan(Offset), 7, Base, Consumed))
+        const auto Base = Detail::ReadVarint(Data.subspan(Offset), 7);
+        if (!Base)
         {
             return Fail();
         }
-        Offset += Consumed;
-        if (Base != 0)
+        Offset += Base->Consumed;
+        if (Base->Value != 0)
         {
             return Fail();
         }
 
         while (Offset < Data.size())
         {
-            if (Fields.size() >= MaxHeaderFields)
+            if (Fields.size() >= HeaderLimits::MaxHeaderFields)
             {
                 return Fail();
             }
@@ -266,19 +263,19 @@ namespace Preview::Http3::Qpack
                 {
                     return Fail();
                 }
-                std::uint64_t Index = 0;
-                if (!Detail::ReadVarint(Data.subspan(Offset), 6, Index, Consumed))
+                const auto Index = Detail::ReadVarint(Data.subspan(Offset), 6);
+                if (!Index)
                 {
                     return Fail();
                 }
-                Offset += Consumed;
-                if (Index >= Detail::StaticTable.size())
+                Offset += Index->Consumed;
+                if (Index->Value >= Detail::StaticTable.size())
                 {
                     return Fail();
                 }
                 HeaderField Field{};
-                Field.Name.assign(Detail::StaticTable[Index].Name);
-                Field.value.assign(Detail::StaticTable[Index].value);
+                Field.Name.assign(Detail::StaticTable[Index->Value].Name);
+                Field.value.assign(Detail::StaticTable[Index->Value].value);
                 Fields.push_back(std::move(Field));
             }
             else if ((First & 0xC0) == 0x40)
@@ -287,18 +284,18 @@ namespace Preview::Http3::Qpack
                 {
                     return Fail();
                 }
-                std::uint64_t Index = 0;
-                if (!Detail::ReadVarint(Data.subspan(Offset), 4, Index, Consumed))
+                const auto Index = Detail::ReadVarint(Data.subspan(Offset), 4);
+                if (!Index)
                 {
                     return Fail();
                 }
-                Offset += Consumed;
-                if (Index >= Detail::StaticTable.size())
+                Offset += Index->Consumed;
+                if (Index->Value >= Detail::StaticTable.size())
                 {
                     return Fail();
                 }
                 HeaderField Field{};
-                Field.Name.assign(Detail::StaticTable[Index].Name);
+                Field.Name.assign(Detail::StaticTable[Index->Value].Name);
                 if (!Detail::ParseValue(Data, Offset, Field.value))
                 {
                     return Fail();

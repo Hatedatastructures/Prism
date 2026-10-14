@@ -1,321 +1,111 @@
-/**
- * @file Preview.hpp
- * @brief 预读数据回放包装器
- * @details 在协议嗅探阶段，部分数据可能已被从入站传输中读取。
- * 该包装器将这些预读数据保存在内部，在后续读取时优先返回预读
- * 数据，待预读数据耗尽后再委托给内部传输对象。这确保了协议
- * 管道在嗅探后仍能一致地处理数据流。
- * @note 该类继承自 Transmission 抽象基类，可透明地替换原始传输。
- * @note 预读数据在构造时被复制到内部缓冲区，确保数据生命周期安全。
- */
-
+/** @file Preview.hpp @brief 拥有一次预读前缀，真实partial I/O及关联属性沿正式前门传递。 */
 #pragma once
-
-#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
-
-#include <Preview/Foundation/Memory/Container.hpp>
-#include <Preview/Foundation/Memory/Pool.hpp>
 #include <Preview/Transport/Transmission.hpp>
-
-#include <boost/asio.hpp>
-#include <boost/asio/any_completion_handler.hpp>
-
 #include <algorithm>
-#include <cstddef>
 #include <cstring>
-#include <memory>
-#include <span>
-#include <system_error>
-#include <vector>
-
-namespace Preview::Transport {
-
-
-    namespace Net = boost::asio;
-
+#include <Preview/Foundation/Memory/BytePool.hpp>
+#include <Preview/Transport/Detail/ForwardActivity.hpp>
+namespace Preview::Transport
+{
+    /** @brief 创建期间借用Data；Bytes为装配层实际池，Terminal随前缀最后字节移交。
+     * @details 输入所有权：Data 只借用到 Create 返回——内部先向池实际 TryAcquire 再 memcpy，成功后前缀
+     *          由回放层独占（OwnedBytes 租约）；Bytes 是装配层实际池的共享 owner，仅在 Create 内被借用，
+     *          不被本层保存，已发放租约自行保活池存储；Terminal 是纯值，随前缀最后一块同次交付。
+     *          输出与错误：空前缀不租块、不增加 owner；池拒绝原样返回其 Failure（ResourceUnavailable/
+     *          OversizedMsg），空前缀带 Terminal 时直接 unexpected(Terminal)，均不消费 Inner。
+     *          取消、半关闭、最终关闭者、executor：本结构是冷配置值，不执行取消或写半关闭，不拥有描述符，
+     *          也不绑定执行域；实际语义全部由 PreviewTransport 承担。
+     */
+    struct PrefixInput final
+    {
+        std::span<const std::byte> Data;
+        std::shared_ptr<Memory::BytePool> Bytes;
+        Fault::Failure Terminal;
+    };
     /**
-      * @class PreviewTransport
-     * @brief 预读数据回放包装器
-     * @details 继承 Transmission 抽象基类，在内部传输层外包装一层
-     * 预读数据。优先从内部缓冲区返回数据，耗完后委托给内部传输。
-     * @note PrereadBuffer_ 强制使用 GlobalPool（永生 PMR pool），不接受外部
-     * Allocator。原因：Preview 可能被 detached 协程（multiplex::core）持有，
-     * 生命周期脱离 Session；若用 Session.FrameArena 作为 Allocator，Session
-     * 析构后 FrameArena 失效，Preview 析构时 m_resource 悬垂。详见
-     * docs/ARCHITECTURE.md "资源所有权模型"。
+     * @brief 唯一一次预读前缀的持有层：先把前缀作为真实读结果交付，再把剩余 I/O 透传给 Inner。
+     * @details 输入所有权：构造共享持有 Inner 的 owner，前缀由本层独占一份 OwnedBytes 租约；读写 span 都
+     *          只借用到该操作 completion，completion 恰好一次且异步交付。Release() 只在 IoIdle() 且前缀
+     *          已完整消费时把 Inner 的所有权移交出去，否则返回空 shared_ptr 并保留实物。
+     *          输出与错误：Create 返回 expected<SharedTransmission, Fault::Failure>，Inner/Bytes 缺失为
+     *          InvalidArgument，池拒绝保留其原 Failure；读方向把前缀的末次字节与 Terminal 同次交付，
+     *          因此 EOF、取消与底层原生错误四类各自保留 Code 与 Native，随后未消费的 Inner 缺失为
+     *          InvalidArgument，写与半关闭一律透传 Inner。
+     *          取消：OnCancel 直接转交 Inner->Cancel()，本层不额外封止；已在途的本层读由前门在原域检出
+     *          取消后交付一次 Canceled，可重复取消。
+     *          半关闭：StartWriteShutdown 原样转交 Inner 的 WriteShutdown，读取方向（含未消费前缀）保持可用。
+     *          最终关闭者：OnClose 转交 Inner->Close() 并在成功后标记需要排空 child；本层未覆写 OwnsClose，
+     *          Close 交付即行使本层关闭权，裸描述符的最终关闭者仍是 Inner 指向的叶子载体，实际退出须等待
+     *          Activity()->Drain()（父前门先退，再在已转交关闭时排空 child）。
+     *          executor：冷构造固定 Inner->Executor() 为唯一原域，Offset_/Preread_/Terminal_ 为非原子成员，
+     *          只能在原域串行变更，要求单一执行域。
      */
     class PreviewTransport final : public Transmission
     {
     public:
-        /**
-         * @brief 构造预读回放包装器
-         * @param Inner 被包装的内部传输对象
-         * @param preread 协议嗅探期间捕获的预读数据
-         * @details 构造时会将预读数据复制到内部缓冲区。PrereadBuffer_ 使用
-         * GlobalPool 分配（永生），保证 Preview 即使被 detached 协程长期持有，
-         * 析构时也不会因 m_resource 悬垂崩溃。
-         */
-        explicit PreviewTransport(SharedTransmission Inner, std::span<const std::byte> Preread);
-
-        /**
-         * @brief 获取内层传输
-         * @details 装饰器链导航，返回被包装的内层传输指针。
-         * @return Transmission* 内层传输指针
-         */
-        [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
+        /** @brief 先租实际有界块再复制；失败不消费Inner，空前缀不增加owner或租块。 */
+        [[nodiscard]] static auto Create(const SharedTransmission& Inner, PrefixInput Input)
+            -> std::expected<SharedTransmission, Fault::Failure>
         {
-            return Inner_.get();
+            if (!Inner || !Input.Bytes) return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument});
+            if (Input.Data.empty())
+            { if (Input.Terminal.Failed()) return std::unexpected(Input.Terminal); return Inner; }
+            auto Bytes = Input.Bytes->TryAcquire(Input.Data.size());
+            if (!Bytes) return std::unexpected(Bytes.error());
+            std::memcpy(Bytes->WritableBytes().data(), Input.Data.data(), Input.Data.size());
+            return SharedTransmission(new PreviewTransport(Inner, OwnedPrefix{std::move(*Bytes), Input.Terminal}));
         }
-
-        /**
-         * @brief 获取内层传输（const 版本）
-         * @return const Transmission* 内层传输指针
-         */
-        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
+        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { return Inner_.get(); }
+        [[nodiscard]] auto Activity() const noexcept -> std::shared_ptr<Contract::CarrierActivity> override { return Activity_; }
+        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission* override { return Inner_.get(); }
+        [[nodiscard]] auto Inner() const noexcept -> SharedTransmission { return Inner_; }
+        [[nodiscard]] auto Release() -> SharedTransmission override
+        { if (!IoIdle() || Offset_ != Preread_.Size()) return {}; return std::move(Inner_); }
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            return Inner_.get();
-        }
-
-        /**
-         * @brief 报告内部传输是否可靠
-         * @return 若内部传输可靠则返回 true，否则返回 false
-         */
-        [[nodiscard]] auto TransportType() const noexcept -> Type override
-        {
-            if (Inner_)
+            if (Buffer.empty()) { Detail::PostResult(Executor(), std::move(Handler), {}); return; }
+            if (Offset_ < Preread_.Size())
             {
-                return Inner_->TransportType();
+                const auto Count = (std::min)(Buffer.size(), Preread_.Size() - Offset_);
+                std::memcpy(Buffer.data(), Preread_.Bytes().data() + Offset_, Count);
+                Offset_ += Count;
+                IoResult Result{Count, {}};
+                if (Offset_ == Preread_.Size())
+                { Result.Failure = Terminal_; Terminal_ = {}; Preread_.Release(); Offset_ = 0; }
+                Detail::PostResult(Executor(), std::move(Handler), Result);
+                return;
             }
-            return Type::Tcp;
+            if (!Inner_) { Detail::PostResult(Executor(), std::move(Handler), {0, {Fault::Code::InvalidArgument}}); return; }
+            Inner_->ReadSome(Buffer, std::move(Handler));
         }
-
-        /**
-         * @brief 获取内部传输的执行器
-         * @details 委托给内部传输对象的 Executor 方法
-         * @return ExecutorType 绑定到内部传输的执行器
-         */
-        [[nodiscard]] auto Executor() const -> ExecutorType override;
-
-        /**
-         * @brief 从预读缓冲区或内部流读取数据
-         * @param Buffer 目标缓冲区
-         * @param ec 输出错误码
-         * @return 协程对象，完成后返回读取的字节数
-         * @details 优先从预读缓冲区返回数据，预读数据耗尽后委托给
-         * 内部传输对象进行实际读取。
-         */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override;
-
-        /**
-         * @brief 异步写入数据
-         * @param Buffer 源数据缓冲区
-         * @param ec 输出错误码
-         * @return 协程对象，完成后返回写入的字节数
-         */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
-                                            std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override;
-
-        /**
-         * @brief Completion-handler 风格异步读取
-         * @details 预读数据同步完成，耗尽后委托给内部传输。
-         * @param Buffer 目标缓冲区
-         * @param handler 完成处理器
-         */
-        void async_read_some(
-            std::span<std::byte> Buffer,
-            Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler) override;
-
-        /**
-         * @brief Completion-handler 风格异步写入
-         * @details 委托给内部传输的 completion-handler 方法。
-         * @param Buffer 源数据缓冲区
-         * @param handler 完成处理器
-         */
-        void async_write_some(
-            std::span<const std::byte> Buffer,
-            Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler) override;
-
-        /**
-         * @brief 完整写入操作
-         * @details 委托给内部传输的 AsyncWrite 自由函数。
-         */
-        [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t>
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            if (!Inner_)
-            {
-                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
-                co_return 0;
-            }
-            co_return co_await Inner_->AsyncWrite(Buffer, ErrorCode);
+            if (!Inner_) { Detail::PostResult(Executor(), std::move(Handler), {0, {Fault::Code::InvalidArgument}}); return; }
+            Inner_->WriteSome(Buffer, std::move(Handler));
         }
-
-        /**
-         * @brief 关闭内部传输流
-         * @details 清空预读缓冲区后关闭内部传输连接
-         */
-        void Close() override;
-
-        /**
-         * @brief 取消内部传输的待处理操作
-         * @details 取消内部传输对象上所有挂起的异步读写操作
-         */
-        void Cancel() override;
-
-        /**
-         * @brief 获取内部传输对象
-         * @return 内部传输的 shared_ptr
-         */
-        [[nodiscard]] auto Inner() const noexcept -> SharedTransmission
+        auto StartWriteShutdown(Completion Handler) -> void override
         {
-            return Inner_;
+            if (!Inner_) { Detail::PostResult(Executor(), std::move(Handler), {0, {Fault::Code::InvalidArgument}}); return; }
+            Inner_->WriteShutdown(std::move(Handler));
         }
-
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            if (!Inner_) return {};
+            const auto Result = Inner_->Close();
+            if (Result) Activity_->RequireChildDrain();
+            return Result;
+        }
+        [[nodiscard]] auto OnCancel() -> ControlResult override { if (Inner_) return Inner_->Cancel(); return {}; }
     private:
-        SharedTransmission Inner_;                // 内部传输对象
-        std::vector<std::byte> PrereadBuffer_; // 预读数据缓冲区（拥有所有权）
-        std::size_t Offset_{0};                    // 当前预读偏移量
+        struct OwnedPrefix final { Memory::OwnedBytes Bytes; Fault::Failure Terminal; };
+        PreviewTransport(SharedTransmission Inner, OwnedPrefix Input)
+            : Transmission(Inner->Executor()), Inner_(std::move(Inner)), Preread_(std::move(Input.Bytes)), Terminal_(Input.Terminal),
+              Activity_(std::make_shared<Detail::ForwardActivity>(Transmission::Activity(), Inner_->Activity())) {}
+        SharedTransmission Inner_;
+        Memory::OwnedBytes Preread_;
+        std::size_t Offset_{0};
+        Fault::Failure Terminal_;
+        std::shared_ptr<Detail::ForwardActivity> Activity_;
     };
-
-    /**
-     * @brief 将入站传输包装为带预读数据的传输
-     * @param Inbound 入站传输（所有权转移）
-     * @param Data 协议嗅探期间捕获的预读数据
-     * @return 包装后的传输对象；若 Data 为空则直接返回原始入站传输
-     * @details 若 Data 不为空，将 Inbound 的所有权转移到 Preview 包装器中，
-     * 在后续读取时优先重放预读数据。Preview 内部 PrereadBuffer_ 用 GlobalPool
-     * 分配（永生），不接受外部 PMR Allocator，避免 Session 级资源外流到 detached
-     * 协程（详见 docs/ARCHITECTURE.md）。
-     * @note 调用后入站传输所有权转移至返回值。
-     */
-    [[nodiscard]] inline auto WrapWithPreview(SharedTransmission Inbound, std::span<const std::byte> Data)
-        -> SharedTransmission
-    {
-        if (!Data.empty())
-        {
-            Inbound = std::make_shared<PreviewTransport>(std::move(Inbound), Data);
-        }
-        return Inbound;
-    }
-
-
-
-
-    inline PreviewTransport::PreviewTransport(SharedTransmission Inner, std::span<const std::byte> Preread)
-        : Inner_(std::move(Inner)), PrereadBuffer_(Preread.begin(), Preread.end())
-    {
-    }
-
-    inline auto PreviewTransport::Executor() const -> ExecutorType
-    {
-        if (!Inner_)
-        {
-            (void)Diagnose::Error("ExecutorUnavailable Reason=NullInnerTransport");
-            return ExecutorType{};
-        }
-        return Inner_->Executor();
-    }
-
-    inline auto PreviewTransport::async_read_some(std::span<std::byte> Buffer,
-                                                  std::error_code &ErrorCode)
-        -> Net::awaitable<std::size_t>
-    {
-        if (Offset_ < PrereadBuffer_.size())
-        {
-            const auto Remaining = PrereadBuffer_.size() - Offset_;
-            const auto ToCopy = (std::min)(Remaining, Buffer.size());
-            if (ToCopy > 0)
-            {
-                std::memcpy(Buffer.data(), PrereadBuffer_.data() + Offset_, ToCopy);
-                Offset_ += ToCopy;
-            }
-            ErrorCode.clear();
-            co_return ToCopy;
-        }
-
-        if (!Inner_)
-        {
-            ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
-            co_return 0;
-        }
-
-        co_return co_await Inner_->async_read_some(Buffer, ErrorCode);
-    }
-
-    inline auto PreviewTransport::async_write_some(std::span<const std::byte> Buffer,
-                                                   std::error_code &ErrorCode)
-        -> Net::awaitable<std::size_t>
-    {
-        if (!Inner_)
-        {
-            ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
-            co_return 0;
-        }
-        co_return co_await Inner_->async_write_some(Buffer, ErrorCode);
-    }
-
-    inline void PreviewTransport::Close()
-    {
-        PrereadBuffer_.clear();
-        Offset_ = 0;
-        if (Inner_)
-        {
-            Inner_->Close();
-        }
-    }
-
-    inline void PreviewTransport::Cancel()
-    {
-        if (Inner_)
-        {
-            Inner_->Cancel();
-        }
-    }
-
-    inline void PreviewTransport::async_read_some(
-        std::span<std::byte> Buffer,
-        Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler)
-    {
-        if (Offset_ < PrereadBuffer_.size())
-        {
-            const auto Remaining = PrereadBuffer_.size() - Offset_;
-            const auto ToCopy = (std::min)(Remaining, Buffer.size());
-            if (ToCopy > 0)
-            {
-                std::memcpy(Buffer.data(), PrereadBuffer_.data() + Offset_, ToCopy);
-                Offset_ += ToCopy;
-            }
-            std::move(Handler)(boost::system::error_code{}, ToCopy);
-            return;
-        }
-
-        if (!Inner_)
-        {
-            std::move(Handler)(boost::system::error_code(static_cast<int>(std::errc::bad_file_descriptor),
-                                                         boost::system::generic_category()),
-                               0);
-            return;
-        }
-
-        Inner_->async_read_some(Buffer, std::move(Handler));
-    }
-
-    inline void PreviewTransport::async_write_some(
-        std::span<const std::byte> Buffer,
-        Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler)
-    {
-        if (!Inner_)
-        {
-            std::move(Handler)(boost::system::error_code(static_cast<int>(std::errc::bad_file_descriptor),
-                                                         boost::system::generic_category()),
-                               0);
-            return;
-        }
-
-        Inner_->async_write_some(Buffer, std::move(Handler));
-    }
-
-
-} // namespace Preview::Transport
+}

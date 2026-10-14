@@ -4,12 +4,12 @@
  */
 #pragma once
 
+#include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
+
 #include <array>
 #include <cstddef>
 #include <optional>
 #include <span>
-
-#include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
 
 namespace Preview::Diagnose
 {
@@ -25,13 +25,13 @@ namespace Preview::Diagnose
     };
 
     /** @brief Diagnose 内置字段的编译期定义集合。 */
-    using BuiltinFieldPack = FieldDescriptorPack<
-        Fields::WorkerDefinition, Fields::SessionDefinition, Fields::CorrelationDefinition,
-        Fields::ProcessDefinition, Fields::GenerationDefinition, Fields::TaskDefinition,
-        Fields::OperationDefinition, Fields::ProtocolDefinition, Fields::RouteDefinition,
-        Fields::StreamDefinition, Fields::CarrierDefinition, Fields::SniDefinition, Fields::AlpnDefinition,
-        Fields::TlsVersionDefinition, Fields::StageDefinition, Fields::StatusDefinition,
-        Fields::FaultCodeDefinition, Fields::NativeErrorDefinition, Fields::ElapsedMsDefinition>;
+    using BuiltinFieldPack = FieldDescriptorPack<Fields::WorkerDefinition, Fields::SessionDefinition,
+        Fields::CorrelationDefinition, Fields::ProcessDefinition, Fields::GenerationDefinition,
+        Fields::TaskDefinition, Fields::OperationDefinition, Fields::ProtocolDefinition,
+        Fields::RouteDefinition, Fields::StreamDefinition, Fields::CarrierDefinition, Fields::SniDefinition,
+        Fields::AlpnDefinition, Fields::TlsVersionDefinition, Fields::StageDefinition,
+        Fields::StatusDefinition, Fields::FaultCodeDefinition, Fields::NativeErrorDefinition,
+        Fields::ElapsedMsDefinition>;
 
     /**
      * @brief 供上下文快照和解码器使用的单个字段元数据副本。
@@ -59,13 +59,8 @@ namespace Preview::Diagnose
         template <typename Definition>
         [[nodiscard]] constexpr auto MakeFieldDescriptor() noexcept -> FieldDescriptor
         {
-            return FieldDescriptor{Definition::Id,
-                                   Definition::Name,
-                                   Definition::Kind,
-                                   Definition::Visibility,
-                                   Definition::MaxLength,
-                                   Definition::Sensitive,
-                                   Definition::ContextIdentity};
+            return FieldDescriptor{Definition::Id, Definition::Name, Definition::Kind, Definition::Visibility,
+                Definition::MaxLength, Definition::Sensitive, Definition::ContextIdentity};
         }
 
         /**
@@ -110,7 +105,7 @@ namespace Preview::Diagnose
          */
         [[nodiscard]] static constexpr auto Find(const FieldId Id) noexcept -> std::optional<FieldDescriptor>
         {
-            for (const auto &Descriptor : BuiltinDescriptors_)
+            for (const auto& Descriptor : BuiltinDescriptors_)
             {
                 if (Descriptor.Id == Id)
                 {

@@ -57,8 +57,8 @@
         },
         {
             "Id": "protocol-shadowsocks2022",
-            "Name": "shadowsocks2022",
-            "Builtin": "shadowsocks2022",
+            "Name": "ss2022",
+            "Builtin": "ss2022",
             "Requires": []
         },
         {
@@ -151,7 +151,7 @@
             "MuxModes": [],
             "Priority": 1,
             "Recognition": {
-                "Domain": "www.cloudflare.com"
+                "Pattern": "www.cloudflare.com"
             }
         }
     ],

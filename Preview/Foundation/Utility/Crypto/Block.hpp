@@ -1,155 +1,120 @@
 /**
  * @file Block.hpp
- * @brief AES-ECB 单块加解密
- * @details 提供 AES-ECB 单块（16 字节）加密和解密功能。
- * 用于 SS2022 (SIP022) UDP 的 SeparateHeader 加密。
- * 不应直接用于大量数据加密（ECB 模式不安全）。
- * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
+ * @brief AES-ECB 单块加解密的显式失败值接口。
+ * @details 输入与密钥只借用至返回；结果拥有一个 16 字节块。
+ *          无取消、半关闭、最终连接关闭或 executor 行为。
  */
 #pragma once
 
-#include <cstring>
-
+#include <Preview/Foundation/Utility/Crypto/Operation.hpp>
 #include <openssl/evp.h>
-
 #include <array>
-#include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <span>
-
-#include <Preview/Foundation/Error.hpp>
 
 namespace Preview::Crypto
 {
-
-    /**
-     * @brief AES-ECB 单块加密（16 字节 → 16 字节）
-     * @details 对单个 16 字节块执行 AES-ECB 加密。支持 AES-128/192/256
-     *（16/24/32 字节密钥）。
-     * @param input 明文（16 字节）
-     * @param key AES 密钥（16、24 或 32 字节）
-     * @return 密文（16 字节）
-     */
-    [[nodiscard]] auto EcbEncrypt(std::span<const std::uint8_t, 16> Input,
-                                   std::span<const std::uint8_t> Key)
-        -> std::expected<std::array<std::uint8_t, 16>, Preview::Error>;
-
-    /**
-     * @brief AES-ECB 单块解密（16 字节 → 16 字节）
-     * @details 对单个 16 字节块执行 AES-ECB 解密。支持 AES-128/192/256
-     *（16/24/32 字节密钥）。
-     * @param input 密文（16 字节）
-     * @param key AES 密钥（16、24 或 32 字节）
-     * @return 明文（16 字节）
-     */
-    [[nodiscard]] auto EcbDecrypt(std::span<const std::uint8_t, 16> Input,
-                                   std::span<const std::uint8_t> Key)
-        -> std::expected<std::array<std::uint8_t, 16>, Preview::Error>;
-
-
-
-    inline auto EcbEncrypt(std::span<const std::uint8_t, 16> Input,
-                           std::span<const std::uint8_t> Key)
-        -> std::expected<std::array<std::uint8_t, 16>, Preview::Error>
+    namespace Detail
     {
-        std::array<std::uint8_t, 16> Output{};
-
-        const EVP_CIPHER *Cipher = nullptr;
-        switch (Key.size())
+        /** @brief 根据完整密钥长度选择 AES-ECB 算法，非法长度不创建上下文。 */
+        [[nodiscard]] inline auto EcbCipher(const std::size_t Length) noexcept -> const EVP_CIPHER *
         {
-        case 16: Cipher = EVP_aes_128_ecb(); break;
-        case 24: Cipher = EVP_aes_192_ecb(); break;
-        case 32: Cipher = EVP_aes_256_ecb(); break;
-        default: return std::unexpected(Preview::Error::BadLength);
+            switch (Length)
+            {
+            case 16: return EVP_aes_128_ecb();
+            case 24: return EVP_aes_192_ecb();
+            case 32: return EVP_aes_256_ecb();
+            default: return nullptr;
+            }
         }
+    }
 
-        EVP_CIPHER_CTX *Context = EVP_CIPHER_CTX_new();
+    /**
+     * @brief 将一个完整块加密为拥有型结果；成功算法为无填充 AES-128/192/256-ECB。
+     * @return 非法密钥长度返回 InvalidArgument；分配或各阶段失败保留原生错误。
+     * @details 上下文由本调用释放，临时块在所有返回路径擦除。
+     */
+    [[nodiscard]] inline auto EcbEncrypt(const std::span<const std::uint8_t, 16> Input,
+                                       const std::span<const std::uint8_t> Key)
+        -> std::expected<std::array<std::uint8_t, 16>, Fault::Failure>
+    {
+        const auto *Cipher = Detail::EcbCipher(Key.size());
+        if (!Cipher)
+        {
+            return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument, {}});
+        }
+        ERR_clear_error();
+        const std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> Context{
+            EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free};
         if (!Context)
         {
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::ResourceUnavailable));
         }
-
-        if (EVP_EncryptInit_ex(Context, Cipher, nullptr, Key.data(), nullptr) != 1)
+        if (EVP_EncryptInit_ex(Context.get(), Cipher, nullptr, Key.data(), nullptr) != 1 ||
+            EVP_CIPHER_CTX_set_padding(Context.get(), 0) != 1)
         {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-
-        // 禁用填充（输入已是完整块）
-        if (EVP_CIPHER_CTX_set_padding(Context, 0) != 1)
+        std::array<std::uint8_t, 16> Output{};
+        const SecretScope OutputCleanup{Output};
+        std::array<std::uint8_t, 16> FinalBlock{};
+        const SecretScope FinalCleanup{FinalBlock};
+        int Length = 0;
+        if (EVP_EncryptUpdate(Context.get(), Output.data(), &Length, Input.data(), 16) != 1 ||
+            Length != static_cast<int>(Output.size()))
         {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-
-        int OutLen = 0; // EVP API 要求 int*
-        if (EVP_EncryptUpdate(Context, Output.data(), &OutLen, Input.data(), 16) != 1)
+        int FinalLength = 0;
+        if (EVP_EncryptFinal_ex(Context.get(), FinalBlock.data(), &FinalLength) != 1 || FinalLength != 0)
         {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-        int FinalLen = 0; // EVP API 要求 int*
-        if (EVP_EncryptFinal_ex(Context, Output.data() + OutLen, &FinalLen) != 1)
-        {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
-        }
-
-        EVP_CIPHER_CTX_free(Context);
         return Output;
     }
 
-    inline auto EcbDecrypt(std::span<const std::uint8_t, 16> Input,
-                           std::span<const std::uint8_t> Key)
-        -> std::expected<std::array<std::uint8_t, 16>, Preview::Error>
+    /**
+     * @brief 解密一个完整 AES-ECB 块；借用、拥有和关闭契约同 EcbEncrypt。
+     * @return 长度非法返回 InvalidArgument，各原生阶段失败立即返回 Failure。
+     */
+    [[nodiscard]] inline auto EcbDecrypt(const std::span<const std::uint8_t, 16> Input,
+                                       const std::span<const std::uint8_t> Key)
+        -> std::expected<std::array<std::uint8_t, 16>, Fault::Failure>
     {
-        std::array<std::uint8_t, 16> Output{};
-
-        const EVP_CIPHER *Cipher = nullptr;
-        switch (Key.size())
+        const auto *Cipher = Detail::EcbCipher(Key.size());
+        if (!Cipher)
         {
-        case 16: Cipher = EVP_aes_128_ecb(); break;
-        case 24: Cipher = EVP_aes_192_ecb(); break;
-        case 32: Cipher = EVP_aes_256_ecb(); break;
-        default: return std::unexpected(Preview::Error::BadLength);
+            return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument, {}});
         }
-
-        EVP_CIPHER_CTX *Context = EVP_CIPHER_CTX_new();
+        ERR_clear_error();
+        const std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> Context{
+            EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free};
         if (!Context)
         {
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::ResourceUnavailable));
         }
-
-        if (EVP_DecryptInit_ex(Context, Cipher, nullptr, Key.data(), nullptr) != 1)
+        if (EVP_DecryptInit_ex(Context.get(), Cipher, nullptr, Key.data(), nullptr) != 1 ||
+            EVP_CIPHER_CTX_set_padding(Context.get(), 0) != 1)
         {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-
-        // 禁用填充
-        if (EVP_CIPHER_CTX_set_padding(Context, 0) != 1)
+        std::array<std::uint8_t, 16> Output{};
+        const SecretScope OutputCleanup{Output};
+        std::array<std::uint8_t, 16> FinalBlock{};
+        const SecretScope FinalCleanup{FinalBlock};
+        int Length = 0;
+        if (EVP_DecryptUpdate(Context.get(), Output.data(), &Length, Input.data(), 16) != 1 ||
+            Length != static_cast<int>(Output.size()))
         {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-
-        int OutLen = 0; // EVP API 要求 int*
-        if (EVP_DecryptUpdate(Context, Output.data(), &OutLen, Input.data(), 16) != 1)
+        int FinalLength = 0;
+        if (EVP_DecryptFinal_ex(Context.get(), FinalBlock.data(), &FinalLength) != 1 || FinalLength != 0)
         {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-        int FinalLen = 0; // EVP API 要求 int*
-        if (EVP_DecryptFinal_ex(Context, Output.data() + OutLen, &FinalLen) != 1)
-        {
-            EVP_CIPHER_CTX_free(Context);
-            return std::unexpected(Preview::Error::CryptoError);
-        }
-
-        EVP_CIPHER_CTX_free(Context);
         return Output;
     }
-
-
-} // namespace Preview::Crypto
+}

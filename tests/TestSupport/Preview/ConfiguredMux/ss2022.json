@@ -1,0 +1,96 @@
+{
+  "SchemaVersion": 1,
+  "Runtime": {
+    "WorkerCount": 2,
+    "RequiredCapabilities": [],
+    "SessionTimeout": 30000
+  },
+  "Listeners": {
+    "Tcp": [
+      {
+        "Id": "tcp-main",
+        "Address": "127.0.0.1",
+        "Port": 1080,
+        "Timeout": 5000
+      }
+    ],
+    "Udp": [],
+    "Quic": [],
+    "Timeout": 5000
+  },
+  "NativeTls": {
+    "Enabled": false,
+    "CertificateFile": "",
+    "PrivateKeyFile": ""
+  },
+  "Builtins": [],
+  "Protocols": [
+    {
+      "Id": "mux-ss2022",
+      "Name": "ss2022",
+      "Requires": [],
+      "Builtin": "ss2022"
+    }
+  ],
+  "Carriers": [],
+  "ProtocolBindings": [
+    {
+      "UdpEnabled": false,
+      "Priority": 0,
+      "TcpEnabled": true,
+      "Id": "binding-ss2022",
+      "ProtocolId": "mux-ss2022",
+      "Recognition": {},
+      "MuxModes": [
+        "Smux"
+      ]
+    }
+  ],
+  "Accounts": [
+    {
+      "Credential": "d3d3d3d3d3d3d3d3d3d3dw==",
+      "Id": "configured-account",
+      "Credentials": {},
+      "SecretRef": ""
+    }
+  ],
+  "Routes": [],
+  "Dns": {
+    "Servers": [
+      "1.1.1.1"
+    ],
+    "Timeout": 1000
+  },
+  "Logging": {
+    "Level": "Info",
+    "RenderMode": "CompactHuman",
+    "Directory": "logs",
+    "FileName": "preview.log",
+    "Console": false,
+    "RotateBytes": 67108864,
+    "RotateFiles": 8,
+    "FlushIntervalMs": 250
+  },
+  "Trace": {
+    "IncludeCorrelation": true,
+    "IncludeWorker": true,
+    "IncludeSession": true,
+    "IncludeStream": false
+  },
+  "Statistics": {
+    "Enabled": true,
+    "Interval": 1000
+  },
+  "Operations": {
+    "Enabled": false,
+    "Endpoint": "127.0.0.1:9090",
+    "Timeout": 1000
+  },
+  "HotReload": {
+    "Enabled": true,
+    "AckTimeout": 5000
+  },
+  "Shutdown": {
+    "Timeout": 5000
+  }
+}

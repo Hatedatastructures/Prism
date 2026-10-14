@@ -11,7 +11,6 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/dispatch.hpp>
@@ -35,6 +34,8 @@
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Protocols/Common/Address.hpp>
+#include <Preview/Protocols/Common/IoBridge.hpp>
+#include <Preview/Transport/Detail/IoCompletion.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Hysteria2/Codec.hpp>
 #include <Preview/Protocols/Hysteria2/Types.hpp>
@@ -51,7 +52,7 @@ namespace Preview::Hysteria2
      * AcceptPacket）创建。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Dgram : public Preview::Transmission, public std::enable_shared_from_this<Dgram<Memory>>
+    class Dgram : public Preview::Transmission
     {
     public:
         /**
@@ -61,7 +62,8 @@ namespace Preview::Hysteria2
         explicit Dgram(
             SharedTransmission Upstream,
             const bool StandardWire = false)
-            : NextLayer_(std::move(Upstream)), StandardWire_(StandardWire)
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Upstream)), StandardWire_(StandardWire)
         {
         }
 
@@ -72,7 +74,7 @@ namespace Preview::Hysteria2
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
@@ -102,7 +104,7 @@ namespace Preview::Hysteria2
             }
             if (NextLayer_->TransportType() != Preview::Transmission::Type::Udp)
             {
-                co_return Error::NotSupported;
+                co_return Error::Unsupported;
             }
             if (StandardWire_)
             {
@@ -124,11 +126,10 @@ namespace Preview::Hysteria2
             std::size_t Done = 0;
             while (Done < TxWire_.size())
             {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_write_some(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done),
-                    ErrorCode);
-                if (ErrorCode || N == 0)
+                const auto Part = co_await NextLayer_->WriteSome(
+                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done));
+                const auto N = Part.Bytes;
+                if (Part.Failure.Failed() || N == 0)
                 {
                     co_return Error::IoError;
                 }
@@ -158,13 +159,13 @@ namespace Preview::Hysteria2
             }
             if (NextLayer_->TransportType() != Preview::Transmission::Type::Udp)
             {
-                co_return Error::NotSupported;
+                co_return Error::Unsupported;
             }
             std::array<std::uint8_t, 65536> Datagram{};
-            std::error_code ErrorCode;
-            const auto N = co_await NextLayer_->async_read_some(
-                AsBytes(std::span<std::uint8_t>(Datagram)), ErrorCode);
-            if (ErrorCode)
+            const auto Part = co_await NextLayer_->ReadSome(
+                AsBytes(std::span<std::uint8_t>(Datagram)));
+            const auto N = Part.Bytes;
+            if (Part.Failure.Failed())
             {
                 co_return Error::IoError;
             }
@@ -204,58 +205,92 @@ namespace Preview::Hysteria2
             co_return Error::None;
         }
 
-        /**
-         * @brief 透传读取（底层数据报原样）
-         */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        /** @brief 透传读取（底层数据报原样）；executor 与原域一致。 */
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
+        {
+            Preview::Protocols::StartPartialRead(
+                Preview::Protocols::PartialReadInput<Dgram>{Owner(), Buffer, Executor()},
+                std::move(Handler));
+        }
+
+        /** @brief 透传写入（底层数据报原样）。 */
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        {
+            Preview::Protocols::StartPartialWrite(
+                Preview::Protocols::PartialWriteInput<Dgram>{Owner(), Buffer, Executor()},
+                std::move(Handler));
+        }
+
+        /** @brief 真实写半关闭转交底层数据报载体；反向读取仍然可用。 */
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
+            }
+            NextLayer_->WriteShutdown(std::move(Handler));
+        }
+
+        /** @brief 封止并交付底层关闭；实际退出由 Activity()->Drain() 另行等待。 */
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            if (!NextLayer_)
+            {
+                return {};
+            }
+            return NextLayer_->Close();
+        }
+
+        /** @brief 可重复取消底层挂起操作；不宣称已经关闭。 */
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            if (!NextLayer_)
+            {
+                return {};
+            }
+            return NextLayer_->Cancel();
+        }
+
+        /** @brief 一次部分读写的借用参数；只在本类与前门之间传递。 */
+        struct PartialArgs final
+        {
+            bool IsWrite{false};
+            std::span<std::byte> Read;
+            std::span<const std::byte> Write;
+        };
+
+        /** @brief 数据面部分读实现，由正式前门复用。 */
+        [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            return Partial(PartialArgs{false, Buffer, {}});
+        }
+
+        /** @brief 数据面部分写实现，由正式前门复用；保留底层短写事实。 */
+        [[nodiscard]] auto WritePartial(std::span<const std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            return Partial(PartialArgs{true, {}, Buffer});
+        }
+
+        /** @brief 数据面部分读写实现；原样保留底层字节数与 typed failure。 */
+        [[nodiscard]] auto Partial(PartialArgs Args) -> Net::awaitable<Preview::IoResult>
         {
             co_await DispatchToExecutor();
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))};
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
-        }
-
-        /**
-         * @brief 透传写入（底层数据报原样）
-         */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
-        {
-            co_await DispatchToExecutor();
-            if (!NextLayer_)
+            if (Args.IsWrite)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                co_return co_await NextLayer_->WriteSome(Args.Write);
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
-        }
-
-        /**
-         * @brief 关闭底层传输
-         */
-        auto Close() -> void override
-        {
-            if (NextLayer_)
-            {
-                NextLayer_->Close();
-            }
-        }
-
-        /**
-         * @brief 取消挂起操作
-         */
-        auto Cancel() -> void override
-        {
-            if (NextLayer_)
-            {
-                NextLayer_->Cancel();
-            }
+            co_return co_await NextLayer_->ReadSome(Args.Read);
         }
 
         /**
@@ -292,6 +327,12 @@ namespace Preview::Hysteria2
         }
 
     private:
+        /** @brief 完成交付前的 owner 借用；存活由本次传输预约与调用者共同保证。 */
+        [[nodiscard]] auto Owner() -> std::shared_ptr<Dgram>
+        {
+            return std::static_pointer_cast<Dgram>(Transmission::shared_from_this());
+        }
+
         [[nodiscard]] auto DispatchToExecutor() -> Net::awaitable<void>
         {
             if (NextLayer_)
@@ -508,53 +549,6 @@ namespace Preview::Hysteria2
             }
             Payload.assign(Data.begin() + static_cast<std::ptrdiff_t>(Offset), Data.end());
             return Error::None;
-        }
-
-        /**
-         * @brief 精确读取指定字节数
-         * @param Dst 目标缓冲区
-         * @return true = 失败（EOF / 底层错误）
-         */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Dst) -> Net::awaitable<bool>
-        {
-            if (!NextLayer_)
-            {
-                co_return true;
-            }
-            std::size_t Done = 0;
-            while (Done < Dst.size())
-            {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(Dst.subspan(Done)),
-                    ErrorCode);
-                if (ErrorCode || N == 0)
-                {
-                    co_return true;
-                }
-                if (N > Dst.size() - Done)
-                {
-                    co_return true;
-                }
-                Done += N;
-            }
-            co_return false;
-        }
-
-        /**
-         * @brief 读取地址体（ATYP 已由调用方解析）
-         * @param AddressValue 输出地址
-         * @return 错误码
-         * @note 转发层：统一实现见 Protocol/common::ReadAddressBody
-         */
-        [[nodiscard]] auto ReadAddressBody(Address &AddressValue) -> Net::awaitable<Error>
-        {
-            return Preview::Protocol::Common::ReadAddressBody(
-                AddressValue,
-                [this](std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
-                {
-                    return ReadExact(Buffer);
-                });
         }
 
         SharedTransmission NextLayer_; ///< 底层数据报传输（独占所有权）

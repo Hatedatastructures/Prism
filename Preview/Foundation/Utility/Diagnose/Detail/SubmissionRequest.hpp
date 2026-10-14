@@ -1,26 +1,39 @@
-/**
- * @file SubmissionRequest.hpp
- * @brief Facade 传递给 backend owner 的内部值请求。
+/** @file SubmissionRequest.hpp
+ * @brief facade 到 backend 的同步借用请求；快照在提交返回前完成。
  */
 #pragma once
-
-#include <string>
-
 #include <Preview/Foundation/Utility/Diagnose/ContextState.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Detail/DeferredMessage.hpp>
 #include <Preview/Foundation/Utility/Diagnose/RuntimeOptions.hpp>
 #include <Preview/Foundation/Utility/Diagnose/SubmissionReceipt.hpp>
+#include <tuple>
+#include <string_view>
 
 namespace Preview::Diagnose::Detail
 {
-    /**
-     * @brief 从 facade 传给 backend 的一次提交请求。
-     * @details Message 由请求拥有；Context 仅在同步提交回调期间借用，backend 必须在返回前捕获所需字段。
-     */
+    /** @brief 编译期格式参数的同步借用入口，不越过 callback 返回点。 */
+    template <typename... Args>
+    struct MessageInput final
+    {
+        std::format_string<Args...> Format;
+        std::tuple<Args&...> Values;
+    };
+    template <typename... Args>
+    [[nodiscard]] auto CaptureMessage(DeferredMessage& Output, const void* Input,
+        const FormattingLimits& Limits) noexcept -> Preview::Fault::Failure
+    {
+        const auto& Value = *static_cast<const MessageInput<Args...>*>(Input);
+        return Output.template Capture<Args...>(Value.Format, Value.Values, Limits);
+    }
+    /** @brief 类型化元数据与消息捕获操作；全部输入只同步借用。 */
     struct SubmissionRequest final
     {
-        LogLevel Level{LogLevel::Info};                ///< 记录的级别。
-        const ContextState *Context{nullptr};          ///< 调用方上下文的非拥有指针；不能为空才能提交。
-        std::string Message{};                         ///< 已由 facade 格式化并拥有的消息正文。
-        SubmissionKind Kind{SubmissionKind::Ordinary}; ///< 普通记录或终态 Audit 记录。
+        LogLevel Level{LogLevel::Info};
+        const ContextState* Context{nullptr};
+        std::string_view Message{};
+        SubmissionKind Kind{SubmissionKind::Ordinary};
+        const void* Input{nullptr};
+        Preview::Fault::Failure (*Capture)(DeferredMessage&, const void*, const FormattingLimits&) noexcept {nullptr};
+        Preview::Diagnose::RenderEpochPin Epoch{};
     };
-} // namespace Preview::Diagnose::Detail
+}

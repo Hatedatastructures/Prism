@@ -1,590 +1,434 @@
-/**
- * @file SessionControl.hpp
- * @brief 会话级取消、关闭、异常与 tracked 操作排空控制
- * @details SessionControl 的 hooks、关闭回调和 metrics 回调均在绑定 executor
- *          上执行；外部线程只发布原子状态和 executor command。
- */
-
+/** @file SessionControl.hpp @brief 会话固定父身份、预建关闭交付与真实任务排空。 */
 #pragma once
-
-#include <boost/asio/any_io_executor.hpp>
-#include <boost/asio/awaitable.hpp>
-
-#include <atomic>
-#include <cstddef>
-#include <cstdint>
-#include <exception>
-#include <functional>
-#include <memory>
-#include <utility>
-#include <vector>
-
-#include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Executor/PreparedAction.hpp>
+#include <Preview/Foundation/Fault/FailureState.hpp>
+#include <Preview/Contract/Ingress/StreamCatalog.hpp>
 #include <Preview/Lifecycle/TaskRegistry.hpp>
-
+#include <Preview/Runtime/Session/Delivery.hpp>
+#include <array>
+#include <atomic>
+#include <optional>
 namespace Preview::Runtime
 {
-
     namespace Net = boost::asio;
-
+    class SessionRegistry;
     struct SessionMetrics final
     {
-        std::size_t Started{0};
-        std::size_t Completed{0};
-        std::size_t Active{0};
-        std::size_t CancelRequests{0};
-        std::size_t ErrorCalls{0};
-        std::size_t CloseCalls{0};
-        bool DrainBlocked{false};
-        bool CloseDispatchFailed{false};
+        std::size_t Started{0}, Completed{0}, Active{0}, CancelRequests{0}, ErrorCalls{0}, CloseCalls{0};
+        bool DrainBlocked{false}, CloseDispatchFailed{false};
     };
-
+    /** @brief control 持有子 registry 与预建命令；错误使用 Failure，父身份只发布一次。
+     * @details 取消不代替 drain，CloseOnce 只提交已经安装的动作，无半关闭。
+     * 最终资源关闭归动作内的真实 owner；失败保留在 ClosingStorage。
+     */
     class SessionControl final
     {
-    private:
         using Registry = Preview::Lifecycle::TaskRegistry;
         using Identity = Preview::Lifecycle::TaskIdentity;
-        using Request = Preview::Lifecycle::TaskRequest;
-        using ErrorHookType = std::function<void(Preview::Fault::Code, std::exception_ptr)>;
-        using IdentityErrorHookType =
-            std::function<void(const Identity &, Preview::Fault::Code, std::exception_ptr)>;
-        using MetricsHookType = std::function<void(const SessionMetrics &)>;
-
-        struct CancelEntry final
-        {
-            explicit CancelEntry(std::function<void()> FunctionValue)
-                : Function(std::move(FunctionValue))
-            {
-            }
-
-            std::function<void()> Function;
-            std::atomic<bool> Invoked{false};
-        };
-
-        struct Binding final
-        {
-            Binding(Net::any_io_executor ExecutorValue, std::shared_ptr<Registry> RegistryValue)
-                : Executor(std::move(ExecutorValue)), RegistryValue(std::move(RegistryValue))
-            {
-            }
-
-            Net::any_io_executor Executor;
-            std::shared_ptr<Registry> RegistryValue;
-        };
-
-        struct State final
-        {
-            std::atomic<std::shared_ptr<Binding>> BindingValue;
-            std::atomic<std::uint64_t> CurrentTaskId{0};
-            std::atomic<std::uint64_t> CurrentSessionId{0};
-            std::atomic<std::uint64_t> CurrentStreamId{0};
-            std::atomic<std::uint64_t> CurrentWorkerId{0};
-            std::atomic<std::uint64_t> CurrentGeneration{0};
-            std::atomic<bool> CancelRequested{false};
-            std::atomic<bool> Sealed{false};
-            std::atomic<bool> Closed{false};
-            std::atomic<bool> Blocked{false};
-            std::atomic<bool> CloseDispatchFailed{false};
-            std::atomic<std::size_t> CancelRequests{0};
-            std::atomic<std::size_t> ErrorCalls{0};
-            std::atomic<std::size_t> CloseCalls{0};
-            std::vector<std::shared_ptr<CancelEntry>> CancelHooks;
-            std::atomic<std::shared_ptr<ErrorHookType>> OnError{std::shared_ptr<ErrorHookType>{}};
-            std::atomic<std::shared_ptr<IdentityErrorHookType>> OnIdentityError{
-                std::shared_ptr<IdentityErrorHookType>{}};
-            std::atomic<std::shared_ptr<MetricsHookType>> OnMetrics{std::shared_ptr<MetricsHookType>{}};
-        };
-
-        static auto MarkBlocked(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            StateValue->Blocked.store(true, std::memory_order_release);
-        }
-
-        static auto Post(const std::shared_ptr<State> &StateValue,
-                         const std::shared_ptr<Binding> &BindingValue,
-                         Preview::Resource::ExecutorReclaimer::Action Command) noexcept -> bool
-        {
-            if (!BindingValue || !BindingValue->RegistryValue->Reclaimer()->Post(std::move(Command)))
-            {
-                MarkBlocked(StateValue);
-                if (BindingValue)
-                {
-                    BindingValue->RegistryValue->Block();
-                }
-                return false;
-            }
-            return true;
-        }
-
-        static auto MakeBinding(const std::shared_ptr<State> &StateValue,
-                                Net::any_io_executor Executor,
-                                std::shared_ptr<Registry> RegistryValue = {})
-        {
-            const auto WeakState = std::weak_ptr<State>(StateValue);
-            if (!RegistryValue)
-            {
-                RegistryValue = std::make_shared<Registry>(
-                    Executor,
-                    [WeakState](const Identity &IdentityValue, std::exception_ptr Failure)
-                    {
-                        if (const auto StateValue = WeakState.lock())
-                        {
-                            ReportErrorOnExecutor(
-                                StateValue, IdentityValue, Preview::Fault::Code::IoError,
-                                std::move(Failure));
-                        }
-                    });
-            }
-            return std::make_shared<Binding>(std::move(Executor), std::move(RegistryValue));
-        }
-
-        [[nodiscard]] auto BindWithRegistry(
-            Net::any_io_executor Executor,
-            std::shared_ptr<Registry> RegistryValue) -> bool
-        {
-            const auto Candidate = MakeBinding(State_, std::move(Executor), std::move(RegistryValue));
-            std::shared_ptr<Binding> Expected;
-            if (!State_->BindingValue.compare_exchange_strong(
-                    Expected, Candidate, std::memory_order_release, std::memory_order_acquire))
-            {
-                return true;
-            }
-            if (State_->CancelRequested.load(std::memory_order_acquire))
-            {
-                (void)Candidate->RegistryValue->Cancel();
-                (void)Post(
-                    State_, Candidate,
-                    [StateValue = State_] { DispatchCancelOnExecutor(StateValue); });
-            }
-            return true;
-        }
-
-        static auto InvokeCancel(const std::shared_ptr<CancelEntry> &Entry) noexcept -> void
-        {
-            if (!Entry || Entry->Invoked.exchange(true, std::memory_order_acq_rel))
-            {
-                return;
-            }
-            try
-            {
-                if (Entry->Function)
-                {
-                    Entry->Function();
-                }
-            }
-            catch (...)
-            {
-            }
-        }
-
-        static auto DispatchCancelOnExecutor(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            for (const auto &Entry : StateValue->CancelHooks)
-            {
-                InvokeCancel(Entry);
-            }
-        }
-
-        static auto EmitMetrics(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            const auto Hook = StateValue->OnMetrics.load(std::memory_order_acquire);
-            if (!Hook || !*Hook)
-            {
-                return;
-            }
-            try
-            {
-                (*Hook)(MakeMetrics(StateValue));
-            }
-            catch (...)
-            {
-            }
-        }
-
-        static auto ReportErrorOnExecutor(const std::shared_ptr<State> &StateValue,
-                                          const Identity &IdentityValue,
-                                          Preview::Fault::Code Code,
-                                          std::exception_ptr Failure) noexcept -> void
-        {
-            StateValue->ErrorCalls.fetch_add(1, std::memory_order_relaxed);
-            const auto Hook = StateValue->OnError.load(std::memory_order_acquire);
-            if (Hook && *Hook)
-            {
-                try
-                {
-                    (*Hook)(Code, Failure);
-                }
-                catch (...)
-                {
-                }
-            }
-            const auto IdentityHook = StateValue->OnIdentityError.load(std::memory_order_acquire);
-            if (IdentityHook && *IdentityHook)
-            {
-                try
-                {
-                    (*IdentityHook)(IdentityValue, Code, std::move(Failure));
-                }
-                catch (...)
-                {
-                }
-            }
-            EmitMetrics(StateValue);
-        }
-
-        static auto MakeMetrics(const std::shared_ptr<State> &StateValue) noexcept -> SessionMetrics
-        {
-            const auto BindingValue = StateValue->BindingValue.load(std::memory_order_acquire);
-            const auto Snapshot = BindingValue ? BindingValue->RegistryValue->Stats()
-                                               : Preview::Lifecycle::TaskStats{};
-            return SessionMetrics{
-                Snapshot.Started,
-                Snapshot.Completed,
-                Snapshot.Active,
-                StateValue->CancelRequests.load(std::memory_order_relaxed),
-                StateValue->ErrorCalls.load(std::memory_order_relaxed),
-                StateValue->CloseCalls.load(std::memory_order_relaxed),
-                StateValue->Blocked.load(std::memory_order_acquire) || Snapshot.DrainBlocked,
-                StateValue->CloseDispatchFailed.load(std::memory_order_acquire)};
-        }
-
+        using Failure = Preview::Fault::Failure;
+        using Prepared = Preview::Executor::PreparedAction;
     public:
         using CancelFn = std::function<void()>;
-        using CloseFn = std::function<void()>;
-        using ErrorHook = ErrorHookType;
-        using IdentityErrorHook = IdentityErrorHookType;
-        using MetricsHook = MetricsHookType;
-        using MetricsSnapshot = SessionMetrics;
-
-        SessionControl() : State_(std::make_shared<State>()) {}
-
-        explicit SessionControl(Net::any_io_executor Executor) : State_(std::make_shared<State>())
+        using CloseFn = Prepared::Action;
+        using ErrorHook = std::function<void(Failure)>;
+        using IdentityErrorHook = std::function<void(const Identity&, Failure)>;
+        using MetricsHook = std::function<void(const SessionMetrics&)>;
+    private:
+        struct Binding final
         {
-            (void)Bind(std::move(Executor));
-        }
-
-        SessionControl(const SessionControl &) = delete;
-        auto operator=(const SessionControl &) -> SessionControl & = delete;
-
-        /**
-         * @brief 绑定会话执行器
-         * @return 当前控制器可用时返回 true
-         * @note 只能在首次启动操作前绑定；重复绑定保留首次执行器。
-         */
-        [[nodiscard]] auto Bind(Net::any_io_executor Executor) -> bool
+            std::shared_ptr<Registry> Tasks;
+            std::shared_ptr<Prepared> CancelAction;
+            std::shared_ptr<SessionDelivery> Delivery;
+        };
+        struct State final : Preview::Lifecycle::TaskIdentityObserver
         {
-            return BindWithRegistry(std::move(Executor), {});
-        }
-
-        /**
-         * @brief 将会话绑定到 worker registry 的独立子 scope。
-         */
-        [[nodiscard]] auto Bind(
-            Net::any_io_executor Executor,
-            const std::shared_ptr<Registry> &WorkerRegistry) -> bool
-        {
-            if (!WorkerRegistry)
+            auto PublishIdentity(const Identity& Value) -> void override
             {
-                return Bind(std::move(Executor));
+                if (ParentIdentity.load()) return;
+                auto Candidate = std::make_shared<const Identity>(Value);
+                std::shared_ptr<const Identity> Empty;
+                (void)ParentIdentity.compare_exchange_strong(Empty, std::move(Candidate));
             }
-            const auto WeakState = std::weak_ptr<State>(State_);
-            auto Child = WorkerRegistry->CreateChild(
-                [WeakState](const Identity &IdentityValue, std::exception_ptr Failure)
-                {
-                    if (const auto StateValue = WeakState.lock())
-                    {
-                        ReportErrorOnExecutor(
-                            StateValue, IdentityValue, Preview::Fault::Code::IoError,
-                            std::move(Failure));
-                    }
-                });
-            return Child && BindWithRegistry(std::move(Executor), std::move(Child));
-        }
-
-        /**
-         * @brief 绑定到 worker 持有的 registry；引用不转移 owner。
-         * @note 调用方必须保证 Worker registry 的生命周期覆盖本控制器。
-         */
-        [[nodiscard]] auto Bind(
-            Net::any_io_executor Executor,
-            Registry &WorkerRegistry) -> bool
+            std::atomic<std::shared_ptr<Binding>> Bound;
+            std::atomic<std::shared_ptr<const Identity>> ParentIdentity;
+            std::atomic<std::shared_ptr<Preview::Contract::Ingress::StreamCatalog>> StreamCatalogOwner;
+            std::atomic<std::shared_ptr<Prepared>> CloseAction;
+            std::array<std::atomic<std::shared_ptr<Prepared>>, 16> CancelHooks;
+            std::atomic<std::size_t> HookCount{0};
+            std::atomic<std::shared_ptr<ErrorHook>> OnError;
+            std::atomic<std::shared_ptr<IdentityErrorHook>> OnIdentityError;
+            std::atomic<std::shared_ptr<MetricsHook>> OnMetrics;
+            std::atomic<bool> CancelRequested{false}, Sealed{false}, Closed{false};
+            std::atomic<bool> SessionRootStarted{false};
+            std::atomic<bool> Blocked{false}, CloseDispatchFailed{false};
+            Preview::Fault::FailureState ControlFailure;
+            std::atomic<std::size_t> CancelRequests{0}, ErrorCalls{0}, CloseCalls{0};
+        };
+        /** @brief 本次交付的有限动作集合；后续无关提交不能扩大它。 */
+        struct DeliveryBatch final
         {
-            auto NonOwning = std::shared_ptr<Registry>(
-                &WorkerRegistry, [](Registry *) {});
-            return Bind(std::move(Executor), NonOwning);
-        }
-
-        auto SetErrorHook(ErrorHook Hook) -> void
+            std::shared_ptr<Prepared> Cancel;
+            std::shared_ptr<Prepared> Close;
+            std::array<std::shared_ptr<Prepared>, 16> Hooks;
+            bool Cancellation{false};
+        };
+        [[nodiscard]] static auto CaptureDelivery(const std::shared_ptr<State>& Value) -> DeliveryBatch
         {
-            State_->OnError.store(
-                Hook ? std::make_shared<ErrorHookType>(std::move(Hook))
-                     : std::shared_ptr<ErrorHookType>{},
-                std::memory_order_release);
+            DeliveryBatch Batch;
+            Batch.Cancellation = Value->CancelRequested.load();
+            Batch.Close = Value->CloseAction.load();
+            if (auto Bound = Value->Bound.load()) Batch.Cancel = Bound->CancelAction;
+            for (std::size_t Index = 0; Index < Batch.Hooks.size(); ++Index)
+                Batch.Hooks[Index] = Value->CancelHooks[Index].load();
+            return Batch;
         }
-
-        auto SetErrorHook(IdentityErrorHook Hook) -> void
+        /** @brief 只确认已捕获取消动作及其有限子 hook；不观察其他 control。 */
+        [[nodiscard]] static auto DeliverCancellation(const DeliveryBatch& Batch)
+            -> Net::awaitable<std::expected<void, Failure>>
         {
-            State_->OnIdentityError.store(
-                Hook ? std::make_shared<IdentityErrorHookType>(std::move(Hook))
-                     : std::shared_ptr<IdentityErrorHookType>{},
-                std::memory_order_release);
+            if (!Batch.Cancellation) co_return std::expected<void, Failure>{};
+            auto Submitted = Batch.Cancel->Submit();
+            if (!Submitted) co_return Submitted;
+            // 固定集合各自持有完成通知；未完成的异步 post 不被普通队列水位冒充完成。
+            for (const auto& Hook : Batch.Hooks)
+                if (Hook) { auto Result = Hook->Submit(); if (!Result) co_return Result; }
+            auto Cancelled = co_await Batch.Cancel->Await();
+            if (!Cancelled) co_return Cancelled;
+            for (const auto& Hook : Batch.Hooks)
+                if (Hook) { auto Result = co_await Hook->Await(); if (!Result) co_return Result; }
+            co_return std::expected<void, Failure>{};
         }
-
-        auto SetMetricsHook(MetricsHook Hook) -> void
+        static auto MakeMetrics(const std::shared_ptr<State>& Value) noexcept -> SessionMetrics
         {
-            State_->OnMetrics.store(
-                Hook ? std::make_shared<MetricsHookType>(std::move(Hook))
-                     : std::shared_ptr<MetricsHookType>{},
-                std::memory_order_release);
+            Preview::Lifecycle::TaskStats Snapshot;
+            if (auto Bound = Value->Bound.load()) Snapshot = Bound->Tasks->Stats();
+            return {Snapshot.Started, Snapshot.Completed, Snapshot.Active, Value->CancelRequests.load(),
+                Value->ErrorCalls.load(), Value->CloseCalls.load(), Value->Blocked.load() || Snapshot.DrainBlocked,
+                Value->CloseDispatchFailed.load()};
         }
-
-        /**
-         * @brief 登记一个取消 hook
-         * @return hook 已提交到绑定 executor 返回 true；空 hook、未绑定或投递失败返回 false
-         */
-        [[nodiscard]] auto AddCancelHook(CancelFn Hook) -> bool
+        static auto EmitMetrics(const std::shared_ptr<State>& Value) -> void
+        { if (auto Hook = Value->OnMetrics.load(); Hook && *Hook) (*Hook)(MakeMetrics(Value)); }
+        static auto MarkBlocked(const std::shared_ptr<State>& Value) noexcept -> void
+        { Value->Blocked.store(true); if (auto Bound = Value->Bound.load()) Bound->Tasks->Block(); }
+        static auto DispatchCancel(const std::shared_ptr<State>& Value) -> void
         {
-            if (!Hook)
-            {
-                return false;
-            }
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            if (!BindingValue)
-            {
-                return false;
-            }
-            auto Entry = std::make_shared<CancelEntry>(std::move(Hook));
-            return Post(
-                State_,
-                BindingValue,
-                [StateValue = State_, Entry]
-                {
-                    if (StateValue->CancelRequested.load(std::memory_order_acquire))
-                    {
-                        InvokeCancel(Entry);
-                    }
-                    else
-                    {
-                        StateValue->CancelHooks.push_back(Entry);
-                    }
-                });
+            for (auto& Slot : Value->CancelHooks)
+                if (auto Hook = Slot.load(); Hook && !Hook->Submit()) MarkBlocked(Value);
+            EmitMetrics(Value);
         }
-
-        /**
-         * @brief 启动一个受 registry 追踪的操作
-         * @return 已接受并登记返回 true；未绑定、已取消或已封止返回 false
-         */
-        [[nodiscard]] auto Start(Net::awaitable<void> Operation) -> bool
+        static auto Report(const std::shared_ptr<State>& Value, std::pair<Identity, Failure> Error) -> void
         {
-            return Start(Request{}, std::move(Operation));
+            Value->ErrorCalls.fetch_add(1);
+            if (auto Hook = Value->OnError.load(); Hook && *Hook) (*Hook)(Error.second);
+            if (auto Hook = Value->OnIdentityError.load(); Hook && *Hook) (*Hook)(Error.first, Error.second);
+            EmitMetrics(Value);
         }
-
-        /**
-         * @brief 兼容旧调用的受追踪操作入口
-         * @param Operation 返回 awaitable<void> 的协程对象
-         * @param Cancel 任务取消 hook
-         * @return 已接受并登记返回 true
-         */
-        [[nodiscard]] auto Start(Net::awaitable<void> Operation, CancelFn Cancel) -> bool
+        auto InstallBinding(std::shared_ptr<Registry> Tasks) -> bool
         {
-            Request RequestValue;
-            RequestValue.Cancel = std::move(Cancel);
-            return Start(std::move(RequestValue), std::move(Operation));
-        }
-
-        /**
-         * @brief 启动一个携带稳定任务身份的受 registry 追踪操作
-         * @param RequestValue 任务身份和取消 hook
-         * @param Operation 返回 awaitable<void> 的协程对象
-         * @return 已接受并登记返回 true；未绑定、已取消或已封止返回 false
-         */
-        [[nodiscard]] auto Start(Request RequestValue, Net::awaitable<void> Operation) -> bool
-        {
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            if (!BindingValue || State_->Sealed.load(std::memory_order_acquire))
-            {
-                return false;
-            }
-            RequestValue.StartOnSubmit = true;
-            const auto Task = BindingValue->RegistryValue->SpawnTracked(
-                std::move(RequestValue), std::move(Operation));
-            if (!Task)
-            {
-                return false;
-            }
-            const auto IdentityValue = Task->Identity();
-            State_->CurrentTaskId.store(IdentityValue.TaskId.Value(), std::memory_order_release);
-            State_->CurrentSessionId.store(IdentityValue.SessionId.Value(), std::memory_order_release);
-            State_->CurrentStreamId.store(IdentityValue.StreamId.Value(), std::memory_order_release);
-            State_->CurrentWorkerId.store(IdentityValue.WorkerId.Value(), std::memory_order_release);
-            State_->CurrentGeneration.store(IdentityValue.Generation.Value(), std::memory_order_release);
-            (void)Post(State_, BindingValue, [StateValue = State_] { EmitMetrics(StateValue); });
+            auto Bound = std::make_shared<Binding>();
+            Bound->Tasks = std::move(Tasks);
+            Bound->Delivery = std::make_shared<SessionDelivery>(Bound->Tasks->Reclaimer());
+            auto Weak = std::weak_ptr<State>(State_);
+            Bound->CancelAction = std::make_shared<Prepared>(Bound->Tasks->Reclaimer(),
+                [Weak]() -> std::expected<void, Failure>
+                { if (auto Value = Weak.lock()) { DispatchCancel(Value); if (Value->Blocked.load()) return std::unexpected(Failure{Preview::Fault::Code::Blocked}); } return {}; });
+            std::shared_ptr<Binding> Empty;
+            if (!State_->Bound.compare_exchange_strong(Empty, Bound)) return false;
+            if (State_->CancelRequested.load())
+            { (void)Bound->Tasks->Cancel(); if (!Bound->CancelAction->Submit()) MarkBlocked(State_); }
             return true;
         }
-
-        /**
-         * @brief 请求一次会话取消；重复调用不重复派发
-         */
-        auto Cancel() noexcept -> void
+        [[nodiscard]] auto FailureReporter() -> Registry::FailureHandler
         {
-            if (State_->CancelRequested.exchange(true, std::memory_order_acq_rel))
-            {
-                return;
-            }
-            State_->CancelRequests.fetch_add(1, std::memory_order_relaxed);
-            State_->Sealed.store(true, std::memory_order_release);
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            if (!BindingValue)
-            {
-                MarkBlocked(State_);
-                return;
-            }
-            (void)BindingValue->RegistryValue->Cancel();
-            (void)Post(
-                State_,
-                BindingValue,
-                [StateValue = State_] { DispatchCancelOnExecutor(StateValue); });
-            (void)Post(State_, BindingValue, [StateValue = State_] { EmitMetrics(StateValue); });
+            return [Weak = std::weak_ptr<State>(State_)](const Identity& Id, Failure Error)
+                { if (auto Value = Weak.lock()) Report(Value, {Id, Error}); };
         }
-
+    public:
+        SessionControl() : State_(std::make_shared<State>()) {}
+        explicit SessionControl(Net::any_io_executor Executor) : SessionControl() { (void)Bind(std::move(Executor)); }
+        SessionControl(const SessionControl&) = delete;
+        auto operator=(const SessionControl&) -> SessionControl& = delete;
+        /** @brief 冷绑定独立 scope；executor 必须活至 Drain 和关闭交付完成。 */
+        [[nodiscard]] auto Bind(Net::any_io_executor Executor) -> bool
+        { if (State_->Bound.load()) return false; return InstallBinding(std::make_shared<Registry>(std::move(Executor), FailureReporter())); }
+        /** @brief 冷绑定 worker 子 scope；借用父只覆盖本调用，之后持有独立子 owner。 */
+        [[nodiscard]] auto Bind(Net::any_io_executor, Registry& Parent) -> bool
+        { if (State_->Bound.load()) return false; return InstallBinding(Parent.CreateChild(FailureReporter())); }
+        /** @brief 冷装配错误观察函数；只在绑定 executor 调用，无所有权回收。 */
+        auto SetErrorHook(ErrorHook Hook) -> void { State_->OnError.store(std::make_shared<ErrorHook>(std::move(Hook))); }
+        auto SetErrorHook(IdentityErrorHook Hook) -> void
+        { State_->OnIdentityError.store(std::make_shared<IdentityErrorHook>(std::move(Hook))); }
+        auto SetMetricsHook(MetricsHook Hook) -> void
+        { State_->OnMetrics.store(std::make_shared<MetricsHook>(std::move(Hook))); }
+        /** @brief 冷安装有限取消动作；动作拥有闭包，失败不修改已安装的其他动作。 */
+        [[nodiscard]] auto AddCancelHook(CancelFn Hook) -> std::expected<void, Failure>
+        {
+            auto Bound = State_->Bound.load();
+            if (!Bound || !Hook) return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            auto Entry = std::make_shared<Prepared>(Bound->Tasks->Reclaimer(),
+                [Hook = std::move(Hook)]() -> std::expected<void, Failure> { Hook(); return {}; });
+            auto Count = State_->HookCount.load();
+            for (;;)
+            {
+                if (Count == State_->CancelHooks.size()) return std::unexpected(Failure{Preview::Fault::Code::ResourceUnavailable});
+                if (State_->HookCount.compare_exchange_weak(Count, Count + 1)) break;
+            }
+            State_->CancelHooks[Count].store(Entry);
+            if (State_->CancelRequested.load()) return Entry->Submit();
+            return {};
+        }
+        /** @brief 冷安装唯一关闭动作，拥有实物的闭包必须在提交前构造。 */
+        [[nodiscard]] auto SetCloseAction(CloseFn Work) -> std::expected<void, Failure>
+        {
+            auto Bound = State_->Bound.load();
+            if (!Bound || !Work) return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            auto Action = std::make_shared<Prepared>(Bound->Tasks->Reclaimer(), std::move(Work));
+            std::shared_ptr<Prepared> Empty;
+            if (!State_->CloseAction.compare_exchange_strong(Empty, Action))
+                return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            return {};
+        }
+        /** @brief 接管一次操作与上下文，返回唯一任务身份；不覆盖固定父会话身份。 */
+        template<class OperationType>
+        [[nodiscard]] auto Start(Preview::Lifecycle::TaskRequest Request, OperationType Operation)
+            -> std::expected<Preview::Lifecycle::TaskHandle, Failure>
+        {
+            auto Bound = State_->Bound.load();
+            if (!Bound || State_->Sealed.load()) return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+            if (auto Parent = State_->ParentIdentity.load()) Request.Context = Preview::Lifecycle::FromParent(*Parent);
+            Request.StartOnSubmit = true;
+            Request.IdentityObserver = State_;
+            auto Task = Bound->Tasks->SpawnTracked(std::move(Request), std::move(Operation));
+            if (Task) (void)SetIdentity(Task->Identity());
+            return Task;
+        }
+        /**
+         * @brief 把唯一 Session runner 登记在父 root scope，子 scope 仍专用于 Session children。
+         * @param Parent 与 Bind(executor, Parent) 相同的 Worker root 或 standalone listener root。
+         * @param Request 按值移交 session/worker/generation 身份、task context 与取消动作。
+         * @param Operation 按值移交的 Session runner；在 Parent executor 上执行。
+         * @return 唯一 task handle 或真实准入失败；不把 runner 放入其随后必须 Drain 的子 scope。
+         * @details Parent 仅在本次同步提交期间借用；它持有有界 root task slot、取消请求、失败记录
+         *          和真实 completion retirement receipt，直到 completion handler 退栈。SessionControl
+         *          继续拥有独立 child registry，只排空本会话子任务；runner 返回前须等待关闭交付、
+         *          传输 Activity 与 child registry 真实 drain。取消只请求关闭，不代替半关闭或最终 close。
+         */
+        template<class OperationType>
+        [[nodiscard]] auto StartSession(
+            Registry &Parent,
+            Preview::Lifecycle::TaskRequest Request,
+            OperationType Operation) -> std::expected<Preview::Lifecycle::TaskHandle, Failure>
+        {
+            auto Bound = State_->Bound.load();
+            if (!Bound || State_->Sealed.load())
+                return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+            bool Expected = false;
+            if (!State_->SessionRootStarted.compare_exchange_strong(Expected, true))
+                return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            if (State_->ParentIdentity.load())
+            {
+                State_->SessionRootStarted.store(false);
+                return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            }
+            Request.StartOnSubmit = true;
+            Request.IdentityObserver = State_;
+            auto Task = Parent.SpawnTracked(std::move(Request), std::move(Operation));
+            if (Task)
+            {
+                (void)SetIdentity(Task->Identity());
+            }
+            else
+            {
+                State_->SessionRootStarted.store(false);
+            }
+            return Task;
+        }
+        /** @brief 首次发布固定父身份；后续子任务提交不会修改该值。 */
+        [[nodiscard]] auto SetIdentity(const Identity& Value) -> bool
+        {
+            if (auto Current = State_->ParentIdentity.load()) return Current->TaskId == Value.TaskId;
+            auto Candidate = std::make_shared<const Identity>(Value);
+            std::shared_ptr<const Identity> Empty;
+            return State_->ParentIdentity.compare_exchange_strong(Empty, std::move(Candidate));
+        }
+        /** @brief 按值读取固定父身份；未发布返回空值，不受后续子任务提交影响。 */
+        [[nodiscard]] auto CurrentIdentity() const noexcept -> Identity
+        { if (auto Value = State_->ParentIdentity.load()) return *Value; return {}; }
+        /** @brief 为本会话绑定唯一的真实协议 stream 查询目录；不建立 callback 或资源别名。 */
+        [[nodiscard]] auto AttachStreamCatalog(
+            std::shared_ptr<Preview::Contract::Ingress::StreamCatalog> Value) noexcept -> bool
+        {
+            if (!Value || State_->Sealed.load(std::memory_order_acquire)) return false;
+            std::shared_ptr<Preview::Contract::Ingress::StreamCatalog> Empty;
+            return State_->StreamCatalogOwner.compare_exchange_strong(
+                Empty, std::move(Value), std::memory_order_acq_rel);
+        }
+        /** @brief 跨 executor 返回按值目录快照；不会取得 stream/task/transport owner。 */
+        [[nodiscard]] auto FindStream(
+            const Preview::Contract::Ingress::StreamIdentity &Identity) const noexcept
+            -> Preview::Contract::Ingress::StreamCatalogLookup
+        {
+            const auto Catalog = State_->StreamCatalogOwner.load(std::memory_order_acquire);
+            if (!Catalog)
+            {
+                return {Preview::Contract::Ingress::StreamCatalogStatus::CapabilityUnavailable, {}};
+            }
+            return Catalog->Find(Identity);
+        }
+        /** @brief 校验 session 控制 owner 后返回真实 live stream 的有界值页。 */
+        [[nodiscard]] auto ListStreams(
+            const Preview::Contract::Ingress::StreamListRequest &Request) const
+            -> Preview::Contract::Ingress::StreamCatalogPage
+        {
+            const auto Parent = CurrentIdentity();
+            if (Parent.SessionId != Request.Parent.Session ||
+                Parent.WorkerId != Request.Parent.Worker ||
+                Parent.Generation != Request.Parent.Generation)
+            {
+                return {Preview::Contract::Ingress::StreamCatalogStatus::NotFound, {},
+                    Request.Cursor, false};
+            }
+            const auto Catalog = State_->StreamCatalogOwner.load(std::memory_order_acquire);
+            if (!Catalog)
+            {
+                return {Preview::Contract::Ingress::StreamCatalogStatus::CapabilityUnavailable,
+                    {}, Request.Cursor, false};
+            }
+            return Catalog->List(Request);
+        }
+        /** @brief 按固定 root 身份取消单一 stream 并等待协议 drain 与 child 任务退休。 */
+        [[nodiscard]] auto ResetStreamAndDrain(
+            Preview::Contract::Ingress::StreamResetRequest Request)
+            -> Net::awaitable<std::expected<void, Failure>>
+        {
+            const auto Parent = CurrentIdentity();
+            if (!Parent.TaskId || Request.Identity.Session != Parent.SessionId ||
+                Request.Identity.Worker != Parent.WorkerId ||
+                Request.Identity.Generation != Parent.Generation ||
+                Request.ParentTask != Parent.TaskId || !Request.Task)
+            {
+                co_return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            }
+            const auto Catalog = State_->StreamCatalogOwner.load(std::memory_order_acquire);
+            if (!Catalog)
+            {
+                co_return std::unexpected(Failure{Preview::Fault::Code::NotSupported});
+            }
+            co_return co_await Catalog->ResetAndDrain(std::move(Request));
+        }
+        /** @brief 取消只提交预建动作，重复请求无副作用；失败阻断 Drain。 */
+        [[nodiscard]] auto Cancel() -> std::expected<void, Failure>
+        {
+            if (State_->CancelRequested.exchange(true))
+            {
+                const auto Failure = State_->ControlFailure.Load();
+                if (Failure.Failed()) return std::unexpected(Failure);
+                if (State_->Blocked.load()) return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+                return {};
+            }
+            State_->CancelRequests.fetch_add(1);
+            State_->Sealed.store(true);
+            auto Bound = State_->Bound.load();
+            if (!Bound)
+            {
+                const auto Failure = Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument};
+                (void)State_->ControlFailure.TrySet(Failure); MarkBlocked(State_);
+                return std::unexpected(Failure);
+            }
+            (void)Bound->Tasks->Cancel();
+            const auto Delivered = Bound->CancelAction->Submit();
+            if (Bound->Tasks->IsDrainBlocked())
+            {
+                const auto Failure = Preview::Fault::Failure{Preview::Fault::Code::Blocked};
+                (void)State_->ControlFailure.TrySet(Failure);
+                MarkBlocked(State_);
+                return std::unexpected(Failure);
+            }
+            if (!Delivered)
+            { (void)State_->ControlFailure.TrySet(Delivered.error()); MarkBlocked(State_); return Delivered; }
+            return {};
+        }
+        /** @brief 读取取消状态；无半关闭、最终关闭或 executor 调度副作用。 */
         [[nodiscard]] auto IsCancelled() const noexcept -> bool
         {
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            return State_->CancelRequested.load(std::memory_order_acquire) ||
-                   (BindingValue &&
-                    BindingValue->RegistryValue->Domain()->IsCancellationRequested());
+            if (State_->CancelRequested.load()) return true;
+            auto Bound = State_->Bound.load();
+            return Bound && Bound->Tasks->Domain()->IsCancellationRequested();
         }
-
-        /**
-         * @brief 获取最近一次提交操作的稳定任务身份
-         * @return listener 提交的 Session 任务身份；尚未提交时返回空值
-         */
-        [[nodiscard]] auto CurrentIdentity() const noexcept -> Identity
+        /** @brief 提交唯一预建 close，重复返回成功；仅表示交付接受，不表示 I/O 排空。 */
+        [[nodiscard]] auto CloseOnce() -> std::expected<void, Failure>
         {
-            return Identity{
-                Preview::TaskId{State_->CurrentTaskId.load(std::memory_order_acquire)},
-                Preview::SessionId{State_->CurrentSessionId.load(std::memory_order_acquire)},
-                Preview::StreamId{State_->CurrentStreamId.load(std::memory_order_acquire)},
-                Preview::WorkerId{State_->CurrentWorkerId.load(std::memory_order_acquire)},
-                Preview::GenerationId{State_->CurrentGeneration.load(std::memory_order_acquire)}};
+            State_->Sealed.store(true);
+            auto Action = State_->CloseAction.load();
+            if (!Action) { MarkBlocked(State_); return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument}); }
+            if (auto Bound = State_->Bound.load()) Bound->Tasks->Seal();
+            auto Result = Action->Submit();
+            if (!State_->Closed.exchange(true)) State_->CloseCalls.fetch_add(1);
+            if (!Result) { (void)State_->ControlFailure.TrySet(Result.error()); State_->CloseDispatchFailed.store(true); MarkBlocked(State_); }
+            return Result;
         }
-
-        auto SetIdentity(const Identity &IdentityValue) noexcept -> void
+        /** @brief 等待任务实际退栈；调用者仍须等待关闭交付并退休其传输 owner。 */
+        [[nodiscard]] auto Drain() -> Net::awaitable<std::expected<void, Failure>>
         {
-            State_->CurrentTaskId.store(IdentityValue.TaskId.Value(), std::memory_order_release);
-            State_->CurrentSessionId.store(IdentityValue.SessionId.Value(), std::memory_order_release);
-            State_->CurrentStreamId.store(IdentityValue.StreamId.Value(), std::memory_order_release);
-            State_->CurrentWorkerId.store(IdentityValue.WorkerId.Value(), std::memory_order_release);
-            State_->CurrentGeneration.store(IdentityValue.Generation.Value(), std::memory_order_release);
+            co_await Net::this_coro::throw_if_cancelled(false);
+            auto Bound = State_->Bound.load();
+            State_->Sealed.store(true);
+            const auto ControlFailure = State_->ControlFailure.Load();
+            if (ControlFailure.Failed()) co_return std::unexpected(ControlFailure);
+            if (!Bound || State_->Blocked.load()) co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            co_return co_await Bound->Tasks->Drain();
         }
-
-        /**
-         * @brief 执行一次关闭回调
-         * @return 首次取得关闭权且回调成功投递返回 true；重复调用或投递失败返回 false
-         */
-        [[nodiscard]] auto CloseOnce(CloseFn Close) -> bool
+        /** @brief 按值投递错误，保留原生 cause；不创建 exception_ptr。 */
+        auto ReportError(Failure Error) -> void { ReportError(CurrentIdentity(), Error); }
+        auto ReportError(const Identity& Id, Failure Error) -> void
         {
-            if (State_->Closed.exchange(true, std::memory_order_acq_rel))
-            {
-                return false;
-            }
-            State_->Sealed.store(true, std::memory_order_release);
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            if (BindingValue)
-            {
-                BindingValue->RegistryValue->Seal();
-                State_->CloseCalls.fetch_add(1, std::memory_order_relaxed);
-                const auto Delivered = Post(
-                    State_,
-                    BindingValue,
-                    [StateValue = State_, Close = std::move(Close)]() mutable
-                    {
-                        try
-                        {
-                            if (Close)
-                            {
-                                Close();
-                            }
-                        }
-                        catch (...)
-                        {
-                        }
-                        EmitMetrics(StateValue);
-                    });
-                if (!Delivered)
-                {
-                    State_->CloseDispatchFailed.store(true, std::memory_order_release);
-                }
-                return Delivered;
-            }
-            State_->CloseDispatchFailed.store(true, std::memory_order_release);
-            MarkBlocked(State_);
-            return false;
+            auto Bound = State_->Bound.load();
+            if (!Bound) { MarkBlocked(State_); return; }
+            if (!Bound->Tasks->Reclaimer()->Post([Value = State_, Id, Error] { Report(Value, {Id, Error}); })) MarkBlocked(State_);
         }
-
-        /**
-         * @brief 封止新操作并等待所有已登记操作真实结束
-         */
-        [[nodiscard]] auto Drain() -> Net::awaitable<void>
+        /** @brief 等待此前动作交付；blocked 不当作成功，取消以 Failure 返回。 */
+        [[nodiscard]] auto AwaitDelivery() -> Net::awaitable<std::expected<void, Failure>>
         {
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            if (!BindingValue)
-            {
-                co_return;
-            }
-            co_await BindingValue->RegistryValue->Drain();
+            co_await Net::this_coro::throw_if_cancelled(false);
+            auto Bound = State_->Bound.load();
+            if (!Bound) co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            if (State_->Blocked.load()) co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            auto Batch = CaptureDelivery(State_);
+            auto Result = co_await Bound->Delivery->Await();
+            if (!Result) { MarkBlocked(State_); co_return Result; }
+            Batch.Cancellation = Batch.Cancellation || State_->CancelRequested.load();
+            Result = co_await DeliverCancellation(Batch);
+            if (!Result) { MarkBlocked(State_); co_return Result; }
+            // 初始错误前缀与有限 hook 已完成；只等待此时已经提交的唯一 close 的自身确认。
+            const auto IncludeClose = Batch.Close && State_->Closed.load();
+            if (IncludeClose) Result = co_await Batch.Close->Await();
+            if (State_->Blocked.load() && Result) Result = std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            if (!Result) MarkBlocked(State_);
+            co_return Result;
         }
-
-        auto ReportError(Preview::Fault::Code Code, std::exception_ptr Failure = {}) -> void
-        {
-            ReportError(CurrentIdentity(), Code, std::move(Failure));
-        }
-
-        auto ReportError(const Identity &IdentityValue,
-                         Preview::Fault::Code Code,
-                         std::exception_ptr Failure = {}) -> void
-        {
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            if (!BindingValue)
-            {
-                State_->ErrorCalls.fetch_add(1, std::memory_order_relaxed);
-                MarkBlocked(State_);
-                return;
-            }
-            (void)Post(
-                State_,
-                BindingValue,
-                [StateValue = State_, IdentityValue, Code, Failure = std::move(Failure)]() mutable
-                {
-                    ReportErrorOnExecutor(
-                        StateValue, IdentityValue, Code, std::move(Failure));
-                });
-        }
-
-        [[nodiscard]] auto Metrics() const noexcept -> SessionMetrics
-        {
-            return MakeMetrics(State_);
-        }
-
-        [[nodiscard]] auto IsClosed() const noexcept -> bool
-        {
-            return State_->Closed.load(std::memory_order_acquire);
-        }
-
-        [[nodiscard]] auto IsDrainBlocked() const noexcept -> bool
-        {
-            const auto BindingValue = State_->BindingValue.load(std::memory_order_acquire);
-            return State_->Blocked.load(std::memory_order_acquire) ||
-                   (BindingValue && BindingValue->RegistryValue->IsDrainBlocked());
-        }
-
-        [[nodiscard]] auto IsCloseDispatchFailed() const noexcept -> bool
-        {
-            return State_->CloseDispatchFailed.load(std::memory_order_acquire);
-        }
-
+        /** @brief 按值读取会话统计；不借用 owner，也不触发关闭或取消。 */
+        [[nodiscard]] auto Metrics() const noexcept -> SessionMetrics { return MakeMetrics(State_); }
+        /** @brief 读取关闭已提交事实；实际交付和退休分别由 AwaitDelivery 与 Finalize 确认。 */
+        [[nodiscard]] auto IsClosed() const noexcept -> bool { return State_->Closed.load(); }
+        /** @brief 读取不能继续排空的事实；调用方必须保留资源并处理失败。 */
+        [[nodiscard]] auto IsDrainBlocked() const noexcept -> bool { return Metrics().DrainBlocked; }
+        /** @brief 读取关闭投递失败事实；失败实物保留于原 owner 和关闭存储。 */
+        [[nodiscard]] auto IsCloseDispatchFailed() const noexcept -> bool { return State_->CloseDispatchFailed.load(); }
     private:
+        friend class SessionRegistry;
+        friend class SessionRegistryTestAccess;
+
+        /** @brief 仅供 SessionRegistry 在固定父 executor 上排队生命周期操作。 */
+        [[nodiscard]] auto Executor() const -> std::optional<Net::any_io_executor>
+        {
+            const auto Bound = State_->Bound.load();
+            if (!Bound)
+            {
+                return std::nullopt;
+            }
+            return Bound->Tasks->Executor();
+        }
+
         std::shared_ptr<State> State_;
     };
-
-} // namespace Preview::Runtime
+}

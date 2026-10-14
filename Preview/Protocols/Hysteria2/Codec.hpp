@@ -28,7 +28,7 @@
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Protocols/Common/Address.hpp>
 #include <Preview/Protocols/Hysteria2/Types.hpp>
-#include <Preview/Protocols/Http3/Auth.hpp>
+#include <Preview/Protocols/Hysteria2/Http3Auth.hpp>
 
 namespace Preview::Hysteria2
 {
@@ -338,8 +338,8 @@ namespace Preview::Hysteria2
 
         std::array<std::byte, 1100> Frame{};
         std::size_t FrameLength = 0;
-        if (!Http3::WriteFrameVarint(Frame, FrameLength, Http3::FrameHeaders) ||
-            !Http3::WriteFrameVarint(Frame, FrameLength, BlockLength) ||
+        if (!WriteAuthFrameVarint(Frame, FrameLength, AuthFrameHeaders) ||
+            !WriteAuthFrameVarint(Frame, FrameLength, BlockLength) ||
             Frame.size() < FrameLength + BlockLength)
         {
             return {};

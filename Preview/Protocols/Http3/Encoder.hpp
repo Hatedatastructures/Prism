@@ -39,10 +39,7 @@ namespace Preview::Http3::Qpack
             {
                 std::array<std::uint8_t, 16> Encoded{};
                 const auto EncodedLength = Detail::WriteVarint(
-                    Encoded,
-                    PrefixBits,
-                    Value,
-                    PrefixPattern);
+                    Encoded, EncodedInteger{PrefixBits, Value, PrefixPattern});
                 if (EncodedLength == 0 || Offset > Output.size() ||
                     EncodedLength > Output.size() - Offset)
                 {
@@ -82,10 +79,7 @@ namespace Preview::Http3::Qpack
                     EncodedData = Heap.data();
                 }
                 const auto LengthPrefix = Detail::WriteVarint(
-                    LengthBuffer,
-                    PrefixBits,
-                    EncodedLength,
-                    HuffFlag);
+                    LengthBuffer, EncodedInteger{PrefixBits, EncodedLength, HuffFlag});
                 if (LengthPrefix == 0 || Offset > Output.size() ||
                     LengthPrefix > Output.size() - Offset ||
                     EncodedLength > Output.size() - Offset - LengthPrefix)

@@ -6,8 +6,8 @@
 #pragma once
 
 #include <Preview/Statistics/EventRing.hpp>
+#include <Preview/Statistics/History.hpp>
 #include <Preview/Statistics/Snapshots.hpp>
 #include <Preview/Statistics/SparseCounters.hpp>
 #include <Preview/Statistics/TrafficDelta.hpp>
-#include <Preview/Statistics/Trace.hpp>
 #include <Preview/Statistics/Types.hpp>

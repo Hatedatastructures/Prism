@@ -1,23 +1,68 @@
 add_library(PreviewApplication STATIC
-        Application.cpp
+        Startup/Start.hpp
 )
-target_sources(PreviewApplication PRIVATE Application.hpp DiagnoseRuntime.hpp)
+set_source_files_properties(Startup/Start.hpp PROPERTIES LANGUAGE CXX)
+target_sources(PreviewApplication PRIVATE
+        Application.hpp
+        Definition.hpp
+        RuntimeState.hpp
+        ClosingFailure.hpp
+        ConfigurationStartup.hpp
+        ProtocolProfile.hpp
+        ProtocolAcceptors.hpp
+        BoundaryStartup.hpp
+        OperationsStartup.hpp
+        OperationsBootstrap.hpp
+        OperationsTask.hpp
+        OperationsDrain.hpp
+        CommandOperationOwner.hpp
+        OperationsEventProducer.hpp
+        Shutdown.hpp
+        Shutdown/BoundedOperation.hpp
+        Shutdown/Coordinator.hpp
+        Shutdown/DrainStages.hpp
+        Shutdown/GenerationRetirement.hpp
+        Shutdown/Failure.hpp
+        Shutdown/ProcessDns.hpp
+        Shutdown/RuntimeResources.hpp
+        Shutdown/Types.hpp
+        DiagnoseRuntime.hpp
+        Assembly/ProtocolAssembly.hpp
+        Assembly/ConfigurationAssembly.hpp
+        Account/IdentityRegistry.hpp
+        Account/Catalog.hpp
+        Assembly/AccountAssembly.hpp
+        Assembly/CapabilityAssembly.hpp
+        Assembly/DnsAssembly.hpp
+        Assembly/NetworkAssembly.hpp
+        Assembly/ProviderAssembly.hpp
+        Startup/GenerationPhase.hpp
+        Startup/StartupTransaction.hpp
+        Startup/ProcessServices.hpp
+        Startup/ProtocolServices.hpp
+        Startup/DatagramServices.hpp
+        Startup/QuicServices.hpp
+        Startup/BoundaryPhase.hpp
+        Startup/OperationsPhase.hpp
+        Startup/PublishPhase.hpp
+        Startup/StartupErrors.hpp)
 target_include_directories(PreviewApplication
         PUBLIC
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
+target_compile_definitions(PreviewApplication PUBLIC SPDLOG_COMPILED_LIB)
 AssertPreviewDependency(PreviewApplication PreviewFoundation)
 AssertPreviewDependency(PreviewApplication PreviewLifecycle)
 AssertPreviewDependency(PreviewApplication PreviewRuntime)
 AssertPreviewDependency(PreviewApplication PreviewAccount)
 AssertPreviewDependency(PreviewApplication PreviewResource)
-AssertPreviewDependency(PreviewApplication PreviewScheduler)
 AssertPreviewDependency(PreviewApplication PreviewConfiguration)
 AssertPreviewDependency(PreviewApplication PreviewOperations)
 AssertPreviewDependency(PreviewApplication PreviewComposition)
-AssertPreviewDependency(PreviewApplication PreviewIngress)
+AssertPreviewDependency(PreviewApplication PreviewBoundary)
 AssertPreviewDependency(PreviewApplication PreviewDiagnoseBackend)
+AssertPreviewDependency(PreviewApplication PreviewProtocolEch)
 target_link_libraries(PreviewApplication
         PUBLIC
         PreviewFoundation
@@ -25,19 +70,19 @@ target_link_libraries(PreviewApplication
         PreviewRuntime
         PreviewAccount
         PreviewResource
-        PreviewScheduler
         PreviewConfiguration
         PreviewOperations
         PreviewComposition
-        PreviewIngress
+        PreviewBoundary
         OpenSSL::SSL
         OpenSSL::Crypto
 )
-target_link_libraries(PreviewApplication PRIVATE PreviewDiagnoseBackend spdlog::spdlog)
+target_link_libraries(PreviewApplication PRIVATE PreviewDiagnoseBackend PreviewProtocolEch spdlog::spdlog)
 
 add_executable(PrismPreview
-        Main/PreviewMain.cpp
+        Main/PreviewMain.hpp
 )
+set_source_files_properties(Main/PreviewMain.hpp PROPERTIES LANGUAGE CXX)
 
 set_target_properties(PrismPreview PROPERTIES
         OUTPUT_NAME "PrismPreview"
@@ -60,6 +105,7 @@ target_include_directories(PrismPreview PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 target_link_libraries(PrismPreview PRIVATE PreviewApplication)
+target_compile_definitions(PrismPreview PRIVATE SPDLOG_COMPILED_LIB)
 
 set(PreviewConfigurationFile
         "${CMAKE_CURRENT_SOURCE_DIR}/Configuration/PreviewConfiguration.json")
@@ -88,3 +134,24 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Cl
         target_link_options(PrismPreview PRIVATE -Wl,--image-base,0x141000000)
     endif()
 endif()
+
+# 同一 owner 的正式职责头与行为场景，复用既有 target。
+target_sources(PreviewApplication PRIVATE
+    ConfigurationCommandOutcome.hpp
+    OperationsConfiguration.hpp
+    OperationsMetrics.hpp
+    OperationsReload.hpp
+    OperationsStreamQuery.hpp
+    Reload/CandidateOwner.hpp
+    Reload/ConfigurationDifference.hpp
+    Reload/GenerationPreparation.hpp
+    Reload/PublicationTransaction.hpp
+    ReloadGenerationPreparation.hpp
+    RuntimeGenerationSnapshot.hpp
+    WorkerSessionServices.hpp
+)
+
+# 同一实际owner的源文件，复用现有target。
+target_sources(PreviewApplication PRIVATE
+    Main/ExecutablePath.hpp
+)

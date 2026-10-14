@@ -1,635 +1,272 @@
-/**
- * @file Unreliable.hpp
- * @brief 不可靠的数据报传输实现（UDP）
- * @details 封装 boost::asio::ip::udp::socket，提供基于 UDP 的数据报传输。
- * 该类继承自 Transmission，模拟流式语义，内部记录远程端点以实现连接式操作。
- * 设计特性包括数据报语义，UDP 不保证数据送达、顺序或去重；
- * 连接模拟，通过记录远程端点实现类似 TCP 的连接式操作；
- * 来源过滤，接收时自动过滤非远程端点的数据报。AllowAnyPeer 模式下，
- * 收发端点必须通过显式的 AsyncReceiveFrom/AsyncSendTo 传递，避免多个
- * 对端共享一个“最近发送者”状态。
- * @note UDP 是不可靠传输，不保证数据送达、顺序或去重。
- * @warning 如果未设置远程端点，写入操作将返回错误。
- */
+/** @file Unreliable.hpp @brief UDP真实socket操作、来源过滤与统一typed结果。 */
 #pragma once
-
-#include <Preview/Foundation/Fault/Handling.hpp>
+#include <tuple>
 #include <Preview/Transport/Transmission.hpp>
-
-#include <boost/asio.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
-
-#include <charconv>
-#include <cctype>
-#include <chrono>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
-
+#include <Preview/Transport/UnreliableEndpoint.hpp>
+#include <boost/asio/ip/udp.hpp>
+#include <boost/asio/experimental/parallel_group.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/as_tuple.hpp>
 namespace Preview::Transport
 {
-
-    namespace Net = boost::asio;
-
     /**
-     * @class Unreliable
-     * @brief 不可靠的数据报传输实现（UDP）
-     * @details 封装 UDP socket，实现 core::Transmission 接口。
-     * 由于 UDP 是无连接的，该类内部维护一个可选远程端点（remote Endpoint），
-     * 连接式发送操作都指向该端点，接收操作则验证来源是否匹配该端点
-     *（不匹配则丢弃）。任意来源模式不会把接收者写回这个共享端点。
-     * 设计特性包括数据报语义，UDP 不保证数据送达、顺序或去重；
-     * 连接模拟，通过记录远程端点实现类似 TCP 的连接式操作；
-     * 来源过滤，接收时自动过滤非远程端点的数据报。
-     * @note UDP 是不可靠传输，不保证数据送达、顺序或去重。
-     * @warning 如果未设置远程端点，写入操作将返回错误。
+     * @brief 拥有 UDP socket 的 Unreliable 叶子载体：datagram 收发、来源过滤与延迟域名解析。
+     * @details 输入所有权：Executor 构造时本层拥有新建 socket，SocketType 构造时移动拥有已建 socket；
+     *          Remote 端点按值拥有并在有值时启用来源过滤，无值时首个真实来源被捕获。收发 Buffer 与
+     *          ReceiveFrom 的 Sender 输出引用都只借用到该操作 completion，调用方必须保活到完成；
+     *          SendTo 的显式 Target 按值复制进操作帧。Connect/Bind 只在冷路径做语法解析与本端
+     *          open/bind，域名解析延迟到实际操作内的异步 resolver，不同步访问 DNS。
+     *          输出与错误：结果沿用 Transmission 的 IoResult{Bytes, Failure} 与 ControlResult；
+     *          取消交付 Canceled，底层错误由 Fault::FromNative 保留 Native，WriteShutdown 之后的发送
+     *          交付 ConnectionAborted 且 Native 为空，无目标地址交付 InvalidArgument，解析失败保留
+     *          host_not_found 原生原因，接收超时交付 Timeout。UDP 无远端 EOF，本层不产生 Eof 类别。
+     *          取消：OnCancel 调用 socket cancel，可重复且对已关闭 socket 直接成功；每次在途收发在
+     *          取消后恰好完成一次，超时 timer 与 receive 由 parallel_group 等到两个完成源都退出才交付。
+     *          半关闭：StartWriteShutdown 只置本层 WriteClosed 标记并同步完成后立即异步交付成功，
+     *          读取方向继续可用；它不下发任何原生 shutdown，之后的发送一律 ConnectionAborted。
+     *          最终关闭者：OnClose 的 socket close 是本叶子层唯一真实关闭点；上层 Close 成功只表示
+     *          命令已交付原 executor，实际退栈须等待 Activity()->Drain()。
+     *          executor：冷构造固定的原 executor 是唯一状态域，resolver 与超时 timer 都建在其上；
+     *          Remote_/Host_/Port_/Filter_/Capture_/WriteClosed_/Sender_/Timeout_ 为非原子成员，
+     *          要求单一执行域串行发起，跨线程并发调用未受保护。
+     * @note 未定义：WriteShutdown 对 UDP 没有可下发的原生半关闭，读方向收到 EOF 的期望行为以及
+     *       来源过滤持续丢包时是否应给出终态，均未在当前代码中确定，留待 M13 决定。
      */
     class Unreliable final : public Transmission
     {
     public:
         using SocketType = Net::ip::udp::socket;
         using EndpointType = Net::ip::udp::endpoint;
-
+        explicit Unreliable(ExecutorType Executor, std::optional<EndpointType> Remote = {})
+            : Transmission(Executor), Socket_(Executor), Remote_(std::move(Remote)), Filter_(Remote_.has_value()), Capture_(!Remote_) {}
+        explicit Unreliable(SocketType Socket, std::optional<EndpointType> Remote = {})
+            : Transmission(Socket.get_executor()), Socket_(std::move(Socket)), Remote_(std::move(Remote)), Filter_(Remote_.has_value()), Capture_(!Remote_) {}
         /**
-         * @brief 构造函数
-         * @details 使用执行器初始化 UDP socket。Socket 在构造时不打开，
-         * 需要在后续调用 Open 或 Bind 后才能使用。远程端点可选，
-         * 未设置时首次接收的数据报来源将自动设为远程端点。
-         * @param Executor 执行器，用于初始化 socket
-         * @param RemoteEndpoint 远程端点（可选，可在后续设置）
+         * @brief 借用远端文本完成冷配置；域名仅在实际异步操作中解析。
+         * @details 成功拥有新目标，语法失败返回 InvalidArgument，关闭或打开失败保留原生错误。
+         *          本操作同步执行且不能取消，不启动收发或半关闭；失败后的 socket 仍归本对象，
+         *          调用方须沿 Close 与 Activity 退休。必须在原 executor 的串行状态域调用。
          */
-        explicit Unreliable(Net::any_io_executor Executor,
-                            std::optional<EndpointType> RemoteEndpoint = std::nullopt)
-            : Socket_(Executor), RemoteEndpoint_(std::move(RemoteEndpoint)),
-              FilterRemote_(RemoteEndpoint_.has_value()),
-              CaptureRemote_(!RemoteEndpoint_.has_value())
+        [[nodiscard]] auto Connect(const std::string& Text) -> ControlResult
         {
-        }
-
-        /**
-         * @brief 构造函数
-         * @details 使用已构造的 UDP socket 初始化传输层。
-         * Socket 必须已打开。远程端点可选。
-         * @param socket 已构造的 UDP socket
-         * @param RemoteEndpoint 远程端点（可选）
-         */
-        explicit Unreliable(SocketType Socket, std::optional<EndpointType> RemoteEndpoint = std::nullopt)
-            : Socket_(std::move(Socket)), RemoteEndpoint_(std::move(RemoteEndpoint)),
-              FilterRemote_(RemoteEndpoint_.has_value()),
-              CaptureRemote_(!RemoteEndpoint_.has_value())
-        {
-        }
-
-        /**
-         * @brief 连接远端（严格解析 host:port）
-         * @param remote 远端地址（IPv4/domain 使用 host:port，IPv6 使用 [host]:port）
-         * @return 语法合法并完成数值地址装配时返回 true；域名解析延迟到首次读写
-         * @details 端口必须全部由十进制数字组成且不超过 65535。域名不在同步
-         *          Connect 中阻塞解析，而是在首次异步读写时通过 Asio resolver 解析。
-         */
-        auto Connect(const std::string &Remote) -> bool
-        {
-            const auto Parsed = ParseRemote(Remote);
-            if (!Parsed)
-            {
-                return false;
-            }
-
-            boost::system::error_code ErrorCode;
+            const auto Target = Detail::ParseRemote(Text);
+            if (!Target) return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument});
+            boost::system::error_code Error;
             if (Socket_.is_open())
             {
-                Socket_.close(ErrorCode);
-                if (ErrorCode)
-                {
-                    return false;
-                }
+                Socket_.close(Error);
+                if (Error) return std::unexpected(Fault::FromNative(static_cast<std::error_code>(Error)));
             }
-
-            RemoteEndpoint_.reset();
-            RemoteHost_.clear();
-            RemotePort_ = 0;
-            FilterRemote_ = true;
-            CaptureRemote_ = false;
-
-            if (Parsed->Address)
+            Remote_.reset(); Host_.clear(); Port_ = 0; Filter_ = true; Capture_ = false;
+            if (Target->Address)
             {
-                const auto Endpoint = EndpointType(*Parsed->Address, Parsed->Port);
-                Socket_.open(Endpoint.protocol(), ErrorCode);
-                if (ErrorCode)
-                {
-                    return false;
-                }
-                RemoteEndpoint_ = Endpoint;
-                return true;
+                EndpointType Endpoint(*Target->Address, Target->Port);
+                Socket_.open(Endpoint.protocol(), Error);
+                if (Error) return std::unexpected(Fault::FromNative(static_cast<std::error_code>(Error)));
+                Remote_ = Endpoint;
             }
-
-            RemoteHost_ = Parsed->Host;
-            RemotePort_ = Parsed->Port;
-            return true;
+            else { Host_ = Target->Host; Port_ = Target->Port; }
+            return {};
         }
-
         /**
-         * @brief 绑定本地端口（IPv4）
-         * @param port 端口（0 = 系统分配）
-         * @return 绑定成功返回 true
+         * @brief 按值接收端口并绑定本层 UDP socket；端口零由系统选择。
+         * @details 成功切换为首包来源捕获，打开或绑定失败保留原生错误；同步且不能取消，
+         *          不改变半关闭状态。失败资源仍归本对象，须由 Close 与 Activity 退休。
+         *          必须在原 executor 的串行状态域调用。
          */
-        auto Bind(const unsigned short Port) -> bool
+        [[nodiscard]] auto Bind(unsigned short Port) -> ControlResult
         {
-            boost::system::error_code ErrorCode;
-            if (!Socket_.is_open())
-            {
-                Socket_.open(Net::ip::udp::v4(), ErrorCode);
-                if (ErrorCode)
-                {
-                    return false;
-                }
-            }
-            Socket_.bind(Net::ip::udp::endpoint(Net::ip::udp::v4(), Port), ErrorCode);
-            if (!ErrorCode)
-            {
-                RemoteEndpoint_.reset();
-                RemoteHost_.clear();
-                RemotePort_ = 0;
-                FilterRemote_ = false;
-                CaptureRemote_ = true;
-            }
-            return !ErrorCode;
+            boost::system::error_code Error;
+            if (!Socket_.is_open()) Socket_.open(Net::ip::udp::v4(), Error);
+            if (Error) return std::unexpected(Fault::FromNative(static_cast<std::error_code>(Error)));
+            Socket_.bind(EndpointType(Net::ip::udp::v4(), Port), Error);
+            if (Error) return std::unexpected(Fault::FromNative(static_cast<std::error_code>(Error)));
+            Remote_.reset(); Host_.clear(); Port_ = 0; Filter_ = false; Capture_ = true;
+            return {};
         }
-
-        /**
-         * @brief 获取本地绑定端点（Bind 成功后有效）
-         * @return 本地 UDP 端点（未绑定时返回空端点）
-         * @note 支持端口 0 由系统分配后回读实际端口。
-         */
         [[nodiscard]] auto LocalEndpoint() const -> EndpointType
-        {
-            boost::system::error_code ErrorCode;
-            const auto Endpoint = Socket_.local_endpoint(ErrorCode);
-            if (ErrorCode)
-            {
-                return EndpointType{};
-            }
-            return Endpoint;
-        }
-
-        /**
-         * @brief 获取传输层类型
-         * @return Type::Udp 不可靠传输始终为 UDP
-         */
-        [[nodiscard]] auto TransportType() const noexcept -> Type override
-        {
-            return Type::Udp;
-        }
-
-        /**
-         * @brief 获取内层传输
-         * @return nullptr Unreliable 是叶子节点，没有内层
-         */
-        [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
-        {
-            return nullptr;
-        }
-
-        /**
-         * @brief 获取内层传输（const 版本）
-         * @return nullptr Unreliable 是叶子节点，没有内层
-         */
-        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
-        {
-            return nullptr;
-        }
-
-        /**
-         * @brief 获取关联的执行器
-         * @details 返回底层 socket 关联的执行器，用于调度异步操作。
-         * @return ExecutorType 执行器
-         */
-        [[nodiscard]] auto Executor() const -> ExecutorType override
-        {
-            return const_cast<SocketType &>(Socket_).get_executor();
-        }
-
-        /**
-         * @brief 设置远程端点
-         * @details 设置发送操作的目标端点。设置后所有发送操作都指向该端点，
-         * 接收操作验证来源是否匹配该端点，不匹配则丢弃。
-         * @param Endpoint 远程端点
-         */
-        void SetRemote(const EndpointType &Endpoint)
-        {
-            RemoteEndpoint_ = Endpoint;
-            RemoteHost_.clear();
-            RemotePort_ = 0;
-            FilterRemote_ = true;
-            CaptureRemote_ = false;
-        }
-
-        /**
-         * @brief 允许接收任意来源的数据报
-         * @details 服务端监听时允许来自任意来源的数据报。来源端点通过
-         *          AsyncReceiveFrom 返回，响应必须调用 AsyncSendTo 指定目标。
-         *          不会更新连接式写入使用的共享远端端点。
-         */
-        void AllowAnyPeer() noexcept
-        {
-            RemoteEndpoint_.reset();
-            RemoteHost_.clear();
-            RemotePort_ = 0;
-            FilterRemote_ = false;
-            CaptureRemote_ = false;
-        }
-
-        /**
-         * @brief 获取远程端点
-         * @details 返回当前设置的远程端点。如果未设置则返回空。
-         * @return std::optional<EndpointType> 远程端点（如果已设置）
-         */
-        [[nodiscard]] auto RemoteEndpoint() const noexcept -> std::optional<EndpointType>
-        {
-            return RemoteEndpoint_;
-        }
-
-        /**
-         * @brief 异步读取数据
-         * @details 调用底层 socket 的 AsyncReceiveFrom 实现异步读取。
-         * 接收时自动过滤非远程端点的数据报，不匹配则丢弃并继续等待。
-         * AllowAnyPeer 模式下来源端点不会写回连接式发送目标。
-         * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
-         * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
-         */
-        [[nodiscard]] auto AsyncReceiveFrom(std::span<std::byte> Buffer, EndpointType &SenderEndpoint,
-                                             std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
-        {
-            if (!RemoteEndpoint_ && !RemoteHost_.empty() && !co_await ResolveRemote())
-            {
-                ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
-                co_return 0;
-            }
-            boost::system::error_code SysEc;
-            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
-            while (true)
-            {
-                SysEc.clear();
-                std::size_t N = co_await Socket_.async_receive_from(Net::buffer(Buffer.data(), Buffer.size()),
-                                                                    SenderEndpoint, Token);
-                if (SysEc)
-                {
-                    ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-                    co_return 0;
-                }
-                if (!FilterRemote_ || (RemoteEndpoint_ && SenderEndpoint == *RemoteEndpoint_))
-                {
-                    if (!FilterRemote_ && CaptureRemote_)
-                    {
-                        RemoteEndpoint_ = SenderEndpoint;
-                        FilterRemote_ = true;
-                        CaptureRemote_ = false;
-                    }
-                    ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::Success);
-                    co_return N;
-                }
-            }
-        }
-
-        /**
-         * @brief 从指定端点异步发送一个数据报
-         * @param Buffer 待发送数据
-         * @param Endpoint 目标端点
-         * @param ec 错误码输出参数
-         * @return 实际发送的字节数
-         * @details 该接口不修改连接式发送使用的 RemoteEndpoint，适用于
-         *          AllowAnyPeer 模式下按接收来源逐包响应。
-         */
-        [[nodiscard]] auto AsyncSendTo(std::span<const std::byte> Buffer, const EndpointType &Endpoint,
-                                       std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
-        {
-            boost::system::error_code SysEc;
-            const auto N = co_await Socket_.async_send_to(
-                Net::buffer(Buffer.data(), Buffer.size()), Endpoint,
-                Net::redirect_error(Net::use_awaitable, SysEc));
-            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return N;
-        }
-
-        /**
-         * @brief 异步读取数据
-         * @details 连接式模式按 RemoteEndpoint 过滤来源；AllowAnyPeer 模式
-         *          不会把本次来源写入共享 RemoteEndpoint。
-         */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override
-        {
-            if (Timeout_.count() > 0)
-            {
-                using boost::asio::experimental::awaitable_operators::operator||;
-                Net::steady_timer Timer(Socket_.get_executor());
-                Timer.expires_after(Timeout_);
-                auto Result = co_await (AsyncReceiveFrom(Buffer, SenderEndpoint_, ErrorCode) ||
-                                        Timer.async_wait(Net::use_awaitable));
-                if (Result.index() == 1)
-                {
-                    ErrorCode = std::make_error_code(std::errc::timed_out);
-                    co_return 0;
-                }
-                co_return std::get<0>(Result);
-            }
-            co_return co_await AsyncReceiveFrom(Buffer, SenderEndpoint_, ErrorCode);
-        }
-
-        /**
-         * @brief 异步写入数据
-         * @details 调用底层 socket 的 AsyncSendTo 实现异步写入。
-         * 如果未设置远程端点则返回 io_error 错误。
-         * @param Buffer 发送缓冲区
-         * @param ec 错误码输出参数
-         * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
-         */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
-                                            std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override
-        {
-            if (!RemoteEndpoint_ && !RemoteHost_.empty() && !co_await ResolveRemote())
-            {
-                ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
-                co_return 0;
-            }
-            if (!RemoteEndpoint_)
-            {
-                ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
-                co_return 0;
-            }
-            co_return co_await AsyncSendTo(Buffer, *RemoteEndpoint_, ErrorCode);
-        }
-
-        /**
-         * @brief 关闭传输层
-         * @details 关闭底层 UDP socket。关闭后所有未完成的异步操作
-         * 将被取消，传输层对象不再可用。
-         */
-        void Close() override
-        {
-            boost::system::error_code CloseError;
-            Socket_.close(CloseError);
-        }
-
-        /**
-         * @brief 取消所有未完成的异步操作
-         * @details 取消当前所有挂起的异步读写操作。
-         * 被取消的操作将返回 operation_canceled 错误。
-         */
-        void Cancel() override
-        {
-            boost::system::error_code CancelError;
-            Socket_.cancel(CancelError);
-        }
-
-        /**
-         * @brief 半关（UDP 无连接语义，空操作）
-         */
-        void Shutdown() override
-        {
-        }
-
-        /**
-         * @brief 设置读超时（0 = 禁用）
-         * @param ms 超时毫秒数
-         * @details 超时后 async_read_some 取消挂起的接收并以
-         *          operation_timed_out 完成；0 表示等待直到数据到达。
-         */
-        void SetTimeout(std::chrono::milliseconds ms) override
-        {
-            Timeout_ = ms;
-        }
-
-        /**
-         * @brief 检查底层 socket 是否打开
-         * @return 打开返回 true
-         */
-        [[nodiscard]] auto IsOpen() const -> bool override
-        {
-            return Socket_.is_open();
-        }
-
-        /**
-         * @brief 获取底层 socket 引用
-         * @details 返回底层 UDP socket 的引用，用于直接操作 socket。
-         * @return SocketType& socket 引用
-         */
-        [[nodiscard]] auto NativeSocket() noexcept -> SocketType &
-        {
-            return Socket_;
-        }
-
-        /**
-         * @brief 获取底层 socket 常量引用
-         * @details 返回底层 UDP socket 的常量引用，用于只读访问。
-         * @return const SocketType& socket 常量引用
-         */
-        [[nodiscard]] auto NativeSocket() const noexcept -> const SocketType &
-        {
-            return Socket_;
-        }
-
+        { boost::system::error_code Error; auto Value = Socket_.local_endpoint(Error); if (Error) return {}; return Value; }
+        [[nodiscard]] auto TransportType() const noexcept -> Type override { return Type::Udp; }
+        [[nodiscard]] auto IsOpen() const -> bool override { return Socket_.is_open(); }
+        [[nodiscard]] auto NativeSocket() noexcept -> SocketType& { return Socket_; }
+        [[nodiscard]] auto NativeSocket() const noexcept -> const SocketType& { return Socket_; }
+        auto SetRemote(const EndpointType& Endpoint) -> void
+        { Remote_ = Endpoint; Host_.clear(); Port_ = 0; Filter_ = true; Capture_ = false; }
+        auto AllowAnyPeer() noexcept -> void
+        { Remote_.reset(); Host_.clear(); Port_ = 0; Filter_ = false; Capture_ = false; }
+        [[nodiscard]] auto RemoteEndpoint() const noexcept -> std::optional<EndpointType> { return Remote_; }
+        auto SetTimeout(std::chrono::milliseconds Timeout) -> void override { Timeout_ = Timeout; }
+        /** @brief Buffer与来源输出借用到completion；准入、取消和native完成均归同一activity。 */
+        template<class Token>
+        auto ReceiveFrom(std::span<std::byte> Buffer, EndpointType& Sender, Token&& Handler)
+        { return Initiate(ReadInput{Self(), Buffer, &Sender}, std::forward<Token>(Handler)); }
+        template<class Token>
+        auto SendTo(std::span<const std::byte> Buffer, EndpointType Target, Token&& Handler)
+        { return Initiate(WriteInput{Self(), Buffer, std::move(Target)}, std::forward<Token>(Handler)); }
+        [[nodiscard]] auto ReceiveFrom(std::span<std::byte> Buffer, EndpointType& Sender) -> Net::awaitable<IoResult>;
+        [[nodiscard]] auto SendTo(std::span<const std::byte> Buffer, EndpointType Target) -> Net::awaitable<IoResult>;
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
+        { StartReceive(ReadInput{Self(), Buffer, &Sender_}, std::move(Handler)); }
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        { StartSend(WriteInput{Self(), Buffer, {}}, std::move(Handler)); }
+        auto StartWriteShutdown(Completion Handler) -> void override
+        { WriteClosed_ = true; Detail::PostResult(Executor(), std::move(Handler), {}); }
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        { boost::system::error_code Error; Socket_.close(Error); if (Error) return std::unexpected(Fault::FromNative(static_cast<std::error_code>(Error))); return {}; }
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        { boost::system::error_code Error; if (Socket_.is_open()) Socket_.cancel(Error); if (Error) return std::unexpected(Fault::FromNative(static_cast<std::error_code>(Error))); return {}; }
     private:
-        struct ParsedRemote
+        struct ReadInput final { std::shared_ptr<Unreliable> Owner; std::span<std::byte> Buffer; EndpointType* Sender; };
+        struct WriteInput final { std::shared_ptr<Unreliable> Owner; std::span<const std::byte> Buffer; std::optional<EndpointType> Target; };
+        [[nodiscard]] auto Self() -> std::shared_ptr<Unreliable>
+        { return std::static_pointer_cast<Unreliable>(weak_from_this().lock()); }
+        template<class Input>
+        struct Work final
         {
-            std::string Host;
-            unsigned short Port{0};
-            std::optional<Net::ip::address> Address;
+            Input Request;
+            auto operator()(Completion Handler) -> void
+            {
+                if constexpr (std::is_same_v<Input, ReadInput>) Request.Owner->StartReceive(std::move(Request), std::move(Handler));
+                else Request.Owner->StartSend(std::move(Request), std::move(Handler));
+            }
         };
-
-        [[nodiscard]] static auto ParsePort(const std::string_view Text)
-            -> std::optional<unsigned short>
+        template<class Input>
+        struct Initiation final
         {
-            if (Text.empty())
+            Input Request;
+            ExecutorType Executor;
+            template<class Handler>
+            auto operator()(Handler&& Callback) -> void
             {
-                return std::nullopt;
+                const auto Associated = Net::get_associated_executor(Callback, Executor);
+                Completion Bound(Net::bind_executor(Associated, std::forward<Handler>(Callback)));
+                if (!Request.Owner) { Detail::PostResult(Executor, std::move(Bound), {0, {Fault::Code::InvalidArgument}}); return; }
+                auto Owner = Request.Owner;
+                Owner->StartOwned(Work<Input>{std::move(Request)}, std::move(Bound));
             }
-            unsigned long Value = 0;
-            const auto Parsed = std::from_chars(Text.data(), Text.data() + Text.size(), Value, 10);
-            if (Parsed.ec != std::errc{} || Parsed.ptr != Text.data() + Text.size() || Value > 65535UL)
-            {
-                return std::nullopt;
-            }
-            return static_cast<unsigned short>(Value);
-        }
-
-        [[nodiscard]] static auto IsValidDomain(const std::string_view Host) noexcept -> bool
+        };
+        template<class Input, class Token>
+        auto Initiate(Input Request, Token&& Handler)
+        { return Net::async_initiate<Token, void(IoResult)>(Initiation<Input>{std::move(Request), Executor()}, Handler); }
+        template<class Input>
+        [[nodiscard]] static auto AwaitDatagram(Input Request, ExecutorType Executor) -> Net::awaitable<IoResult>
         {
-            if (Host.empty() || Host.front() == '.' || Host.front() == '-' ||
-                Host.find_first_of("[]:/\\ \t\r\n") != std::string_view::npos)
-            {
-                return false;
-            }
-            bool LabelStart = true;
-            char Previous = 0;
-            for (const auto Character : Host)
-            {
-                if (Character == '.')
-                {
-                    if (LabelStart || Previous == '-')
-                    {
-                        return false;
-                    }
-                    LabelStart = true;
-                    Previous = Character;
-                    continue;
-                }
-                if (Character == '-' && LabelStart)
-                {
-                    return false;
-                }
-                if (!std::isalnum(static_cast<unsigned char>(Character)) && Character != '-')
-                {
-                    return false;
-                }
-                LabelStart = false;
-                Previous = Character;
-            }
-            return !LabelStart && Previous != '-';
+            co_await Net::this_coro::throw_if_cancelled(false);
+            const auto Cancellation = co_await Net::this_coro::cancellation_state;
+            if (!!Cancellation.cancelled()) co_return IoResult{0, {Fault::Code::Canceled}};
+            auto Token = Net::use_awaitable;
+            co_return co_await Net::async_initiate<decltype(Token), void(IoResult)>(
+                Initiation<Input>{std::move(Request), std::move(Executor)}, Token);
         }
-
-        [[nodiscard]] static auto ParseRemote(const std::string_view Remote)
-            -> std::optional<ParsedRemote>
+        struct ResolveOperation final
         {
-            if (Remote.empty())
+            template<class State>
+            auto operator()(State Operation, std::shared_ptr<Unreliable> Owner) const -> void
             {
-                return std::nullopt;
+                Detail::ConfigureIo(Operation);
+                if (Owner->Remote_ || Owner->Host_.empty()) co_return std::tuple{boost::system::error_code{}};
+                Net::ip::udp::resolver Resolver(Owner->Executor());
+                auto [Error, Entries] = co_await Resolver.async_resolve(Owner->Host_, std::to_string(Owner->Port_), Net::as_tuple(Net::deferred));
+                if (Error) co_return std::tuple{Error};
+                for (const auto& Entry : Entries)
+                {
+                    Owner->Socket_.open(Entry.endpoint().protocol(), Error);
+                    if (Error) continue;
+                    Owner->Remote_ = Entry.endpoint(); Owner->Host_.clear(); Owner->Port_ = 0;
+                    co_return std::tuple{boost::system::error_code{}};
+                }
+                if (!Error) Error = Net::error::host_not_found;
+                co_return std::tuple{Error};
             }
-
-            std::string_view Host;
-            std::string_view PortText;
-            std::optional<Net::ip::address> Address;
-            if (Remote.front() == '[')
-            {
-                const auto Close = Remote.find(']');
-                if (Close == std::string_view::npos || Close == 1 ||
-                    Close + 1 >= Remote.size() || Remote[Close + 1] != ':')
-                {
-                    return std::nullopt;
-                }
-                Host = Remote.substr(1, Close - 1);
-                PortText = Remote.substr(Close + 2);
-                boost::system::error_code ErrorCode;
-                const auto ParsedAddress = Net::ip::make_address_v6(Host, ErrorCode);
-                if (ErrorCode)
-                {
-                    return std::nullopt;
-                }
-                Address = ParsedAddress;
-            }
-            else
-            {
-                const auto FirstColon = Remote.find(':');
-                const auto LastColon = Remote.rfind(':');
-                if (FirstColon == std::string_view::npos || FirstColon != LastColon)
-                {
-                    return std::nullopt;
-                }
-                Host = Remote.substr(0, FirstColon);
-                PortText = Remote.substr(FirstColon + 1);
-                if (Host.empty() || Host.find_first_of("[]") != std::string_view::npos)
-                {
-                    return std::nullopt;
-                }
-                boost::system::error_code ErrorCode;
-                const auto ParsedAddress = Net::ip::make_address(Host, ErrorCode);
-                if (!ErrorCode)
-                {
-                    Address = ParsedAddress;
-                }
-                else if (!IsValidDomain(Host))
-                {
-                    return std::nullopt;
-                }
-            }
-
-            const auto Port = ParsePort(PortText);
-            if (!Port)
-            {
-                return std::nullopt;
-            }
-            return ParsedRemote{std::string(Host), *Port, Address};
-        }
-
-        [[nodiscard]] auto ResolveRemote() -> Net::awaitable<bool>
+        };
+        template<class Token>
+        auto Resolve(Token&& Handler)
+        { return Net::async_initiate<Token, void(boost::system::error_code)>(Net::co_composed<void(boost::system::error_code)>(ResolveOperation{}, Executor()), Handler, Self()); }
+        struct ReadOperation final
         {
-            if (RemoteEndpoint_)
+            template<class State>
+            auto operator()(State Operation, ReadInput Input) const -> void
             {
-                co_return true;
-            }
-            if (RemoteHost_.empty())
-            {
-                co_return false;
-            }
-
-            Net::ip::udp::resolver Resolver(Socket_.get_executor());
-            boost::system::error_code ResolveEc;
-            const auto Results = co_await Resolver.async_resolve(
-                RemoteHost_, std::to_string(RemotePort_),
-                Net::redirect_error(Net::use_awaitable, ResolveEc));
-            if (ResolveEc)
-            {
-                co_return false;
-            }
-            for (const auto &Entry : Results)
-            {
-                const auto Endpoint = Entry.endpoint();
-                boost::system::error_code OpenEc;
-                Socket_.open(Endpoint.protocol(), OpenEc);
-                if (OpenEc)
+                Detail::ConfigureIo(Operation);
+                auto [Error] = co_await Input.Owner->Resolve(Net::as_tuple(Net::deferred));
+                if (Error) co_return std::tuple{IoResult{0, Fault::FromNative(static_cast<std::error_code>(Error))}};
+                while (true)
                 {
-                    continue;
+                    auto [ReceiveError, Bytes] = co_await Input.Owner->Socket_.async_receive_from(
+                        Net::buffer(Input.Buffer.data(), Input.Buffer.size()), *Input.Sender, Net::as_tuple(Net::deferred));
+                    if (ReceiveError) co_return std::tuple{IoResult{Bytes, Fault::FromNative(static_cast<std::error_code>(ReceiveError))}};
+                    if (Input.Owner->Filter_ && (!Input.Owner->Remote_ || *Input.Sender != *Input.Owner->Remote_)) continue;
+                    if (Input.Owner->Capture_) { Input.Owner->Remote_ = *Input.Sender; Input.Owner->Filter_ = true; Input.Owner->Capture_ = false; }
+                    co_return std::tuple{IoResult{Bytes, {}}};
                 }
-                RemoteEndpoint_ = Endpoint;
-                RemoteHost_.clear();
-                RemotePort_ = 0;
-                co_return true;
             }
-            co_return false;
+        };
+        struct WriteOperation final
+        {
+            template<class State>
+            auto operator()(State Operation, WriteInput Input) const -> void
+            {
+                Detail::ConfigureIo(Operation);
+                if (Input.Owner->WriteClosed_) co_return std::tuple{IoResult{0, {Fault::Code::ConnectionAborted}}};
+                if (!Input.Target)
+                {
+                    auto [Error] = co_await Input.Owner->Resolve(Net::as_tuple(Net::deferred));
+                    if (Error) co_return std::tuple{IoResult{0, Fault::FromNative(static_cast<std::error_code>(Error))}};
+                    Input.Target = Input.Owner->Remote_;
+                }
+                if (!Input.Target) co_return std::tuple{IoResult{0, {Fault::Code::InvalidArgument}}};
+                auto [Error, Bytes] = co_await Input.Owner->Socket_.async_send_to(
+                    Net::buffer(Input.Buffer.data(), Input.Buffer.size()), *Input.Target, Net::as_tuple(Net::deferred));
+                co_return std::tuple{IoResult{Bytes, Fault::FromNative(static_cast<std::error_code>(Error))}};
+            }
+        };
+        class TimedCompletion final : public Detail::AssociatedCompletion<Completion>
+        {
+        public:
+            TimedCompletion(std::shared_ptr<Net::steady_timer> Timer, Completion Handler)
+                : AssociatedCompletion(std::move(Handler)), Timer_(std::move(Timer)) {}
+            auto operator()(std::array<std::size_t, 2> Order, IoResult Result, boost::system::error_code TimerError) -> void
+            {
+                if (Order[0] == 1 && !TimerError) Result.Failure.Code = Fault::Code::Timeout;
+                std::move(Handler_)(Result);
+            }
+        private:
+            std::shared_ptr<Net::steady_timer> Timer_;
+        };
+        auto StartReceive(ReadInput Input, Completion Handler) -> void
+        {
+            Completion Routed(Detail::OriginalCompletion(Executor(), std::move(Handler)));
+            if (Timeout_.count() <= 0)
+            { Net::async_initiate<Completion, void(IoResult)>(Net::co_composed<void(IoResult)>(ReadOperation{}, Executor()), Routed, std::move(Input)); return; }
+            /** @brief timer实体寿命独立于用户erased handler；异步等待自身仍保留关联属性。 */
+            auto Timer = std::make_shared<Net::steady_timer>(Executor());
+            Timer->expires_after(Timeout_);
+            auto Token = Net::deferred;
+            auto Read = Net::async_initiate<Net::deferred_t, void(IoResult)>(
+                Net::co_composed<void(IoResult)>(ReadOperation{}, Executor()), Token, std::move(Input));
+            Net::experimental::make_parallel_group(std::move(Read), Timer->async_wait(Net::deferred))
+                .async_wait(Net::experimental::wait_for_one(), TimedCompletion(std::move(Timer), std::move(Routed)));
         }
-
-        SocketType Socket_;                           // UDP socket
-        std::optional<EndpointType> RemoteEndpoint_; // 远程端点，发送目标和接收过滤依据
-        std::string RemoteHost_;                      // 延迟解析的域名
-        unsigned short RemotePort_{0};                // 延迟解析的域名端口
-        bool FilterRemote_{false};                   // 是否只接收指定远端
-        bool CaptureRemote_{true};                  // 首次兼容式读取是否绑定来源
-        EndpointType SenderEndpoint_;                // 兼容 async_read_some 的来源端点
-        std::chrono::milliseconds Timeout_{0};       // 读超时（0 = 禁用）
+        auto StartSend(WriteInput Input, Completion Handler) -> void
+        {
+            Completion Routed(Detail::OriginalCompletion(Executor(), std::move(Handler)));
+            Net::async_initiate<Completion, void(IoResult)>(Net::co_composed<void(IoResult)>(WriteOperation{}, Executor()), Routed, std::move(Input));
+        }
+        SocketType Socket_;
+        std::optional<EndpointType> Remote_;
+        std::string Host_;
+        unsigned short Port_{0};
+        bool Filter_{false}, Capture_{true}, WriteClosed_{false};
+        EndpointType Sender_;
+        std::chrono::milliseconds Timeout_{0};
     };
-
-    /**
-     * @brief 创建 Unreliable 传输层
-     * @details 使用执行器创建 UDP 传输层实例。Socket 在构造时不打开，
-     * 需要在后续调用 Open 或 Bind 后才能使用。
-     * @param Executor 执行器
-     * @param RemoteEndpoint 远程端点（可选）
-     * @return SharedTransmission 创建的 Unreliable 实例
-     */
-    [[nodiscard]] inline auto
-    MakeUnreliable(Net::any_io_executor Executor,
-                    std::optional<Net::ip::udp::endpoint> RemoteEndpoint = std::nullopt)
-        -> SharedTransmission
-    {
-        return std::make_shared<Unreliable>(Executor, std::move(RemoteEndpoint));
-    }
-
-    /**
-     * @brief 创建 Unreliable 传输层（从现有 socket）
-     * @details 使用已构造的 UDP socket 创建传输层实例。
-     * Socket 必须已打开。远程端点可选。
-     * @param socket UDP socket
-     * @param RemoteEndpoint 远程端点（可选）
-     * @return SharedTransmission 创建的 Unreliable 实例
-     */
-    [[nodiscard]] inline auto
-    MakeUnreliable(Net::ip::udp::socket Socket,
-                    std::optional<Net::ip::udp::endpoint> RemoteEndpoint = std::nullopt)
-        -> SharedTransmission
-    {
-        return std::make_shared<Unreliable>(std::move(Socket), std::move(RemoteEndpoint));
-    }
-} // namespace Preview::Transport
+    inline auto Unreliable::ReceiveFrom(std::span<std::byte> Buffer, EndpointType& Sender) -> Net::awaitable<IoResult>
+    { return AwaitDatagram(ReadInput{Self(), Buffer, &Sender}, Executor()); }
+    inline auto Unreliable::SendTo(std::span<const std::byte> Buffer, EndpointType Target) -> Net::awaitable<IoResult>
+    { return AwaitDatagram(WriteInput{Self(), Buffer, std::move(Target)}, Executor()); }
+    [[nodiscard]] inline auto MakeUnreliable(const Net::any_io_executor& Executor, std::optional<Net::ip::udp::endpoint> Remote = {}) -> SharedTransmission
+    { return std::make_shared<Unreliable>(Executor, std::move(Remote)); }
+    [[nodiscard]] inline auto MakeUnreliable(Net::ip::udp::socket Socket, std::optional<Net::ip::udp::endpoint> Remote = {}) -> SharedTransmission
+    { return std::make_shared<Unreliable>(std::move(Socket), std::move(Remote)); }
+}

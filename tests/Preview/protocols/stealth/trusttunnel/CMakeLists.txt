@@ -1,9 +1,0 @@
-# trusttunnel 子模块
-AddPreviewTest(TrusttunnelDgramSession.cpp)
-target_link_libraries(TrusttunnelDgramSession PRIVATE PreviewTransport PreviewProtocolTrusttunnel PreviewTestSupport)
-
-AddPreviewTest(TrusttunnelCodecDeep.cpp)
-target_link_libraries(TrusttunnelCodecDeep PRIVATE PreviewProtocolTrusttunnel PreviewTestSupport)
-
-AddPreviewTest(TrusttunnelHttp2Transport.cpp)
-target_link_libraries(TrusttunnelHttp2Transport PRIVATE PreviewProtocolTrusttunnel PreviewTestSupport)

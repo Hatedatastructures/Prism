@@ -1,363 +1,205 @@
 /**
  * @file Hkdf.hpp
- * @brief HKDF-SHA256 密钥派生工具
- * @details 提供 HMAC-SHA256、HKDF-Extract、HKDF-Expand 和
- * TLS 1.3 专用的 HKDF-Expand-Label 函数。这些函数是 TLS 1.3
- * 密钥调度的核心组件，用于从 ECDHE 共享密钥派生握手和应用流量密钥。
- * 基于 BoringSSL 的 HMAC API 实现。
- * @note SHA-256 输出固定 32 字节，HKDF-Expand 输出长度可变。
- * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
+ * @brief SHA、HMAC 与 TLS 1.3 HKDF 的同步值结果接口。
+ * @details 所有输入仅借用到返回，输出由调用者或 expected 值拥有。
+ *          不分配动态输出，不执行取消、半关闭或最终连接关闭，无 executor 约束。
  */
-
 #pragma once
 
-#include <algorithm>
-#include <cstring>
-
-#include <openssl/sha.h>
-
-#include <openssl/hmac.h>
-
+#include <Preview/Foundation/Utility/Crypto/Operation.hpp>
 #include <openssl/evp.h>
-
-#include <Preview/Foundation/Fault/Code.hpp>
-
+#include <openssl/hkdf.h>
+#include <openssl/hmac.h>
+#include <openssl/sha.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <expected>
 #include <span>
 #include <string_view>
-#include <utility>
-#include <vector>
 
 namespace Preview::Crypto
 {
-
-    /**
-     * @brief SHA-256 输出长度（字节）
-     */
+    /** @brief SHA-256 固定摘要字节数。 */
     constexpr std::size_t Sha256Len = 32;
-
-    /**
-     * @brief SHA-512 输出长度（字节）
-     */
+    /** @brief SHA-512 固定摘要字节数。 */
     constexpr std::size_t Sha512Len = 64;
 
     /**
-     * @brief HMAC-SHA256
-     * @param key HMAC 密钥
-     * @param Data 输入数据
-     * @return 32 字节 HMAC-SHA256 结果
-     * @details 计算 HMAC-SHA256(key, Data)，用于 HKDF-Extract
-     * 和 TLS 1.3 Finished 消息的 verify_data 计算。
+     * @brief 计算 HMAC-SHA256；输入同步借用，成功值拥有 32 字节摘要。
+     * @return 原生运算失败时返回 Failure，不提供伪造摘要。
      */
-    [[nodiscard]] auto HmacSha256(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
-        -> std::array<std::uint8_t, Sha256Len>;
-
-    /**
-     * @brief HMAC-SHA512
-     * @param key HMAC 密钥
-     * @param Data 输入数据
-     * @return 64 字节 HMAC-SHA512 结果
-     */
-    [[nodiscard]] auto HmacSha512(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
-        -> std::array<std::uint8_t, Sha512Len>;
-
-    /**
-     * @brief HKDF-Extract
-     * @param salt 盐值（可以为空）
-     * @param ikm 输入密钥材料
-     * @return 32 字节伪随机密钥 (PRK)
-     * @details 计算 PRK = HMAC-SHA256(salt, IKM)。
-     * 当 salt 为空时使用 32 字节全零作为盐值（RFC 5869）。
-     */
-    [[nodiscard]] auto HkdfExtract(std::span<const std::uint8_t> Salt, std::span<const std::uint8_t> IKM)
-        -> std::array<std::uint8_t, Sha256Len>;
-
-    /**
-     * @brief HKDF-Expand
-     * @param prk 伪随机密钥（32 字节）
-     * @param Info 上下文信息
-     * @param length 输出长度（最大 255 * 32 = 8160 字节）
-     * @return 错误码和输出字节的配对
-     * @details 按照 RFC 5869 实现 HKDF-Expand：
-     * T(1) = HMAC-SHA256(PRK, Info || 0x01)
-     * T(N) = HMAC-SHA256(PRK, T(N-1) || Info || N)
-     * Output = T(1) || T(2) || ... || T(N)
-     */
-    [[nodiscard]] auto HkdfExpand(std::span<const std::uint8_t> PRK, std::span<const std::uint8_t> Info,
-                                   std::size_t Length) -> std::pair<Fault::Code, std::vector<std::uint8_t>>;
-
-    /**
-     * @struct ExpandLabelParams
-     * @brief HKDF-Expand-Label 参数
-     * @details 组合 TLS 1.3 HKDF-Expand-Label 调用所需的全部参数。
-     */
-    struct ExpandParams
-    {
-        std::span<const std::uint8_t> Secret;  ///< 输入密钥
-        std::string_view Label;                ///< 标签（如 "key", "iv", "finished"）
-        std::span<const std::uint8_t> Context; ///< 上下文数据（通常是 transcript Hash）
-        std::size_t Length{0};                 ///< 输出长度
-    };
-
-    /**
-     * @brief TLS 1.3 HKDF-Expand-Label
-     * @param params 扩展标签参数
-     * @return 错误码和输出字节的配对
-     * @details 按照 RFC 8446 Section 7.1 实现：
-     * HkdfLabel = Length(2) || LabelLen(1) || "tls13 " + Label || context_len(1) || Context
-     * HKDF-Expand-Label(Secret, Label, Context, Length) = HKDF-Expand(Secret, HkdfLabel, Length)
-     * @note TLS 1.3 自动在 Label 前添加 "tls13 " 前缀。
-     */
-    [[nodiscard]] auto ExpandLabel(ExpandParams Params)
-        -> std::pair<Fault::Code, std::vector<std::uint8_t>>;
-
-    /**
-     * @brief SHA-256 哈希
-     * @param Data 输入数据
-     * @return 32 字节 SHA-256 哈希值
-     * @details 计算 SHA-256(Data)，用于 TLS 1.3 transcript Hash。
-     */
-    [[nodiscard]] auto Sha256(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, Sha256Len>;
-
-    /**
-     * @brief SHA-256 哈希（两个数据块拼接）
-     * @param data1 第一个数据块
-     * @param data2 第二个数据块
-     * @return 32 字节 SHA-256 哈希值
-     * @details 计算 SHA-256(data1 || data2)，用于 TLS 1.3 transcript Hash。
-     * 比 concat 后再 Hash 更高效，避免额外内存分配。
-     */
-    [[nodiscard]] auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2)
-        -> std::array<std::uint8_t, Sha256Len>;
-
-    /**
-     * @brief SHA-256 哈希（三个数据块拼接）
-     * @param data1 第一个数据块
-     * @param data2 第二个数据块
-     * @param data3 第三个数据块
-     * @return 32 字节 SHA-256 哈希值
-     * @details 计算 SHA-256(data1 || data2 || data3)，用于 TLS 1.3 transcript Hash。
-     */
-    [[nodiscard]] auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2,
-                              std::span<const std::uint8_t> Data3) -> std::array<std::uint8_t, Sha256Len>;
-
-
-
-    inline auto HmacSha256(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
-        -> std::array<std::uint8_t, Sha256Len>
+    [[nodiscard]] inline auto HmacSha256(const std::span<const std::uint8_t> Key,
+                                       const std::span<const std::uint8_t> Data)
+        -> std::expected<std::array<std::uint8_t, Sha256Len>, Fault::Failure>
     {
         std::array<std::uint8_t, Sha256Len> Result{};
-
-        std::uint32_t MacLen = 0;
-        const auto *HmacResult = HMAC(EVP_sha256(), Key.data(), static_cast<int>(Key.size()), Data.data(),
-                                      Data.size(), Result.data(), &MacLen);
-
-        if (!HmacResult)
+        const SecretScope Cleanup{Result};
+        unsigned int Length = 0;
+        ERR_clear_error();
+        if (!HMAC(EVP_sha256(), Key.data(), Key.size(), Data.data(),
+                  Data.size(), Result.data(), &Length) || Length != Result.size())
         {
-            Result.fill(0);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-
         return Result;
     }
 
-    inline auto HmacSha512(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
-        -> std::array<std::uint8_t, Sha512Len>
+    /** @brief 计算 HMAC-SHA512；借用与错误契约同 HmacSha256，结果拥有 64 字节。 */
+    [[nodiscard]] inline auto HmacSha512(const std::span<const std::uint8_t> Key,
+                                       const std::span<const std::uint8_t> Data)
+        -> std::expected<std::array<std::uint8_t, Sha512Len>, Fault::Failure>
     {
         std::array<std::uint8_t, Sha512Len> Result{};
-
-        std::uint32_t MacLen = 0;
-        const auto *HmacResult = HMAC(EVP_sha512(), Key.data(), static_cast<int>(Key.size()), Data.data(),
-                                      Data.size(), Result.data(), &MacLen);
-
-        if (!HmacResult)
+        const SecretScope Cleanup{Result};
+        unsigned int Length = 0;
+        ERR_clear_error();
+        if (!HMAC(EVP_sha512(), Key.data(), Key.size(), Data.data(),
+                  Data.size(), Result.data(), &Length) || Length != Result.size())
         {
-            Result.fill(0);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
         }
-
         return Result;
     }
 
-    inline auto HkdfExtract(std::span<const std::uint8_t> Salt, std::span<const std::uint8_t> IKM)
-        -> std::array<std::uint8_t, Sha256Len>
+    /**
+     * @brief 提取 HKDF-SHA256 伪随机密钥；空盐按 RFC 5869 使用 32 字节零盐。
+     * @return 成功值拥有 PRK；任何 HMAC 失败直接向上返回，不继续派生。
+     */
+    [[nodiscard]] inline auto HkdfExtract(const std::span<const std::uint8_t> Salt,
+                                        const std::span<const std::uint8_t> IKM)
+        -> std::expected<std::array<std::uint8_t, Sha256Len>, Fault::Failure>
     {
         if (Salt.empty())
         {
-            std::array<std::uint8_t, Sha256Len> ZeroSalt{};
+            const std::array<std::uint8_t, Sha256Len> ZeroSalt{};
             return HmacSha256(ZeroSalt, IKM);
         }
         return HmacSha256(Salt, IKM);
     }
 
-    inline auto HkdfExpand(std::span<const std::uint8_t> PRK, std::span<const std::uint8_t> Info,
-                           const std::size_t Length) -> std::pair<Fault::Code, std::vector<std::uint8_t>>
+    /** @brief 一次 HKDF 扩展所借用的完整 PRK 和域分离信息。 */
+    struct HkdfExpandInput final
     {
-        if (Length > 255 * Sha256Len)
+        std::span<const std::uint8_t> Prk; ///< 至少 32 字节，完整参与 HMAC。
+        std::span<const std::uint8_t> Info; ///< 上下文原始字节，不隐式截断。
+    };
+
+    /**
+     * @brief 将 HKDF-SHA256 派生结果写入调用者拥有的缓冲区。
+     * @details 输出与输入不得重叠，全部借用只持续到返回；上下文最多 514 字节，最大输出 8160 字节。
+     *          参数拒绝不写输出；原生失败擦除输出，调用者必须丢弃它。
+     * @return Success 或完整 Failure；无取消、关闭与 executor 行为。
+     */
+    [[nodiscard]] inline auto HkdfExpand(const HkdfExpandInput Input,
+                                       const std::span<std::uint8_t> Output) -> Fault::Failure
+    {
+        if (Input.Prk.size() < Sha256Len || Input.Info.size() > 514 || Output.size() > 255 * Sha256Len)
         {
             return {Fault::Code::InvalidArgument, {}};
         }
+        if (Output.empty())
+        {
+            return {};
+        }
+        ERR_clear_error();
+        if (HKDF_expand(Output.data(), Output.size(), EVP_sha256(), Input.Prk.data(),
+                        Input.Prk.size(), Input.Info.data(), Input.Info.size()) != 1)
+        {
+            const auto Failure = Detail::NativeFailure(Fault::Code::CryptoError);
+            OPENSSL_cleanse(Output.data(), Output.size());
+            return Failure;
+        }
+        return {};
+    }
 
-        if (PRK.size() < Sha256Len)
+    /** @brief TLS 1.3 扩展标签的领域输入；输出长度以目标 span 为唯一事实。 */
+    struct ExpandParams final
+    {
+        std::span<const std::uint8_t> Secret; ///< 借用的输入密钥。
+        std::string_view Label; ///< 不含 tls13 前缀的标签。
+        std::span<const std::uint8_t> Context; ///< 借用的上下文摘要。
+    };
+
+    /**
+     * @brief 编码 RFC 8446 标签并派生到调用者缓冲区；借用、失败和关闭契约同 HkdfExpand。
+     * @return 标签、上下文或输出超限时拒绝；底层失败原样返回。
+     */
+    [[nodiscard]] inline auto ExpandLabel(const ExpandParams Params,
+                                        const std::span<std::uint8_t> Output) -> Fault::Failure
+    {
+        constexpr std::string_view Prefix = "tls13 ";
+        if (Params.Label.size() > 255 - Prefix.size() || Params.Context.size() > 255 ||
+            Output.size() > 255 * Sha256Len)
         {
             return {Fault::Code::InvalidArgument, {}};
         }
-
-        constexpr std::size_t MaxInfoSize = 514;
-        if (Info.size() > MaxInfoSize)
+        std::array<std::uint8_t, 2 + 1 + 255 + 1 + 255> LabelBuffer{};
+        const SecretScope Cleanup{LabelBuffer};
+        std::size_t Position = 0;
+        LabelBuffer[Position++] = static_cast<std::uint8_t>(Output.size() >> 8);
+        LabelBuffer[Position++] = static_cast<std::uint8_t>(Output.size() & 0xFF);
+        LabelBuffer[Position++] = static_cast<std::uint8_t>(Prefix.size() + Params.Label.size());
+        std::memcpy(LabelBuffer.data() + Position, Prefix.data(), Prefix.size());
+        Position += Prefix.size();
+        if (!Params.Label.empty())
         {
-            return {Fault::Code::InvalidArgument, {}};
+            std::memcpy(LabelBuffer.data() + Position, Params.Label.data(), Params.Label.size());
+            Position += Params.Label.size();
         }
-
-        std::vector<std::uint8_t> Result;
-        Result.reserve(Length);
-
-        std::array<std::uint8_t, Sha256Len> PreviousBlock{};
-        std::size_t TSize = 0;
-        std::size_t Offset = 0;
-        std::uint8_t Counter = 1;
-
-        while (Offset < Length)
+        LabelBuffer[Position++] = static_cast<std::uint8_t>(Params.Context.size());
+        if (!Params.Context.empty())
         {
-            constexpr std::size_t MaxHmacBuf = Sha256Len + MaxInfoSize + 1;
-            std::array<std::uint8_t, MaxHmacBuf> HmacBuf;
-            const auto HmacSize = TSize + Info.size() + 1;
-            if (TSize > 0)
+            std::memcpy(LabelBuffer.data() + Position, Params.Context.data(), Params.Context.size());
+            Position += Params.Context.size();
+        }
+        return HkdfExpand({Params.Secret, {LabelBuffer.data(), Position}}, Output);
+    }
+
+    /** @brief 顺序参与一个 SHA-256 摘要的分段输入；描述表及各段均同步借用。 */
+    struct HashInput final
+    {
+        explicit HashInput(const std::span<const std::span<const std::uint8_t>> Input) noexcept : Segments(Input) {}
+        std::span<const std::span<const std::uint8_t>> Segments;
+    };
+
+    /**
+     * @brief 顺序计算多段 SHA-256，无拼接、无动态分配，成功值拥有摘要。
+     * @return 任一初始化、更新或收尾失败返回 Failure；无取消、关闭和 executor。
+     */
+    [[nodiscard]] inline auto Sha256(const HashInput Input)
+        -> std::expected<std::array<std::uint8_t, Sha256Len>, Fault::Failure>
+    {
+        SHA256_CTX Context{};
+        const SecretScope ContextCleanup{
+            {reinterpret_cast<std::uint8_t *>(&Context), sizeof(Context)}};
+        std::array<std::uint8_t, Sha256Len> Output{};
+        const SecretScope OutputCleanup{Output};
+        ERR_clear_error();
+        if (SHA256_Init(&Context) != 1)
+        {
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
+        }
+        for (const auto Segment : Input.Segments)
+        {
+            if (SHA256_Update(&Context, Segment.data(), Segment.size()) != 1)
             {
-                std::memcpy(HmacBuf.data(), PreviousBlock.data(), TSize);
+                return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
             }
-            if (!Info.empty())
-            {
-                std::memcpy(HmacBuf.data() + TSize, Info.data(), Info.size());
-            }
-            HmacBuf[HmacSize - 1] = Counter;
-
-            const auto Block = HmacSha256(PRK.first(Sha256Len), {HmacBuf.data(), HmacSize});
-
-            const auto ToCopy = std::min(Sha256Len, Length - Offset);
-            Result.insert(Result.end(), Block.begin(), Block.begin() + static_cast<std::ptrdiff_t>(ToCopy));
-            Offset += ToCopy;
-
-            PreviousBlock = Block;
-            TSize = Sha256Len;
-            ++Counter;
         }
-
-        return {Fault::Code::Success, std::move(Result)};
+        if (SHA256_Final(Output.data(), &Context) != 1)
+        {
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
+        }
+        return Output;
     }
 
-    inline auto ExpandLabel(const ExpandParams Params)
-        -> std::pair<Fault::Code, std::vector<std::uint8_t>>
+    /** @brief 单段 SHA-256；输入同步借用，成功值拥有摘要，失败与多段版本一致。 */
+    [[nodiscard]] inline auto Sha256(const std::span<const std::uint8_t> Data)
+        -> std::expected<std::array<std::uint8_t, Sha256Len>, Fault::Failure>
     {
-        const auto &Secret = Params.Secret;
-        const auto &Label = Params.Label;
-        const auto &Context = Params.Context;
-        const auto Length = Params.Length;
-        constexpr std::string_view Tls13Prefix = "tls13 ";
-        const auto FullLabelLen = Tls13Prefix.size() + Label.size();
-
-        if (FullLabelLen > 255)
-        {
-            return {Fault::Code::InvalidArgument, {}};
-        }
-
-        if (Context.size() > 255)
-        {
-            return {Fault::Code::InvalidArgument, {}};
-        }
-
-        constexpr std::size_t MaxLabelBuf = 2 + 1 + 255 + 1 + 255;
-        std::array<std::uint8_t, MaxLabelBuf> LabelBuf;
-        std::size_t Pos = 0;
-
-        LabelBuf[Pos++] = static_cast<std::uint8_t>((Length >> 8) & 0xFF);
-        LabelBuf[Pos++] = static_cast<std::uint8_t>(Length & 0xFF);
-
-        LabelBuf[Pos++] = static_cast<std::uint8_t>(FullLabelLen);
-        std::memcpy(LabelBuf.data() + Pos, Tls13Prefix.data(), Tls13Prefix.size());
-        Pos += Tls13Prefix.size();
-        std::memcpy(LabelBuf.data() + Pos, Label.data(), Label.size());
-        Pos += Label.size();
-
-        LabelBuf[Pos++] = static_cast<std::uint8_t>(Context.size());
-        if (!Context.empty())
-        {
-            std::memcpy(LabelBuf.data() + Pos, Context.data(), Context.size());
-            Pos += Context.size();
-        }
-
-        return HkdfExpand(Secret, {LabelBuf.data(), Pos}, Length);
+        const std::array<std::span<const std::uint8_t>, 1> Segments{Data};
+        return Sha256(HashInput{Segments});
     }
-
-    inline auto Sha256(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, Sha256Len>
-    {
-        std::array<std::uint8_t, Sha256Len> Hash{};
-        ::SHA256(Data.data(), Data.size(), Hash.data());
-        return Hash;
-    }
-
-    inline auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2)
-        -> std::array<std::uint8_t, Sha256Len>
-    {
-        std::array<std::uint8_t, Sha256Len> Hash{};
-
-        EVP_MD_CTX *Context = EVP_MD_CTX_new();
-        if (!Context)
-        {
-            return Hash;
-        }
-
-        if (EVP_DigestInit_ex(Context, EVP_sha256(), nullptr) != 1)
-        {
-            EVP_MD_CTX_free(Context);
-            return Hash;
-        }
-
-        if (EVP_DigestUpdate(Context, Data1.data(), Data1.size()) != 1 ||
-            EVP_DigestUpdate(Context, Data2.data(), Data2.size()) != 1)
-        {
-            EVP_MD_CTX_free(Context);
-            return Hash;
-        }
-
-        std::uint32_t HashLen = 0;
-        EVP_DigestFinal_ex(Context, Hash.data(), &HashLen);
-        EVP_MD_CTX_free(Context);
-
-        return Hash;
-    }
-
-    inline auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2,
-                       const std::span<const std::uint8_t> Data3) -> std::array<std::uint8_t, Sha256Len>
-    {
-        std::array<std::uint8_t, Sha256Len> Hash{};
-
-        EVP_MD_CTX *Context = EVP_MD_CTX_new();
-        if (!Context)
-        {
-            return Hash;
-        }
-
-        if (EVP_DigestInit_ex(Context, EVP_sha256(), nullptr) != 1)
-        {
-            EVP_MD_CTX_free(Context);
-            return Hash;
-        }
-
-        if (EVP_DigestUpdate(Context, Data1.data(), Data1.size()) != 1 ||
-            EVP_DigestUpdate(Context, Data2.data(), Data2.size()) != 1 ||
-            EVP_DigestUpdate(Context, Data3.data(), Data3.size()) != 1)
-        {
-            EVP_MD_CTX_free(Context);
-            return Hash;
-        }
-
-        std::uint32_t HashLen = 0;
-        EVP_DigestFinal_ex(Context, Hash.data(), &HashLen);
-        EVP_MD_CTX_free(Context);
-
-        return Hash;
-    }
-
-
-} // namespace Preview::Crypto
+}

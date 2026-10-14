@@ -1,179 +1,112 @@
 /**
  * @file X25519.hpp
- * @brief X25519 椭圆曲线 Diffie-Hellman 密钥交换
- * @details 提供 X25519 密钥对生成、公钥推导和共享密钥计算功能。
- * 基于 BoringSSL 的 EVP_PKEY API 实现，用于 Reality 协议的密钥交换。
- * X25519 使用 Curve25519 椭圆曲线，提供 128 位安全强度，
- * 是 TLS 1.3 中 ECDHE 的首选曲线之一。
- * @note 所有密钥和共享密钥长度固定为 32 字节。
- * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
+ * @brief X25519 值结果与密钥对生成。
+ * @details 输入同步借用，成功 expected 拥有输出密钥；调用者负责最终秘密擦除。
+ *          原语无取消、半关闭、连接关闭或 executor 行为。
  */
 #pragma once
 
-#include <cstring>
-
-#include <openssl/rand.h>
-
+#include <Preview/Foundation/Utility/Crypto/Random.hpp>
 #include <openssl/curve25519.h>
-
-#include <Preview/Foundation/Fault/Code.hpp>
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <span>
-#include <utility>
 
 namespace Preview::Crypto
 {
-
-    /**
-     * @brief X25519 密钥长度（字节）
-     */
+    /** @brief X25519 密钥字节数。 */
     constexpr std::size_t X25519Klen = 32;
-
-    /**
-     * @brief X25519 共享密钥长度（字节）
-     */
+    /** @brief X25519 共享秘密字节数。 */
     constexpr std::size_t X25519Slen = 32;
-
-    /**
-     * @brief Ed25519 公钥长度（字节）
-     */
+    /** @brief Ed25519 公钥字节数。 */
     constexpr std::size_t Ed25519Klen = 32;
-
-    /**
-     * @brief Ed25519 私钥长度（字节，含种子+公钥的完整格式）
-     */
+    /** @brief Ed25519 完整私钥字节数，包含种子与公钥。 */
     constexpr std::size_t Ed25519Plen = 64;
 
-    /**
-     * @struct X25519Keypair
-     * @brief X25519 密钥对
-     * @details 包含 X25519 的私钥和对应的公钥，各 32 字节。
-     * 私钥是随机生成的 32 字节标量，公钥是 Curve25519 上的点。
-     */
-    struct X25519Keypair
+    /** @brief 调用者拥有的 X25519 私钥与公钥，最终秘密擦除由调用者负责。 */
+    struct X25519Keypair final
     {
-        std::array<std::uint8_t, X25519Klen> PrivateKey{}; // X25519 私钥（32 字节标量）
-        std::array<std::uint8_t, X25519Klen> PublicKey{};  // X25519 公钥（Curve25519 上的点，32 字节）
+        std::array<std::uint8_t, X25519Klen> PrivateKey{}; ///< 私钥标量。
+        std::array<std::uint8_t, X25519Klen> PublicKey{}; ///< 对应公钥。
+    };
+
+    /** @brief 调用者拥有的 Ed25519 完整私钥与公钥。 */
+    struct Ed25519Keypair final
+    {
+        std::array<std::uint8_t, Ed25519Plen> PrivateKey{}; ///< 种子与公钥。
+        std::array<std::uint8_t, Ed25519Klen> PublicKey{}; ///< 公钥。
     };
 
     /**
-     * @brief 生成 X25519 密钥对
-     * @details 使用 BoringSSL 的随机数生成器生成私钥，
-     * 然后从私钥推导对应的公钥。
-     * @return 随机生成的 X25519 密钥对
+     * @brief 从同步借用的 32 字节私钥推导公钥；成功结果拥有输出。
+     * @return 非法输入长度返回 InvalidArgument，不返回全零哨兵。
+     * @note 原生 public_from_private 对合法长度不提供失败返回值。
      */
-    [[nodiscard]] auto GenerateKeypair() -> X25519Keypair;
-
-    /**
-     * @brief 从私钥推导公钥
-     * @details 执行 X25519 标量乘法，将私钥映射为 Curve25519 上的公钥点。
-     * 如果私钥无效则返回全零。
-     * @param private_key 32 字节 X25519 私钥
-     * @return 推导出的 32 字节公钥，失败时返回全零
-     */
-    [[nodiscard]] auto DerivePubkey(std::span<const std::uint8_t> PrivateKey)
-        -> std::array<std::uint8_t, X25519Klen>;
-
-    /**
-     * @brief X25519 密钥交换
-     * @details 计算 SharedSecret = X25519(private_key, PeerPubkey)。
-     * 成功时返回 Fault::Code::Success 和共享密钥。
-     * 失败可能原因：无效的公钥（低阶点）或 EVP API 错误。
-     * @param private_key 本方 32 字节 X25519 私钥
-     * @param PeerPubkey 对方 32 字节 X25519 公钥
-     * @return 错误码和 32 字节共享密钥的配对
-     * @note 即使对方公钥是低阶点，X25519 也会成功计算（输出全零），
-     * 调用者应检查共享密钥是否为全零以检测此类攻击。
-     */
-    [[nodiscard]] auto X25519(std::span<const std::uint8_t> PrivateKey,
-                              std::span<const std::uint8_t> PeerPubkey)
-        -> std::pair<Fault::Code, std::array<std::uint8_t, X25519Slen>>;
-
-    /**
-     * @struct Ed25519Keypair
-     * @brief Ed25519 密钥对
-     * @details 包含 Ed25519 的完整私钥（64字节：种子+公钥）和公钥（32字节）。
-     * 用于 Reality 协议的服务端自签名证书生成和 CertificateVerify 签名。
-     */
-    struct Ed25519Keypair
+    [[nodiscard]] inline auto DerivePubkey(const std::span<const std::uint8_t> PrivateKey)
+        -> std::expected<std::array<std::uint8_t, X25519Klen>, Fault::Failure>
     {
-        std::array<std::uint8_t, Ed25519Plen> PrivateKey{}; // Ed25519 完整私钥（64 字节：种子+公钥）
-        std::array<std::uint8_t, Ed25519Klen> PublicKey{};  // Ed25519 公钥（32 字节）
-    };
-
-
-
-    inline auto GenerateKeypair() -> X25519Keypair
-    {
-        X25519Keypair Keypair;
-
-        if (RAND_bytes(Keypair.PrivateKey.data(), static_cast<int>(X25519Klen)) != 1)
-        {
-            return Keypair;
-        }
-
-        Keypair.PublicKey = DerivePubkey(Keypair.PrivateKey);
-        return Keypair;
-    }
-
-    inline auto DerivePubkey(std::span<const std::uint8_t> PrivateKey)
-        -> std::array<std::uint8_t, X25519Klen>
-    {
-        std::array<std::uint8_t, X25519Klen> PublicKey{};
-
         if (PrivateKey.size() != X25519Klen)
         {
-            return PublicKey;
+            return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument, {}});
         }
-
+        std::array<std::uint8_t, X25519Klen> PublicKey{};
         X25519_public_from_private(PublicKey.data(), PrivateKey.data());
-
         return PublicKey;
     }
 
-    inline auto X25519(std::span<const std::uint8_t> PrivateKey,
-                       const std::span<const std::uint8_t> PeerPubkey)
-        -> std::pair<Fault::Code, std::array<std::uint8_t, X25519Slen>>
+    /**
+     * @brief 使用统一 CSPRNG 生成密钥对；失败立即返回且局部私钥可靠擦除。
+     * @return 成功 expected 拥有密钥对；随机源和推导错误原样返回。
+     */
+    [[nodiscard]] inline auto GenerateKeypair() -> std::expected<X25519Keypair, Fault::Failure>
     {
-        std::array<std::uint8_t, X25519Slen> SharedSecret{};
-
-        if (PrivateKey.size() != X25519Klen)
+        X25519Keypair Keypair;
+        const SecretScope Cleanup{Keypair.PrivateKey};
+        const auto Random = FillRandom(Keypair.PrivateKey);
+        if (!Random)
         {
-            return {Fault::Code::InvalidArgument, SharedSecret};
+            return std::unexpected(Random.error());
         }
-
-        if (PeerPubkey.size() != X25519Klen)
+        const auto PublicKey = DerivePubkey(Keypair.PrivateKey);
+        if (!PublicKey)
         {
-            return {Fault::Code::InvalidArgument, SharedSecret};
+            return std::unexpected(PublicKey.error());
         }
-
-        if (::X25519(SharedSecret.data(), PrivateKey.data(), PeerPubkey.data()) != 1)
-        {
-            SharedSecret.fill(0);
-            return {Fault::Code::Kexfail, SharedSecret};
-        }
-
-        // 检查全零共享密钥（低阶点攻击）
-        bool AllZero = true;
-        for (const auto b : SharedSecret)
-        {
-            if (b != 0)
-            {
-                AllZero = false;
-                break;
-            }
-        }
-        if (AllZero)
-        {
-            SharedSecret.fill(0);
-            return {Fault::Code::Kexfail, SharedSecret};
-        }
-
-        return {Fault::Code::Success, SharedSecret};
+        Keypair.PublicKey = *PublicKey;
+        return Keypair;
     }
 
-
-} // namespace Preview::Crypto
+    /**
+     * @brief 对同步借用的本方私钥与对端公钥执行 X25519；结果拥有共享秘密。
+     * @return 长度非法返回 InvalidArgument；低阶点或原生失败返回 Kexfail。
+     * @details 拒绝全零共享秘密并擦除局部副本，调用者无需用全零哨兵判断错误。
+     */
+    [[nodiscard]] inline auto X25519(const std::span<const std::uint8_t> PrivateKey,
+                                    const std::span<const std::uint8_t> PeerPubkey)
+        -> std::expected<std::array<std::uint8_t, X25519Slen>, Fault::Failure>
+    {
+        if (PrivateKey.size() != X25519Klen || PeerPubkey.size() != X25519Klen)
+        {
+            return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument, {}});
+        }
+        std::array<std::uint8_t, X25519Slen> SharedSecret{};
+        const SecretScope Cleanup{SharedSecret};
+        ERR_clear_error();
+        if (::X25519(SharedSecret.data(), PrivateKey.data(), PeerPubkey.data()) != 1)
+        {
+            return std::unexpected(Detail::NativeFailure(Fault::Code::Kexfail));
+        }
+        std::uint8_t Combined = 0;
+        for (const auto Byte : SharedSecret)
+        {
+            Combined |= Byte;
+        }
+        if (Combined == 0)
+        {
+            return std::unexpected(Fault::Failure{Fault::Code::Kexfail, {}});
+        }
+        return SharedSecret;
+    }
+}

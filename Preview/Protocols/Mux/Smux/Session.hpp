@@ -1,7 +1,7 @@
 /**
  * @file Session.hpp
  * @brief smux 多路复用会话（共享框架 + smux 帧策略）
- * @details 复用 Mux::Session<Smux::Codec> 共享框架，
+ * @details 复用 Mux::Session<Smux::Detail::Codec> 共享框架，
  *          提供 smux 专属别名与工厂。
  */
 
@@ -12,8 +12,8 @@
 
 #include <Preview/Protocols/Mux/Codec.hpp>
 #include <Preview/Protocols/Mux/Session.hpp>
-#include <Preview/Protocols/Mux/Smux/Codec.hpp>
-#include <Preview/Protocols/Mux/Smux/Types.hpp>
+#include <Preview/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
+#include <Preview/Protocols/Mux/Smux/Detail/Wire/Types.hpp>
 
 namespace Preview::Mux::Smux
 {
@@ -23,7 +23,7 @@ namespace Preview::Mux::Smux
      * @tparam Memory 会话内存策略（默认 8KB Arena）
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    using Session = Mux::Session<Codec, Memory>;
+    using Session = Mux::Session<Detail::Codec, Memory>;
 
     /**
      * @brief 创建 smux 会话

@@ -140,9 +140,69 @@ function Clear-InteropArtifacts {
     )
 
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-    Get-ChildItem -LiteralPath $OutputDirectory -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Extension -in @('.json', '.log') } |
-        Remove-Item -Force -ErrorAction Stop
+    $Artifacts = @(Get-ChildItem -LiteralPath $OutputDirectory -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in @('.json', '.log') })
+    foreach ($Artifact in $Artifacts) {
+        try {
+            Remove-Item -LiteralPath $Artifact.FullName -Force -ErrorAction Stop
+        } catch {
+            Write-Warning ("Clear-InteropArtifacts: skipped '{0}' because it could not be removed (likely locked): {1}" -f
+                $Artifact.FullName, $_.Exception.Message)
+        }
+    }
+}
+
+function Stop-InteropProcessTree {
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
+        [int]$WaitMilliseconds = 5000
+    )
+
+    try {
+        $Process.Refresh()
+    } catch {
+    }
+    if ($Process.HasExited) {
+        return
+    }
+
+    try {
+        if ($env:OS -eq 'Windows_NT') {
+            & taskkill.exe /PID $Process.Id /T /F *> $null
+        } elseif (Get-Command kill -ErrorAction SilentlyContinue) {
+            & kill -TERM $Process.Id *> $null
+        } else {
+            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+    }
+
+    $Deadline = [DateTime]::UtcNow.AddMilliseconds($WaitMilliseconds)
+    while (-not $Process.HasExited -and [DateTime]::UtcNow -lt $Deadline) {
+        Start-Sleep -Milliseconds 100
+        try {
+            $Process.Refresh()
+        } catch {
+            break
+        }
+    }
+    if (-not $Process.HasExited) {
+        Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-InteropOwnedTcpPort {
+    param(
+        [Parameter(Mandatory = $true)][int]$ProcessId,
+        [Parameter(Mandatory = $true)][int]$Port
+    )
+
+    try {
+        $Endpoints = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop)
+        return @($Endpoints | Where-Object { $_.OwningProcess -eq $ProcessId }).Count -gt 0
+    } catch {
+        return $null
+    }
 }
 
 function Invoke-InteropCase {
@@ -159,7 +219,8 @@ function Invoke-InteropCase {
         [switch]$BlockedProductionPrerequisite,
         [ValidateSet('Deterministic', 'MixedTrial', 'direct-handler', 'not-exercised')][string]$RecognitionMode = 'not-exercised',
         [string]$CandidateProfile = '',
-        [string]$Route = ''
+        [string]$Route = '',
+        [ValidateRange(1, 86400)][int]$TimeoutSeconds = 30
     )
 
     $CaseName = ($Protocol + '_' + $Direction + '_' + $Scenario) -replace '[^A-Za-z0-9_.-]', '_'
@@ -172,6 +233,7 @@ function Invoke-InteropCase {
     $Output = ''
     $WallTimeMs = 0.0
     [UInt64]$PeakWorkingSetBytes = 0
+    $TimedOut = $false
 
     if (Test-Path -LiteralPath $Executable -PathType Leaf) {
         $Process = $null
@@ -179,7 +241,7 @@ function Invoke-InteropCase {
         try {
             $Process = Start-Process -FilePath $Executable -ArgumentList $Arguments -PassThru -WindowStyle Hidden `
                 -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath
-            while (-not $Process.HasExited) {
+            while (-not $Process.HasExited -and $Watch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
                 try {
                     $Process.Refresh()
                     $WorkingSet = [UInt64]$Process.PeakWorkingSet64
@@ -191,20 +253,28 @@ function Invoke-InteropCase {
                 }
                 Start-Sleep -Milliseconds 25
             }
-            $Process.Refresh()
-            $ExitCode = $Process.ExitCode
-            try {
-                $WorkingSet = [UInt64]$Process.PeakWorkingSet64
-                if ($WorkingSet -gt $PeakWorkingSetBytes) {
-                    $PeakWorkingSetBytes = $WorkingSet
+            if (-not $Process.HasExited) {
+                $TimedOut = $true
+                Stop-InteropProcessTree -Process $Process | Out-Null
+            }
+            if ($TimedOut) {
+                $ExitCode = 124
+            } else {
+                $Process.Refresh()
+                $ExitCode = $Process.ExitCode
+                try {
+                    $WorkingSet = [UInt64]$Process.PeakWorkingSet64
+                    if ($WorkingSet -gt $PeakWorkingSetBytes) {
+                        $PeakWorkingSetBytes = $WorkingSet
+                    }
+                } catch {
                 }
-            } catch {
             }
         } finally {
             $Watch.Stop()
             $WallTimeMs = $Watch.Elapsed.TotalMilliseconds
             if ($Process -and -not $Process.HasExited) {
-                Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+                Stop-InteropProcessTree -Process $Process | Out-Null
             }
         }
         Start-Sleep -Milliseconds 20

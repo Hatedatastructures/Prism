@@ -1,4 +1,5 @@
 AddProductionTest(Reality.cpp)
+AddProductionTest(StealthSealPure.cpp)
 AddProductionTest(RealityAuth.cpp)
 AddProductionTest(RealityAuthDeep.cpp)
 AddProductionTest(RealityHandshakePure.cpp)

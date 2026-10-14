@@ -1,111 +1,142 @@
-/**
- * @file Application.hpp
- * @brief PrismPreview 应用启动与生命周期入口。
- */
-
+/** @file Application.hpp @brief 应用控制线程的启动、运行、停机及查询行为。 */
 #pragma once
+#include <Preview/Application/Definition.hpp>
 
-#include <Preview/Foundation/Identifier/Id.hpp>
-
-#include <cstdint>
-#include <filesystem>
-#include <expected>
-#include <functional>
-#include <iosfwd>
-#include <memory>
-#include <optional>
-#include <string>
-#include <string_view>
+#include <Preview/Application/RuntimeState.hpp>
+#include <Preview/Application/Shutdown.hpp>
+#include <Preview/Foundation/Executor/RunContext.hpp>
 
 namespace Preview::Application
 {
 
-    /** @brief 应用启动阶段的 typed 错误分类。 */
-    enum class StartupErrorCode : std::uint8_t
+    inline Application::Application(Options OptionsValue) : Options_(std::move(OptionsValue))
     {
-        MissingConfiguration,
-        InvalidConfiguration,
-        UnsupportedService,
-        Builtin,
-        Generation,
-        Bind,
-        Signal,
-        Runtime,
-    };
+    }
 
-    /** @brief 应用启动错误，不携带生产配置或运行时对象。 */
-    struct StartupError final
+    inline Application::Application(std::filesystem::path ConfigurationPath)
+        : Application(Options{std::move(ConfigurationPath), nullptr})
     {
-        StartupErrorCode Code{StartupErrorCode::Runtime};
-        std::string Path;
-        std::string Message;
-    };
+    }
 
-    /** @brief 成功绑定后的只读就绪状态。 */
-    struct Readiness final
+    inline Application::~Application() noexcept
     {
-        std::uint16_t Port{0};
-        std::uint16_t OperationsPort{0};
-        Preview::GenerationId Generation{};
-        std::uint16_t UdpPort{0};
-        bool UdpReady{false};
-        bool QuicReady{false};
-        bool UdpSocketReady{false};
-        bool QuicSocketReady{false};
-        bool QuicHandshakeReady{false};
-        bool QuicProtocolReady{false};
-    };
+        if (State_ && (State_->ControlContext->Fatal->HasFailure() || State_->WorkerFatal.load()))
+            return;
+        Stop();
+        if (State_ && !State_->Running.load(std::memory_order_acquire) &&
+            !State_->StopCompleted.load(std::memory_order_acquire))
+        {
+            State_->Io.restart();
+            while (!State_->StopCompleted.load(std::memory_order_acquire))
+            {
+                if (State_->Io.run_one() == 0U)
+                {
+                    State_->Io.restart();
+                }
+            }
+        }
+        if (State_)
+        {
+            (void)Shutdown::CheckPublishedShutdownOutcome(State_);
+            Shutdown::FinalizeRuntimeResources(State_);
+        }
+    }
 
-    /** @brief 应用启动选项。Output 由调用方持有；为空时使用 stdout。 */
-    struct Options final
+    inline auto Application::Run() -> int
     {
-        std::filesystem::path ConfigurationPath;
-        std::ostream *Output{nullptr};
-        std::function<std::optional<std::string>(std::string_view)> SecretResolver{};
-    };
+        if (!State_ || State_->Phase.load(std::memory_order_acquire) == RuntimePhase::Ready)
+        {
+            const auto Started = Start();
+            if (!Started)
+            {
+                std::cerr << "PrismPreview startup failed code="
+                          << static_cast<unsigned int>(Started.error().Code);
+                if (!Started.error().Path.empty())
+                {
+                    std::cerr << " path=" << Started.error().Path;
+                }
+                std::cerr << " message=" << Started.error().Message << '\n';
+                return 1;
+            }
+        }
+        if (!State_ || IsStopped())
+        {
+            return State_ ? State_->ExitCode : 0;
+        }
 
-    /**
-     * @class Application
-     * @brief 持有 Preview 启动对象并收口监听、会话和进程生命周期。
-     * @details 解析、generation、Process、SessionServices、TCP listener 和
-     *          signal_set 均在 Preview 应用边界内创建；启动失败不会发布就绪状态。
-     */
-    class Application final
+        State_->Running.store(true, std::memory_order_release);
+        const auto Fatal = Preview::Executor::RunContext(State_->Io);
+        State_->Running.store(false, std::memory_order_release);
+        if (Fatal || State_->WorkerFatal.load() || Preview::Executor::FatalState::ProcessPending())
+        {
+            if (Fatal)
+            {
+                (void)State_->RecordShutdownFailure(
+                    Shutdown::ShutdownOperation::FailureFromException(Fatal));
+            }
+            else
+            {
+                (void)State_->RecordShutdownFailure(
+                    Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            }
+            State_->StopForFatal();
+        }
+        else if (!State_->StopCompleted.load(std::memory_order_acquire))
+        {
+            Stop();
+            State_->Io.restart();
+            const auto CleanupFatal = Preview::Executor::RunContext(State_->Io);
+            if (CleanupFatal)
+            {
+                (void)State_->RecordShutdownFailure(
+                    Shutdown::ShutdownOperation::FailureFromException(CleanupFatal));
+                State_->StopForFatal();
+            }
+        }
+        const auto ShutdownOutcome = Shutdown::CheckPublishedShutdownOutcome(State_);
+        if (!ShutdownOutcome)
+        {
+            (void)State_->RecordShutdownFailure(ShutdownOutcome.error());
+        }
+        Shutdown::FinalizeRuntimeResources(State_);
+        return State_->ExitCode;
+    }
+
+    inline auto Application::Stop() noexcept -> void
     {
-    public:
-        struct RuntimeState;
+        if (!State_ || State_->StopRequested.exchange(true, std::memory_order_acq_rel))
+        {
+            return;
+        }
+        if (State_->Phase.load(std::memory_order_acquire) != RuntimePhase::Failed)
+        {
+            State_->Phase.store(RuntimePhase::Stopping, std::memory_order_release);
+        }
+        Shutdown::ScheduleShutdown(State_);
+    }
 
-        explicit Application(Options OptionsValue);
+    inline auto Application::IsReady() const noexcept -> bool
+    {
+        return State_ && State_->Phase.load(std::memory_order_acquire) == RuntimePhase::Ready;
+    }
 
-        explicit Application(std::filesystem::path ConfigurationPath);
+    inline auto Application::IsStopping() const noexcept -> bool
+    {
+        if (!State_)
+        {
+            return false;
+        }
+        return State_->Phase.load(std::memory_order_acquire) == RuntimePhase::Stopping;
+    }
 
-        ~Application() noexcept;
+    inline auto Application::IsStopped() const noexcept -> bool
+    {
+        return State_ && State_->ResourcesFinalized.load(std::memory_order_acquire);
+    }
 
-        Application(const Application &) = delete;
-        auto operator=(const Application &) -> Application & = delete;
-        Application(Application &&) = delete;
-        auto operator=(Application &&) -> Application & = delete;
-
-        [[nodiscard]] auto Start() -> std::expected<Readiness, StartupError>;
-
-        [[nodiscard]] auto Run() -> int;
-
-        /** @brief 请求一次幂等优雅停机；实际排空由 Run 驱动。 */
-        auto Stop() noexcept -> void;
-
-        [[nodiscard]] auto IsReady() const noexcept -> bool;
-
-        [[nodiscard]] auto IsStopping() const noexcept -> bool;
-
-        [[nodiscard]] auto IsStopped() const noexcept -> bool;
-
-        [[nodiscard]] auto LastError() const noexcept -> const std::optional<StartupError> &;
-
-    private:
-        Options Options_;
-        std::shared_ptr<RuntimeState> State_;
-        std::optional<Readiness> Readiness_;
-        std::optional<StartupError> LastError_;
-    };
+    inline auto Application::LastError() const noexcept -> const std::optional<StartupError>&
+    {
+        return LastError_;
+    }
 
 } // namespace Preview::Application

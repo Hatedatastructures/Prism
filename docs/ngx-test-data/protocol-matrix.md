@@ -1,5 +1,7 @@
 # Next-Gen 协议完成度矩阵
 
+> 文档状态说明（2026-10-05）：本文保留原版本的规范、测试数据或对拍记录。路径、完成标记和数字按原记录日期与源码解释；当前 Preview 生产合同、已执行范围和剩余责任见[当前执行状态](../preview-refactor/2026-10-03-preview-no-compat-status.md)，原结果不作为今日源码全量或互操作通过证明。
+
 > 更新日期：2026-09-11（Preview 确定性路由/有界试探识别策略、legacy 控制和窗口读取回归、QUIC 连接绑定、QUIC candidate 前置拒绝、Dgram over-reporting 收口、稳定性和性能门禁增量；L5/跨实现性能/Gate D 仍未闭合）
 > 配套文档：[NEXTGEN_IMPLEMENTATION_PLAN.md](../NEXTGEN_IMPLEMENTATION_PLAN.md)、[benchmark.md](benchmark.md)、[coverage.md](coverage.md)、[LIFECYCLE_AUDIT.md](LIFECYCLE_AUDIT.md)、[LONG_TERM_PLAN.md](../LONG_TERM_PLAN.md)
 

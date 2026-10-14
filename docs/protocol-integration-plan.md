@@ -1,5 +1,7 @@
 # 8 协议接入方案（VMess / sing-mux / gun / ECH / WS / Hysteria2 / TUIC / XHTTP）
 
+> 文档状态说明（2026-10-05）：本文保留原版本的分析、计划或验收快照，文中的“当前”、完成标记、路径和测试数字均属于原记录时点。今天的 Preview 入口、已执行范围与剩余责任见[开发入口](../Preview/README.md)和[当前执行状态](preview-refactor/2026-10-03-preview-no-compat-status.md)。本轮不改写原始历史结果；旧任务提示词需先核对现行 AGENTS.md、无兼容层计划和真实源码，不能直接替代当前任务卡。
+
 > 状态：规划 → 逐协议实施。每个协议闭环：**实现 → 单测+模拟客户端跑通 → SNI/配置 → 性能逻辑优化 → 下一协议**。
 > 参考实现：`E:\mihomo-Meta\mihomo-Meta`（服务端）、`sing-vmess@v0.2.5`、`sing-mux@v0.3.9`、`sing-quic`。
 

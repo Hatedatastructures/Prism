@@ -8,7 +8,7 @@
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
-#include "../../src/prism/protocol/multiplex/smux/control.cpp"
+#include "../../../src/prism/protocol/multiplex/smux/control.cpp"
 #include <gtest/gtest.h>
 
 namespace

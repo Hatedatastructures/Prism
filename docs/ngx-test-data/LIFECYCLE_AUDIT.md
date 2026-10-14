@@ -1,5 +1,7 @@
 # 生命周期 / 错误链审计（preview）
 
+> 文档状态说明（2026-10-05）：本文保留原版本的规范、测试数据或对拍记录。路径、完成标记和数字按原记录日期与源码解释；当前 Preview 生产合同、已执行范围和剩余责任见[当前执行状态](../preview-refactor/2026-10-03-preview-no-compat-status.md)，原结果不作为今日源码全量或互操作通过证明。
+
 > 日期：2026-09-05
 > 范围：Preview 公共层、识别策略（Configured/DeterministicRoute/MixedTrial）、TLS carrier、QUIC provider、runtime/session、adapter 缝、SOCKS5/Trojan/VMess/SS2022 L3
 

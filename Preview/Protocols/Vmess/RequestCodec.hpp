@@ -327,11 +327,11 @@ namespace Preview::Vmess
             bool Filled = false;
             if (Source_)
             {
-                Filled = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RandomBytes), Source_);
+                Filled = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RandomBytes), Source_).has_value();
             }
             else
             {
-                Filled = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RandomBytes));
+                Filled = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RandomBytes)).has_value();
             }
             if (!Filled)
             {
@@ -437,7 +437,7 @@ namespace Preview::Vmess
                 detail::OpenInput{LengthKey, LengthIv, LenEnc, AuthId});
             if (LenPlain.size() != 2)
             {
-                Ec = make_error_code(Error::AuthFailed);
+                Ec = make_error_code(Error::BadAuth);
                 return 0;
             }
             const auto Length = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];

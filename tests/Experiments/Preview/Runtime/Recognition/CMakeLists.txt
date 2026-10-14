@@ -1,0 +1,2 @@
+AddPreviewTest(ProbeDefenseCoverage.cpp)
+target_link_libraries(ProbeDefenseCoverage PRIVATE PreviewRuntime)

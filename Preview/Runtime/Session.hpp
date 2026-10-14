@@ -1,17 +1,18 @@
 /**
  * @file Session.hpp
  * @brief 会话编排（T4-2）
- * @details 把协议识别 → 上下文装配 → 中间件管线串成完整会话：
- *          1. Recognition::Pipeline 探测协议类型（预读回注）
- *          2. Prepare 回调按识别结果装配 Target / 凭据
- *          3. Middleware 管线：Auth（可选）→ Dial → relay
+ * @details 按 compiled Profile 识别候选，或直接消费显式工厂：
+ *          1. StreamFactory 完成协议握手与认证，移交唯一正式数据面
+ *          2. Session 按根类型运行数据报、Mux，或 Dial → relay
  *          - 识别失败 / 未知协议 → protocol_error
  *          - 认证失败 → auth_failed（管线终止）
  *          - relay 结束点自动上报流量（traffic sink）
- * @note 对应生产 Session::diversion；协议握手由各协议 Conn 承担
+ * @note 协议工厂拥有认证；数据报的取消、drain 与最终关闭归协议 owner。
  */
 
 #pragma once
+#include <Preview/Contract/Ingress/StreamFactory.hpp>
+#include <Preview/Foundation/Executor/ClosingStorage.hpp>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/dispatch.hpp>
@@ -19,6 +20,7 @@
 #include <boost/asio/post.hpp>
 #include <boost/asio/ssl/error.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/system/system_error.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -28,20 +30,19 @@
 #include <format>
 #include <functional>
 #include <memory>
+#include <new>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
 
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Account/Authenticator.hpp>
 #include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
 #include <Preview/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
-#include <Preview/Runtime/Middleware/Builtin/Auth.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Dial.hpp>
-#include <Preview/Runtime/Middleware/Builtin/Mux.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Pad.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Relay.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
@@ -50,6 +51,12 @@
 #include <Preview/Runtime/ActiveTransports.hpp>
 #include <Preview/Runtime/SessionControl.hpp>
 #include <Preview/Runtime/SessionServices.hpp>
+#include <Preview/Runtime/Session/ClosePolicy.hpp>
+#include <Preview/Runtime/Session/DataPlaneRelay.hpp>
+#include <Preview/Runtime/Session/RecognitionLogging.hpp>
+#include <Preview/Runtime/Session/RecognitionAdmission.hpp>
+#include <Preview/Runtime/Session/RunContext.hpp>
+#include <Preview/Runtime/Session/RecognitionLatencyScope.hpp>
 #include <Preview/Lifecycle/TaskState.hpp>
 #include <Preview/Transport/NativeTls.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -65,46 +72,9 @@ namespace Preview::Runtime
      */
     struct SessionOptions
     {
-        /// 协议接入函数：完成握手并将入站传输替换为协议数据连接
-        using ProtocolAcceptFn = SessionServices::ProtocolAcceptFn;
-
-        /// 按识别候选 ID 解析 winner-only 协议接入函数
-        using ResolveCandidateFn = SessionServices::ResolveCandidateFn;
-
-        /// owner-held 服务上下文；存在时优先于下方 legacy 字段
-        SharedSessionServices Services{};
-        /// 会话控制上下文；为空时由 Session 按入站执行器创建
+        /// 明确拥有所有会话依赖；不支持裸服务回退字段。
+        SharedSessionServices Services{std::make_shared<SessionServices>()};
         std::shared_ptr<SessionControl> Control{};
-
-        /// SNI 路由表（可选，TLS 分流）
-        Preview::Recognition::SniRouteTable *routes{nullptr};
-        /// 伪装方案执行器（可选；由启动层拥有）
-        Preview::Recognition::SchemeExecutor *Scheme{nullptr};
-        /// 认证器（可选；缺省跳过认证）
-        Preview::SharedAuthenticator Auth{};
-        /// 中继空闲超时（0 = 禁用）
-        std::chrono::milliseconds RelayIdleTimeout{std::chrono::seconds(60)};
-        /// 协议接入函数（可选；缺省保留识别后的原始传输）
-        ProtocolAcceptFn AcceptProtocol{};
-        /// Profile 路径的不可变候选配置
-        Preview::Recognition::SharedProfile Profile{};
-        /// Profile 路径按 CandidateId 解析接入函数；仅 winner 调用一次
-        ResolveCandidateFn ResolveCandidate{};
-        /// Resolver 命名兼容别名；Profile 路径优先使用 ResolveCandidate
-        ResolveCandidateFn Resolver{};
-        /// 装配回调：按识别结果填充 ctx（Target/凭据）；返回非 success 终止
-        SessionServices::PrepareFn Prepare{};
-        /// 多路复用引导函数（可选；缺省直通）
-        Preview::Middleware::Builtin::MuxMiddleware::MuxFn mux{};
-        /// 填充配置（可选；缺省不填充）
-        const Preview::Middleware::Context::PadConfig *pad{nullptr};
-        /// 拨号函数（缺省 Dial 中间件返回 not_supported）
-        Preview::Middleware::Builtin::DialMiddleware::DialFn Dial{};
-        /// Dgram 会话服务（ctx.IsDgram 时替代 Dial/relay；协议无关）
-        SessionServices::UdpServiceFn udp_service{};
-        /// 流量统计 sink（relay 结束点上报）
-        Preview::Middleware::Context::TrafficSink *traffic{nullptr};
-        /// 入站 peer IP，用于每会话请求日志。
         std::string SourceIp;
     };
 
@@ -117,154 +87,7 @@ namespace Preview::Runtime
     class Session
     {
     private:
-        struct SessionLogState final
-        {
-            static constexpr std::uint32_t RecognitionPhase = 1U << 0U;
-            static constexpr std::uint32_t AcceptPhase = 1U << 1U;
-            static constexpr std::uint32_t AuthPhase = 1U << 2U;
-            static constexpr std::uint32_t DialPhase = 1U << 3U;
-            static constexpr std::uint32_t RelayPhase = 1U << 4U;
-            static constexpr std::uint32_t CarrierProbePhase = 1U << 5U;
-            static constexpr std::uint32_t CarrierCommitPhase = 1U << 6U;
-
-            Preview::Diagnose::ContextState Trace{Preview::Diagnose::ContextState::Empty()};
-            std::atomic<bool> CloseLogged{false};
-            std::atomic<std::uint64_t> AuditFailures{0U};
-            std::atomic<std::uint32_t> PhaseMask{0};
-            std::chrono::steady_clock::time_point StartedAt{std::chrono::steady_clock::now()};
-            std::atomic<Preview::Fault::Code> FinalCode{Preview::Fault::Code::Success};
-
-            auto MarkStage(const std::string_view Stage) noexcept -> void
-            {
-                if (Stage == "Recognition" || Stage == "recognition")
-                {
-                    PhaseMask.fetch_or(RecognitionPhase, std::memory_order_relaxed);
-                }
-                else if (Stage == "Accept" || Stage == "accept")
-                {
-                    PhaseMask.fetch_or(AcceptPhase, std::memory_order_relaxed);
-                }
-                else if (Stage == "Authentication" || Stage == "Auth" || Stage == "auth")
-                {
-                    PhaseMask.fetch_or(AuthPhase, std::memory_order_relaxed);
-                }
-                else if (Stage == "Dial" || Stage == "dial")
-                {
-                    PhaseMask.fetch_or(DialPhase, std::memory_order_relaxed);
-                }
-                else if (Stage == "Relay" || Stage == "relay")
-                {
-                    PhaseMask.fetch_or(RelayPhase, std::memory_order_relaxed);
-                }
-                else if (Stage == "CarrierProbe" || Stage == "carrier_probe")
-                {
-                    PhaseMask.fetch_or(CarrierProbePhase, std::memory_order_relaxed);
-                }
-                else if (Stage == "CarrierCommit" || Stage == "carrier_commit")
-                {
-                    PhaseMask.fetch_or(CarrierCommitPhase, std::memory_order_relaxed);
-                }
-            }
-
-            [[nodiscard]] auto PhaseSequence() const -> std::string
-            {
-                const auto Mask = PhaseMask.load(std::memory_order_relaxed);
-                std::string Result;
-                if ((Mask & CarrierProbePhase) != 0U)
-                {
-                    Result.append("CarrierProbe");
-                }
-                if ((Mask & CarrierCommitPhase) != 0U)
-                {
-                    if (!Result.empty())
-                    {
-                        Result.push_back('>');
-                    }
-                    Result.append("CarrierCommit");
-                }
-                if ((Mask & RecognitionPhase) != 0U)
-                {
-                    if (!Result.empty())
-                    {
-                        Result.push_back('>');
-                    }
-                    Result.append("Recognition");
-                }
-                if ((Mask & AcceptPhase) != 0U)
-                {
-                    if (!Result.empty())
-                    {
-                        Result.push_back('>');
-                    }
-                    Result.append("Accept");
-                }
-                if ((Mask & AuthPhase) != 0U)
-                {
-                    if (!Result.empty())
-                    {
-                        Result.push_back('>');
-                    }
-                    Result.append("Authentication");
-                }
-                if ((Mask & DialPhase) != 0U)
-                {
-                    if (!Result.empty())
-                    {
-                        Result.push_back('>');
-                    }
-                    Result.append("Dial");
-                }
-                if ((Mask & RelayPhase) != 0U)
-                {
-                    if (!Result.empty())
-                    {
-                        Result.push_back('>');
-                    }
-                    Result.append("Relay");
-                }
-                if (Result.empty())
-                {
-                    Result = "None";
-                }
-                return Result + ">Close";
-            }
-
-            auto LogClose() noexcept -> void
-            {
-                if (CloseLogged.exchange(true, std::memory_order_acq_rel))
-                {
-                    return;
-                }
-                try
-                {
-                    const auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              std::chrono::steady_clock::now() - StartedAt)
-                                              .count();
-                    const auto Status = Preview::Diagnose::PascalCaseToken(
-                        Preview::Fault::Describe(FinalCode.load(std::memory_order_acquire)));
-                    const auto Context = Trace.With(Preview::Diagnose::Fields::Stage,
-                                                    std::string_view{"Close"})
-                                             .With(Preview::Diagnose::Fields::Status,
-                                                   std::string_view{Status})
-                                             .With(Preview::Diagnose::Fields::FaultCode,
-                                                   std::string_view{Status})
-                                             .With(Preview::Diagnose::Fields::ElapsedMs,
-                                                   static_cast<std::uint64_t>(Elapsed));
-                    const auto Receipt = Preview::Diagnose::Audit(
-                        Context,
-                        "SessionClosed Status={} ElapsedMs={} PhaseSequence={}",
-                        Status, Elapsed, PhaseSequence());
-                    if (!Receipt.Accepted())
-                    {
-                        AuditFailures.fetch_add(1U, std::memory_order_relaxed);
-                    }
-                }
-                catch (...)
-                {
-                    AuditFailures.fetch_add(1U, std::memory_order_relaxed);
-                }
-            }
-        };
+        using SessionLogState = SessionSupport::SessionLogState;
 
     public:
         /**
@@ -273,9 +96,18 @@ namespace Preview::Runtime
          */
         explicit Session(SessionOptions Options)
             : Opts_(std::move(Options)), Services_(Opts_.Services),
-              Control_(Opts_.Control ? Opts_.Control : std::make_shared<SessionControl>()),
+              Control_(Opts_.Control),
               Active_(std::make_shared<ActiveTransports>())
         {
+            if (!Control_) Control_ = std::make_shared<SessionControl>();
+        }
+
+        ~Session()
+        {
+            if (!Drained_.load(std::memory_order_acquire) && DeferredCleanup_)
+            {
+                DeferredCleanup_->RequestRetirement();
+            }
         }
 
         /**
@@ -295,1059 +127,220 @@ namespace Preview::Runtime
         }
 
         /**
+         * @brief 接管该 admission 从所选 generation 取得的唯一活动预约。
+         * @details 只能在 worker tracked start 前调用一次；成功后 Session 独占租约，
+         *          直到最终关闭交付、传输 Activity 与子 TaskRegistry 均真实 drain。
+         *          此同步移动不投递 executor；失败时输入租约仍由调用方持有。
+         */
+        [[nodiscard]] auto SetGenerationUseLease(
+            Preview::Foundation::GenerationUseLease Value) noexcept -> bool
+        {
+            if (!Value || GenerationUse_)
+            {
+                return false;
+            }
+            GenerationUse_ = std::move(Value);
+            return true;
+        }
+
+        /** @brief 绑定提交前已存在的 admission cleanup owner，覆盖未启动任务的析构路径。 */
+        auto SetDeferredCleanup(std::shared_ptr<Preview::Executor::ClosingResource> Value) -> void
+        {
+            DeferredCleanup_ = std::move(Value);
+        }
+
+        /**
+         * @brief 在 tracked start 前移交唯一注册 token。
+         * @details Session owner 持有 token 至最终传输关闭和 listener 错误投递结束；
+         *          RunContext 只在当前 Run 内借用，不能提前退休 registry/hooks。
+         */
+        auto SetRegistration(SessionRegistry::Registration Value) -> void
+        {
+            Registration_ = std::move(Value);
+        }
+
+        /**
          * @brief 请求会话取消
          */
-        void Cancel() noexcept
+        auto Cancel() -> std::expected<void, Preview::Fault::Failure>
         {
-            Control_->Cancel();
+            return Control_->Cancel();
         }
 
         /**
          * @brief exactly-once 关闭当前会话传输
          */
-        void Close()
+        [[nodiscard]] auto Close() -> std::expected<void, Preview::Fault::Failure>
         {
-            const auto Active = Active_;
-            (void)Control_->CloseOnce([Active] { CloseActive(Active); });
+            return Control_->CloseOnce();
         }
 
         /**
          * @brief 运行会话
          * @param Inbound 入站传输
-         * @return 最终错误码（success = 隧道正常结束）
+         * @return 最终 typed failure；success 表示隧道正常结束。
          */
         [[nodiscard]] auto Run(
-            Preview::SharedTransmission Inbound) -> Net::awaitable<Preview::Fault::Code>
+            Preview::SharedTransmission Inbound) -> Net::awaitable<Preview::Fault::Failure>
         {
+            Drained_.store(false, std::memory_order_release);
+            co_await Net::this_coro::throw_if_cancelled(false);
             const auto LogState = std::make_shared<SessionLogState>();
+            Preview::Fault::Failure Result;
             try
             {
-                const auto Result = co_await RunCore(std::move(Inbound), LogState);
-                LogState->FinalCode = Result;
-                CloseAndLog(Control_, Active_, LogState);
-                co_return Result;
+                Result = co_await RunCore(std::move(Inbound), LogState);
+            }
+            catch (const boost::system::system_error &Error)
+            {
+                Result = Preview::Fault::FromNative(
+                    static_cast<std::error_code>(Error.code()));
+            }
+            catch (const std::system_error &Error)
+            {
+                Result = Preview::Fault::FromNative(Error.code());
+            }
+            catch (const std::bad_alloc &)
+            {
+                Result = Preview::Fault::Failure{
+                    Preview::Fault::Code::ResourceUnavailable,
+                    std::make_error_code(std::errc::not_enough_memory)};
             }
             catch (...)
             {
-                LogState->FinalCode = Preview::Fault::Code::IoError;
-                CloseAndLog(Control_, Active_, LogState);
-                throw;
+                Result = Preview::Fault::Failure{Preview::Fault::Code::GenericError};
             }
+            LogState->FinalCode = Result.Code;
+            const auto Closed = SessionClosePolicy::CloseAndLog({Control_, Active_, LogState});
+            co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+            const auto Delivered = co_await Control_->AwaitDelivery();
+            const auto Retired = co_await Active_->Finalize();
+            if (!Closed) co_return Closed.error();
+            if (!Delivered) co_return Delivered.error();
+            if (!Retired) co_return Retired.error();
+            const auto ChildTasksDrained = co_await Control_->Drain();
+            if (!ChildTasksDrained) co_return ChildTasksDrained.error();
+            Drained_.store(true, std::memory_order_release);
+            co_return Result;
+        }
+
+        /** @brief 唯一表达关闭交付与 Activity 真实排空均已成功的会话事实。 */
+        [[nodiscard]] auto IsDrained() const noexcept -> bool
+        {
+            return Drained_.load(std::memory_order_acquire);
         }
 
         [[nodiscard]] auto RunCore(
             Preview::SharedTransmission Inbound,
-            const std::shared_ptr<SessionLogState> &LogState) -> Net::awaitable<Preview::Fault::Code>
+            const std::shared_ptr<SessionLogState> &LogState) -> Net::awaitable<Preview::Fault::Failure>
         {
-            const auto SessionExecutor = Inbound ? Inbound->Executor() : Net::any_io_executor{};
+            Net::any_io_executor SessionExecutor;
+            if (Inbound) SessionExecutor = Inbound->Executor();
             if (Inbound)
             {
-                // tracked task 可能由 worker executor 启动；会话可变状态和 channel
-                // 必须先回到入站传输的 executor，再进入识别/协议/mux 热路径。
+                // tracked task 可能由 worker executor 启动；会话状态先回到入站 executor。
                 co_await Net::dispatch(SessionExecutor, Net::use_awaitable);
                 (void)Control_->Bind(SessionExecutor);
             }
-            Active_->StoreInbound(Inbound);
-
-            auto *Routes = Services_ && Services_->Routes ? Services_->Routes.get() : Opts_.routes;
-            auto *Scheme = Services_ && Services_->Scheme ? Services_->Scheme.get() : Opts_.Scheme;
-            const auto Auth = Services_ && Services_->Auth ? Services_->Auth : Opts_.Auth;
-            const auto &RelayIdleTimeout = Services_ ? Services_->RelayIdleTimeout
-                                                     : Opts_.RelayIdleTimeout;
-            const auto AcceptProtocol = Services_ && Services_->AcceptProtocol
-                                             ? Services_->AcceptProtocol
-                                             : Opts_.AcceptProtocol;
-            const auto Profile = Services_ && Services_->Profile ? Services_->Profile : Opts_.Profile;
-            const auto ResolveCandidate = Services_ && Services_->ResolveCandidate
-                                              ? Services_->ResolveCandidate
-                                              : Opts_.ResolveCandidate;
-            const auto ResolverAlias = Services_ && Services_->Resolver
-                                            ? Services_->Resolver
-                                            : Opts_.Resolver;
-            const auto Prepare = Services_ && Services_->Prepare ? Services_->Prepare : Opts_.Prepare;
-            const auto Mux = Services_ && Services_->Mux ? Services_->Mux : Opts_.mux;
-            auto *Pad = Services_ && Services_->Pad ? Services_->Pad.get() : Opts_.pad;
-            const auto Dial = Services_ && Services_->Dial ? Services_->Dial : Opts_.Dial;
-            const auto UdpService = Services_ && Services_->UdpService
-                                        ? Services_->UdpService
-                                        : Opts_.udp_service;
-            const auto TrafficOwner = Services_ && Services_->Traffic
-                                          ? Services_->Traffic
-                                          : std::shared_ptr<Preview::Foundation::TrafficSink>{};
-            auto *Traffic = TrafficOwner ? TrafficOwner.get() : Opts_.traffic;
-
-            auto Trace = Services_ ? Services_->ProcessContext
-                                   : Preview::Diagnose::ContextState::Empty();
-            auto Cancellation = std::make_shared<Net::experimental::channel<void(boost::system::error_code)>>(
-                SessionExecutor, 1);
-            const auto Identity = Control_->CurrentIdentity();
-            try
+            if (!Inbound)
             {
-                if (Identity.WorkerId)
-                {
-                    Trace = Trace.With(Preview::Diagnose::Fields::Worker, Identity.WorkerId);
-                }
-                if (Identity.SessionId)
-                {
-                    Trace = Trace.With(Preview::Diagnose::Fields::Session, Identity.SessionId);
-                }
-                if (Identity.TaskId &&
-                    (!Identity.SessionId ||
-                     Identity.TaskId.Value() != Identity.SessionId.Value()))
-                {
-                    Trace = Trace.With(Preview::Diagnose::Fields::Task, Identity.TaskId);
-                }
-                if (Identity.Generation && Identity.Generation.Value() > 1U)
-                {
-                    Trace = Trace.With(Preview::Diagnose::Fields::Generation, Identity.Generation);
-                }
+                co_return Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument};
             }
-            catch (...)
+            const auto Domain = CarrierDomain::Create(Inbound->Executor(), Inbound->Activity());
+            if (!Domain) co_return Domain.error();
+            const auto Stored = Active_->StoreInbound(std::move(Inbound), *Domain);
+            if (!Stored) co_return Stored.error();
+            Inbound = *Stored;
+
+            if (!Services_)
             {
-                Trace = Services_ ? Services_->ProcessContext
-                                  : Preview::Diagnose::ContextState::Empty();
+                co_return Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument};
+            }
+            const auto RelayIdleTimeout = Services_->RelayIdleTimeout;
+            const auto AcceptProtocol = Services_->AcceptProtocol;
+            const auto Profile = Services_->Profile;
+            const auto ResolveCandidate = Services_->ResolveCandidate;
+            auto *Pad = Services_->Pad.get();
+            const auto Dial = Services_->Dial;
+            const auto Traffic = Services_->Traffic;
+            const auto RecognitionLatency = Services_->RecognitionLatency;
+
+            auto Trace = Services_->ProcessContext;
+            const auto Identity = Control_->CurrentIdentity();
+            if (Identity.WorkerId)
+            {
+                Trace = Trace.With(Preview::Diagnose::Fields::Worker, Identity.WorkerId);
+            }
+            if (Identity.SessionId)
+            {
+                Trace = Trace.With(Preview::Diagnose::Fields::Session, Identity.SessionId);
+            }
+            if (Identity.TaskId &&
+                (!Identity.SessionId ||
+                 Identity.TaskId.Value() != Identity.SessionId.Value()))
+            {
+                Trace = Trace.With(Preview::Diagnose::Fields::Task, Identity.TaskId);
+            }
+            if (Identity.Generation && Identity.Generation.Value() > 1U)
+            {
+                Trace = Trace.With(Preview::Diagnose::Fields::Generation, Identity.Generation);
             }
             LogState->Trace = Trace;
-            auto RecognitionTrace = Trace;
-            const auto WriteLog = []<typename... Args>(
-                                      const Preview::Diagnose::LogLevel Level,
-                                      const Preview::Diagnose::ContextState &Context,
-                                      const std::format_string<Args...> Format,
-                                      Args &&...Arguments) noexcept -> Preview::Diagnose::SubmissionReceipt
-            {
-                using Preview::Diagnose::LogLevel;
-                switch (Level)
-                {
-                case LogLevel::Trace:
-                    return Preview::Diagnose::Trace(Context, Format,
-                                                    std::forward<Args>(Arguments)...);
-                case LogLevel::Debug:
-                    return Preview::Diagnose::Debug(Context, Format,
-                                                     std::forward<Args>(Arguments)...);
-                case LogLevel::Info:
-                    return Preview::Diagnose::Info(Context, Format,
-                                                    std::forward<Args>(Arguments)...);
-                case LogLevel::Access:
-                    return Preview::Diagnose::Access(Context, Format,
-                                                     std::forward<Args>(Arguments)...);
-                case LogLevel::Warn:
-                    return Preview::Diagnose::Warn(Context, Format,
-                                                    std::forward<Args>(Arguments)...);
-                case LogLevel::Error:
-                    return Preview::Diagnose::Error(Context, Format,
-                                                     std::forward<Args>(Arguments)...);
-                case LogLevel::Critical:
-                    return Preview::Diagnose::Critical(Context, Format,
-                                                       std::forward<Args>(Arguments)...);
-                case LogLevel::Off:
-                    return {Preview::Diagnose::SubmissionStatus::Filtered, 0U};
-                }
-                return {Preview::Diagnose::SubmissionStatus::Filtered, 0U};
-            };
-            const auto WriteRecognitionDetails = [&WriteLog, Profile,
-                                                  &RecognitionTrace](
-                                                     const Preview::Recognition::RecognizeResult &Result,
-                                                     const std::string_view Protocol) noexcept
-            {
-                if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Trace))
-                {
-                    return;
-                }
-                try
-                {
-                    const auto Mode = Preview::Diagnose::PascalCaseToken(
-                        Profile ? Preview::Recognition::ToStringView(Profile->Mode())
-                                : std::string_view{"legacy"});
-                    const auto ProbeBytes = Result.ProbeBytes == 0U
-                                                ? Result.preread.size()
-                                                : Result.ProbeBytes;
-                    const auto FirstByte = FormatFirstByte(Result);
-                    (void)WriteLog(
-                        Preview::Diagnose::LogLevel::Trace, RecognitionTrace,
-                        "RecognitionDetails Protocol={} Mode={} ProbeBytes={} FirstByte={} CryptoTrials={}",
-                        Protocol, Mode, ProbeBytes, FirstByte, Result.CryptoTrials);
-                }
-                catch (...)
-                {
-                }
-            };
 
-            const auto WriteRecognitionFailure = [&WriteLog](
-                                                    const Preview::Diagnose::LogLevel Level,
-                                                    const Preview::Diagnose::ContextState &Context,
-                                                    const std::string_view Event,
-                                                    const std::string_view Protocol,
-                                                    const std::string_view FaultCode,
-                                                    const std::string_view Reason,
-                                                    const std::string_view Error) noexcept
-            {
-                if (!Reason.empty() && !Error.empty())
-                {
-                    (void)WriteLog(
-                        Level, Context,
-                        "{} Protocol={} FaultCode={} Reason={} Error={}",
-                        Event, Protocol, FaultCode, Reason, Error);
-                }
-                else if (!Reason.empty())
-                {
-                    (void)WriteLog(Level, Context,
-                                   "{} Protocol={} FaultCode={} Reason={}",
-                                   Event, Protocol, FaultCode, Reason);
-                }
-                else if (!Error.empty())
-                {
-                    (void)WriteLog(Level, Context, "{} Protocol={} FaultCode={} Error={}",
-                                   Event, Protocol, FaultCode, Error);
-                }
-                else
-                {
-                    (void)WriteLog(Level, Context, "{} Protocol={} FaultCode={}",
-                                   Event, Protocol, FaultCode);
-                }
-            };
+            auto Cancellation = std::make_shared<SessionCancellationChannel>(
+                SessionExecutor, 1);
+            SessionRunContext Run;
+            Run.Services = Services_;
+            Run.Registration = &Registration_;
+            Run.Control = Control_;
+            Run.Active = Active_;
+            Run.LogState = LogState;
+            Run.Cancellation = Cancellation;
+            Run.Executor = SessionExecutor;
+            Run.RelayIdleTimeout = RelayIdleTimeout;
+            Run.AcceptProtocol = AcceptProtocol;
+            Run.Profile = Profile;
+            Run.ResolveCandidate = ResolveCandidate;
+            Run.Pad = Pad;
+            Run.Dial = Dial;
+            Run.Traffic = Traffic;
+            Run.RecognitionLatency = RecognitionLatency;
+            Run.SourceIp = Opts_.SourceIp;
+            Run.Inbound = std::move(Inbound);
+            Run.Logger = SessionSupport::SessionLogWriter{LogState, Profile};
 
-            const auto WriteRecognition = [LogState, &WriteRecognitionDetails,
-                                           &WriteRecognitionFailure](
-                                              const Preview::Diagnose::LogLevel Level,
-                                              const std::string_view Stage,
-                                              const Preview::Recognition::RecognizeResult &Result,
-                                              const Preview::Fault::Code FaultCode,
-                                              const std::string_view ProtocolOverride = {}) noexcept
-            {
-                const auto EffectiveFaultCode = Stage == "recognition" &&
-                                                        Result.FaultCode != Preview::Fault::Code::Success
-                                                    ? Result.FaultCode
-                                                    : FaultCode;
-                const bool RecognitionStage = Stage == "recognition";
-                const bool CarrierFailure = RecognitionStage &&
-                                            !Result.Carrier.Carrier.empty() &&
-                                            Preview::Fault::Failed(EffectiveFaultCode) &&
-                                            EffectiveFaultCode != Preview::Fault::Code::Canceled;
-                const bool RecognitionAccepted = RecognitionStage && Result.success &&
-                                                 EffectiveFaultCode == Preview::Fault::Code::Success;
-                const auto DiagnosticStage = CarrierFailure ? std::string_view{"CarrierCommit"}
-                                                            : Stage;
-                LogState->MarkStage(DiagnosticStage);
-                const auto EventLevel = RecognitionStage && !RecognitionAccepted &&
-                                                EffectiveFaultCode != Preview::Fault::Code::Canceled
-                                            ? Preview::Diagnose::LogLevel::Warn
-                                            : Level;
-                if (RecognitionAccepted)
-                {
-                    if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Debug) &&
-                        !Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Trace))
-                    {
-                        return;
-                    }
-                }
-                else if (!Preview::Diagnose::IsEnabled(EventLevel))
-                {
-                    return;
-                }
+            const auto Installed = SessionClosePolicy::InstallCancelHook(
+                SessionCancellationRequest{
+                    Control_, Active_, LogState, Cancellation, SessionExecutor});
+            if (!Installed) co_return Installed.error();
 
-                const auto PascalStage = Stage == "auth"
-                                             ? std::string{"Authentication"}
-                                             : Preview::Diagnose::PascalCaseToken(DiagnosticStage);
-                const auto ProtocolValue =
-                    Result.detected == Preview::Recognition::ProtocolType::Unknown &&
-                            !ProtocolOverride.empty()
-                        ? ProtocolOverride
-                        : Preview::Recognition::ToStringView(Result.detected);
-                const auto Protocol = Preview::Diagnose::PascalCaseToken(
-                    ProtocolValue);
-                const auto PascalFaultCode = Preview::Diagnose::PascalCaseToken(
-                    Preview::Fault::Describe(EffectiveFaultCode));
-                try
-                {
-                    const auto NativeErrorText = Result.NativeError
-                                                     ? Result.NativeError.message()
-                                                     : Result.Error ? Result.Error.message()
-                                                                    : std::string{};
-                    const auto Context = Trace;
-
-                    if (RecognitionAccepted)
-                    {
-                        const auto Candidate = Preview::Diagnose::PascalCaseToken(
-                            SanitizeCandidateName(Result.CandidateName));
-                        if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Debug))
-                        {
-                            (void)Preview::Diagnose::Debug(
-                                Context, "RecognitionAccepted Candidate={}", Candidate);
-                        }
-                        WriteRecognitionDetails(Result, Protocol);
-                        return;
-                    }
-
-                    const auto Event = CarrierFailure
-                                           ? std::string{"CarrierCommitFailed"}
-                                           : RecognitionStage
-                                                 ? EffectiveFaultCode == Preview::Fault::Code::Canceled
-                                                       ? std::string{"RecognitionCanceled"}
-                                                       : std::string{"RecognitionFailed"}
-                                                 : PascalStage == "Authentication"
-                                                       ? std::string{"AuthenticationFailed"}
-                                                       : PascalStage + "Failed";
-                    const auto Reason = CarrierFailure
-                                            ? Preview::Diagnose::PascalCaseToken(
-                                                  ClassifyCarrierFailure(EffectiveFaultCode,
-                                                                         Result.NativeError))
-                                            : std::string{};
-                    const auto ErrorCode = Result.Error ? FormatErrorCode(Result.Error)
-                                                        : std::string{};
-                    const std::string_view Error = !NativeErrorText.empty()
-                                                       ? std::string_view{NativeErrorText}
-                                                       : std::string_view{ErrorCode};
-                    WriteRecognitionFailure(EventLevel, Context, Event, Protocol,
-                                            PascalFaultCode, Reason, Error);
-                }
-                catch (...)
-                {
-                }
-            };
-
-            const auto WriteAuthenticationInfo = [&Trace](
-                                                       const Preview::Middleware::Context &Context)
-                noexcept -> void
+            Preview::Fault::Failure AdmissionEc;
             {
-                if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
-                {
-                    return;
-                }
-                try
-                {
-                    const auto User = Context.UserForLog();
-                    const auto SourceIp = Context.SourceIp.empty()
-                                              ? std::string_view{"Unknown"}
-                                              : std::string_view{Context.SourceIp};
-                    (void)Preview::Diagnose::Info(
-                        Trace, "AuthenticationSucceeded SourceIp={} User={}",
-                        SourceIp, User.empty() ? std::string_view{"Unknown"}
-                                               : std::string_view{User});
-                }
-                catch (...)
-                {
-                }
-            };
-
-            const auto WriteRequestInfo = [&Trace](
-                                             const Preview::Middleware::Context &Context)
-                noexcept -> void
-            {
-                if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info) ||
-                    Context.Target.Host.empty() || Context.Target.Port.empty())
-                {
-                    return;
-                }
-                if (Context.IsDgram &&
-                    (Context.Target.Port == "0" || Context.Target.Host == "0.0.0.0" ||
-                     Context.Target.Host == "::"))
-                {
-                    return;
-                }
-                try
-                {
-                    const auto User = Context.UserForLog();
-                    const auto SourceIp = Context.SourceIp.empty()
-                                              ? std::string_view{"Unknown"}
-                                              : std::string_view{Context.SourceIp};
-                    const auto Host = std::string_view{Context.Target.Host.data(),
-                                                       Context.Target.Host.size()};
-                    const auto Port = std::string_view{Context.Target.Port.data(),
-                                                       Context.Target.Port.size()};
-                    if (User.empty())
-                    {
-                        (void)Preview::Diagnose::Info(
-                            Trace, "Request SourceIp={} Target={}:{}", SourceIp, Host, Port);
-                    }
-                    else
-                    {
-                        (void)Preview::Diagnose::Info(
-                            Trace, "Request SourceIp={} Target={}:{} User={}",
-                            SourceIp, Host, Port, User);
-                    }
-                }
-                catch (...)
-                {
-                }
-            };
-
-            (void)Control_->AddCancelHook(
-                [Control = Control_, Active = Active_, LogState, Cancellation, SessionExecutor]
-                {
-                    try
-                    {
-                        Net::post(
-                            SessionExecutor,
-                            [Control, Active, LogState, Cancellation]
-                            {
-                                CloseAndLog(Control, Active, LogState);
-                                (void)Cancellation->try_send(boost::system::error_code{});
-                            });
-                    }
-                    catch (...)
-                    {
-                    }
-                });
-
-            Preview::Recognition::RecognizeResult PreRecognition;
-            if (Services_ && Services_->NativeTls && (!Profile || !Profile->HasTlsCandidate()))
-            {
-                LogState->MarkStage("CarrierProbe");
-                const auto HandshakeDeadline = std::chrono::steady_clock::now() +
-                                               Services_->HandshakeTimeout;
-                auto ProbeResult = co_await Preview::Recognition::RawIngressProbe::Run(
-                    Preview::Recognition::RawIngressProbeRequest{
-                        Inbound, Services_->HandshakeTimeout});
-                if (Preview::Fault::Failed(ProbeResult.Code) || !ProbeResult.Transport)
-                {
-                    const auto FailureCode = ProbeResult.Code == Preview::Fault::Code::Success
-                                                 ? Preview::Fault::Code::ProtocolError
-                                                 : ProbeResult.Code;
-                    const auto Outcome = FailureCode == Preview::Fault::Code::Timeout
-                                             ? std::string_view{"client_hello_timeout"}
-                                             : FailureCode == Preview::Fault::Code::Canceled
-                                                   ? std::string_view{"cancelled"}
-                                                   : std::string_view{"carrier_no_match"};
-                    const auto NativeErrorText = ProbeResult.NativeError
-                                                     ? ProbeResult.NativeError.message()
-                                                     : std::string{};
-                    const auto FaultText = Preview::Diagnose::PascalCaseToken(
-                        Preview::Fault::Describe(FailureCode));
-                    const auto OutcomeText = Preview::Diagnose::PascalCaseToken(Outcome);
-                    if (NativeErrorText.empty())
-                    {
-                        (void)WriteLog(Preview::Diagnose::LogLevel::Warn, Trace,
-                                       "CarrierProbeFailed Outcome={} FaultCode={}",
-                                       OutcomeText, FaultText);
-                    }
-                    else
-                    {
-                        (void)WriteLog(
-                            Preview::Diagnose::LogLevel::Warn, Trace,
-                            "CarrierProbeFailed Outcome={} FaultCode={} Error={}",
-                            OutcomeText, FaultText, NativeErrorText);
-                    }
-                    co_return FailureCode;
-                }
-
-                Inbound = std::move(ProbeResult.Transport);
-                Active_->StoreInbound(Inbound);
-                if (ProbeResult.Kind != Preview::Recognition::RawIngressKind::Cleartext)
-                {
-                    RecordClientHello(RecognitionTrace, ProbeResult.ClientHello);
-                    LogState->MarkStage("CarrierCommit");
-                    auto TlsResult = co_await Preview::Transport::UpgradeNativeTls(
-                        Preview::Transport::NativeTlsRequest{
-                            std::move(Inbound), Services_->NativeTls,
-                            HandshakeDeadline - std::chrono::steady_clock::now()});
-                    if (Preview::Fault::Failed(TlsResult.Code) || !TlsResult.Transport ||
-                        !TlsResult.Attempted)
-                    {
-                        const auto FailureCode = TlsResult.Code == Preview::Fault::Code::Success
-                                                     ? Preview::Fault::Code::ProtocolError
-                                                     : TlsResult.Code;
-                        const auto Outcome = ClassifyNativeTlsFailure(TlsResult);
-                        const auto NativeErrorText = TlsResult.NativeError
-                                                         ? TlsResult.NativeError.message()
-                                                         : std::string{};
-                        const auto FaultText = Preview::Diagnose::PascalCaseToken(
-                            Preview::Fault::Describe(FailureCode));
-                        const auto OutcomeText = Preview::Diagnose::PascalCaseToken(Outcome);
-                        if (NativeErrorText.empty())
-                        {
-                            (void)WriteLog(Preview::Diagnose::LogLevel::Warn, Trace,
-                                           "CarrierCommitFailed Outcome={} FaultCode={}",
-                                           OutcomeText, FaultText);
-                        }
-                        else
-                        {
-                            (void)WriteLog(
-                                Preview::Diagnose::LogLevel::Warn, Trace,
-                                "CarrierCommitFailed Outcome={} FaultCode={} Error={}",
-                                OutcomeText, FaultText, NativeErrorText);
-                        }
-                        co_return FailureCode;
-                    }
-                    Inbound = std::move(TlsResult.Transport);
-                    Active_->StoreInbound(Inbound);
-                    RecordTlsNegotiation(RecognitionTrace, Inbound);
-                }
+                Detail::RecognitionLatencyScope Measure(
+                    Run.RecognitionLatency,
+                    Preview::Foundation::RecognitionLatencySample{
+                        .Generation = Identity.Generation,
+                        .Worker = Identity.WorkerId,
+                        .Session = Identity.SessionId});
+                AdmissionEc = co_await SessionRecognitionAdmission::Run(Run);
             }
-
-            // 1. 协议识别（预读回注）
-            Preview::Recognition::Pipeline Recognizer(Routes, Scheme);
-            if (Profile)
+            if (AdmissionEc.Failed())
             {
-                Recognizer = Preview::Recognition::Pipeline(Profile);
+                co_return Preview::Fault::Failure{AdmissionEc};
             }
-            Preview::Recognition::RecognitionControl RecognitionControl;
-            RecognitionControl.Cancelled = [Control = Control_]
-            {
-                return Control->IsCancelled();
-            };
-            RecognitionControl.Wait = [Cancellation]()
-                -> Net::awaitable<Preview::Recognition::RecognitionControlEvent>
-            {
-                co_await Cancellation->async_receive(Net::use_awaitable);
-                co_return Preview::Recognition::RecognitionControlEvent::Cancelled;
-            };
-            RecognitionControl.CancelTransport = [Active = Active_]
-            {
-                CloseActive(Active);
-            };
-            RecognitionControl.WaitCancellationSafe = true;
-            Preview::Recognition::ProbeBuffer Probe(
-                Profile ? Profile->Budget().MaxProbeBytes
-                        : Preview::Recognition::MaxTlsClientHelloBytes);
-            auto Res = co_await Recognizer.Recognize(
-                std::move(Inbound), Probe, std::move(RecognitionControl));
-            if (Res.transport)
-            {
-                Active_->StoreInbound(Res.transport);
-            }
-            if (Res.Cancelled || Control_->IsCancelled())
-            {
-                WriteRecognition(Preview::Diagnose::LogLevel::Trace, "recognition", Res,
-                                 Preview::Fault::Code::Canceled);
-                co_return Preview::Fault::Code::Canceled;
-            }
-            if (Profile)
-            {
-                auto Candidate = Res.Candidate;
-                if (Candidate == Preview::Recognition::InvalidCandidate)
-                {
-                    Candidate = Profile->ConfiguredCandidate();
-                }
-                if (Candidate == Preview::Recognition::InvalidCandidate &&
-                    Profile->CandidateCount() != 0U)
-                {
-                    Candidate = Profile->CandidateIdAt(0);
-                }
-                if (Res.CandidateName.empty())
-                {
-                    Res.CandidateName = Profile->CandidateName(Candidate);
-                }
-                if (Res.detected == Preview::Recognition::ProtocolType::Unknown)
-                {
-                    Res.detected = Profile->CandidateProtocol(Candidate);
-                }
-                const auto Handle = Profile->FindCandidate(Candidate);
-                if (Handle.IsValid())
-                {
-                    Res.Candidate = Candidate;
-                }
-                Res.Candidate = Candidate;
-            }
-            if (Res.success && !Res.Carrier.Carrier.empty())
-            {
-                RecordTlsNegotiation(RecognitionTrace, Res.transport);
-            }
-            WriteRecognition(Res.success ? Preview::Diagnose::LogLevel::Trace
-                                         : Preview::Diagnose::LogLevel::Warn,
-                             "recognition", Res,
-                             Res.success ? Preview::Fault::Code::Success : Preview::Fault::Code::ProtocolError);
-            SessionOptions::ProtocolAcceptFn Acceptor;
-            if (Profile)
-            {
-                if (!Res.success || Res.Status != Preview::Recognition::RecognitionStatus::Accepted ||
-                    Res.Candidate == Preview::Recognition::InvalidCandidate)
-                {
-                    const auto FailureCode = Res.FaultCode == Preview::Fault::Code::Success
-                                                 ? Preview::Fault::Code::ProtocolError
-                                                 : Res.FaultCode;
-                    if (Res.Carrier.Carrier.empty())
-                    {
-                        WriteRecognition(Preview::Diagnose::LogLevel::Warn, "accept", Res,
-                                         FailureCode);
-                    }
-                    co_return FailureCode;
-                }
-                SessionOptions::ResolveCandidateFn CandidateResolver;
-                if (ResolveCandidate)
-                {
-                    CandidateResolver = ResolveCandidate;
-                }
-                else
-                {
-                    CandidateResolver = ResolverAlias;
-                }
-                if (CandidateResolver)
-                {
-                    Acceptor = CandidateResolver(Res.Candidate);
-                }
-                if (!Acceptor)
-                {
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "accept", Res,
-                                     Preview::Fault::Code::ProtocolError);
-                    co_return Preview::Fault::Code::ProtocolError;
-                }
-            }
-            else
-            {
-                // 协议专用 listener：已配置 AcceptProtocol 时，recognition 仅负责预读回注，
-                // 是否识别成功交给 AcceptProtocol 决定（Trojan/SS2022 等首字节不可识别）。
-                if (!AcceptProtocol &&
-                    (!Res.success || Res.detected == Preview::Recognition::ProtocolType::Unknown))
-                {
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "accept", Res,
-                                     Preview::Fault::Code::ProtocolError);
-                    co_return Preview::Fault::Code::ProtocolError;
-                }
-                Acceptor = AcceptProtocol;
-            }
-
-            // 2. 上下文装配
-            Preview::Middleware::Context ctx;
-            ctx.SourceIp = Opts_.SourceIp;
-            ctx.detected = static_cast<std::uint16_t>(Res.detected);
-            ctx.Inbound = std::move(Res.transport);
-            bool AuthenticationInfoLogged = false;
-            ctx.TaskIdentity = Control_->CurrentIdentity();
-            ctx.Control = Control_;
-            Active_->StoreInbound(ctx.Inbound);
-            ctx.traffic = Traffic;
-            ctx.TrafficOwner = TrafficOwner;
-            ctx.Dial = Dial;
-            ctx.pad = Pad;
-            if (Acceptor)
-            {
-                const auto Ec = co_await Acceptor(ctx.Inbound, ctx);
-                Active_->StoreInbound(ctx.Inbound);
-                if (Preview::Fault::Failed(Ec))
-                {
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "accept", Res, Ec,
-                                     ctx.ProtocolNameForLog);
-                    co_return Ec;
-                }
-            }
-            if (ctx.ProtocolAuthenticated)
-            {
-                WriteAuthenticationInfo(ctx);
-                AuthenticationInfoLogged = true;
-            }
-            const auto InnerProtocol = static_cast<Preview::Recognition::ProtocolType>(ctx.detected);
-            if (InnerProtocol != Preview::Recognition::ProtocolType::Unknown &&
-                InnerProtocol != Res.detected)
-            {
-                // 分层 carrier 的代表 candidate 只描述外层；后续失败日志应标记真实内层协议。
-                Res.detected = InnerProtocol;
-                Res.CandidateName = "protocol-" +
-                                    std::string(Preview::Recognition::ToStringView(InnerProtocol));
-                if (!Res.scheme.empty())
-                {
-                    Res.CandidateName += "+" + Res.scheme;
-                }
-            }
-            LogState->MarkStage("Accept");
-            if (Prepare)
-            {
-                const auto Ec = co_await Prepare(Res, ctx);
-                if (Preview::Fault::Failed(Ec))
-                {
-                    Active_->StoreInbound(ctx.Inbound);
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "prepare", Res, Ec,
-                                     ctx.ProtocolNameForLog);
-                    co_return Ec;
-                }
-            }
-            if (ctx.ProtocolAuthenticated && !AuthenticationInfoLogged)
-            {
-                WriteAuthenticationInfo(ctx);
-                AuthenticationInfoLogged = true;
-            }
-
-            // 3. 将旧入口一次性物化为 typed 根数据面；后续流程不读取旧标志。
-            auto DatagramService = UdpService;
-            ctx.MaterializeDataPlane(std::move(DatagramService));
-            if (Services_ && Services_->ResolveMuxMode)
-            {
-                const auto Mode = Services_->ResolveMuxMode(Res, ctx);
-                if (Mode && !Mode->empty())
-                {
-                    bool Applied = false;
-                    if (auto *MuxRoot = ctx.DataPlane.Mux())
-                    {
-                        MuxRoot->Mode = *Mode;
-                        Applied = true;
-                    }
-                    else
-                    {
-                        Applied = ctx.PromoteToMux(*Mode);
-                    }
-                    if (!Applied)
-                    {
-                        Active_->StoreInbound(ctx.Inbound);
-                        WriteRecognition(Preview::Diagnose::LogLevel::Warn, "mux", Res,
-                                         Preview::Fault::Code::NotSupported,
-                                         ctx.ProtocolNameForLog);
-                        co_return Preview::Fault::Code::NotSupported;
-                    }
-                }
-            }
-
-            if (ctx.DataPlane.IsMux())
-            {
-                if (!Mux)
-                {
-                    Active_->StoreInbound(ctx.Inbound);
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "mux", Res,
-                                     Preview::Fault::Code::NotSupported,
-                                     ctx.ProtocolNameForLog);
-                    co_return Preview::Fault::Code::NotSupported;
-                }
-                const auto Accepted = co_await Mux(ctx.Inbound, ctx);
-                Active_->StoreInbound(ctx.Inbound);
-                ctx.SynchronizeDataPlane();
-                if (!Accepted)
-                {
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "mux", Res,
-                                     Preview::Fault::Code::BadGateway,
-                                     ctx.ProtocolNameForLog);
-                    co_return Preview::Fault::Code::BadGateway;
-                }
-                co_return Preview::Fault::Code::Success;
-            }
-
-            // 4. Datagram 会话（替代 Dial/relay 编排）
-            if (const auto *Datagram = ctx.DataPlane.Datagram())
-            {
-                if (!Datagram->Service)
-                {
-                    Active_->StoreInbound(ctx.Inbound);
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "relay", Res,
-                                     Preview::Fault::Code::NotSupported,
-                                     ctx.ProtocolNameForLog);
-                    co_return Preview::Fault::Code::NotSupported;
-                }
-                LogState->MarkStage("Relay");
-                const auto DatagramEc = co_await Datagram->Service(ctx);
-                if (Preview::Fault::Failed(DatagramEc))
-                {
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "relay", Res, DatagramEc,
-                                     ctx.ProtocolNameForLog);
-                }
-                co_return DatagramEc;
-            }
-
-            // 5. 认证 + 多路复用 + 拨号（不含 relay）
-            if (!Profile && AcceptProtocol && Auth && !ctx.ProtocolAuthenticated)
-            {
-                // 未完成协议认证的 legacy adapter 仍需提供 RawIdentity/RawSecret，
-                // 否则通用 Auth 中间件会拒绝该会话。
-                (void)WriteLog(Preview::Diagnose::LogLevel::Warn, Trace,
-                               "AuthenticationAdapterMissingIdentityOrSecret");
-            }
-            // 协议 handler 已完成凭据校验时，协议认证是本会话的权威认证结果；
-            // 只有未提供协议认证的入口才执行通用 Auth，避免二次认证清空 identity/lease。
-            if (Auth && !ctx.ProtocolAuthenticated)
-            {
-                LogState->MarkStage("Authentication");
-                Preview::Middleware::Builtin::AuthMiddleware AuthMiddleware(Auth);
-                const auto AuthEc = co_await AuthMiddleware.Handle(ctx.Inbound, ctx);
-                if (Preview::Fault::Failed(AuthEc))
-                {
-                    Active_->StoreInbound(ctx.Inbound);
-                    if (ctx.PostDial)
-                    {
-                        co_await ctx.PostDial(AuthEc);
-                    }
-                    WriteRecognition(Preview::Diagnose::LogLevel::Warn, "auth", Res, AuthEc,
-                                     ctx.ProtocolNameForLog);
-                    co_return AuthEc;
-                }
-                WriteAuthenticationInfo(ctx);
-            }
-            else
-            {
-                LogState->MarkStage("Authentication");
-            }
-
-            Preview::Middleware::Pipeline DecorationPipeline;
-            DecorationPipeline.Add(std::make_shared<Preview::Middleware::Builtin::MuxMiddleware>(Mux));
-            DecorationPipeline.Add(std::make_shared<Preview::Middleware::Builtin::PadMiddleware>());
-            const auto DecorationEc = co_await DecorationPipeline.Run(ctx.Inbound, ctx);
-            if (Preview::Fault::Failed(DecorationEc))
-            {
-                Active_->StoreInbound(ctx.Inbound);
-                if (ctx.PostDial)
-                {
-                    co_await ctx.PostDial(DecorationEc);
-                }
-                WriteRecognition(Preview::Diagnose::LogLevel::Warn, "middleware", Res,
-                                 DecorationEc, ctx.ProtocolNameForLog);
-                co_return DecorationEc;
-            }
-
-            WriteRequestInfo(ctx);
-            LogState->MarkStage("Dial");
-            Preview::Middleware::Pipeline DialPipeline;
-            DialPipeline.Add(std::make_shared<Preview::Middleware::Builtin::DialMiddleware>(Dial));
-            const auto DialEc = co_await DialPipeline.Run(ctx.Inbound, ctx);
-            Active_->StoreInbound(ctx.Inbound);
-            Active_->StoreOutbound(ctx.Outbound);
-            if (Preview::Fault::Failed(DialEc))
-            {
-                if (ctx.PostDial)
-                {
-                    co_await ctx.PostDial(DialEc);
-                }
-                WriteRecognition(Preview::Diagnose::LogLevel::Warn, "dial", Res, DialEc,
-                                 ctx.ProtocolNameForLog);
-                co_return DialEc;
-            }
-            // 6. 拨号成功后发送协议级应答（如 SOCKS5 CONNECT success）
-            if (ctx.PostDial)
-            {
-                co_await ctx.PostDial(Preview::Fault::Code::Success);
-            }
-            // 7. 双向转发
-            Preview::Middleware::Builtin::RelayMiddleware relay(
-                nullptr, RelayIdleTimeout);
-            LogState->MarkStage("Relay");
-            const auto RelayEc = co_await relay.Handle(ctx.Inbound, ctx);
-            if (Preview::Fault::Failed(RelayEc))
-            {
-                WriteRecognition(Preview::Diagnose::LogLevel::Warn, "relay", Res, RelayEc,
-                                 ctx.ProtocolNameForLog);
-            }
-            co_return RelayEc;
+            co_return co_await SessionDataPlaneRelay::Run(Run);
         }
+
 
     private:
-        static auto ClassifyCarrierFailure(
-            const Preview::Fault::Code Code,
-            const boost::system::error_code &NativeError) -> std::string_view
-        {
-            if (Code == Preview::Fault::Code::Timeout)
-            {
-                return "tls_handshake_timeout";
-            }
-            if (Code == Preview::Fault::Code::Canceled)
-            {
-                return "cancelled";
-            }
-            if (Code == Preview::Fault::Code::Verifyfail || Code == Preview::Fault::Code::Certfail)
-            {
-                return "certificate_error";
-            }
-            if (Code == Preview::Fault::Code::AuthFailed)
-            {
-                return "carrier_auth_failed";
-            }
-            if (Code == Preview::Fault::Code::NotSupported)
-            {
-                return "wire_unavailable";
-            }
-            if (Code == Preview::Fault::Code::TlsHsfail)
-            {
-                return "tls_alert";
-            }
-            if (&NativeError.category() != &Net::error::get_ssl_category())
-            {
-                return "carrier_commit_failed";
-            }
-
-            const auto Message = NativeError.message();
-            if (Message.find("certificate") != std::string::npos ||
-                Message.find("Certificate") != std::string::npos ||
-                Message.find("CERTIFICATE") != std::string::npos ||
-                Message.find("unknown ca") != std::string::npos ||
-                Message.find("UNKNOWN_CA") != std::string::npos)
-            {
-                return "certificate_error";
-            }
-            return "tls_alert";
-        }
-
-        static auto ClassifyNativeTlsFailure(
-            const Preview::Transport::NativeTlsResult &Result) -> std::string_view
-        {
-            return ClassifyCarrierFailure(Result.Code, Result.NativeError);
-        }
-
-        static auto RecordClientHello(
-            Preview::Diagnose::ContextState &Trace,
-            const Preview::Recognition::ClientHelloFeatures &Features) noexcept -> void
-        {
-            try
-            {
-                Trace = Trace.With(Preview::Diagnose::Fields::Carrier, std::string_view{"Native"});
-                if (!Features.ServerName.empty())
-                {
-                    Trace = Trace.With(Preview::Diagnose::Fields::Sni,
-                                       std::string_view(Features.ServerName));
-                }
-            }
-            catch (...)
-            {
-            }
-        }
-
-        static auto RecordTlsNegotiation(
-            Preview::Diagnose::ContextState &Trace,
-            const Preview::SharedTransmission &Transport) noexcept -> void
-        {
-            auto *Encrypted = Transport
-                                  ? dynamic_cast<Preview::Transport::Encrypted *>(Transport.get())
-                                  : nullptr;
-            if (!Encrypted)
-            {
-                return;
-            }
-            auto *Ssl = Encrypted->Stream().native_handle();
-            if (!Ssl)
-            {
-                return;
-            }
-            try
-            {
-                if (const auto *Version = SSL_get_version(Ssl); Version != nullptr)
-                {
-                    Trace = Trace.With(Preview::Diagnose::Fields::TlsVersion,
-                                       std::string_view(Version));
-                }
-                const unsigned char *Alpn = nullptr;
-                unsigned int AlpnLength = 0;
-                SSL_get0_alpn_selected(Ssl, &Alpn, &AlpnLength);
-                if (Alpn != nullptr && AlpnLength != 0U)
-                {
-                    const auto AlpnValue = std::string_view(
-                        reinterpret_cast<const char *>(Alpn), AlpnLength);
-                    Trace = Trace.With(Preview::Diagnose::Fields::Alpn, AlpnValue);
-                }
-            }
-            catch (...)
-            {
-            }
-        }
-
-        static auto CloseAndLog(const std::shared_ptr<SessionControl> &Control,
-                                const std::shared_ptr<ActiveTransports> &Active,
-                                const std::shared_ptr<SessionLogState> &LogState) noexcept -> void
-        {
-            if (!Control)
-            {
-                return;
-            }
-            const auto CloseDelivered = std::make_shared<std::atomic<bool>>(false);
-            const auto First = Control->CloseOnce(
-                [Active, CloseDelivered]
-                {
-                    if (!CloseDelivered->exchange(true, std::memory_order_acq_rel))
-                    {
-                        CloseActive(Active);
-                    }
-                });
-            if (First)
-            {
-                if (!CloseDelivered->exchange(true, std::memory_order_acq_rel))
-                {
-                    CloseActive(Active);
-                }
-                if (LogState)
-                {
-                    LogState->LogClose();
-                }
-            }
-        }
-
-        static auto SanitizeCandidateName(const std::string_view Value) -> std::string
-        {
-            constexpr std::size_t MaxLength = 64;
-            std::string Result;
-            Result.reserve((std::min)(Value.size(), MaxLength));
-            for (const auto Character : Value)
-            {
-                if (Result.size() >= MaxLength)
-                {
-                    break;
-                }
-                const auto Byte = static_cast<unsigned char>(Character);
-                if (Byte >= 0x21U && Byte <= 0x7EU && Character != '=' && Character != '[' &&
-                    Character != ']' && Character != ';')
-                {
-                    Result.push_back(Character);
-                }
-                else
-                {
-                    Result.push_back('_');
-                }
-            }
-            if (Result.empty())
-            {
-                return "none";
-            }
-            return Result;
-        }
-
-        static auto FormatErrorCode(const std::error_code &Error) -> std::string
-        {
-            if (!Error)
-            {
-                return "None";
-            }
-            std::string Result(Error.category().name());
-            Result = Preview::Diagnose::PascalCaseToken(Result);
-            Result.push_back(':');
-            Result.append(std::to_string(Error.value()));
-            return Result;
-        }
-
-        static auto FormatFirstByte(const Preview::Recognition::RecognizeResult &Result) -> std::string
-        {
-            if (Result.preread.empty())
-            {
-                return "None";
-            }
-            constexpr char Hex[] = "0123456789ABCDEF";
-            const auto Byte = std::to_integer<unsigned int>(Result.preread.front());
-            std::string Value("0x00");
-            Value[2] = Hex[(Byte >> 4U) & 0x0FU];
-            Value[3] = Hex[Byte & 0x0FU];
-            return Value;
-        }
-
-        static auto CloseActive(const std::shared_ptr<ActiveTransports> &Active) -> void
-        {
-            if (!Active)
-            {
-                return;
-            }
-            const auto Snapshot = Active->Load();
-            const auto &Inbound = Snapshot.Inbound;
-            const auto &Outbound = Snapshot.Outbound;
-            CloseTransport(Inbound);
-            if (Outbound && Outbound != Inbound)
-            {
-                CloseTransport(Outbound);
-            }
-        }
-
-        static auto CloseTransport(Preview::SharedTransmission Transport) -> void
-        {
-            if (Transport)
-            {
-                try
-                {
-                    const auto Executor = Transport->Executor();
-                    Net::dispatch(
-                        Executor,
-                        [Transport]
-                        {
-                            Transport->Cancel();
-                            Transport->Close();
-                        });
-                }
-                catch (...)
-                {
-                }
-            }
-        }
-
         SessionOptions Opts_; ///< 编排选项
         SharedSessionServices Services_; ///< owner-held 服务上下文
+        SessionRegistry::Registration Registration_; ///< owner-held registry token
+        Preview::Foundation::GenerationUseLease GenerationUse_; ///< admission 到完整 Session drain 的唯一代次预约
         std::shared_ptr<SessionControl> Control_; ///< owner-held 生命周期控制
         std::shared_ptr<ActiveTransports> Active_; ///< 当前传输所有权
+        std::atomic<bool> Drained_{false}; ///< Close、Control delivery、Activity Finalize 全部成功
+        std::shared_ptr<Preview::Executor::ClosingResource> DeferredCleanup_;
     };
 
 } // namespace Preview::Runtime

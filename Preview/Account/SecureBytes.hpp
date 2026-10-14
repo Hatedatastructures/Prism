@@ -4,6 +4,7 @@
  * @details 所有权独占，析构前清零内容；公开描述只返回固定的脱敏文本。
  */
 #pragma once
+#include <Preview/Foundation/Utility/Crypto/SecretScope.hpp>
 
 #include <cstddef>
 #include <cstring>
@@ -70,13 +71,10 @@ namespace Preview::Account
         }
 
     private:
-        void Clear() noexcept
+        auto Clear() noexcept -> void
         {
-            volatile std::byte *Data = Bytes_.data();
-            for (std::size_t Index = 0; Index < Bytes_.size(); ++Index)
-            {
-                Data[Index] = std::byte{0};
-            }
+            const Crypto::SecretScope Cleanup(std::span(
+                reinterpret_cast<std::uint8_t*>(Bytes_.data()), Bytes_.size()));
             Bytes_.clear();
         }
 

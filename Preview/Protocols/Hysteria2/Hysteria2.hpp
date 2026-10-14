@@ -15,8 +15,11 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/dispatch.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <cstddef>
+#include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -24,12 +27,17 @@
 #include <utility>
 
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Transport/Unreliable.hpp>
 #include <Preview/Protocols/Hysteria2/Codec.hpp>
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Account/Authenticator.hpp>
 #include <Preview/Protocols/Hysteria2/Conn.hpp>
 #include <Preview/Protocols/Hysteria2/Dgram.hpp>
+#include <Preview/Protocols/Hysteria2/Admission.hpp>
+#include <Preview/Protocols/Hysteria2/StreamSession.hpp>
+#include <Preview/Protocols/Hysteria2/DatagramSession.hpp>
+#include <Preview/Protocols/Hysteria2/Http3Auth.hpp>
 #include <Preview/Protocols/Hysteria2/Types.hpp>
 #include <Preview/Protocols/Quic/DatagramAdapter.hpp>
 
@@ -60,38 +68,8 @@ namespace Preview::Hysteria2
     {
         /// 服务端认证密码
         std::string password;
-        /// 认证器（旧兼容字段；优先使用 AuthenticatorOwner）
-        const Preview::Authenticator *Authenticator{nullptr};
         /// 认证器共享所有权；用于长期存活的 QUIC handler
         Preview::SharedAuthenticator AuthenticatorOwner{};
-
-        [[nodiscard]] auto ResolveAuthenticator() const noexcept -> const Preview::Authenticator *
-        {
-            if (AuthenticatorOwner)
-            {
-                return AuthenticatorOwner.get();
-            }
-            return Authenticator;
-        }
-    };
-
-    /**
-     * @struct PacketResult
-     * @brief Hysteria2 独立数据报工厂结果
-     */
-    struct PacketResult
-    {
-        Error Status{Error::None};
-        SharedDgram Datagram{};
-
-        [[nodiscard]] explicit operator bool() const noexcept
-        {
-            if (Status != Error::None)
-            {
-                return false;
-            }
-            return static_cast<bool>(Datagram);
-        }
     };
 
     // =========================================================================
@@ -110,6 +88,10 @@ namespace Preview::Hysteria2
         const ClientConfig &Config,
         const Address &Target) -> Net::awaitable<std::pair<Error, SharedConn>>
     {
+        if (!Upstream)
+        {
+            co_return std::pair{Error::NotOpen, SharedConn{}};
+        }
         auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.password);
         const auto ErrorCode = co_await Connection->WriteHandshake(Target);
         SharedConn Result;
@@ -129,49 +111,50 @@ namespace Preview::Hysteria2
      * @param Executor 执行器
      * @param Remote 代理服务器 UDP 端点（主机:端口）
      * @param Config 客户端配置
-     * @return 包连接（连接失败时为空）
-     * @details 直接创建 UDP socket 连接服务器，逐帧编解码；
-     * 无 TCP 握手。
+     * @return 拥有的数据报连接或保留原生类别和值的失败
+     * @details 远端文本与配置按值移入协程帧；socket 在 Executor 上创建并配置。
+     *          无 TCP 握手，半关闭和最终关闭归返回的数据报载体；配置失败时等待
+     *          同一 socket 的 Close 与 Activity 退栈，公开结果保留配置首因。
      */
-    [[nodiscard]] inline auto ConnectPacketResult(
+    [[nodiscard]] inline auto ConnectPacket(
         Net::any_io_executor Executor,
-        const std::string &Remote,
-        const ClientConfig &Config) -> PacketResult
+        std::string Remote,
+        ClientConfig Config)
+        -> Net::awaitable<std::expected<SharedDgram, Preview::Fault::Failure>>
     {
         (void)Config;
         auto Datagram = std::make_shared<Preview::Transport::Unreliable>(Executor);
-        if (!Datagram->Connect(Remote))
+        co_await Net::dispatch(Datagram->Executor(), Net::use_awaitable);
+        const auto Connected = Datagram->Connect(Remote);
+        if (!Connected)
         {
-            return PacketResult{Error::BadAddress, {}};
+            const auto Failure = Connected.error();
+            (void)Datagram->Close();
+            const auto Activity = Datagram->Activity();
+            (void)co_await Activity->Drain();
+            co_return std::unexpected(Failure);
         }
-        return PacketResult{Error::None,
-                            std::make_shared<Dgram<>>(std::move(Datagram))};
-    }
-
-    [[nodiscard]] inline auto ConnectPacket(
-        Net::any_io_executor Executor,
-        const std::string &Remote,
-        const ClientConfig &Config) -> SharedDgram
-    {
-        return ConnectPacketResult(Executor, Remote, Config).Datagram;
+        co_return SharedDgram{std::make_shared<Dgram<>>(std::move(Datagram))};
     }
 
     /**
      * @brief 从已建立的 QUIC 数据报提供者创建客户端包连接
      * @param Provider 已认证 QUIC 会话的数据报提供者（所有权移交）
      * @param Config 客户端配置（QUIC 会话已完成认证时不再重复使用）
-     * @return Hysteria2 包连接；提供者为空时返回空
+     * @return Hysteria2 包连接或无效提供者失败
      */
     [[nodiscard]] inline auto ConnectPacket(Preview::Quic::SharedDatagramProvider Provider,
-                                             const ClientConfig &Config) -> SharedDgram
+                                             const ClientConfig &Config)
+        -> std::expected<SharedDgram, Preview::Fault::Failure>
     {
         (void)Config;
         if (!Provider)
         {
-            return nullptr;
+            return std::unexpected(Preview::Fault::Failure{
+                Preview::Fault::Code::InvalidArgument});
         }
         auto Transport = std::make_shared<Preview::Quic::DatagramAdapter>(std::move(Provider));
-        return std::make_shared<Dgram<>>(std::move(Transport), true);
+        return SharedDgram{std::make_shared<Dgram<>>(std::move(Transport), true)};
     }
 
     /**
@@ -184,10 +167,13 @@ namespace Preview::Hysteria2
         SharedTransmission Upstream,
         const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, Message, SharedConn>>
     {
+        if (!Upstream)
+        {
+            co_return std::tuple{Error::NotOpen, Message{}, SharedConn{}};
+        }
         auto Connection = std::make_shared<Conn<>>(
             std::move(Upstream),
             Config.password,
-            Config.ResolveAuthenticator(),
             Config.AuthenticatorOwner);
         auto [ErrorCode, Request] = co_await Connection->ReadHandshake();
         SharedConn Result;
@@ -207,49 +193,49 @@ namespace Preview::Hysteria2
      * @param Executor 执行器
      * @param Port 监听端口
      * @param Config 服务端配置
-     * @return 包连接（绑定失败时为空）
+     * @return 拥有的数据报连接或保留原生类别和值的失败
      * @details 绑定 UDP 端口监听，逐帧编解码；无 TCP 握手。
      */
-    [[nodiscard]] inline auto AcceptPacketResult(
-        Net::any_io_executor Executor,
-        unsigned short Port,
-        const ServerConfig &Config) -> PacketResult
-    {
-        (void)Config;
-        auto Datagram = std::make_shared<Preview::Transport::Unreliable>(Executor);
-        if (!Datagram->Bind(Port))
-        {
-            return PacketResult{Error::IoError, {}};
-        }
-        Datagram->AllowAnyPeer();
-        return PacketResult{Error::None,
-                            std::make_shared<Dgram<>>(std::move(Datagram))};
-    }
-
     [[nodiscard]] inline auto AcceptPacket(
         Net::any_io_executor Executor,
         unsigned short Port,
-        const ServerConfig &Config) -> SharedDgram
+        ServerConfig Config)
+        -> Net::awaitable<std::expected<SharedDgram, Preview::Fault::Failure>>
     {
-        return AcceptPacketResult(Executor, Port, Config).Datagram;
+        (void)Config;
+        auto Datagram = std::make_shared<Preview::Transport::Unreliable>(Executor);
+        co_await Net::dispatch(Datagram->Executor(), Net::use_awaitable);
+        const auto Bound = Datagram->Bind(Port);
+        if (!Bound)
+        {
+            const auto Failure = Bound.error();
+            (void)Datagram->Close();
+            const auto Activity = Datagram->Activity();
+            (void)co_await Activity->Drain();
+            co_return std::unexpected(Failure);
+        }
+        Datagram->AllowAnyPeer();
+        co_return SharedDgram{std::make_shared<Dgram<>>(std::move(Datagram))};
     }
 
     /**
      * @brief 从已建立的 QUIC 数据报提供者创建服务端包连接
      * @param Provider 已认证 QUIC 会话的数据报提供者（所有权移交）
      * @param Config 服务端配置（QUIC 会话已完成认证时不再重复使用）
-     * @return Hysteria2 包连接；提供者为空时返回空
+     * @return Hysteria2 包连接或无效提供者失败
      */
     [[nodiscard]] inline auto AcceptPacket(Preview::Quic::SharedDatagramProvider Provider,
-                                            const ServerConfig &Config) -> SharedDgram
+                                            const ServerConfig &Config)
+        -> std::expected<SharedDgram, Preview::Fault::Failure>
     {
         (void)Config;
         if (!Provider)
         {
-            return nullptr;
+            return std::unexpected(Preview::Fault::Failure{
+                Preview::Fault::Code::InvalidArgument});
         }
         auto Transport = std::make_shared<Preview::Quic::DatagramAdapter>(std::move(Provider));
-        return std::make_shared<Dgram<>>(std::move(Transport), true);
+        return SharedDgram{std::make_shared<Dgram<>>(std::move(Transport), true)};
     }
 
 } // namespace Preview::Hysteria2

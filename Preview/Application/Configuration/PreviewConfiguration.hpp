@@ -3,6 +3,8 @@
  * @brief PrismPreview 的严格 PascalCase 配置模型。
  */
 #pragma once
+#include <Preview/Contract/Ingress/ProtocolConfiguration.hpp>
+#include <Preview/Contract/Ingress/CarrierConfiguration.hpp>
 
 #include <cstdint>
 #include <map>
@@ -35,90 +37,12 @@ namespace Preview::Application::Configuration
         bool Enabled{false};
         std::string CertificateFile;
         std::string PrivateKeyFile;
-    };
-
-    struct NativeTlsOptions final
-    {
-        std::string CertificateFile;
-        std::string PrivateKeyFile;
-    };
-
-    struct RealityOptions final
-    {
-        std::string HandshakeTarget;
-        std::vector<std::string> ServerNames;
-        std::string PrivateKeyRef;
-        std::vector<std::string> ShortIds;
-    };
-
-    struct ShadowTlsOptions final
-    {
-        std::uint32_t Version{3};
-        std::string PasswordSecretRef;
-        std::string HandshakeDest;
-        std::vector<std::string> ServerNames;
-        bool StrictMode{true};
-        std::uint32_t HandshakeTimeoutMs{5000};
-    };
-
-    struct RestlsOptions final
-    {
-        std::vector<std::string> ServerNames;
-        std::string Host;
-        std::string PasswordSecretRef;
-        std::string VersionHint;
-        std::string RestlsScript;
-        std::uint32_t HandshakeTimeoutMs{5000};
-    };
-
-    struct WebSocketOptions final
-    {
-        std::string Path{ "/" };
-        std::string Host;
-    };
-
-    struct XhttpOptions final
-    {
-        std::string Path{ "/" };
-        std::string Host;
-        std::string Mode{"StreamOne"};
-    };
-
-    struct GunOptions final
-    {
-        std::vector<std::string> ServerNames;
-        std::string Mode{"GunLite"};
-        std::string Path{"/GunService/Tun"};
-        std::string ServiceName{"GunService"};
-    };
-
-    struct TrustTunnelOptions final
-    {
-        std::vector<std::string> ServerNames;
-        std::string CertificateFile;
-        std::string PrivateKeySecretRef;
-        std::string PasswordSecretRef;
-        std::string Network{"Both"};
-        std::string Congestion{"Bbr"};
-        std::uint32_t HandshakeTimeoutMs{5000};
-        std::uint32_t IdleTimeoutMs{30000};
-    };
-
-    using CarrierOptions = std::variant<NativeTlsOptions,
-                                        RealityOptions,
-                                        ShadowTlsOptions,
-                                        RestlsOptions,
-                                        WebSocketOptions,
-                                        XhttpOptions,
-                                        GunOptions,
-                                        TrustTunnelOptions>;
-
-    struct CarrierMatchOptions final
-    {
-        std::vector<std::string> ServerNames;
-        std::vector<std::string> Alpn;
-        std::int32_t Priority{0};
-        bool Fallback{false};
+        struct EchServerConfiguration final
+        {
+            bool Enabled{false};
+            std::string PrivateKeyFile;
+            std::string EchConfigFile;
+        } Ech;
     };
 
     struct RuntimeConfiguration final
@@ -137,57 +61,10 @@ namespace Preview::Application::Configuration
         std::vector<std::string> Provides;
     };
 
-    struct ProtocolConfiguration final
-    {
-        std::string Id;
-        std::string Name;
-        std::string Builtin;
-        std::vector<std::string> Requires;
-        struct QuicOptions final
-        {
-            std::string Alpn{"h3"};
-            std::string ServerName;
-            std::string CredentialSecretRef;
-            std::uint32_t MaxStreams{64};
-            std::uint32_t MaxDatagrams{64};
-            std::string Uuid;
-        };
-        std::optional<QuicOptions> Quic;
-    };
-
-    struct RecognitionRouteConfiguration final
-    {
-        std::string Pattern;
-        std::string Domain;
-        bool Fallback{false};
-    };
-
-    struct ProtocolBindingConfiguration final
-    {
-        std::string Id;
-        std::string ProtocolId;
-        std::optional<std::string> CarrierId;
-        bool TcpEnabled{true};
-        bool UdpEnabled{false};
-        std::vector<std::string> MuxModes;
-        std::int32_t Priority{0};
-        RecognitionRouteConfiguration Recognition{};
-    };
-
     struct RecognitionConfiguration final
     {
         std::string Mode{"MixedTrial"};
         std::int32_t ConfiguredCandidate{-1};
-    };
-
-    struct CarrierConfiguration final
-    {
-        std::string Id;
-        std::string Name;
-        std::string Builtin;
-        std::vector<std::string> Requires;
-        CarrierMatchOptions Match{};
-        CarrierOptions Options{};
     };
 
     struct AccountConfiguration final
@@ -243,6 +120,7 @@ namespace Preview::Application::Configuration
         bool Enabled{true};
         std::string Endpoint{"127.0.0.1:9090"};
         std::uint32_t Timeout{1000};
+        std::optional<std::string> WebDirectory{}; ///< 未指定用宿主默认目录；空字符串禁用；相对路径相对配置文件。
     };
 
     struct HotReloadConfiguration final
@@ -264,9 +142,9 @@ namespace Preview::Application::Configuration
         ListenersConfiguration Listeners{};
         NativeTlsConfiguration NativeTls{};
         std::vector<BuiltinConfiguration> Builtins;
-        std::vector<ProtocolConfiguration> Protocols;
-        std::vector<CarrierConfiguration> Carriers;
-        std::vector<ProtocolBindingConfiguration> ProtocolBindings;
+        std::vector<Preview::Contract::ProtocolConfiguration> Protocols;
+        std::vector<Preview::Contract::CarrierConfiguration> Carriers;
+        std::vector<Preview::Contract::ProtocolBindingConfiguration> ProtocolBindings;
         RecognitionConfiguration Recognition{};
         std::vector<AccountConfiguration> Accounts;
         std::map<std::string, std::string> Secrets;

@@ -1,0 +1,2 @@
+AddPreviewTest(RouteOutboundTest.cpp)
+target_link_libraries(RouteOutboundTest PRIVATE PreviewNet)

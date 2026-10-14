@@ -10,6 +10,7 @@
 
 #include "Answer.hpp"
 #include "Config.hpp"
+#include <Preview/Foundation/Fault/Failure.hpp>
 
 #include <boost/asio.hpp>
 
@@ -26,16 +27,15 @@ namespace Preview::Network::Dns
     /**
      * @struct QueryResult
      * @brief 单次上游查询结果
-     * @note Response 为热路径扫描摘要；Ips、ServerAddr 和 Error 保留给
-     *       Resolver 的聚合与错误策略使用。
+     * @note Response 同时是唯一地址事实与热路径扫描摘要；ServerAddr 和
+     *       Error 保留给 Resolver 的聚合与错误策略使用。
      */
     struct QueryResult
     {
-        AnswerSet Response;                ///< 响应摘要
-        std::vector<Net::ip::address> Ips; ///< 提取的 IP 地址列表
-        std::uint64_t RttMs{0};            ///< 往返耗时（毫秒）
-        std::string ServerAddr;            ///< 响应来源上游地址
-        boost::system::error_code Error;   ///< 错误码（默认成功）
+        AnswerSet Response;              ///< 唯一地址事实与响应摘要
+        std::uint64_t RttMs{0};          ///< 往返耗时（毫秒）
+        std::string ServerAddr;          ///< 响应来源上游地址
+        Preview::Fault::Failure Error; ///< 失败分类及原生 cause；成功为默认值
     };
 
     /**
@@ -50,6 +50,7 @@ namespace Preview::Network::Dns
         Mode QueryMode{Mode::Fastest}; ///< 多上游查询策略
         std::chrono::milliseconds DefaultTimeout{4000}; ///< 默认查询超时
         std::size_t MaxConnsPerServer{4}; ///< 每服务器最大闲置连接数
+        std::size_t MaxIdleConnsPerPool{64}; ///< 每个协议连接池的闲置连接总数上限
     };
 
 } // namespace Preview::Network::Dns

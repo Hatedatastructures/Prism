@@ -1150,9 +1150,12 @@ namespace
         Server.Proto = Preview::Network::Dns::Protocol::Udp;
         Server.TimeoutMs = 40;
         std::vector<Preview::Network::Dns::Server> Servers{Server};
+        Preview::Network::Dns::UpstreamOptions Options;
+        Options.Servers = std::move(Servers);
+        Options.QueryMode = Preview::Network::Dns::Mode::Fallback;
+        Options.DefaultTimeout = std::chrono::milliseconds(40);
         auto Owner = std::make_unique<Preview::Network::Dns::Upstream>(
-            Ioc.get_executor(), std::move(Servers), Preview::Network::Dns::Mode::Fallback);
-        Owner->SetTimeout(std::chrono::milliseconds(40));
+            Ioc.get_executor(), std::move(Options));
 
         DnsObservation Observation;
         net::co_spawn(Ioc, RunPreviewDnsQuery(&Owner, &Observation, ReleaseOwner),
@@ -1227,9 +1230,12 @@ namespace
         SlowConfig.Proto = Preview::Network::Dns::Protocol::Udp;
         SlowConfig.TimeoutMs = 40;
         std::vector<Preview::Network::Dns::Server> Servers{FastConfig, SlowConfig};
+        Preview::Network::Dns::UpstreamOptions Options;
+        Options.Servers = std::move(Servers);
+        Options.QueryMode = Preview::Network::Dns::Mode::First;
+        Options.DefaultTimeout = std::chrono::milliseconds(40);
         auto Owner = std::make_shared<Preview::Network::Dns::Upstream>(
-            Ioc.get_executor(), std::move(Servers), Preview::Network::Dns::Mode::First);
-        Owner->SetTimeout(std::chrono::milliseconds(40));
+            Ioc.get_executor(), std::move(Options));
 
         DnsObservation Observation;
         std::exception_ptr Failure;
@@ -1281,8 +1287,11 @@ namespace
         Second.Address = "127.0.0.1";
         Second.Port = 2;
         std::vector<Preview::Network::Dns::Server> Servers{First, Second};
+        Preview::Network::Dns::UpstreamOptions Options;
+        Options.Servers = std::move(Servers);
+        Options.QueryMode = Preview::Network::Dns::Mode::First;
         Preview::Network::Dns::Upstream Owner(
-            Ioc.get_executor(), std::move(Servers), Preview::Network::Dns::Mode::First);
+            Ioc.get_executor(), std::move(Options));
 
         DnsObservation Observation;
         net::co_spawn(Ioc, RunPreviewStackDnsQuery(&Owner, &Observation),
@@ -1381,7 +1390,7 @@ namespace
 
         net::io_context PreviewIoc;
         Preview::Network::Dns::Upstream PreviewUpstream(
-            PreviewIoc.get_executor(), std::vector<Preview::Network::Dns::Server>{});
+            PreviewIoc.get_executor(), Preview::Network::Dns::UpstreamOptions{});
         Preview::Network::Dns::QueryResult PreviewResult;
         std::exception_ptr PreviewFailure;
         net::co_spawn(PreviewIoc, RunPreviewEmptyDnsQuery(&PreviewUpstream, &PreviewResult),

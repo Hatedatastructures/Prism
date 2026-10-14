@@ -10,15 +10,23 @@
 
 #include <Preview/Resource/ProcessResources.hpp>
 #include <Preview/Runtime/WorkerGroup.hpp>
+#include <Preview/Runtime/GenerationPublication.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Net/Dns/Config.hpp>
 
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/this_coro.hpp>
+
 #include <cstddef>
+#include <expected>
 #include <memory>
 #include <utility>
 #include <vector>
 
 namespace Preview::Runtime
 {
+
+    namespace Net = boost::asio;
 
     class Process final
     {
@@ -30,6 +38,7 @@ namespace Preview::Runtime
             std::size_t WorkerCount{1};
             std::size_t MailboxCapacity{64};
             Preview::Network::Dns::Config Dns{};
+            std::shared_ptr<GenerationPublication> Publication;
         };
 
         Process() : Process(Options{}) {}
@@ -39,7 +48,7 @@ namespace Preview::Runtime
                   Value.Id, Value.Generation, Preview::Memory::CurrentResource()}),
               WorkerGroup_(std::make_unique<WorkerGroup>(WorkerGroup::Options{
                   Value.Id, Value.Generation, Value.WorkerCount, Value.MailboxCapacity,
-                  Value.Dns}))
+                  Value.Dns, Value.Publication}))
         {
         }
 
@@ -60,6 +69,10 @@ namespace Preview::Runtime
 
         [[nodiscard]] auto Generation() const noexcept -> Preview::GenerationId
         {
+            if (WorkerGroup_)
+            {
+                return WorkerGroup_->Generation();
+            }
             return Resources_.Generation;
         }
 
@@ -89,16 +102,33 @@ namespace Preview::Runtime
             return Resources_;
         }
 
+        /** @brief 同步停止 worker context；不声称执行 Drain，保留既有 fatal/最终关闭责任。 */
         auto Stop() noexcept -> void
         {
-            if (!Resources_.BeginStop())
-            {
-                return;
-            }
+            (void)Resources_.BeginStop();
             if (WorkerGroup_)
             {
                 WorkerGroup_->Stop();
             }
+        }
+
+        /**
+         * @brief 保留 worker executor 调度，执行 root scope 的实际取消、Drain 与退休 fence。
+         * @details 调用方继续持有 Process，直到 await 完成；成功后仍须由 Stop 停止 context，
+         *          RuntimeState 随后 join 对应 worker threads。此协程不关闭 socket 或协议 owner，
+         *          调用方先完成 listener/session/transport 的关闭与 Drain。
+         * @return worker owner 全部排空返回成功；失败保留 Process/Worker/ContextOwner。
+         */
+        [[nodiscard]] auto ShutdownWorkers()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+        {
+            co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+            (void)Resources_.BeginStop();
+            if (!WorkerGroup_)
+            {
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            }
+            co_return co_await WorkerGroup_->Shutdown();
         }
 
         [[nodiscard]] auto Snapshot() const -> std::vector<WorkerSnapshot>

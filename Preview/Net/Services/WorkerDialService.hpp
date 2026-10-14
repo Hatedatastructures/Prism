@@ -1,10 +1,11 @@
 /**
  * @file WorkerDialService.hpp
- * @brief Worker-owned DNS、地址选择和 TCP outbound 拨号服务。
- * @details Resolver、地址列表和每次 Dial 的临时状态都绑定到 Worker
- *          executor；调用者只提交 owner-held Target，不接触 resolver、
- *          socket 或内部缓存。域名不会落回 Dialer 的系统 resolver。
+ * @brief Worker-owned 唯一 DNS + TCP 拨号端口。
+ * @details Resolver 与拨号 engine 在 Worker executor 上冷建；调用者只提交 owner-held
+ *          Target，不接触 resolver、socket 或内部缓存。域名不会落回系统解析器，
+ *          全部候选共享 engine 的总 deadline。
  */
+
 #pragma once
 
 #include <Preview/Foundation/Fault/Code.hpp>
@@ -14,22 +15,20 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/ip/address.hpp>
+#include <boost/asio/this_coro.hpp>
 
+#include <atomic>
 #include <chrono>
-#include <charconv>
-#include <cstdint>
 #include <memory>
-#include <string>
 #include <system_error>
 #include <utility>
-#include <vector>
 
 namespace Preview::Network::Services
 {
 
     namespace Net = boost::asio;
 
+    /** @brief Worker 拨号冷参数：executor、DNS 配置、总 deadline 与族别策略。 */
     struct WorkerDialOptions final
     {
         Net::any_io_executor Executor;
@@ -38,82 +37,44 @@ namespace Preview::Network::Services
         bool EnableIpv6{true};
     };
 
+    /**
+     * @class WorkerDialService
+     * @brief Worker 拥有的唯一拨号端口；内部只使用一个 Dialer engine 与一个 Resolver。
+     */
     class WorkerDialService final
     {
     public:
-        explicit WorkerDialService(WorkerDialOptions OptionsValue)
-            : Options_(std::move(OptionsValue)),
-              Resolver_(std::make_shared<Preview::Network::Dns::Resolver>(
-                  Options_.Executor, Options_.Dns))
+        explicit WorkerDialService(WorkerDialOptions Options)
+            : Resolver_(std::make_shared<Preview::Network::Dns::Resolver>(Options.Executor, Options.Dns)),
+              Dialer_(Options.Executor,
+                  Preview::Network::Dialer::DialOptions{Options.Timeout, Options.EnableIpv6, Resolver_})
         {
         }
 
+        /** @brief 一次拨号：目标按值交给 engine，失败保留领域类别与原生 cause。 */
         [[nodiscard]] auto Connect(Preview::Network::Target Target)
-            -> Net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
+            -> Net::awaitable<std::expected<Preview::SharedTransmission, Preview::Fault::Failure>>
         {
-            const std::string Host(Target.Host.data(), Target.Host.size());
-            const std::string PortText(Target.Port.data(), Target.Port.size());
-            std::uint32_t PortValue = 0;
-            const auto [End, ParseError] = std::from_chars(
-                PortText.data(), PortText.data() + PortText.size(), PortValue, 10);
-            if (Host.empty() || ParseError != std::errc{} || End != PortText.data() + PortText.size() ||
-                PortValue == 0U || PortValue > 65535U)
+            if (Stopping_.load(std::memory_order_acquire))
             {
-                co_return std::pair{Preview::Fault::Code::InvalidArgument,
-                                    Preview::SharedTransmission{}};
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::Canceled});
             }
+            co_return co_await Dialer_.Connect(std::move(Target));
+        }
 
-            std::error_code ResolveError;
-            std::vector<Net::ip::address> Addresses;
-            boost::system::error_code LiteralError;
-            const auto Literal = Net::ip::make_address(Host, LiteralError);
-            if (!LiteralError)
+        /** @brief admission 已关闭且调用者已排空 Connect 后，等待 Resolver 维护协程真实退栈。 */
+        [[nodiscard]] auto Shutdown()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+        {
+            co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+            Stopping_.store(true, std::memory_order_release);
+            if (!Resolver_)
             {
-                Addresses.push_back(Literal);
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::Blocked});
             }
-            else
-            {
-                ResolveError.clear();
-                Addresses = co_await Resolver_->AsyncResolve(Host, ResolveError);
-            }
-            if (Addresses.empty())
-            {
-                co_return std::pair{ResolveError ? Preview::Fault::Code::DnsFailed
-                                                 : Preview::Fault::Code::DnsFailed,
-                                    Preview::SharedTransmission{}};
-            }
-
-            std::error_code LastError = ResolveError;
-            for (const auto &Address : Addresses)
-            {
-                if (Address.is_v6() && !Options_.EnableIpv6)
-                {
-                    continue;
-                }
-                Preview::Network::Dialer::Dialer Dialer(
-                    Options_.Executor,
-                    Preview::Network::Dialer::DialOptions{Options_.Timeout, Options_.EnableIpv6});
-                std::error_code Error;
-                auto Outbound = co_await Dialer.Connect(
-                    Address.to_string(), static_cast<std::uint16_t>(PortValue), Error);
-                if (Outbound)
-                {
-                    co_return std::pair{Preview::Fault::Code::Success, std::move(Outbound)};
-                }
-                LastError = Error;
-            }
-            if (LastError == std::make_error_code(std::errc::timed_out))
-            {
-                co_return std::pair{Preview::Fault::Code::Timeout,
-                                    Preview::SharedTransmission{}};
-            }
-            if (LastError == std::make_error_code(std::errc::connection_refused))
-            {
-                co_return std::pair{Preview::Fault::Code::ConnectionRefused,
-                                    Preview::SharedTransmission{}};
-            }
-            co_return std::pair{Preview::Fault::Code::Unreachable,
-                                Preview::SharedTransmission{}};
+            co_return co_await Resolver_->Shutdown();
         }
 
         [[nodiscard]] auto Resolver() const noexcept
@@ -123,8 +84,9 @@ namespace Preview::Network::Services
         }
 
     private:
-        WorkerDialOptions Options_;
         std::shared_ptr<Preview::Network::Dns::Resolver> Resolver_;
+        Preview::Network::Dialer::Dialer Dialer_;
+        std::atomic<bool> Stopping_{false};
     };
 
 } // namespace Preview::Network::Services

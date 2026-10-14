@@ -1,0 +1,15 @@
+# xhttp 子模块
+AddPreviewTest(XhttpNgxE2E.cpp)
+target_link_libraries(XhttpNgxE2E PRIVATE PreviewTransport PreviewProtocolHttp2 PreviewProtocolXhttp PreviewTestSupport)
+AddPreviewTest(XhttpNgxFactoryE2E.cpp)
+target_link_libraries(XhttpNgxFactoryE2E PRIVATE PreviewTransport PreviewProtocolHttp2 PreviewProtocolXhttp PreviewTestSupport)
+
+AddPreviewTest(XhttpErrorMatrix.cpp)
+target_link_libraries(XhttpErrorMatrix PRIVATE PreviewProtocolXhttp PreviewTestSupport)
+AddPreviewTest(XhttpErrorCloseMatrix.cpp)
+target_link_libraries(XhttpErrorCloseMatrix PRIVATE PreviewProtocolXhttp PreviewTestSupport)
+
+# 同一实际owner的源文件，复用现有target。
+target_sources(XhttpNgxE2E PRIVATE
+    XhttpTestRetirement.hpp
+)

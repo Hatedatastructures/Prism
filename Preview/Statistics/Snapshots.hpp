@@ -6,8 +6,12 @@
 #pragma once
 
 #include <Preview/Statistics/Types.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace Preview::Statistics
@@ -20,6 +24,33 @@ namespace Preview::Statistics
         Degraded,
         Unhealthy,
         Draining,
+    };
+
+    /**
+     * @brief 进程级动态范围统计退休失败计数。
+     * @details 计数来自 TrafficCounter 的 Session、Stream、Task 类型事实；失败只表示统计键未退休，不改变业务关闭结果。
+     */
+    struct RetirementFailureSnapshot final
+    {
+        std::uint64_t Session{0};
+        std::uint64_t Stream{0};
+        std::uint64_t Task{0};
+    };
+
+    /** @brief 单一代次 recognition admission 实际样本与近似分布。 */
+    struct RecognitionLatencySnapshot final
+    {
+        Preview::GenerationId Generation{};
+        std::uint64_t SampleCount{0};
+        std::uint64_t TracerWrittenCount{0};
+        std::uint64_t TracerDroppedCount{0};
+        std::uint64_t HistogramRangeExceeded{0};
+        std::array<std::uint64_t, 8> RecentMicroseconds{};
+        std::size_t RecentCount{0};
+        std::optional<std::uint64_t> P50BucketLowerBoundMicroseconds{};
+        std::optional<std::uint64_t> P95BucketLowerBoundMicroseconds{};
+        std::optional<std::uint64_t> P99BucketLowerBoundMicroseconds{};
+        std::optional<std::uint64_t> MaximumObservedMicroseconds{};
     };
 
     struct HealthSnapshot final
@@ -36,6 +67,8 @@ namespace Preview::Statistics
         bool QuicSocketReady{false};
         bool QuicHandshakeReady{false};
         bool QuicProtocolReady{false};
+        /** @brief 进程级统计退休失败观察计数；不参与健康状态和就绪判定。 */
+        RetirementFailureSnapshot ProcessRetirementFailures{};
     };
 
     struct GenerationSnapshot final
@@ -65,7 +98,7 @@ namespace Preview::Statistics
         Preview::WorkerId Id{};
         Preview::GenerationId Generation{};
         HealthSnapshot Health{};
-        TrafficValue Traffic{};
+        std::optional<TrafficValue> Traffic{};
         bool Running{false};
         bool Accepting{false};
         std::uint64_t ActiveTasks{0};
@@ -76,10 +109,10 @@ namespace Preview::Statistics
     {
         Preview::AccountId Id{};
         Preview::GenerationId Generation{};
-        TrafficValue Traffic{};
+        std::optional<TrafficValue> Traffic{};
         std::uint64_t ActiveSessions{0};
         std::string Label{};
-        bool Enabled{false};
+        bool Revoked{false};
     };
 
     struct SessionSnapshot final
@@ -89,22 +122,26 @@ namespace Preview::Statistics
         Preview::WorkerId Worker{};
         Preview::AccountId Account{};
         Preview::GenerationId Generation{};
-        TrafficValue Traffic{};
+        std::optional<TrafficValue> Traffic{};
         std::uint64_t StartedAt{0};
         std::string Protocol{};
         std::string Target{};
         bool Active{false};
         bool Draining{false};
+        std::optional<std::uint64_t> ActiveTasks{};
     };
 
     struct StreamSnapshot final
     {
         Preview::StreamId Id{};
+        Preview::TaskId Task{};
+        Preview::TaskId ParentTask{};
+        Preview::ProcessId Process{};
         Preview::SessionId Session{};
         Preview::AccountId Account{};
         Preview::WorkerId Worker{};
         Preview::GenerationId Generation{};
-        TrafficValue Traffic{};
+        std::optional<TrafficValue> Traffic{};
         std::string Protocol{};
         bool Active{false};
     };
@@ -122,14 +159,20 @@ namespace Preview::Statistics
     struct TaskSnapshot final
     {
         Preview::TaskId Id{};
+        Preview::ProcessId Process{};
         Preview::WorkerId Worker{};
         Preview::SessionId Session{};
+        Preview::StreamId Stream{};
         Preview::GenerationId Generation{};
+        Preview::TaskId ParentTask{};
         TaskStatus Status{TaskStatus::Pending};
         std::uint64_t StartedAt{0};
         std::uint64_t CompletedAt{0};
         bool CancelRequested{false};
+        bool Cancellable{false};
         bool DrainBlocked{false};
+        Preview::Fault::Failure Failure{};
+        Preview::Fault::Failure DrainFailure{};
     };
 
 } // namespace Preview::Statistics

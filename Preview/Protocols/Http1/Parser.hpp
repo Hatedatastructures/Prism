@@ -1,10 +1,9 @@
 /**
  * @file Parser.hpp
- * @brief HTTP/1.1 入站代理请求解析与构造
+ * @brief HTTP/1.1 入站代理请求解析与目标提取
  * @details 自包含 HTTP/1.1 子集：
  *          - ParseRequest：请求行 + 头字段解析（Host / Proxy-Authorization）
  *          - ResolveTarget：解析 CONNECT authority、absolute-form 和 origin-form
- *          - BuildForwardRequest：将代理请求行改写为源站 origin-form
  *          - MakeConnectRequest：客户端构造 CONNECT 请求
  *          - ParseStatusCode：响应行状态码提取（客户端验证）
  * @note 参照主项目 src/prism/Protocol/http/Codec/Parser.cpp，测试库自包含实现
@@ -25,12 +24,13 @@
 #include <boost/asio/ip/address_v6.hpp>
 
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Utility/Http/HeaderFields.hpp>
 
 namespace Preview::Http11
 {
 
     /// 最大 HTTP 头部大小（防慢速输入和解析阶段内存增长）
-    inline constexpr std::size_t MaxHdrSize = 65536;
+    inline constexpr std::size_t MaxHdrSize = HeaderFields::MaxHeaderBlockBytes;
 
     /**
      * @struct HttpRequest
@@ -43,6 +43,7 @@ namespace Preview::Http11
         std::string_view version;       ///< 版本（HTTP/1.1；保留兼容字段名）
         std::string_view host;          ///< Host 头（保留兼容字段名）
         std::string_view authorization; ///< Proxy-Authorization 头（保留兼容字段名）
+        HeaderFields::Parsed Headers;   ///< 头字段视图与逐跳/消息定界元数据
         std::size_t LineEnd{0};        ///< 请求行结束偏移（\r\n 之后）
         std::size_t HdrEnd{0};         ///< 头块结束偏移（\r\n\r\n 之后）
     };
@@ -111,28 +112,6 @@ namespace Preview::Http11
             }
             constexpr std::string_view Punctuation{"!#$%&'*+-.^_`|~"};
             return Punctuation.find(Character) != std::string_view::npos;
-        }
-
-        /// RFC 7230 field-value 中允许的可见字符和 HTAB
-        [[nodiscard]] inline auto IsFieldValueChar(const char Character) noexcept -> bool
-        {
-            const auto Byte = static_cast<unsigned char>(Character);
-            return Byte == '\t' || Byte >= 0x20;
-        }
-
-        /// @brief 去除首尾空白
-        [[nodiscard]] inline auto Trim(std::string_view Value) noexcept -> std::string_view
-        {
-            auto Trimmed = Value;
-            while (!Trimmed.empty() && (Trimmed.front() == ' ' || Trimmed.front() == '\t'))
-            {
-                Trimmed.remove_prefix(1);
-            }
-            while (!Trimmed.empty() && (Trimmed.back() == ' ' || Trimmed.back() == '\t'))
-            {
-                Trimmed.remove_suffix(1);
-            }
-            return Trimmed;
         }
 
         [[nodiscard]] inline auto ParsePort(std::string_view Text) noexcept
@@ -346,69 +325,19 @@ namespace Preview::Http11
         Request.HdrEnd = HeadersEnd + 4;
 
         // 遍历头字段，提取 Host 与 Proxy-Authorization
-        std::string_view HeaderBlock = Raw.substr(LineEnd + 2, HeadersEnd - LineEnd - 2);
-        bool HostSeen = false;
-        bool AuthorizationSeen = false;
-        while (!HeaderBlock.empty())
+        const auto HeaderBlockStart = LineEnd + 2U;
+        const auto HeaderBlockSize = HeadersEnd >= HeaderBlockStart
+                                         ? HeadersEnd - HeaderBlockStart
+                                         : std::size_t{0};
+        const auto HeaderBlock = Raw.substr(HeaderBlockStart, HeaderBlockSize);
+        auto ParsedHeaders = HeaderFields::Parse(HeaderBlock);
+        if (!ParsedHeaders)
         {
-            const auto Next = HeaderBlock.find("\r\n");
-            std::string_view Line;
-            if (Next == std::string_view::npos)
-            {
-                Line = HeaderBlock;
-                HeaderBlock = {};
-            }
-            else
-            {
-                Line = HeaderBlock.substr(0, Next);
-                HeaderBlock = HeaderBlock.substr(Next + 2);
-            }
-
-            if (Line.empty() || Line.front() == ' ' || Line.front() == '\t')
-            {
-                return Fault::Code::ParseError;
-            }
-            const auto Colon = Line.find(':');
-            if (Colon == std::string_view::npos || Colon == 0)
-            {
-                return Fault::Code::ParseError;
-            }
-            const auto Name = Line.substr(0, Colon);
-            for (const auto Character : Name)
-            {
-                if (!detail::IsTokenChar(Character))
-                {
-                    return Fault::Code::ParseError;
-                }
-            }
-            const auto RawValue = Line.substr(Colon + 1);
-            for (const auto Character : RawValue)
-            {
-                if (!detail::IsFieldValueChar(Character) || Character == '\x7F')
-                {
-                    return Fault::Code::ParseError;
-                }
-            }
-            const auto Value = detail::Trim(RawValue);
-            if (detail::Iequals(Name, "host"))
-            {
-                if (HostSeen)
-                {
-                    return Fault::Code::ParseError;
-                }
-                HostSeen = true;
-                Request.host = Value;
-            }
-            else if (detail::Iequals(Name, "proxy-authorization"))
-            {
-                if (AuthorizationSeen)
-                {
-                    return Fault::Code::ParseError;
-                }
-                AuthorizationSeen = true;
-                Request.authorization = Value;
-            }
+            return Fault::Code::ParseError;
         }
+        Request.host = ParsedHeaders->Host;
+        Request.authorization = ParsedHeaders->ProxyAuthorization;
+        Request.Headers = std::move(*ParsedHeaders);
         return Fault::Code::Success;
     }
 
@@ -420,6 +349,13 @@ namespace Preview::Http11
     [[nodiscard]] inline auto ResolveTarget(const HttpRequest &Request)
         -> std::optional<ProxyTarget>
     {
+        // HTTP request-target 不携带 fragment；当前出站拨号器也不支持 HTTPS TLS。
+        if (Request.Target.find('#') != std::string_view::npos ||
+            detail::IstartsWith(Request.Target, "https://"))
+        {
+            return std::nullopt;
+        }
+
         if (Request.Method == "CONNECT")
         {
             auto Result = detail::ParseAuthority(Request.Target, 443, true);
@@ -453,39 +389,6 @@ namespace Preview::Http11
             return Result;
         }
         return std::nullopt;
-    }
-
-    /**
-     * @brief 构建转发到源站的 HTTP 请求
-     * @param Raw 已读取的请求头和共包正文
-     * @param Request Raw 对应的解析结果
-     * @return origin-form 请求；CONNECT 或格式非法时为空
-     * @details 只改写请求行，头字段和已经读取的正文按原始字节保留。
-     */
-    [[nodiscard]] inline auto BuildForwardRequest(std::string_view Raw,
-                                                   const HttpRequest &Request) -> std::string
-    {
-        const auto Resolved = ResolveTarget(Request);
-        if (!Resolved || Resolved->Form == RequestForm::Connect || Request.LineEnd > Raw.size())
-        {
-            return {};
-        }
-        const auto Target = detail::OriginForm(Request.Target);
-        if (!Target || Target->empty())
-        {
-            return {};
-        }
-        std::string Result;
-        Result.reserve(Request.Method.size() + Target->size() + Request.version.size() +
-                       2U + Raw.size() - Request.LineEnd);
-        Result.append(Request.Method);
-        Result.push_back(' ');
-        Result.append(*Target);
-        Result.push_back(' ');
-        Result.append(Request.version);
-        Result.append("\r\n");
-        Result.append(Raw.substr(Request.LineEnd));
-        return Result;
     }
 
     /**

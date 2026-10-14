@@ -16,6 +16,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Reality
 {
@@ -32,4 +38,23 @@ namespace Preview::Reality
     /// 最大短 ID 长度（8 字节）
     inline constexpr std::size_t MaxShortIdLen = 8;
 
+    /** @brief Reality 服务端握手的 owning 冷材料。 */
+    struct PreparedConfig final
+    {
+        std::array<std::uint8_t, KeyLen> PrivateKey{};
+        std::vector<std::array<std::uint8_t, MaxShortIdLen>> ShortIds;
+        std::vector<std::string> ServerNames;
+    };
+
+    /** @brief recognition 预读 ClientHello 后交给协议 owner 的请求。 */
+    struct PreparedRequest final
+    {
+        Preview::SharedTransmission Inbound;
+        PreparedConfig Config;
+        std::span<const std::uint8_t> Random;
+        std::span<const std::uint8_t> SessionId;
+        std::span<const std::uint8_t> X25519Key;
+        std::span<const std::uint8_t> RawMessage;
+        std::string_view ServerName;
+    };
 } // namespace Preview::Reality

@@ -92,8 +92,8 @@ jobs:
           foreach ($Tool in $Tools) {
             go build -o ("../../build/tests/go/{0}.exe" -f $Tool) ("./{0}" -f $Tool)
           }
-          go build -o ../../build/tests/go/ss2022_client.exe ./interop/ss2022_client
-          go build -o ../../build/tests/go/ss2022_server.exe ./interop/ss2022_server
+          go build -o ../../build/tests/go/ss2022_client.exe ./Interop/Ss2022Client
+          go build -o ../../build/tests/go/ss2022_server.exe ./Interop/Ss2022Server
           go build -o ../../build/tests/go/websocket.exe ./websocket
           go build -o ../../build/tests/go/anytls.exe ./anytls
           go build -o ../../build/tests/go/gun.exe ./gun

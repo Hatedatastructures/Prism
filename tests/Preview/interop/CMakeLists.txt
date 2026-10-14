@@ -1,3 +1,0 @@
-# interop 对拍测试
-AddPreviewTest(GoldenVectorTest.cpp)
-target_link_libraries(GoldenVectorTest PRIVATE PreviewProtocolShadowsocks2022 PreviewProtocolSocks5 PreviewProtocolTrojan PreviewProtocolVless PreviewProtocolVmess PreviewTestSupport)

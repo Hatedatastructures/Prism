@@ -6,7 +6,9 @@
 #pragma once
 
 #include <Preview/Operations/Models.hpp>
-#include <Preview/Statistics/Redaction.hpp>
+#include <Preview/Operations/Metrics.hpp>
+#include <Preview/Operations/ScopedCollectionModels.hpp>
+#include <Preview/Foundation/Utility/Text/Redaction.hpp>
 
 #include <type_traits>
 #include <utility>
@@ -16,13 +18,24 @@ namespace Preview::Operations
 
     [[nodiscard]] inline auto Redact(std::string_view Detail) -> std::string
     {
-        return Preview::Statistics::RedactSensitiveText(Detail);
+        return Preview::Text::RedactSensitiveText(Detail);
     }
 
     [[nodiscard]] inline auto Redact(const EventSnapshot &EventValue) -> EventSnapshot
     {
         auto Result = EventValue;
         Result.Detail = Redact(Result.Detail);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const Preview::Statistics::EventPage &PageValue)
+        -> Preview::Statistics::EventPage
+    {
+        auto Result = PageValue;
+        for (auto &Item : Result.Items)
+        {
+            Item = Redact(Item);
+        }
         return Result;
     }
 
@@ -91,6 +104,17 @@ namespace Preview::Operations
         return Result;
     }
 
+    /** @brief 只含数值计数与实际历史的 metrics 快照不含凭据字段。 */
+    [[nodiscard]] inline auto Redact(const MetricsSnapshot &Value) -> MetricsSnapshot
+    {
+        return Value;
+    }
+
+    /** @brief 配置响应只含 PublicConfiguration DTO，保留其非凭据 JSON 字节。 */
+    [[nodiscard]] inline auto Redact(const ConfigurationSnapshot &Value) -> ConfigurationSnapshot
+    {
+        return Value;
+    }
     [[nodiscard]] inline auto Redact(const QueryResult &Value) -> QueryResult
     {
         auto Result = Value;

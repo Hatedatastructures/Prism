@@ -1,28 +1,19 @@
 /**
  * @file Rules.hpp
- * @brief DNS 域名规则引擎层
- * @details 对齐主项目 net/dns/detail/rules.hpp 分层：
- *          - DomainTrie：按标签反转存储的域名前缀树（com → example → www），
- *            支持通配符节点（*.example.com 在 example.com 节点标记 wildcard）
- *          - RulesEngine：地址规则（改写/屏蔽）+ CNAME 静态映射 + 黑名单，
- *            按"精确 > 通配符、深 > 浅"优先级匹配
- *
- *          通配符语义：至少消耗一级子域。即 *.example.com 匹配
- *          www.example.com 与 a.www.example.com，但不匹配 example.com 本身。
+ * @brief 冷构造的 DNS 规则索引与无分配标签查询。
  */
-
 #pragma once
 
-#include <boost/asio/ip/address.hpp>
+#include <Preview/Foundation/Exception/Deviant.hpp>
+#include <Preview/Net/Dns/Config.hpp>
+#include <Preview/Net/DomainName.hpp>
 #include <boost/asio/ip/network_v4.hpp>
 #include <boost/asio/ip/network_v6.hpp>
-
 #include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -30,461 +21,242 @@
 
 namespace Preview::Network::Dns
 {
+    /** @brief 域名规则的独立业务终态。 */
+    enum class RuleAction : std::uint8_t { Pass, Block, Negative, Rewrite };
 
-    /**
-     * @enum RuleAction
-     * @brief 地址规则动作
-     */
-    enum class RuleAction : std::uint8_t
+    /** @brief 冷装载拥有的规则值；查询只借用，不复制地址或名字。 */
+    struct RuleResult final
     {
-        Pass,     ///< 放行：正常走上游解析
-        Block,    ///< 屏蔽：直接返回失败（对应主项目 blocked）
-        Negative, ///< 置空：返回成功 + 空 IP 列表（NXDOMAIN 语义）
-        Rewrite,  ///< 改写：直接返回规则配置的固定地址列表
+        RuleAction Action{RuleAction::Pass};
+        std::vector<boost::asio::ip::address> Addresses;
+        std::optional<DomainName> CnameTarget;
     };
 
-    /**
-     * @struct RuleResult
-     * @brief 规则匹配结果
-     */
-    struct RuleResult
+    /** @brief 冷构造输入；所有容器在构造后归规则引擎拥有。 */
+    struct RulesOptions final
     {
-        RuleAction Action{RuleAction::Pass};             ///< 命中的动作
-        std::vector<boost::asio::ip::address> Addresses; ///< Rewrite 固定地址（装载时预解析）
-        std::optional<std::string> CnameTarget;          ///< CNAME 静态映射目标
+        std::vector<AddressRule> AddressRules;
+        std::vector<CnameRule> CnameRules;
+        std::vector<std::string> Blacklist;
+        std::vector<boost::asio::ip::address> BlacklistAddrs;
+        std::vector<boost::asio::ip::network_v4> BlacklistV4;
+        std::vector<boost::asio::ip::network_v6> BlacklistV6;
     };
 
-    /**
-     * @struct RulesOptions
-     * @brief 规则引擎装载选项
-     * @details 将地址规则、CNAME 规则和三类黑名单收敛为一个
-     *          配置对象，避免构造函数参数过多。
-     */
-    struct RulesOptions
+    namespace Detail
     {
-        std::vector<AddressRule> AddressRules; ///< 地址映射与屏蔽规则
-        std::vector<CnameRule> CnameRules;     ///< CNAME 重定向规则
-        std::vector<std::string> Blacklist;   ///< 字符串形式的精确黑名单
-        std::vector<boost::asio::ip::address> BlacklistAddrs; ///< 地址形式的精确黑名单
-        std::vector<boost::asio::ip::network_v4> BlacklistV4; ///< IPv4 黑名单网段
-        std::vector<boost::asio::ip::network_v6> BlacklistV6; ///< IPv6 黑名单网段
-    };
+        /** @brief 冷装载阶段拒绝非法域名或 IP 规则。 */
+        class RuleConfigurationError final : public Exception::Deviant
+        {
+        public:
+            RuleConfigurationError()
+                : Exception::Deviant(Fault::make_error_code(Fault::Code::ConfigErr),
+                                     "DNS 规则包含非法域名、通配符或 IP") {}
+        protected:
+            [[nodiscard]] auto TypeName() const noexcept -> std::string_view override { return "DNS"; }
+        };
+    }
 
     /**
-     * @class DomainTrie
-     * @brief 反转标签域名前缀树
-     * @details "www.example.com" 存储为 com → example → www 三级节点；
-     *          通配符规则 "*.example.com" 的 wildcard 标记与值都挂在
-     *          "example.com" 节点上。节点值用 std::any 承载。
+     * @brief TLD 优先的域名索引；装载可分配，Search 只遍历原有节点。
+     * @details 输入 DomainName 拥有全部标签，查询无标签数组或溢出分支。
      */
-    class DomainTrie
+    class DomainTrie final
     {
     public:
-        /**
-         * @struct Node
-         * @brief trie 节点
-         */
-        struct Node
+        /** @brief 一个标签 owner；精确与通配规则各自拥有唯一值。 */
+        struct Node final
         {
-            std::map<std::string, std::unique_ptr<Node>, std::less<>> Children; ///< 子标签
-            bool Wildcard{false};   ///< 是否存在通配符子域（*.本节点域名）
-            std::shared_ptr<RuleResult> Value_; ///< 精确终结节点数据（可空）
-            bool HasValue{false};   ///< Value_ 是否有效（插入精确规则后置位）
-            std::shared_ptr<RuleResult> WildValue_; ///< 通配符数据（可空，仅经通配符路径可达）
+            std::map<std::string, std::unique_ptr<Node>, std::less<>> Children;
+            std::optional<RuleResult> Exact;
+            std::optional<RuleResult> Wildcard;
         };
 
-        /**
-         * @brief 插入完整域名
-         * @param domain 已规范化小写域名（无末尾点号）
-         * @return 终结节点引用（可写入 Value）
-         */
-        auto Insert(std::string_view domain) -> Node &
+        /** @brief 查找结果借用树节点，只在冷冻结索引存活且不再修改期间有效。 */
+        struct Hit final
         {
-            Node *Current = &Root_;
-            ForEachReversed(domain, [&Current](std::string_view Label)
-                            { Current = &EnsureChild(*Current, Label); });
-            Current->HasValue = true;
-            return *Current;
+            const RuleResult *Exact{nullptr};
+            const RuleResult *Wild{nullptr};
+        };
+
+        /** @brief 冷插入已校验完整名称；没有查询期新增节点的路径。 */
+        auto Insert(const DomainName &Domain) -> Node& { return Locate(Domain.View()); }
+
+        /** @brief 冷插入通配锚点；空名称仅表示根通配符 *。 */
+        auto InsertWildcard(const std::optional<DomainName> &Parent) -> Node&
+        {
+            if (!Parent) return Root_;
+            return Locate(Parent->View());
         }
 
         /**
-         * @brief 标记通配符规则（*.domain）
-         * @details 去掉 "*." 前缀后沿剩余基域路径定位锚点节点并置 Wildcard：
-         *          "*.www.example.com" 锚定在 "www.example.com" 节点；
-         *          "*.com" 锚定在 "com" 节点；裸 "*" 则锚定根节点
-         * @param domain 以 "*." 开头的完整通配域名
-         * @return 被标记的锚点节点引用（可写入 WildValue）
+         * @brief 逆序消费全部标签，精确优先、通配符至少消费一个子域。
+         * @param Domain 借用固定容量拥有值，仅同步读取；不保存引用。
+         * @return 借用精确和最深通配结果；无 executor、取消或关闭行为。
          */
-        auto InsertWildcard(std::string_view domain) -> Node &
+        [[nodiscard]] auto Search(const DomainName &Domain) const noexcept -> Hit
         {
-            const auto Dot = domain.find('.');
-            std::string_view ParentPath;
-            if (Dot != std::string_view::npos)
-            {
-                ParentPath = domain.substr(Dot + 1);
-            }
-            Node *Current = &Root_;
-            if (!ParentPath.empty())
-            {
-                ForEachReversed(ParentPath, [&Current](std::string_view Label)
-                                { Current = &EnsureChild(*Current, Label); });
-            }
-            Current->Wildcard = true;
-            return *Current;
-        }
-
-        /**
-         * @brief 查找域名（支持通配符）
-         * @details 收集标签后倒序行走（TLD 优先）：沿后缀路径下探，全量消费
-         *          到达的节点为精确命中；途中遇到携带 WildValue 的节点且前端
-         *          尚有未消费标签（保证通配符至少吃一级子域）则为通配符命中，
-         *          行走越深通配符命中越深、自然覆盖浅层规则。
-         *          取值优先级：精确命中 > 通配符命中
-         * @param domain 已规范化小写域名
-         * @return 精确/通配符两条命中的最佳节点（可为 nullptr）
-         */
-        struct Hit
-        {
-            const Node *Exact{nullptr}; ///< 精确路径最佳命中
-            const Node *Wild{nullptr};  ///< 通配符路径最佳命中（最深者）
-        };
-
-        [[nodiscard]] auto Search(std::string_view domain) const -> Hit
-        {
-            // 栈上固定 labels 数组（>16 级标签的罕见域名退化为堆）
-            std::array<std::string_view, 16> Buffer{};
-            std::size_t Count = 0;
-            std::vector<std::string_view> Overflow;
-            SplitForEach(domain, [&](std::string_view Label)
-                         {
-                             if (Count < Buffer.size())
-                             {
-                                 Buffer[Count++] = Label;
-                             }
-                             else
-                             {
-                                 Overflow.push_back(Label);
-                             } });
-            std::span<const std::string_view> Labels;
-            if (Overflow.empty())
-            {
-                Labels = std::span<const std::string_view>(Buffer.data(), Count);
-            }
-            else
-            {
-                Labels = std::span<const std::string_view>(Overflow);
-            }
-
-            Hit Result;
+            const auto Text = Domain.View();
             const Node *Current = &Root_;
-            for (std::size_t Index = Labels.size(); Index > 0; --Index)
+            Hit Result;
+            if (Root_.Wildcard) Result.Wild = &*Root_.Wildcard;
+            auto End = Text.size();
+            while (End != 0)
             {
-                const auto Child = Current->Children.find(Labels[Index - 1]);
-                if (Child == Current->Children.end())
+                const auto Dot = Text.rfind('.', End - 1);
+                std::size_t Start = 0;
+                if (Dot != std::string_view::npos) Start = Dot + 1;
+                const auto Child = Current->Children.find(Text.substr(Start, End - Start));
+                if (Child == Current->Children.end()) break;
+                Current = Child->second.get();
+                if (Start == 0)
                 {
+                    if (Current->Exact) Result.Exact = &*Current->Exact;
                     break;
                 }
-                Current = Child->second.get();
-                const auto Remaining = Index - 1; ///< 前端尚未消费的标签数
-                if (Remaining == 0)
-                {
-                    if (Current->HasValue)
-                    {
-                        Result.Exact = Current;
-                    }
-                }
-                else if (Current->WildValue_ != nullptr)
-                {
-                    Result.Wild = Current;
-                }
+                if (Current->Wildcard) Result.Wild = &*Current->Wildcard;
+                End = Start - 1;
             }
             return Result;
         }
 
-        /**
-         * @brief 清空整棵树
-         */
-        void Clear()
-        {
-            Root_ = Node{};
-        }
-
     private:
-        /// 按标签从左到右遍历域名（自动忽略空标签）
-        template <typename Fn>
-        static void SplitForEach(std::string_view Domain, Fn &&Function)
+        auto Locate(const std::string_view Text) -> Node&
         {
-            std::size_t Start = 0;
-            while (Start <= Domain.size())
+            auto *Current = &Root_;
+            auto End = Text.size();
+            while (End != 0)
             {
-                const auto Dot = Domain.find('.', Start);
-                std::size_t End = Domain.size();
-                if (Dot != std::string_view::npos)
-                {
-                    End = Dot;
-                }
-                if (End > Start)
-                {
-                    Function(Domain.substr(Start, End - Start));
-                }
-                if (Dot == std::string_view::npos)
-                {
-                    break;
-                }
-                Start = Dot + 1;
+                const auto Dot = Text.rfind('.', End - 1);
+                std::size_t Start = 0;
+                if (Dot != std::string_view::npos) Start = Dot + 1;
+                Current = &EnsureChild(*Current, Text.substr(Start, End - Start));
+                if (Start == 0) break;
+                End = Start - 1;
             }
+            return *Current;
         }
 
-        /// 按标签从右到左遍历域名（TLD 优先，与反转存储序一致）
-        template <typename Fn>
-        static void ForEachReversed(std::string_view Domain, Fn &&Function)
+        [[nodiscard]] static auto EnsureChild(Node &Parent, const std::string_view Label) -> Node&
         {
-            std::vector<std::string_view> Labels;
-            SplitForEach(Domain, [&Labels](std::string_view Label)
-                         { Labels.push_back(Label); });
-            for (std::size_t Index = Labels.size(); Index > 0; --Index)
-            {
-                Function(Labels[Index - 1]);
-            }
-        }
-
-        [[nodiscard]] static auto EnsureChild(Node &node, std::string_view label) -> Node &
-        {
-            if (const auto it = node.Children.find(label); it != node.Children.end())
-            {
-                return *it->second;
-            }
-            auto child = std::make_unique<Node>();
-            return *node.Children.emplace(std::string(label), std::move(child)).first->second;
+            const auto Found = Parent.Children.find(Label);
+            if (Found != Parent.Children.end()) return *Found->second;
+            auto Child = std::make_unique<Node>();
+            return *Parent.Children.emplace(std::string(Label), std::move(Child)).first->second;
         }
 
         Node Root_;
     };
 
     /**
-     * @class RulesEngine
-     * @brief 规则引擎：地址规则 + CNAME 映射 + 黑名单
+     * @brief 一个冻结 generation 拥有的规则、CNAME 和 IP 黑名单。
+     * @details 冷构造完成后不修改索引；外部 owner 必须保持引擎存活至所有借用结束。
      */
-    class RulesEngine
+    class RulesEngine final
     {
     public:
-        /**
-         * @brief 构造规则引擎并装载规则
-         * @param options 地址、CNAME 与黑名单配置
-         */
-        explicit RulesEngine(RulesOptions options = {})
-            : NetsV4_(std::move(options.BlacklistV4)),
-              NetsV6_(std::move(options.BlacklistV6))
+        /** @brief 冷装载与校验输入；非法规则抛项目配置异常，分配失败由启动边界处理。 */
+        explicit RulesEngine(RulesOptions Options = {})
+            : Blacklist_(std::move(Options.BlacklistAddrs)),
+              NetsV4_(std::move(Options.BlacklistV4)), NetsV6_(std::move(Options.BlacklistV6))
         {
-            for (const auto &rule : options.AddressRules)
+            for (auto &Rule : Options.AddressRules)
             {
-                auto result = LocateSlot(NormalizeDomain(rule.Domain));
-                if (rule.Negative)
-                {
-                    result->Action = RuleAction::Negative;
-                }
-                else
-                {
-                    if (rule.Addresses.empty())
-                    {
-                        result->Action = RuleAction::Block;
-                    }
-                    else
-                    {
-                        result->Action = RuleAction::Rewrite;
-                    }
-                }
-                // AddressRule.Addresses 装载期已是 address：直接持有，查询期零解析
-                for (const auto &addr : rule.Addresses)
-                {
-                    result->Addresses.push_back(addr);
-                }
+                auto &Result = LocateSlot(Rule.Domain);
+                if (Rule.Negative) Result.Action = RuleAction::Negative;
+                else if (Rule.Addresses.empty()) Result.Action = RuleAction::Block;
+                else Result.Action = RuleAction::Rewrite;
+                Result.Addresses.insert(Result.Addresses.end(),
+                    std::make_move_iterator(Rule.Addresses.begin()),
+                    std::make_move_iterator(Rule.Addresses.end()));
             }
-            for (const auto &rule : options.CnameRules)
+            for (const auto &Rule : Options.CnameRules)
             {
-                LocateSlot(NormalizeDomain(rule.Domain))->CnameTarget = NormalizeDomain(rule.Target);
+                auto Target = DomainName::Parse(Rule.Target);
+                if (!Target) throw Detail::RuleConfigurationError();
+                LocateSlot(Rule.Domain).CnameTarget = std::move(*Target);
             }
-            // 字符串黑名单装载期解析为地址（无效字面量忽略）
-            for (const auto &item : options.Blacklist)
+            for (const auto &Item : Options.Blacklist)
             {
                 boost::system::error_code ErrorCode;
-                if (auto Address = boost::asio::ip::make_address(item, ErrorCode); !ErrorCode)
-                {
-                    Blacklist_.push_back(Address);
-                }
+                const auto Address = boost::asio::ip::make_address(Item, ErrorCode);
+                if (ErrorCode) throw Detail::RuleConfigurationError();
+                Blacklist_.push_back(Address);
             }
-            Blacklist_.insert(Blacklist_.end(),
-                              std::make_move_iterator(options.BlacklistAddrs.begin()),
-                              std::make_move_iterator(options.BlacklistAddrs.end()));
         }
 
         /**
-         * @brief 匹配域名规则
-         * @param qname 已规范化查询域名
-         * @return 命中返回 RuleResult；未命中返回 nullopt（默认放行）
+         * @brief 同步匹配规则；返回引擎拥有值的只读借用，没有请求期复制或分配。
+         * @param Domain 借用完整规范化域名，不跨异步保存输入。
+         * @return nullptr 表示默认放行；返回值在冻结 generation 存活期间有效。
          */
-        [[nodiscard]] auto Match(std::string_view qname) const -> std::optional<RuleResult>
+        [[nodiscard]] auto Match(const DomainName &Domain) const noexcept -> const RuleResult*
         {
-            const auto hit = Trie_.Search(qname);
-            if (hit.Exact != nullptr && hit.Exact->Value_ != nullptr)
-            {
-                return *hit.Exact->Value_;
-            }
-            if (hit.Wild != nullptr && hit.Wild->WildValue_ != nullptr)
-            {
-                return *hit.Wild->WildValue_;
-            }
-            return std::nullopt;
+            const auto Found = Trie_.Search(Domain);
+            if (Found.Exact) return Found.Exact;
+            return Found.Wild;
         }
 
-        /**
-         * @brief IP 黑名单检查（精确地址 + CIDR 网段，纯整数比较无字符串分配）
-         * @param addr 待检查地址
-         * @return 命中黑名单返回 true
-         */
-        [[nodiscard]] auto IsBlacklisted(const boost::asio::ip::address &addr) const -> bool
+        /** @brief 同步整数检查地址黑名单；输入仅借用，不解析文本或分配。 */
+        [[nodiscard]] auto IsBlacklisted(const boost::asio::ip::address &Address) const noexcept -> bool
         {
-            if (addr.is_v4())
+            if (Address.is_v4())
             {
-                const auto Raw = addr.to_v4().to_uint();
-                for (const auto &item : Blacklist_)
-                {
-                    if (item.is_v4() && item.to_v4().to_uint() == Raw)
-                    {
-                        return true;
-                    }
-                }
-                for (const auto &net : NetsV4_)
-                {
-                    if ((Raw & net.netmask().to_uint()) == net.address().to_uint())
-                    {
-                        return true;
-                    }
-                }
+                const auto Raw = Address.to_v4().to_uint();
+                for (const auto &Item : Blacklist_)
+                    if (Item.is_v4() && Item.to_v4().to_uint() == Raw) return true;
+                for (const auto &Network : NetsV4_)
+                    if ((Raw & Network.netmask().to_uint()) == Network.network().to_uint()) return true;
                 return false;
             }
-            if (addr.is_v6())
-            {
-                const auto Bytes = addr.to_v6().to_bytes();
-                for (const auto &item : Blacklist_)
-                {
-                    if (item.is_v6() && item.to_v6().to_bytes() == Bytes)
-                    {
-                        return true;
-                    }
-                }
-                for (const auto &net : NetsV6_)
-                {
-                    if (MatchesV6(net, Bytes))
-                    {
-                        return true;
-                    }
-                }
-            }
+            const auto Bytes = Address.to_v6().to_bytes();
+            for (const auto &Item : Blacklist_)
+                if (Item.is_v6() && Item.to_v6().to_bytes() == Bytes) return true;
+            for (const auto &Network : NetsV6_)
+                if (MatchesV6(Network, Bytes)) return true;
             return false;
         }
 
-        /**
-         * @brief IP 黑名单检查（字符串字面量便捷重载，装载后解析路径）
-         * @param addr 待检查地址字符串（IP 字面量）
-         * @return 命中黑名单返回 true；非法字面量返回 false
-         */
-        [[nodiscard]] auto IsBlacklisted(std::string_view addr) const -> bool
-        {
-            boost::system::error_code ec;
-            const auto parsed = boost::asio::ip::make_address(addr, ec);
-            return !ec && IsBlacklisted(parsed);
-        }
-
-        /**
-         * @brief 黑名单条目数（精确地址 + CIDR 网段合计）
-         * @return 条目数
-         */
-        [[nodiscard]] auto BlacklistSize() const -> std::size_t
-        {
-            return Blacklist_.size() + NetsV4_.size() + NetsV6_.size();
-        }
+        /** @brief 返回冷装载条目数，不包含任何查询历史。 */
+        [[nodiscard]] auto BlacklistSize() const noexcept -> std::size_t
+        { return Blacklist_.size() + NetsV4_.size() + NetsV6_.size(); }
 
     private:
-        /// 规则装载期统一域名大小写并去除末尾点号
-        [[nodiscard]] static auto NormalizeDomain(const std::string &domain) -> std::string
+        [[nodiscard]] auto LocateSlot(std::string_view Pattern) -> RuleResult&
         {
-            std::string normalized = domain;
-            while (normalized.size() > 1 && normalized.back() == '.')
-            {
-                normalized.pop_back();
-            }
-            for (auto &ch : normalized)
-            {
-                if (ch >= 'A' && ch <= 'Z')
-                {
-                    ch = static_cast<char>(ch - 'A' + 'a');
-                }
-            }
-            return normalized;
+            bool Wildcard = false;
+            if (Pattern == "*") return EnsureRule(Trie_.InsertWildcard(std::nullopt).Wildcard);
+            if (Pattern.starts_with("*.")) { Pattern.remove_prefix(2); Wildcard = true; }
+            auto Domain = DomainName::Parse(Pattern);
+            if (!Domain) throw Detail::RuleConfigurationError();
+            if (Wildcard) return EnsureRule(Trie_.InsertWildcard(std::optional<DomainName>(*Domain)).Wildcard);
+            return EnsureRule(Trie_.Insert(*Domain).Exact);
         }
 
-        /// IPv6 CIDR 前缀匹配（按字节掩码比较）
-        [[nodiscard]] static auto MatchesV6(const boost::asio::ip::network_v6 &Network,
-                                            const std::array<unsigned char, 16> &Bytes) -> bool
+        [[nodiscard]] static auto EnsureRule(std::optional<RuleResult> &Rule) -> RuleResult&
         {
-            const auto NetBytes = Network.address().to_bytes();
+            if (!Rule) Rule.emplace();
+            return *Rule;
+        }
+
+        [[nodiscard]] static auto MatchesV6(const boost::asio::ip::network_v6 &Network,
+                                            const std::array<unsigned char, 16> &Bytes) noexcept -> bool
+        {
+            const auto NetworkBytes = Network.network().to_bytes();
             const auto Prefix = Network.prefix_length();
             for (std::size_t Index = 0; Index < 16 && Index * 8 < Prefix; ++Index)
             {
-                unsigned char Bits = 0xFF;
+                unsigned char Mask = 0xFF;
                 if (Index * 8 + 8 > Prefix)
-                {
-                    Bits = static_cast<unsigned char>(0xFF << (8 - (Prefix - Index * 8)));
-                }
-                if ((Bytes[Index] & Bits) != (NetBytes[Index] & Bits))
-                {
-                    return false;
-                }
+                    Mask = static_cast<unsigned char>(0xFF << (8 - (Prefix - Index * 8)));
+                if ((Bytes[Index] & Mask) != (NetworkBytes[Index] & Mask)) return false;
             }
             return true;
         }
-        /// 按域名定位规则槽位：通配符域挂 WildValue，精确域挂 Value
-        [[nodiscard]] auto LocateSlot(const std::string &domain) -> std::shared_ptr<RuleResult>
-        {
-            if (!domain.empty() && domain.front() == '*')
-            {
-                return GetOrCreateWild(Trie_.InsertWildcard(domain));
-            }
-            return GetOrCreate(Trie_.Insert(domain));
-        }
-
-        /// 取或建节点上的共享 RuleResult（同域多规则合并到同一结果对象）
-        [[nodiscard]] static auto GetOrCreate(DomainTrie::Node &node)
-            -> std::shared_ptr<RuleResult>
-        {
-            if (node.Value_ != nullptr)
-            {
-                return node.Value_;
-            }
-            auto result = std::make_shared<RuleResult>();
-            node.Value_ = result;
-            node.HasValue = true;
-            return result;
-        }
-
-        /// 取或建通配符节点上的共享 RuleResult
-        [[nodiscard]] static auto GetOrCreateWild(DomainTrie::Node &node)
-            -> std::shared_ptr<RuleResult>
-        {
-            if (node.WildValue_ != nullptr)
-            {
-                return node.WildValue_;
-            }
-            auto result = std::make_shared<RuleResult>();
-            node.WildValue_ = result;
-            return result;
-        }
 
         DomainTrie Trie_;
-        std::vector<boost::asio::ip::address> Blacklist_; ///< 精确地址黑名单（装载期解析）
-        std::vector<boost::asio::ip::network_v4> NetsV4_; ///< IPv4 网段黑名单
-        std::vector<boost::asio::ip::network_v6> NetsV6_; ///< IPv6 网段黑名单
+        std::vector<boost::asio::ip::address> Blacklist_;
+        std::vector<boost::asio::ip::network_v4> NetsV4_;
+        std::vector<boost::asio::ip::network_v6> NetsV6_;
     };
-
-} // namespace Preview::Network::Dns
+}

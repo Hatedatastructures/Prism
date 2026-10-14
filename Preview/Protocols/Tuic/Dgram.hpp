@@ -11,9 +11,10 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/deferred.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
@@ -48,7 +49,7 @@ namespace Preview::Tuic
      * AcceptPacket）创建。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Dgram : public Preview::Transmission, public std::enable_shared_from_this<Dgram<Memory>>
+    class Dgram : public Preview::Transmission
     {
     public:
         /**
@@ -56,7 +57,8 @@ namespace Preview::Tuic
          * @param Upstream 底层数据报或已认证 QUIC 数据流（所有权移交）
          */
         explicit Dgram(SharedTransmission Upstream)
-            : NextLayer_(std::move(Upstream))
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Upstream))
         {
         }
 
@@ -67,7 +69,7 @@ namespace Preview::Tuic
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
@@ -116,19 +118,17 @@ namespace Preview::Tuic
             std::size_t Done = 0;
             while (Done < TxWire_.size())
             {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_write_some(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done),
-                    ErrorCode);
-                if (ErrorCode || N == 0)
+                const auto Part = co_await NextLayer_->WriteSome(
+                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done));
+                if (Part.Failure.Failed() || Part.Bytes == 0)
                 {
                     co_return Error::IoError;
                 }
-                if (N > TxWire_.size() - Done)
+                if (Part.Bytes > TxWire_.size() - Done)
                 {
                     co_return Error::BadLength;
                 }
-                Done += N;
+                Done += Part.Bytes;
             }
             co_return Error::None;
         }
@@ -151,22 +151,20 @@ namespace Preview::Tuic
             if (NextLayer_ && NextLayer_->TransportType() == Preview::Transmission::Type::Udp)
             {
                 std::array<std::uint8_t, 65536> Datagram{};
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(Datagram)),
-                    ErrorCode);
-                if (ErrorCode)
+                const auto Part = co_await NextLayer_->ReadSome(AsBytes(std::span<std::uint8_t>(Datagram)));
+                if (Part.Failure.Failed())
                 {
                     co_return Error::IoError;
                 }
-                if (N == 0)
+                if (Part.Bytes == 0)
                 {
                     co_return Error::UnexpectedEof;
                 }
-                if (N > Datagram.size())
+                if (Part.Bytes > Datagram.size())
                 {
                     co_return Error::BadLength;
                 }
+                const auto N = Part.Bytes;
                 Message Parsed{};
                 std::size_t Consumed = 0;
                 const auto Err = Parse(
@@ -254,55 +252,52 @@ namespace Preview::Tuic
         /**
          * @brief 透传读取（底层数据报原样）
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            co_await DispatchToExecutor();
-            if (!NextLayer_)
-            {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
-            }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            Initiate<DgramReadWork>(DgramRead{std::static_pointer_cast<Dgram>(Transmission::shared_from_this()), Buffer}, std::move(Handler));
         }
 
         /**
          * @brief 透传写入（底层数据报原样）
          */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            co_await DispatchToExecutor();
+            Initiate<DgramWriteWork>(DgramWrite{std::static_pointer_cast<Dgram>(Transmission::shared_from_this()), Buffer}, std::move(Handler));
+        }
+
+        /** @brief 真实写半关闭转交底层数据报载体；读取方向保持可用。 */
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            NextLayer_->WriteShutdown(std::move(Handler));
         }
 
         /**
          * @brief 关闭底层传输
          */
-        auto Close() -> void override
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Close();
+                return NextLayer_->Close();
             }
+            return {};
         }
 
         /**
          * @brief 取消挂起操作
          */
-        auto Cancel() -> void override
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Cancel();
+                return NextLayer_->Cancel();
             }
+            return {};
         }
 
         /**
@@ -339,6 +334,59 @@ namespace Preview::Tuic
         }
 
     private:
+        struct DgramRead final { std::shared_ptr<Dgram> Owner; std::span<std::byte> Buffer; };
+        struct DgramWrite final { std::shared_ptr<Dgram> Owner; std::span<const std::byte> Buffer; };
+        struct DgramReadWork final
+        {
+            template<class State>
+            auto operator()(State Operation, DgramRead Input) const -> void
+            {
+                Preview::Transport::Detail::ConfigureIo(Operation);
+                if (!Input.Owner) co_return std::tuple{Preview::IoResult{0, {Preview::Fault::Code::InvalidArgument}}};
+                co_return std::tuple{co_await Net::co_spawn(
+                    Input.Owner->Executor(), Input.Owner->ReadPartial(Input.Buffer), Net::deferred)};
+            }
+        };
+        struct DgramWriteWork final
+        {
+            template<class State>
+            auto operator()(State Operation, DgramWrite Input) const -> void
+            {
+                Preview::Transport::Detail::ConfigureIo(Operation);
+                if (!Input.Owner) co_return std::tuple{Preview::IoResult{0, {Preview::Fault::Code::InvalidArgument}}};
+                co_return std::tuple{co_await Net::co_spawn(
+                    Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer), Net::deferred)};
+            }
+        };
+        template<class Work, class Input>
+        auto Initiate(Input Value, Completion Handler) -> void
+        {
+            Net::async_initiate<Completion, void(Preview::IoResult)>(
+                Net::co_composed<void(Preview::IoResult)>(Work{}, Executor()), Handler, std::move(Value));
+        }
+
+        /** @brief 切到连接 executor 后透传真实部分读；上游已释放返回确定失败码。 */
+        [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer) -> Net::awaitable<Preview::IoResult>
+        {
+            co_await DispatchToExecutor();
+            if (!NextLayer_)
+            {
+                co_return Preview::IoResult{0, {Preview::Fault::Code::IoError}};
+            }
+            co_return co_await NextLayer_->ReadSome(Buffer);
+        }
+
+        /** @brief 切到连接 executor 后透传真实部分写；上游已释放返回确定失败码。 */
+        [[nodiscard]] auto WritePartial(std::span<const std::byte> Buffer) -> Net::awaitable<Preview::IoResult>
+        {
+            co_await DispatchToExecutor();
+            if (!NextLayer_)
+            {
+                co_return Preview::IoResult{0, {Preview::Fault::Code::IoError}};
+            }
+            co_return co_await NextLayer_->WriteSome(Buffer);
+        }
+
         [[nodiscard]] auto DispatchToExecutor() -> Net::awaitable<void>
         {
             if (NextLayer_)
@@ -361,19 +409,16 @@ namespace Preview::Tuic
             std::size_t Done = 0;
             while (Done < Dst.size())
             {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(Dst.subspan(Done)),
-                    ErrorCode);
-                if (ErrorCode || N == 0)
+                const auto Part = co_await NextLayer_->ReadSome(AsBytes(Dst.subspan(Done)));
+                if (Part.Failure.Failed() || Part.Bytes == 0)
                 {
                     co_return true;
                 }
-                if (N > Dst.size() - Done)
+                if (Part.Bytes > Dst.size() - Done)
                 {
                     co_return true;
                 }
-                Done += N;
+                Done += Part.Bytes;
             }
             co_return false;
         }

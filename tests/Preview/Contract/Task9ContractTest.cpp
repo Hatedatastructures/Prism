@@ -11,8 +11,8 @@
 #include <string>
 #include <vector>
 
-#include <Preview/Composition/Adapters/DataPlane.hpp>
-#include <Preview/Composition/Adapters/TypedResult.hpp>
+#include <Preview/Contract/Ingress/DataPlane.hpp>
+#include <type_traits>
 #include <Preview/Protocols/Hysteria2/Codec.hpp>
 #include <Preview/Protocols/Tuic/Codec.hpp>
 #include <Preview/Transport/Unreliable.hpp>
@@ -47,38 +47,28 @@ TEST(Task9Contract, TuicPacketGoldenVectorRemainsStable)
     EXPECT_EQ(Preview::Tuic::Build(Packet), Expected);
 }
 
-TEST(Task9Contract, DataPlaneVariantCannotBeMistakenForAnotherTransport)
-{
-    const auto Empty = Preview::Composition::Adapters::DataPlaneResult::Datagram(nullptr);
-    EXPECT_TRUE(Empty.IsDatagram());
-    EXPECT_FALSE(Empty.IsStream());
-    EXPECT_EQ(Empty.Status, Preview::Error::None);
-}
-
-TEST(Task9Contract, LegacyHandlerFieldsAreConvertedToTypedDataPlane)
+TEST(Task9Contract, CanonicalOutcomeMovesTheOnlyTransportOwner)
 {
     boost::asio::io_context Io;
-    Preview::Runtime::Handler::AcceptResult Legacy;
-    Legacy.IsDgram = true;
-    Legacy.Transmission = std::make_shared<Preview::Transport::Unreliable>(Io.get_executor());
-
-    const auto Typed = Preview::Composition::Adapters::ToTypedResult(std::move(Legacy));
-
-    EXPECT_EQ(Typed.Status, Preview::Error::None);
-    EXPECT_TRUE(Typed.Data.IsDatagram());
-    EXPECT_FALSE(Typed.Data.IsStream());
+    Preview::Contract::ProtocolDataPlane Plane;
+    auto Transport = std::make_shared<Preview::Transport::Unreliable>(Io.get_executor());
+    Plane.Root = Preview::Contract::StreamDataPlane{Transport};
+    Plane.Target.Host = *Preview::Network::ParseHost("127.0.0.1");
+    Plane.Target.Port = 443;
+    Preview::Contract::AcceptOutcome Accepted(std::move(Plane));
+    ASSERT_TRUE(Accepted);
+    auto Handoff = std::move(*Accepted);
+    EXPECT_EQ(Handoff.Transport(), Transport);
+    EXPECT_EQ(Handoff.Target.Host, *Preview::Network::ParseHost("127.0.0.1"));
+    EXPECT_FALSE(Accepted->HasTransport());
+    EXPECT_FALSE(std::is_copy_constructible_v<Preview::Contract::ProtocolDataPlane>);
 }
 
-TEST(Task9Contract, CompositionMaterializesRuntimeTypedRootWithoutRtti)
+TEST(Task9Contract, RejectedOutcomeHasNoForwardablePayload)
 {
-    boost::asio::io_context Io;
-    Preview::Runtime::Handler::AcceptResult Legacy;
-    Legacy.IsDgram = true;
-    Legacy.Transmission = std::make_shared<Preview::Transport::Unreliable>(Io.get_executor());
-
-    Preview::Composition::Adapters::MaterializeTypedDataPlane(Legacy, true);
-
-    EXPECT_TRUE(Legacy.DataPlane.IsDatagram());
-    EXPECT_TRUE(Legacy.DataPlane.HasTransport());
-    EXPECT_EQ(Legacy.DataPlane.Transport().get(), Legacy.Transmission.get());
+    Preview::Contract::AcceptOutcome Rejected(std::unexpected(
+        Preview::Contract::FailureFromProtocolError(Preview::Error::BadAuth)));
+    EXPECT_FALSE(Rejected);
+    EXPECT_EQ(Rejected.error().Code, Preview::Fault::Code::AuthFailed);
+    EXPECT_FALSE(Rejected.error().Native);
 }

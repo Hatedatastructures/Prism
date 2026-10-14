@@ -18,9 +18,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
+#include <system_error>
+#include <utility>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -29,9 +33,14 @@
 #include <boost/asio/ip/udp.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <boost/system/system_error.hpp>
+
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Net/Udp/EndpointRetirement.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Transport/Unreliable.hpp>
 
@@ -53,17 +62,31 @@ namespace Preview::Network::Udp
     /**
      * @class UdpRelay
      * @brief UDP 双向中继器（关联生命周期）
-     * @details 并发转发两个方向；来源动态配对成会话；
-     *          会话超时回收；单侧关闭终止。
+     * @details 关联表和回收 timer 由 Run 的当前 coroutine executor 驱动；本类不创建 strand，
+     *          调用方须以串行执行域驱动 Run。NativeSocket 收发仍使用各端点固定的 socket executor；
+     *          调用方须保持这些 executor 的 context 运行，并避免从外部并发修改端点。
+     *          任一方向结束后组合协程取消并等待其余任务退出，再对两端提交 Cancel/Close 并等待
+     *          两个 Activity::Drain。首个业务、取消、原生或退休失败以 typed 结果返回。
+     *          UDP 不提供流式半关闭；socket 的 native I/O 由两端 Unreliable 管理。
      */
     class UdpRelay
     {
+        struct AssocTable;
+
+        struct RelayDirection final
+        {
+            std::shared_ptr<Preview::Transport::Unreliable> Source;
+            std::shared_ptr<Preview::Transport::Unreliable> Destination;
+            std::shared_ptr<AssocTable> Table;
+            bool FromIsA{false};
+        };
+
     public:
         /**
          * @brief 构造
-         * @param a 端 A（Unreliable 包装）
-         * @param b 端 B（Unreliable 包装）
-         * @param opts 中继选项
+         * @param EndpointA 端 A（Unreliable 包装）
+         * @param EndpointB 端 B（Unreliable 包装）
+         * @param Options 中继选项
          */
         UdpRelay(std::shared_ptr<Preview::Transport::Unreliable> EndpointA,
                   std::shared_ptr<Preview::Transport::Unreliable> EndpointB,
@@ -73,58 +96,14 @@ namespace Preview::Network::Udp
         }
 
         /**
-         * @brief 运行双向中继
-         * @return 隧道结束后完成
+         * @brief 运行双向 UDP 中继并等待两端退休。
+         * @return 正常方向终止返回成功；取消、native I/O、控制交付或 drain 失败返回首个失败。
+         * @note 在返回 awaitable 前复制端点和选项；中继协程不借用本对象。调用方 executor 须串行。
          */
-        [[nodiscard]] auto Run() -> Net::awaitable<void>
+        [[nodiscard]] auto Run()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
-            using Net::experimental::awaitable_operators::operator||;
-
-            auto Assoc = std::make_shared<AssocTable>(Opts_.IdleTimeout, Opts_.MaxAssociations);
-
-            // 单向转发：from 收 → 按会话表配对目标发 to
-            auto RelayOne = [&](Preview::Transport::Unreliable &Source,
-                                 Preview::Transport::Unreliable &Destination,
-                                 std::shared_ptr<AssocTable> Table,
-                                 bool FromIsA) -> Net::awaitable<void>
-            {
-                // 64KB 缓冲堆分配：协程帧只留 8 字节 shared_ptr（两方向各持独立缓冲，避免读写竞争）
-                auto Buf = std::make_shared<std::array<std::byte, 65535>>();
-                while (true)
-                {
-                    Net::ip::udp::endpoint SourceEndpoint;
-                    boost::system::error_code REc;
-                    const auto N = co_await Source.NativeSocket().async_receive_from(
-                        Net::buffer(Buf->data(), Buf->size()), SourceEndpoint,
-                        Net::redirect_error(Net::use_awaitable, REc));
-                    if (REc || N == 0)
-                    {
-                        co_return;
-                    }
-                    // 先学习/配对，再查转发目标（首包即配对）
-                    Table->Touch(SourceEndpoint, FromIsA);
-                    const auto Peer = Table->PeerOf(SourceEndpoint, FromIsA);
-                    if (!Peer)
-                    {
-                        continue; // 未配对/已回收：丢弃
-                    }
-                    boost::system::error_code WEc;
-                    co_await Destination.NativeSocket().async_send_to(
-                        Net::buffer(Buf->data(), N), *Peer,
-                        Net::redirect_error(Net::use_awaitable, WEc));
-                    if (WEc)
-                    {
-                        co_return;
-                    }
-                    Table->Touch(SourceEndpoint, FromIsA);
-                }
-            };
-
-            co_await (RelayOne(*A_, *B_, Assoc, true) ||
-                      RelayOne(*B_, *A_, Assoc, false) || RecycleLoop(Assoc));
-            A_->Close();
-            B_->Close();
-            co_return;
+            return RunOwned(A_, B_, Opts_);
         }
 
     private:
@@ -148,7 +127,7 @@ namespace Preview::Network::Udp
 
             /**
              * @brief 查询来源配对目标
-             * @param src 来源端点
+             * @param SourceEndpoint 来源端点
              * @param FromA 来源是否 A 侧
              * @return 配对目标（未配对返回 nullopt）
              */
@@ -172,7 +151,7 @@ namespace Preview::Network::Udp
 
             /**
              * @brief 关联/配对：记录来源，与对侧未配对来源配对，刷新活动时间
-             * @param src 来源端点（本侧）
+             * @param SourceEndpoint 来源端点（本侧）
              * @param FromA 来源是否 A 侧
              */
             void Touch(const Net::ip::udp::endpoint &SourceEndpoint, bool FromA)
@@ -360,34 +339,164 @@ namespace Preview::Network::Udp
             std::map<Net::ip::udp::endpoint, Entry> BToA_; ///< B 来源 → 配对
         };
 
+        using RelayResult = Detail::RelayResult;
+
+        /** @brief 竞速两个方向，并在返回前等待被取消方向真实退出。 */
+        [[nodiscard]] static auto RunDirections(
+            std::shared_ptr<Preview::Transport::Unreliable> EndpointA,
+            std::shared_ptr<Preview::Transport::Unreliable> EndpointB,
+            std::shared_ptr<AssocTable> Assoc) -> Net::awaitable<RelayResult>
+        {
+            using Net::experimental::awaitable_operators::operator||;
+            auto Outcome = co_await (
+                RelayOne(RelayDirection{EndpointA, EndpointB, Assoc, true}) ||
+                RelayOne(RelayDirection{EndpointB, EndpointA, std::move(Assoc), false}));
+            if (Outcome.index() == 0U)
+            {
+                co_return std::move(std::get<0>(Outcome));
+            }
+            co_return std::move(std::get<1>(Outcome));
+        }
+
+        [[nodiscard]] static auto RunOwned(
+            std::shared_ptr<Preview::Transport::Unreliable> EndpointA,
+            std::shared_ptr<Preview::Transport::Unreliable> EndpointB,
+            RelayOptions Options) -> Net::awaitable<RelayResult>
+        {
+            using Net::experimental::awaitable_operators::operator||;
+            Detail::EndpointRetirement Retirement(EndpointA, EndpointB);
+            Preview::Fault::Failure Primary;
+            std::exception_ptr FatalException;
+            if (!EndpointA || !EndpointB)
+            {
+                Primary = {Preview::Fault::Code::InvalidArgument};
+            }
+            else
+            {
+                try
+                {
+                    auto Assoc = std::make_shared<AssocTable>(
+                        Options.IdleTimeout, Options.MaxAssociations);
+                    RelayResult RunResult;
+                    if (Options.IdleTimeout.count() <= 0)
+                    {
+                        RunResult = co_await RunDirections(EndpointA, EndpointB, Assoc);
+                    }
+                    else
+                    {
+                        auto Outcome = co_await (
+                            RunDirections(EndpointA, EndpointB, Assoc) ||
+                            RecycleLoop(Assoc, Options.IdleTimeout));
+                        if (Outcome.index() == 0U)
+                        {
+                            RunResult = std::move(std::get<0>(Outcome));
+                        }
+                        else
+                        {
+                            RunResult = std::move(std::get<1>(Outcome));
+                        }
+                    }
+                    if (!RunResult)
+                    {
+                        Primary = RunResult.error();
+                    }
+                }
+                catch (const boost::system::system_error &NativeError)
+                {
+                    Primary = Preview::Fault::FromNative(
+                        static_cast<std::error_code>(NativeError.code()));
+                }
+                catch (const std::system_error &NativeError)
+                {
+                    Primary = Preview::Fault::FromNative(NativeError.code());
+                }
+                catch (...)
+                {
+                    FatalException = std::current_exception();
+                }
+            }
+            co_return co_await Retirement.Finish(
+                std::move(Primary), std::move(FatalException));
+        }
+
+        /**
+         * @brief 按值拥有一条 UDP 方向的接收、配对和发送协程。
+         * @param Direction 两端 socket、关联表和来源侧身份；均由协程帧持有。
+         * @return 端点读写失败、取消或关闭后完成；未配对首包仍按原规则丢弃。
+         * @note 不改变 UDP endpoint 学习、半关闭或 peer close 语义。
+         */
+        [[nodiscard]] static auto RelayOne(RelayDirection Direction)
+            -> Net::awaitable<RelayResult>
+        {
+            auto &Source = *Direction.Source;
+            auto &Destination = *Direction.Destination;
+            auto Table = std::move(Direction.Table);
+            const auto FromIsA = Direction.FromIsA;
+            // 64KB 缓冲由该方向协程独占，避免两方向读写竞争。
+            auto Buf = std::make_shared<std::array<std::byte, 65535>>();
+            while (true)
+            {
+                Net::ip::udp::endpoint SourceEndpoint;
+                boost::system::error_code ReceiveError;
+                const auto N = co_await Source.NativeSocket().async_receive_from(
+                    Net::buffer(Buf->data(), Buf->size()), SourceEndpoint,
+                    Net::redirect_error(Net::use_awaitable, ReceiveError));
+                if (ReceiveError)
+                {
+                    co_return std::unexpected(Preview::Fault::FromNative(
+                        static_cast<std::error_code>(ReceiveError)));
+                }
+                if (N == 0)
+                {
+                    co_return RelayResult{};
+                }
+                Table->Touch(SourceEndpoint, FromIsA);
+                const auto Peer = Table->PeerOf(SourceEndpoint, FromIsA);
+                if (!Peer)
+                {
+                    continue;
+                }
+                boost::system::error_code WriteError;
+                (void)co_await Destination.NativeSocket().async_send_to(
+                    Net::buffer(Buf->data(), N), *Peer,
+                    Net::redirect_error(Net::use_awaitable, WriteError));
+                if (WriteError)
+                {
+                    co_return std::unexpected(Preview::Fault::FromNative(
+                        static_cast<std::error_code>(WriteError)));
+                }
+                Table->Touch(SourceEndpoint, FromIsA);
+            }
+            co_return RelayResult{};
+        }
+
         /**
          * @brief 会话回收循环：周期扫描超时会话
          * @param Table 关联表
          */
-        [[nodiscard]] auto RecycleLoop(std::shared_ptr<AssocTable> Table) -> Net::awaitable<void>
+        [[nodiscard]] static auto RecycleLoop(
+            std::shared_ptr<AssocTable> Table,
+            std::chrono::milliseconds IdleTimeout) -> Net::awaitable<RelayResult>
         {
-            if (Opts_.IdleTimeout.count() <= 0)
-            {
-                // 禁用回收：超长 timer 挂起（不占 socket 读，避免与转发竞争）
-                Net::steady_timer Timer(co_await Net::this_coro::executor);
-                Timer.expires_after(std::chrono::hours(24));
-                boost::system::error_code ErrorCode;
-                co_await Timer.async_wait(Net::redirect_error(Net::use_awaitable, ErrorCode));
-                co_return;
-            }
             while (true)
             {
                 Net::steady_timer Timer(co_await Net::this_coro::executor);
-                Timer.expires_after(Opts_.IdleTimeout);
+                Timer.expires_after(IdleTimeout);
                 boost::system::error_code ErrorCode;
                 co_await Timer.async_wait(Net::redirect_error(Net::use_awaitable, ErrorCode));
                 if (ErrorCode == Net::error::operation_aborted)
                 {
-                    // 组取消是一次性的：吞掉取消将使 || 组永不完成并泄漏 socket
-                    co_return;
+                    co_return std::unexpected(Preview::Fault::FromNative(
+                        static_cast<std::error_code>(ErrorCode)));
+                }
+                if (ErrorCode)
+                {
+                    co_return std::unexpected(Preview::Fault::FromNative(
+                        static_cast<std::error_code>(ErrorCode)));
                 }
                 Table->Reap();
             }
+            co_return RelayResult{};
         }
 
         std::shared_ptr<Preview::Transport::Unreliable> A_; ///< 端 A

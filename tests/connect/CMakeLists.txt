@@ -4,3 +4,9 @@ AddProductionTest(RacerIntegration.cpp)
 AddProductionTest(DialE2ETest.cpp)
 AddProductionTest(DialPure.cpp)
 AddProductionTest(DatagramUtilPure.cpp)
+
+AddProductionTest(ForwardTest.cpp)
+
+AddProductionTest(TunnelTest.cpp)
+
+AddProductionTest(TunnelHalfCloseTest.cpp)

@@ -12,6 +12,8 @@
  *          索引用透明哈希 unordered_map（键 string_view 指向 flight 内部
  *          Key_，O(1) 定位、零键拷贝）；清理采用两阶段（PendingCleanup
  *          标记 + FlushCleanup 延迟删除），避免遍历 map 时迭代器失效。
+ *          并发 flight 数与每个 flight 的等待者数都有预算：新建 flight 或
+ *          预约等待者失败时返回 ResourceUnavailable，不给无界挂起。
  * @note 非线程安全，单 io_context 内使用
  */
 
@@ -19,12 +21,15 @@
 
 #include "Config.hpp"
 
+#include <Preview/Foundation/Fault/Failure.hpp>
+
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,6 +44,16 @@ namespace Preview::Network::Dns
     class Coalescer; // 前置声明：Flight 的友元授权
 
     /**
+     * @struct CoalescerOptions
+     * @brief single-flight 预算；启动期校验并冻结
+     */
+    struct CoalescerOptions
+    {
+        std::size_t MaxFlights{4096};           ///< 并发在途 flight 上限
+        std::size_t MaxWaitersPerFlight{64};    ///< 每个 flight 的等待者上限
+    };
+
+    /**
      * @class Flight
      * @brief 单次在途查询（leader + waiters 共享，内嵌结果槽）
      * @tparam Result 各查询共享的结果类型（如 Upstream::QueryResult）
@@ -51,9 +66,10 @@ namespace Preview::Network::Dns
          * @brief 构造 flight
          * @param ex 定时器执行器
          * @param key 查询键（"domain:qtype"）
+         * @param maxWaiters 等待者额度上限；超出的等待者不再登记
          */
-        Flight(boost::asio::any_io_executor ex, std::string key)
-            : Key_(std::move(key)), Timer_(std::move(ex))
+        Flight(boost::asio::any_io_executor ex, std::string key, const std::size_t maxWaiters)
+            : Key_(std::move(key)), Timer_(std::move(ex)), MaxWaiters_(maxWaiters)
         {
             Timer_.expires_at(std::chrono::steady_clock::time_point::max());
         }
@@ -95,11 +111,17 @@ namespace Preview::Network::Dns
         }
 
         /**
-         * @brief 注册一个等待者
+         * @brief 预约一个等待者额度
+         * @return 额度内返回 true 并登记；超出每个 flight 的等待者上限返回 false
          */
-        void AcquireWaiter()
+        [[nodiscard]] auto TryAcquireWaiter() -> bool
         {
+            if (Waiters_ >= MaxWaiters_)
+            {
+                return false;
+            }
             ++Waiters_;
+            return true;
         }
 
         /**
@@ -137,22 +159,18 @@ namespace Preview::Network::Dns
         /// 写入结果并唤醒全部等待者（仅 leader / Coalescer 调用）
         void Complete(Result result)
         {
-            Result_.emplace(std::move(result));
+            Result_ = std::make_shared<const Result>(std::move(result));
             Ready_ = true;
             Timer_.cancel();
         }
 
-        /// 读取结果槽；leader 尚未完成时为 nullptr
-        [[nodiscard]] auto PeekResult() const -> const Result *
+        /// 获取真实结果owner；leader尚未完成时为空，清理索引不使既有owner失效
+        [[nodiscard]] auto PeekResult() const -> std::shared_ptr<const Result>
         {
-            if (Result_)
-            {
-                return &*Result_;
-            }
-            return nullptr;
+            return Result_;
         }
 
-        /// 清空结果槽（FlushCleanup 删除 flight 时调用，防悬空引用）
+        /// 清空flight自己的结果引用；已经取得的结果owner继续保活真实字节
         void ClearResult()
         {
             Result_.reset();
@@ -160,10 +178,11 @@ namespace Preview::Network::Dns
 
         std::string Key_;
         boost::asio::steady_timer Timer_;
-        std::optional<Result> Result_; ///< 结果内嵌槽（与 flight 同生命周期）
+        std::shared_ptr<const Result> Result_; ///< 唯一不可变结果，借用者必须持真实共享owner。
         bool Ready_{false};
         std::size_t Waiters_{0};
         bool PendingCleanup_{false};
+        std::size_t MaxWaiters_{0}; ///< 等待者额度上限（构造时冻结）
     };
 
     /**
@@ -181,11 +200,22 @@ namespace Preview::Network::Dns
                                              TransparentStringHash, TransparentStringEqual>;
 
         /**
+         * @struct FindResult
+         * @brief FindCreate 结果：flight owner 与是否新建
+         */
+        struct FindResult
+        {
+            FlightPtr Flight;   ///< 既有或新建的 flight
+            bool IsNew{false};  ///< true 表示本调用者是 leader
+        };
+
+        /**
          * @brief 构造合并器
          * @param ex 用于 flight 定时器的执行器
+         * @param options 并发 flight 与等待者预算；启动期冻结
          */
-        explicit Coalescer(boost::asio::any_io_executor ex)
-            : Executor_(std::move(ex))
+        explicit Coalescer(boost::asio::any_io_executor ex, const CoalescerOptions options = {})
+            : Executor_(std::move(ex)), Options_(options)
         {
         }
 
@@ -193,11 +223,11 @@ namespace Preview::Network::Dns
          * @brief 查找或创建 flight
          * @param domain 已规范化域名
          * @param qtype 查询类型数值
-         * @return {flight, is_new}；is_new=false 表示已有 leader 在途，
-         *         调用方应作为 waiter 挂起而非重复打上游
+         * @return FindResult 或 ResourceUnavailable；IsNew=false 表示已有
+         *         leader 在途，调用方应作为 waiter 挂起而非重复打上游
          */
         auto FindCreate(std::string_view domain, const std::uint16_t qtype)
-            -> std::pair<FlightPtr, bool>
+            -> std::expected<FindResult, Fault::Failure>
         {
             std::string key(domain);
             key += ':';
@@ -205,12 +235,17 @@ namespace Preview::Network::Dns
 
             if (auto it = Flights_.find(std::string_view(key)); it != Flights_.end())
             {
-                return {it->second, false};
+                return FindResult{it->second, false};
             }
-            auto flight = std::make_shared<FlightType>(Executor_, std::move(key));
+            if (Flights_.size() >= Options_.MaxFlights)
+            {
+                return std::unexpected(Fault::Failure{Fault::Code::ResourceUnavailable, {}});
+            }
+            auto flight = std::make_shared<FlightType>(Executor_, std::move(key),
+                                                       Options_.MaxWaitersPerFlight);
             // 索引键 string_view 指向 flight 内部 Key_（flight 存活期间地址稳定）
             Flights_.emplace(flight->Key(), flight);
-            return {std::move(flight), true};
+            return FindResult{std::move(flight), true};
         }
 
         /**
@@ -228,7 +263,7 @@ namespace Preview::Network::Dns
          * @param flight 目标 flight
          * @return 结果指针；尚未写入返回 nullptr
          */
-        [[nodiscard]] auto GetResult(const FlightType &flight) const -> const Result *
+        [[nodiscard]] auto GetResult(const FlightType &flight) const -> std::shared_ptr<const Result>
         {
             return flight.PeekResult();
         }
@@ -277,6 +312,7 @@ namespace Preview::Network::Dns
 
     private:
         boost::asio::any_io_executor Executor_;
+        CoalescerOptions Options_;
         FlightMap Flights_; ///< 索引：键 view 指向 flight 内部 Key_
     };
 

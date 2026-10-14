@@ -27,20 +27,18 @@ namespace Preview::Resource
             Preview::WorkerId Worker{};
             Preview::GenerationId Generation{};
             Preview::SessionId Id{};
-            Preview::Memory::ResourcePointer MemoryResource{
-                Preview::Memory::CurrentResource()};
+            Preview::Memory::ResourcePointer MemoryResource{Preview::Memory::CurrentResource()};
             Net::any_io_executor Executor{};
         };
 
-        SessionResources() noexcept : SessionResources(Options{}) {}
+        SessionResources() noexcept : SessionResources(Options{})
+        {
+        }
 
         explicit SessionResources(Options Value) noexcept
-            : Process(Value.Process),
-              Worker(Value.Worker),
-              Generation(Value.Generation),
-              Id(Value.Id),
-              MemoryResource(Value.MemoryResource ? Value.MemoryResource
-                                                  : Preview::Memory::CurrentResource()),
+            : Process(Value.Process), Worker(Value.Worker), Generation(Value.Generation), Id(Value.Id),
+              MemoryResource(
+                  Value.MemoryResource ? Value.MemoryResource : Preview::Memory::CurrentResource()),
               Executor(std::move(Value.Executor))
         {
         }
@@ -49,8 +47,7 @@ namespace Preview::Resource
         Preview::WorkerId Worker{};
         Preview::GenerationId Generation{};
         Preview::SessionId Id{};
-        Preview::Memory::ResourcePointer MemoryResource{
-            Preview::Memory::CurrentResource()};
+        Preview::Memory::ResourcePointer MemoryResource{Preview::Memory::CurrentResource()};
         Net::any_io_executor Executor{};
     };
 

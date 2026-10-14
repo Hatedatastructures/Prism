@@ -26,6 +26,49 @@ namespace Preview::Composition::Recognition
     namespace Net = boost::asio;
     namespace Core = Preview::Recognition;
 
+    struct NativeTlsCarrier final
+    {
+        std::shared_ptr<Net::ssl::context> Context;
+        std::chrono::steady_clock::duration Timeout;
+
+        struct Request final
+        {
+            Preview::SharedTransmission Inbound;
+            std::shared_ptr<Net::ssl::context> Context;
+            std::chrono::steady_clock::duration Timeout;
+            std::shared_ptr<Preview::Memory::BytePool> Bytes;
+        };
+
+        [[nodiscard]] static auto Run(Request Value) -> Net::awaitable<Core::CarrierAcceptResult>
+        {
+            Core::CarrierAcceptResult Result;
+            Result.Metadata.Carrier = "native";
+            if (!Value.Context)
+            {
+                Result.Code = Preview::Fault::Code::NotSupported;
+                Result.Transport = std::move(Value.Inbound);
+                co_return Result;
+            }
+            const auto TlsResult = co_await Preview::Transport::UpgradeNativeTls(
+                Preview::Transport::NativeTlsRequest{
+                    std::move(Value.Inbound), Value.Context, Value.Timeout, std::move(Value.Bytes)});
+            Result.Code = TlsResult.Failure.Code;
+            Result.Transport = std::move(TlsResult.Transport);
+            Result.NativeError = TlsResult.Failure.Native;
+            if (Result.Code == Preview::Fault::Code::Success && !TlsResult.Attempted)
+            {
+                Result.Code = Preview::Fault::Code::TlsHsfail;
+            }
+            co_return Result;
+        }
+
+        [[nodiscard]] auto operator()(Core::CarrierAcceptInput Input) const
+            -> Net::awaitable<Core::CarrierAcceptResult>
+        {
+            return Run(Request{std::move(Input.Inbound), Context, Timeout, std::move(Input.Bytes)});
+        }
+    };
+
     /**
      * @struct AnytlsCarrierOptions
      * @brief Native TLS 外层与 AnyTLS 内层候选的稳定构造参数。
@@ -36,7 +79,7 @@ namespace Preview::Composition::Recognition
         std::vector<std::string> ServerNames;
         std::vector<std::string> Alpn;
         std::shared_ptr<Net::ssl::context> NativeTls;
-        Preview::Anytls::ServerConfig Config;
+        Preview::Anytls::IngressOptions Config;
         std::chrono::steady_clock::duration Timeout{
             Preview::Transport::Encrypted::DefaultHandshakeTimeout};
     };
@@ -54,29 +97,7 @@ namespace Preview::Composition::Recognition
         const std::chrono::steady_clock::duration Timeout =
             Preview::Transport::Encrypted::DefaultHandshakeTimeout) -> CarrierAcceptFn
     {
-        return [Context = std::move(Context), Timeout](Preview::SharedTransmission Inbound)
-            -> Net::awaitable<Core::CarrierAcceptResult>
-        {
-            Core::CarrierAcceptResult Result;
-            Result.Metadata.Carrier = "native";
-            if (!Context)
-            {
-                Result.Code = Preview::Fault::Code::NotSupported;
-                Result.Transport = std::move(Inbound);
-                co_return Result;
-            }
-
-            const auto TlsResult = co_await Preview::Transport::UpgradeNativeTls(
-                Preview::Transport::NativeTlsRequest{std::move(Inbound), Context, Timeout});
-            Result.Code = TlsResult.Code;
-            Result.Transport = std::move(TlsResult.Transport);
-            Result.NativeError = TlsResult.NativeError;
-            if (Result.Code == Preview::Fault::Code::Success && !TlsResult.Attempted)
-            {
-                Result.Code = Preview::Fault::Code::TlsHsfail;
-            }
-            co_return Result;
-        };
+        return CarrierAcceptFn{NativeTlsCarrier{std::move(Context), Timeout}};
     }
 
     /**

@@ -9,41 +9,49 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <span>
 
 namespace Preview::Http3::Qpack::Detail
 {
+    /** @brief 同一前缀整数的值与已消费字节；失败不发布部分解析状态。 */
+    struct DecodedInteger final
+    {
+        std::uint64_t Value;
+        std::size_t Consumed;
+    };
+
+    /** @brief 一个 QPACK wire 整数的值、前缀位宽与控制位。 */
+    struct EncodedInteger final
+    {
+        std::uint8_t PrefixBits;
+        std::uint64_t Value;
+        std::uint8_t PrefixPattern;
+    };
 
     /**
      * @brief 解码前缀整数
      * @param In 输入字节
      * @param PrefixBits 前缀位宽
-     * @param Value 输出整数
-     * @param Consumed 输出消耗字节数
-     * @return 是否解码成功
+     * @return 完整值与消耗字节；空、截断或溢出返回 nullopt。
+     * @details 同步借输入直至返回，不分配；无取消、半关闭或 executor，caller 拥有 wire。
      * @note 对 PrefixBits=8，UINT64_MAX 的合法编码包含第 10 个
      *       continuation 字节，其有效位位于 shift=63。
      */
     [[nodiscard]] inline auto ReadVarint(
         std::span<const std::uint8_t> Input,
-        std::uint8_t PrefixBits,
-        std::uint64_t &Value,
-        std::size_t &Consumed) -> bool
+        std::uint8_t PrefixBits) -> std::optional<DecodedInteger>
     {
-        Value = 0;
-        Consumed = 0;
         if (Input.empty() || PrefixBits == 0 || PrefixBits > 8)
         {
-            return false;
+            return std::nullopt;
         }
         const std::uint64_t PrefixMask = (1ULL << PrefixBits) - 1;
         std::uint64_t Result = Input[0] & PrefixMask;
         std::size_t Offset = 1;
         if (Result < PrefixMask)
         {
-            Value = Result;
-            Consumed = Offset;
-            return true;
+            return DecodedInteger{Result, Offset};
         }
         std::uint64_t Shift = 0;
         while (Offset < Input.size())
@@ -52,40 +60,37 @@ namespace Preview::Http3::Qpack::Detail
             const auto Chunk = static_cast<std::uint64_t>(Byte & 0x7F);
             if (Shift >= 64 || Chunk > (std::numeric_limits<std::uint64_t>::max() - Result) >> Shift)
             {
-                return false;
+                return std::nullopt;
             }
             Result += Chunk << Shift;
             if ((Byte & 0x80) == 0)
             {
-                Value = Result;
-                Consumed = Offset;
-                return true;
+                return DecodedInteger{Result, Offset};
             }
             Shift += 7;
             if (Shift > 63)
             {
-                return false;
+                return std::nullopt;
             }
         }
-        return false;
+        return std::nullopt;
     }
 
     /**
      * @brief 编码前缀整数
      * @param Output 输出缓冲
-     * @param PrefixBits 前缀位宽
-     * @param Value 待编码整数
-     * @param PrefixPattern 前缀模式
+     * @param Integer 待编码的完整前缀整数。
      * @return 写入字节数；缓冲不足返回 0
      * @note PrefixPattern 的低 PrefixBits 位必须为 0；PrefixBits=8 时，
      *       UINT64_MAX 需要第 10 个 continuation 字节。
      */
     [[nodiscard]] inline auto WriteVarint(
         std::span<std::uint8_t> Output,
-        std::uint8_t PrefixBits,
-        std::uint64_t Value,
-        std::uint8_t PrefixPattern) -> std::size_t
+        EncodedInteger Integer) -> std::size_t
     {
+        const auto PrefixBits = Integer.PrefixBits;
+        const auto Value = Integer.Value;
+        const auto PrefixPattern = Integer.PrefixPattern;
         if (PrefixBits == 0 || PrefixBits > 8)
         {
             return 0;

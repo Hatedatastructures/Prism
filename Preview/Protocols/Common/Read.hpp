@@ -30,8 +30,8 @@ namespace Preview::Protocol::Common
      * @param Buffer 输出缓冲区
      * @param MinSize 最小读取字节数
      * @return 协程对象，完成后返回错误码和实际读取字节数
-     * @details 循环调用 async_read_some 直到读取至少 MinSize 字节。
-     * 遇到错误或 EOF 时提前返回，返回已读取的字节数和对应的错误码。
+ * @details 循环调用正式 ReadSome 前门直到读取至少 MinSize 字节。
+ * 遇到错误或 EOF 时提前返回，返回已读取的字节数和对应的领域码。
      */
     [[nodiscard]] inline auto ReadMin(
         Preview::Transmission &Transport,
@@ -45,20 +45,19 @@ namespace Preview::Protocol::Common
         std::size_t Total = 0;
         while (Total < MinSize)
         {
-            std::error_code ErrorCode;
-            const auto Count = co_await Transport.async_read_some(Buffer.subspan(Total), ErrorCode);
-            if (Count > Buffer.size() - Total)
+            const auto Part = co_await Transport.ReadSome(Buffer.subspan(Total));
+            if (Part.Bytes > Buffer.size() - Total)
             {
                 co_return std::pair{Fault::Code::IoError, Total};
             }
-            Total += Count;
+            Total += Part.Bytes;
             // Asio 允许一次读取同时返回有效字节和 EOF/错误；先保留已消费的字节，
             // 否则调用方会丢掉帧尾并从错误位置继续解析。
-            if (ErrorCode)
+            if (Part.Failure.Failed())
             {
-                co_return std::pair{Fault::ToCode(ErrorCode), Total};
+                co_return std::pair{Part.Failure.Code, Total};
             }
-            if (Count == 0)
+            if (Part.Bytes == 0)
             {
                 co_return std::pair{Fault::Code::Eof, Total};
             }
@@ -84,8 +83,8 @@ namespace Preview::Protocol::Common
      * @brief 精确补读剩余字节
      * @param Options 读取选项（transport + Buffer + current + Target）
      * @return 协程对象，完成后返回错误码和最终读取字节数
-     * @details 从 current 位置继续读取，直到达到 Target 字节。
-     * 遇到错误或 EOF 时提前返回，返回已读取的字节数和对应的错误码。
+ * @details 从 current 位置继续读取，直到达到 Target 字节。
+ * 遇到错误或 EOF 时提前返回，返回已读取的字节数和对应的领域码。
      */
     [[nodiscard]] inline auto ReadRemaining(RemainingOpts Options)
         -> Net::awaitable<std::pair<Fault::Code, std::size_t>>
@@ -96,20 +95,17 @@ namespace Preview::Protocol::Common
         }
         while (Options.current < Options.Target)
         {
-            std::error_code ErrorCode;
-            const auto Count = co_await Options.transport.async_read_some(
-                Options.Buffer.subspan(Options.current),
-                ErrorCode);
-            if (Options.current > Options.Buffer.size() || Count > Options.Buffer.size() - Options.current)
+            const auto Part = co_await Options.transport.ReadSome(Options.Buffer.subspan(Options.current));
+            if (Options.current > Options.Buffer.size() || Part.Bytes > Options.Buffer.size() - Options.current)
             {
                 co_return std::pair{Fault::Code::IoError, Options.current};
             }
-            Options.current += Count;
-            if (ErrorCode)
+            Options.current += Part.Bytes;
+            if (Part.Failure.Failed())
             {
-                co_return std::pair{Fault::ToCode(ErrorCode), Options.current};
+                co_return std::pair{Part.Failure.Code, Options.current};
             }
-            if (Count == 0)
+            if (Part.Bytes == 0)
             {
                 co_return std::pair{Fault::Code::Eof, Options.current};
             }

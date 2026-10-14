@@ -1,24 +1,25 @@
 /**
  * @file Dial.hpp
  * @brief 拨号中间件
- * @details 消费 ctx.Target，拨号建立上游传输并注入管线上下文。
- * 支持注入自定义拨号函数（测试用内存实现 / 生产用 Preview::Network::Outbound::Dial）。
+ * @details 消费 ctx.Target()，拨号建立上游传输并注入管线上下文。
+ * 支持注入自定义拨号函数（测试用内存实现 / 生产用已编译拨号绑定）。
  * 对应生产库 net/connection/Outbound/Dial 的中间件化。
  */
 
 #pragma once
 
-#include <boost/asio/awaitable.hpp>
-
-#include <functional>
-#include <string_view>
-
 #include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Foundation/Fault/Handling.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Net/Target.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Middleware/Pipeline.hpp>
-#include <Preview/Net/Target.hpp>
 #include <Preview/Transport/Transmission.hpp>
+
+#include <boost/asio/awaitable.hpp>
+
+#include <expected>
+#include <functional>
+#include <string_view>
 
 namespace Preview::Middleware::Builtin
 {
@@ -34,10 +35,10 @@ namespace Preview::Middleware::Builtin
     class DialMiddleware final : public Middleware
     {
     public:
-        /// 拨号函数签名（host:port → 传输）
+        /// 拨号函数签名（typed 目标 → owning 传输；失败保留领域码与原生 cause）
         using DialFn =
-            std::function<Net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>(
-                const Preview::Network::Target &)>;
+            std::function<Net::awaitable<std::expected<Preview::SharedTransmission, Preview::Fault::Failure>>(
+                const Preview::Network::Target&)>;
 
         /**
          * @brief 构造函数
@@ -59,31 +60,27 @@ namespace Preview::Middleware::Builtin
          * @brief 拨号上游
          * @param Inbound 入站传输（本中间件不改动）
          * @param ctx 管线上下文（消费 Target）
-         * @return 拨号结果码
+         * @return 正式失败值；拨号错误的领域码和原生 cause 原样保留。
+         * @note 拨号协程在调用 executor 执行；取消沿 awaitable 传递。成功的 owning 传输移交 Context，最终关闭由 Session relay owner 负责。
          */
-        auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
-            -> Net::awaitable<Preview::Fault::Code> override
+        auto Handle(Preview::SharedTransmission& /*Inbound*/, Context& ctx)
+            -> Net::awaitable<Preview::Fault::Failure> override
         {
             if (!Dial_)
             {
-                co_return Preview::Fault::Code::NotSupported;
+                co_return Preview::Fault::Failure{Preview::Fault::Code::NotSupported};
             }
-            auto [ec, Outbound] = co_await Dial_(ctx.Target);
-            if (Preview::Fault::Failed(ec) || !Outbound)
+            auto Result = co_await Dial_(ctx.Target());
+            if (!Result)
             {
-                if (Outbound)
-                {
-                    Outbound->Cancel();
-                    Outbound->Close();
-                }
-                if (Preview::Fault::Failed(ec))
-                {
-                    co_return ec;
-                }
-                co_return Preview::Fault::Code::BadGateway;
+                co_return Result.error();
             }
-            ctx.Outbound = std::move(Outbound);
-            co_return Preview::Fault::Code::Success;
+            if (!*Result)
+            {
+                co_return Preview::Fault::Failure{Preview::Fault::Code::BadGateway};
+            }
+            ctx.Outbound = std::move(*Result);
+            co_return Preview::Fault::Failure{};
         }
 
     private:

@@ -1,151 +1,160 @@
-/**
- * @file AsyncBackendState.hpp
- * @brief Preview Diagnose 唯一 spdlog async owner 的值状态和指标。
+/** @file AsyncBackendState.hpp
+ * @brief 唯一有界记录队列、generation epoch 与物理 sink owner 的 process owner。
  */
 #pragma once
 
-#include <spdlog/async.h>
-#include <spdlog/details/thread_pool.h>
+#include <Preview/Foundation/Utility/Diagnose/Detail/ContextSnapshot.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Detail/DeferredMessage.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Detail/PathSinkOwner.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Detail/RenderEpoch.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Detail/SinkSet.hpp>
+#include <Preview/Foundation/Utility/Text/TraceSelection.hpp>
 
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <filesystem>
+#include <map>
 #include <memory>
-#include <optional>
+#include <mutex>
 #include <string>
-
-#include <Preview/Foundation/Utility/Diagnose/Detail/SubmissionRecord.hpp>
-#include <Preview/Foundation/Utility/Diagnose/RenderMode.hpp>
-#include <Preview/Foundation/Utility/Diagnose/RuntimeOptions.hpp>
-#include <Preview/Foundation/Utility/Diagnose/SubmissionReceipt.hpp>
-#include <Preview/Statistics/Trace.hpp>
+#include <thread>
+#include <vector>
 
 namespace Preview::Diagnose::Detail
 {
-
-    class SinkSet;
-
-    /** @brief Diagnose backend 初始化或配置失败的分类。 */
-    enum class BackendErrorCode : std::uint8_t
+    /** @brief 不阻塞协程 prepare 的 epoch registry gate；worker 可 wait 原子通知。 */
+    class EpochGate final
     {
-        InvalidOptions,        ///< 参数不满足 backend 的边界约束。
-        Directory,             ///< 无法创建或访问日志目录。
-        FileOpen,              ///< 无法打开日志文件或创建 sink。
-        LegacyArchive,         ///< 无法归档与当前格式不兼容的旧日志文件。
-        ConfigurationConflict, ///< 已安装 backend 收到不同配置。
-        OwnerConflict,         ///< 进程级 Diagnose backend owner 已被占用。
-        WorkerStart,           ///< spdlog 异步线程池初始化失败。
+    public:
+        [[nodiscard]] auto TryLock() noexcept -> bool
+        {
+            return !Flag_.test_and_set(std::memory_order_acquire);
+        }
+        auto lock() noexcept -> void
+        {
+            while (Flag_.test_and_set(std::memory_order_acquire))
+            {
+                Flag_.wait(true, std::memory_order_acquire);
+            }
+        }
+        auto unlock() noexcept -> void
+        {
+            Flag_.clear(std::memory_order_release);
+            Flag_.notify_one();
+        }
+    private:
+        std::atomic_flag Flag_ = ATOMIC_FLAG_INIT;
+    };
+
+    /** @brief Prepare 使用的非阻塞 gate scope；竞争时调用方返回 typed ResourceUnavailable。 */
+    class EpochGateGuard final
+    {
+    public:
+        explicit EpochGateGuard(EpochGate& Gate) noexcept
+            : Gate_(Gate), Acquired_(Gate_.TryLock())
+        {
+        }
+        ~EpochGateGuard()
+        {
+            if (Acquired_)
+            {
+                Gate_.unlock();
+            }
+        }
+        [[nodiscard]] auto Acquired() const noexcept -> bool
+        {
+            return Acquired_;
+        }
+    private:
+        EpochGate& Gate_;
+        bool Acquired_{false};
+    };
+    enum class QueueCommand : std::uint8_t { Message, Flush, Barrier };
+
+    /** @brief 记录槽直接 pin 所属 epoch，控制槽不绑定 record epoch。 */
+    struct SubmissionSnapshot final
+    {
+        LogLevel Level{LogLevel::Info};
+        SubmissionKind Kind{SubmissionKind::Ordinary};
+        QueueCommand Command{QueueCommand::Message};
+        std::uint64_t Sequence{0U};
+        std::uint64_t TimestampMilliseconds{0U};
+        std::uint64_t BarrierId{0U};
+        DeferredMessage Message{};
+        ContextSnapshot Context{};
+        Preview::Diagnose::RenderEpochPin Epoch{};
+    };
+
+    /** @brief worker 退休 epoch 时保留关闭回执与其唯一物理路径 key。 */
+    struct EpochRegistration final
+    {
+        std::weak_ptr<RenderEpoch> Epoch;
+        std::shared_ptr<RenderEpochCloseState> CloseState;
+        std::filesystem::path Path;
     };
 
     /**
-     * @brief 描述一次 backend 操作失败。
-     */
-    struct BackendError final
-    {
-        BackendErrorCode Code{BackendErrorCode::InvalidOptions}; ///< 稳定的失败分类。
-        std::string Path{};    ///< 与失败有关的文件系统路径；非路径错误时可为空。
-        std::string Message{}; ///< 面向维护者的具体错误说明。
-    };
-
-    /**
-     * @brief BackendLifecycle 安装异步 backend 所需的完整配置。
-     */
-    struct BackendSettings final
-    {
-        RuntimeOptions Logging{};                             ///< 文件、队列和级别配置。
-        RenderMode Mode{RenderMode::CompactHuman};            ///< 人类可读或结构化渲染方式。
-        Preview::Statistics::TraceSelection TraceSelection{}; ///< HumanWithFields 模式下的身份字段选择。
-        std::uint32_t FlushIntervalMs{250U}; ///< 应用运行时异步请求 sink flush 的周期，单位毫秒。
-    };
-
-    /**
-     * @brief 保存唯一异步 backend 的不可变配置、指标和资源句柄。
-     * @details BackendLifecycle 安装后创建该状态，并以 shared_ptr 保证正在执行的提交可以安全持有它。
-     *          本类不创建线程或队列；异步线程池由 spdlog 管理。
+     * @brief 冷构造一份有界槽与唯一后台线程；活动输出 epoch 可热替换。
+     * @details producer 只复制到固定槽，不创建第二条队列；worker 按槽固定的 epoch 输出。
      */
     class AsyncBackendState final
     {
     public:
-        static constexpr std::size_t LevelCount =
-            static_cast<std::size_t>(LogLevel::Off) + 1U; ///< LogLevel 的计数槽位数。
+        static constexpr std::size_t LevelCount = static_cast<std::size_t>(LogLevel::Off) + 1U;
+        static constexpr std::size_t MaxRetainedEpochs = 8U;
+        static constexpr std::size_t MaxPathOwners = 8U;
 
-        /**
-         * @brief 绑定 backend 配置、sink 和 logger 资源。
-         * @param SettingsValue 安装后不可变的 backend 设置。
-         * @param PoolValue 本模块独占的 spdlog async thread pool。
-         * @param SinkValue sink 生命周期 owner。
-         * @param LoggerValue spdlog 异步 logger。
-         */
-        AsyncBackendState(BackendSettings SettingsValue,
-                          std::shared_ptr<spdlog::details::thread_pool> PoolValue,
-                          std::shared_ptr<SinkSet> SinkValue,
-                          std::shared_ptr<spdlog::async_logger> LoggerValue)
-            : Settings_(std::move(SettingsValue)), Pool_(std::move(PoolValue)), Sinks_(std::move(SinkValue)),
-              Logger_(std::move(LoggerValue))
+        AsyncBackendState(const std::uint64_t OwnerId, BackendSettings Settings)
+            : OwnerId_(OwnerId), Settings_(std::move(Settings)),
+              Queue_(std::make_unique<SubmissionSnapshot[]>(Settings_.Logging.QueueCapacity)),
+              Wake_(std::make_shared<BackendWakeSignal>())
         {
+            Epochs_.reserve(MaxRetainedEpochs);
         }
 
-        AsyncBackendState(const AsyncBackendState &) = delete;
-        auto operator=(const AsyncBackendState &) -> AsyncBackendState & = delete;
+        AsyncBackendState(const AsyncBackendState&) = delete;
+        auto operator=(const AsyncBackendState&) -> AsyncBackendState& = delete;
 
-        /**
-         * @brief 读取本模块异步队列当前的记录数。
-         * @return 当前排队记录数；线程池不存在时返回 0。
-         */
         [[nodiscard]] auto QueueSize() const noexcept -> std::size_t
         {
-            const auto Pool = Pool_.load(std::memory_order_acquire);
-            if (Pool)
-            {
-                return Pool->queue_size();
-            }
-            return 0U;
+            const auto Read = Read_.load(std::memory_order_acquire);
+            const auto Write = Write_.load(std::memory_order_acquire);
+            return static_cast<std::size_t>(Write - Read);
         }
 
-        /**
-         * @brief 读取当前记录的队列最高水位。
-         * @return 自安装或上次重置以来观察到的最大队列长度。
-         */
         [[nodiscard]] auto QueueHighWatermark() const noexcept -> std::size_t
         {
             return QueueHighWatermark_.load(std::memory_order_relaxed);
         }
 
-        /** @brief 在观测值高于当前记录时更新队列最高水位。
-         * @param Value 本次观察到的队列长度。
-         */
         auto ObserveQueueHighWatermark(const std::size_t Value) noexcept -> void
         {
             auto Previous = QueueHighWatermark_.load(std::memory_order_relaxed);
-            while (Value > Previous &&
-                   !QueueHighWatermark_.compare_exchange_weak(Previous, Value, std::memory_order_relaxed))
+            while (Value > Previous && !QueueHighWatermark_.compare_exchange_weak(
+                Previous, Value, std::memory_order_relaxed))
             {
             }
         }
 
-        /** @brief 将队列最高水位重置为当前队列长度。
-         * @details 调用期间队列仍可变化，因此结果是一次原子读取得到的近似基线。
-         */
         auto ResetQueueHighWatermark() noexcept -> void
         {
             QueueHighWatermark_.store(QueueSize(), std::memory_order_relaxed);
         }
 
-        /**
-         * @brief 返回指定级别的非阻塞提交失败计数。
-         * @param Level 要查询的日志级别。
-         * @return 该级别因入队门闩竞争或异步队列满而未能提交的次数。
-         */
         [[nodiscard]] auto Dropped(const LogLevel Level) const noexcept -> std::uint64_t
         {
+            if (static_cast<std::size_t>(Level) >= LevelCount)
+            {
+                return 0U;
+            }
             return Dropped_[static_cast<std::size_t>(Level)].load(std::memory_order_relaxed);
         }
 
-        /**
-         * @brief 读取因入队门闩竞争或队列满而未能提交的 Audit 记录数。
-         * @return Audit 记录未入队的累计次数；不表示已入队记录已落盘。
-         */
         [[nodiscard]] auto TerminalFailures() const noexcept -> std::uint64_t
         {
             return TerminalFailures_.load(std::memory_order_relaxed);
@@ -155,18 +164,168 @@ namespace Preview::Diagnose::Detail
         friend class BackendLifecycle;
         friend class BackendBridge;
         friend class AsyncSubmission;
+        friend class BackendWorker;
 
-        const BackendSettings Settings_;                                  ///< 安装后不可变的 backend 配置。
-        std::atomic<std::shared_ptr<spdlog::details::thread_pool>> Pool_; ///< spdlog 异步线程池 owner。
-        const std::shared_ptr<SinkSet> Sinks_;                            ///< spdlog sink 集合 owner。
-        std::shared_ptr<spdlog::async_logger> Logger_;                    ///< spdlog 异步 logger owner。
-        std::atomic<std::uint64_t> NextSequence_{1U};                     ///< 进程内单调提交序号。
-        std::atomic<std::size_t> QueueHighWatermark_{0U}; ///< 观察到的 spdlog queue 最高水位。
-        std::atomic_flag EnqueueGate_ = ATOMIC_FLAG_INIT; ///< 串行化非阻塞入队和 discard counter 归因。
-        std::atomic<bool> Accepting_{true};               ///< 是否仍接受 facade 提交。
-        std::array<std::atomic<std::uint64_t>, LevelCount> Dropped_{}; ///< 各级别未能进入异步队列的记录数。
-        std::atomic<std::uint64_t> TerminalFailures_{0U};              ///< 未能进入异步队列的 Audit 记录数。
-        std::atomic<std::uint64_t> CaptureFailures_{0U};               ///< Context 快照或消息捕获失败次数。
+        [[nodiscard]] auto FlushOutputs() noexcept -> bool
+        {
+            std::lock_guard Lock(EpochGate_);
+            bool Succeeded = !SinkFailure_.load(std::memory_order_acquire);
+            bool FlushConsole = ConsoleOutputSeen_;
+            for (const auto &Entry : Epochs_)
+            {
+                if (const auto Epoch = Entry.Epoch.lock())
+                {
+                    const auto Sinks = Epoch->Sinks.load(std::memory_order_acquire);
+                    FlushConsole = FlushConsole || (Sinks && Sinks->ConsoleEnabled());
+                }
+            }
+            for (const auto &[Path, Owner] : PathOwners_)
+            {
+                (void)Path;
+                Succeeded = Owner->Flush() && Succeeded;
+            }
+            if (FlushConsole)
+            {
+                Succeeded = SinkSet::FlushConsole() && Succeeded;
+            }
+            if (!Succeeded)
+            {
+                SinkFailure_.store(true, std::memory_order_release);
+            }
+            return Succeeded;
+        }
+
+        auto CleanupRetiredResources() noexcept -> void
+        {
+            std::lock_guard Lock(EpochGate_);
+            auto Entry = Epochs_.begin();
+            while (Entry != Epochs_.end())
+            {
+                if (!Entry->Epoch.expired())
+                {
+                    ++Entry;
+                    continue;
+                }
+                bool Failed = false;
+                const auto Owner = PathOwners_.find(Entry->Path);
+                if (Owner != PathOwners_.end() && Owner->second.use_count() == 1)
+                {
+                    Failed = !Owner->second->Close();
+                    if (Failed)
+                    {
+                        SinkFailure_.store(true, std::memory_order_release);
+                        SinkFailures_.fetch_add(1U, std::memory_order_relaxed);
+                    }
+                    PathOwners_.erase(Owner);
+                }
+                Entry->CloseState->Failed.store(Failed, std::memory_order_release);
+                Entry->CloseState->Closed.store(true, std::memory_order_release);
+                Entry = Epochs_.erase(Entry);
+            }
+            auto Path = PathOwners_.begin();
+            while (Path != PathOwners_.end())
+            {
+                if (Path->second.use_count() != 1)
+                {
+                    ++Path;
+                    continue;
+                }
+                if (!Path->second->Close())
+                {
+                    SinkFailures_.fetch_add(1U, std::memory_order_relaxed);
+                }
+                Path = PathOwners_.erase(Path);
+            }
+        }
+
+        [[nodiscard]] auto CloseOutputs() noexcept -> bool
+        {
+            std::lock_guard Lock(EpochGate_);
+            Accepting_.store(false, std::memory_order_release);
+            ActiveEpoch_.store(Preview::Diagnose::RenderEpochPin{}, std::memory_order_release);
+            bool Succeeded = !SinkFailure_.load(std::memory_order_acquire);
+            if (ConsoleOutputSeen_)
+            {
+                const auto ConsoleFlushed = SinkSet::FlushConsole();
+                if (!ConsoleFlushed)
+                {
+                    SinkFailure_.store(true, std::memory_order_release);
+                }
+                Succeeded = ConsoleFlushed && Succeeded;
+            }
+            for (auto &Entry : Epochs_)
+            {
+                bool EpochSucceeded = !SinkFailure_.load(std::memory_order_acquire);
+                const auto Owner = PathOwners_.find(Entry.Path);
+                if (const auto Epoch = Entry.Epoch.lock())
+                {
+                    const auto Sinks = Epoch->Sinks.exchange({}, std::memory_order_acq_rel);
+                    if (Sinks)
+                    {
+                        EpochSucceeded = Sinks->Close() && EpochSucceeded;
+                    }
+                    Epoch->Closed.store(true, std::memory_order_release);
+                }
+                if (Owner != PathOwners_.end())
+                {
+                    EpochSucceeded = Owner->second->Close() && EpochSucceeded;
+                }
+                Succeeded = EpochSucceeded && Succeeded;
+                Entry.CloseState->Failed.store(!EpochSucceeded, std::memory_order_release);
+                Entry.CloseState->Closed.store(true, std::memory_order_release);
+            }
+            for (auto &[Path, Owner] : PathOwners_)
+            {
+                (void)Path;
+                Succeeded = Owner->Close() && Succeeded;
+            }
+            PathOwners_.clear();
+            Epochs_.clear();
+            if (!Succeeded)
+            {
+                SinkFailure_.store(true, std::memory_order_release);
+            }
+            FinalCloseSucceeded_.store(Succeeded, std::memory_order_release);
+            return Succeeded;
+        }
+
+        const std::uint64_t OwnerId_;
+        const BackendSettings Settings_;
+        const std::unique_ptr<SubmissionSnapshot[]> Queue_;
+        const std::shared_ptr<BackendWakeSignal> Wake_;
+        std::atomic<Preview::Diagnose::RenderEpochPin> ActiveEpoch_{};
+        EpochGate EpochGate_;
+        std::vector<EpochRegistration> Epochs_;
+        std::map<std::filesystem::path, std::shared_ptr<PathSinkOwner>> PathOwners_;
+        std::uint64_t NextEpochId_{1U};
+        bool ConsoleOutputSeen_{false};
+        std::thread Worker_{};
+        std::atomic<std::uint64_t> Read_{0U};
+        std::atomic<std::uint64_t> Write_{0U};
+        std::atomic<std::uint64_t> NextSequence_{1U};
+        std::atomic<std::size_t> QueueHighWatermark_{0U};
+        std::atomic_flag EnqueueGate_ = ATOMIC_FLAG_INIT;
+        std::atomic<bool> Accepting_{true};
+        std::atomic<bool> Stopping_{false};
+        std::atomic<bool> WorkerFailed_{false};
+        std::array<std::atomic<std::uint64_t>, LevelCount> Dropped_{};
+        std::atomic<std::uint64_t> TerminalFailures_{0U};
+        std::atomic<std::uint64_t> CaptureFailures_{0U};
+        std::atomic<std::uint64_t> RenderFailures_{0U};
+        std::atomic<std::uint64_t> SinkFailures_{0U};
+        std::atomic<bool> SinkFailure_{false};
+        std::atomic<std::uint64_t> Written_{0U};
+        std::atomic<std::uint64_t> LastProcessedSequence_{0U};
+        std::atomic<std::uint64_t> LastWrittenSequence_{0U};
+        std::atomic<std::uint64_t> BarrierWrittenSequence_{0U};
+        std::atomic_flag BarrierGate_ = ATOMIC_FLAG_INIT;
+        std::atomic<std::uint64_t> NextBarrier_{1U};
+        std::atomic<std::uint64_t> CompletedBarrier_{0U};
+        std::atomic<std::chrono::steady_clock::rep> CompletedBarrierTicks_{0};
+        std::atomic<SubmissionStatus> BarrierStatus_{SubmissionStatus::Failed};
+        std::atomic<bool> FinalCloseSucceeded_{false};
+        std::atomic<bool> FinalFlushSucceeded_{false};
+        std::condition_variable ControlChanged_{};
+        std::mutex ControlMutex_{};
     };
-
-} // namespace Preview::Diagnose::Detail
+}

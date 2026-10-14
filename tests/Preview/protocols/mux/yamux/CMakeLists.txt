@@ -1,8 +1,0 @@
-AddProductionTest(YamuxCraftDeep2.cpp)
-target_link_libraries(YamuxCraftDeep2 PRIVATE ProductionTestSupport)
-
-AddProductionTest(YamuxCraftDeep.cpp)
-target_link_libraries(YamuxCraftDeep PRIVATE ProductionTestSupport)
-
-AddPreviewTest(YamuxCodecError.cpp)
-target_link_libraries(YamuxCodecError PRIVATE PreviewProtocolMux PreviewTestSupport)

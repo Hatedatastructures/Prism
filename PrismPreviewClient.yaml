@@ -49,9 +49,9 @@ hosts:
 # Verified carrier and UDP nodes remain outside the active and health groups to
 # avoid startup-probe cross-traffic. WebSocket/XHTTP/Gun, TrustTunnel, Trojan
 # UDP, AnyTLS UDP, carrier UDP, and carrier-mux variants are excluded because
-# the current JSON bindings do not expose those wire paths. Hysteria2 uses the
-# independent QUIC gateway. TUIC is omitted because this shared listener cannot
-# uniquely admit two h3 QUIC engines by trialing both candidates.
+# the current JSON bindings do not expose those wire paths. Hysteria2 and TUIC
+# use the independent QUIC gateway and remain pending until their external
+# client matrix runs are promoted.
 # SS2022 uses raw SS2022 TCP/UDP or Mihomo's shadow-tls/restls plugins.
 # Mihomo has no native SS outbound TLS field, and the server has no
 # SS2022-plus-NativeTls binding, so that made-up combination is omitted.
@@ -359,6 +359,16 @@ proxies:
     password: "hysteria2_password"
     sni: "hysteria2-gateway-e2e"
     skip-cert-verify: true
+
+  - name: "TUIC v5 QUIC" # status: server-side pending
+    type: tuic
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    password: "tuic_password"
+    sni: "tuic-gateway-e2e"
+    skip-cert-verify: true
+    udp: true
 
   # VLESS Reality connection-limit variants (max-connections and max-streams
   # are mutually exclusive in Mihomo, so each entry configures only one axis).
@@ -771,6 +781,11 @@ proxy-groups:
       - "Trojan Smux 64Streams TCP"
       - "Trojan Smux 256Streams TCP"
       - "Hysteria2 QUIC"
+
+  - name: "PrismPreview-Pending"
+    type: select
+    proxies:
+      - "TUIC v5 QUIC"
 
   - name: "PrismPreview-ProtocolMatrix"
     type: select

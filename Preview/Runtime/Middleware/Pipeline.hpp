@@ -11,17 +11,16 @@
 
 #pragma once
 
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Runtime/Middleware/Context.hpp>
+#include <Preview/Transport/Transmission.hpp>
+
 #include <boost/asio/awaitable.hpp>
 
 #include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Foundation/Fault/Handling.hpp>
-#include <Preview/Runtime/Middleware/Context.hpp>
-#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Middleware
 {
@@ -32,7 +31,7 @@ namespace Preview::Middleware
      * @class Middleware
      * @brief 中间件基类
      * @details 每个中间件一个职责：
-     * - Dial：拨号上游（消费 ctx.Target，产出 Outbound）
+     * - Dial：拨号上游（消费 ctx.Target()，产出 Outbound）
      * - mux：多路复用引导（包装 Inbound）
      * - pad：填充包装（包装 Inbound）
      * - relay：双向转发（消费 Inbound+Outbound）
@@ -50,12 +49,13 @@ namespace Preview::Middleware
 
         /**
          * @brief 处理入站传输
-         * @param Inbound 入站传输（可包装/替换/拒绝）
-         * @param ctx 管线上下文
-         * @return 处理后的错误码（success = 继续下一中间件）
+         * @param Inbound 借用至 awaitable 完成的可变入站传输；装饰器可原地替换它。
+         * @param ctx 借用至 awaitable 完成的会话上下文；不转移上下文或最终关闭权。
+         * @return 正式失败值；Succeeded() 才继续，失败保留领域码与原生 cause。
+         * @note 在调用方 executor 执行；取消由调用方协程传递，具体传输关闭和半关闭由实际 relay owner 完成。
          */
-        virtual auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
-            -> Net::awaitable<Preview::Fault::Code> = 0;
+        virtual auto Handle(Preview::SharedTransmission& Inbound, Context& ctx)
+            -> Net::awaitable<Preview::Fault::Failure> = 0;
     };
 
     /// 中间件共享指针
@@ -73,9 +73,9 @@ namespace Preview::Middleware
         /**
          * @brief 追加中间件
          * @param mw 中间件（所有权移交）
-         * @return 管线自身（链式调用）
+         * @return 管线自身（链式调用）；Pipeline 持有已添加的中间件至自身销毁。
          */
-        auto Add(SharedMiddleware mw) -> Pipeline &
+        auto Add(SharedMiddleware mw) -> Pipeline&
         {
             Chain_.push_back(std::move(mw));
             return *this;
@@ -83,26 +83,21 @@ namespace Preview::Middleware
 
         /**
          * @brief 执行管线
-         * @param Inbound 入站传输（可被中间件包装）
-         * @param ctx 管线上下文
-         * @return 最终错误码（success = 全部通过）
+         * @param ctx 借用至完成的会话上下文，含唯一入站及出站传输事实。
+         * @return 第一个失败值；全链通过时返回空 Failure。
+         * @note 顺序在调用方 executor 上执行；取消沿当前 awaitable 传递；最终关闭和半关闭由 Session relay owner 负责。
          */
-        auto Run(Preview::SharedTransmission Inbound, Context &ctx)
-            -> Net::awaitable<Preview::Fault::Code>
+        auto Run(Context& ctx) -> Net::awaitable<Preview::Fault::Failure>
         {
-            for (const auto &mw : Chain_)
+            for (const auto& mw : Chain_)
             {
-                const auto Ec = co_await mw->Handle(Inbound, ctx);
-                ctx.Inbound = Inbound;
-                ctx.SynchronizeDataPlane();
-                if (Preview::Fault::Failed(Ec))
+                const auto Failure = co_await mw->Handle(ctx.Inbound(), ctx);
+                if (Failure.Failed())
                 {
-                    co_return Ec;
+                    co_return Failure;
                 }
             }
-            ctx.Inbound = std::move(Inbound);
-            ctx.SynchronizeDataPlane();
-            co_return Preview::Fault::Code::Success;
+            co_return Preview::Fault::Failure{};
         }
 
     private:

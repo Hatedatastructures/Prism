@@ -11,21 +11,23 @@
  */
 
 #pragma once
-
 #include <boost/asio/awaitable.hpp>
 #include <array>
 #include <cstddef>
 #include <cstring>
+#include <exception>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <utility>
 
+#include <Preview/Contract/Ingress/InboundAdmission.hpp>
 #include <Preview/Foundation/Error.hpp>
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Account/Authenticator.hpp>
 #include <Preview/Foundation/Utility/Crypto/Base64.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Transport/Unreliable.hpp>
@@ -43,64 +45,69 @@ namespace Preview::Shadowsocks2022
     /**
      * @struct ClientConfig
      * @brief SS2022 客户端配置
-     * @details 控制客户端的行为：Base64 编码的 16 字节 PSK，或显式原始 PSK。
+     * @details 只保存已在配置冷路径解码完成的 16 字节 PSK。
      */
     struct ClientConfig
     {
-        /// 客户端 PSK（Base64 编码；显式 Psk 优先）
-        std::string password;
-        /// 直接指定 16 字节 PSK（标准配置：base64 psk 解码后原始字节，优先于 password）
-        bool UsePsk{false};
+        /// 唯一客户端预共享密钥；配置冷路径必须先通过 DecodePsk 解码。
         std::array<std::uint8_t, 16> Psk{};
     };
 
     /**
      * @struct ServerConfig
      * @brief SS2022 服务端配置
-     * @details 控制服务端的行为：Base64 编码的 16 字节 PSK，或显式原始 PSK，
-     *          时间戳窗口和独立 UDP 数据报开关。
+     * @details 只保存已在配置冷路径解码完成的 16 字节 PSK、时间戳窗口和
+     *          独立 UDP 数据报开关。
      * 构造后只读。
      */
     struct ServerConfig
     {
-        /// 服务端 PSK（Base64 编码；显式 Psk 优先）
-        std::string password;
-        /// 直接指定 16 字节 PSK（标准 UDP 配置，优先于 password）
-        bool UsePsk{false};
+        /// 唯一服务端预共享密钥；配置冷路径必须先通过 DecodePsk 解码。
         std::array<std::uint8_t, 16> Psk{};
         /// 时间戳容忍窗口（秒）
         std::uint64_t TimeWindow{90};
-        /// 认证器（运行时按 typed PSK 校验）
-        const Preview::Authenticator *Authenticator{nullptr};
-        /// 认证器共享所有权
-        Preview::SharedAuthenticator AuthenticatorOwner{};
+        /// 唯一 owning typed 认证器。
+        Preview::SharedAuthenticator Authenticator{};
         /// 是否允许独立 UDP 数据报通道
         bool EnableUdp{true};
 
-        [[nodiscard]] auto ResolveAuthenticator() const noexcept
-            -> const Preview::Authenticator *
-        {
-            if (AuthenticatorOwner)
-            {
-                return AuthenticatorOwner.get();
-            }
-            return Authenticator;
-        }
     };
 
     /**
      * @struct AcceptPacketParameters
      * @brief Shadowsocks 2022 服务端 UDP 装配参数
-     * @details Executor 与端口按值传递；Config 借用；Bound 由调用方拥有，
-     * 仅在绑定成功时写入实际端点。
+     * @details Executor、端口与 Config 按值拥有；Bound 只在成功返回前写入真实端点，
+     *          调用方须保持输出地址有效至 awaitable 完成。
      */
     struct AcceptPacketParameters
     {
         Net::any_io_executor Executor;
         unsigned short Port;
-        const ServerConfig &Config;
+        ServerConfig Config;
         Net::ip::udp::endpoint *Bound{nullptr};
     };
+
+    /** @brief 握手成功后的唯一流会话和解析请求结果。 */
+    struct AcceptedConnection final
+    {
+        Message Request;
+        SharedConn Connection;
+    };
+
+    namespace Detail
+    {
+        /** @brief 失败工厂关闭原 socket 并等候活动退栈，不覆盖首个工厂错误。 */
+        [[nodiscard]] inline auto RetireFailedPacketSocket(
+            Preview::SharedTransmission Socket) -> Net::awaitable<void>
+        {
+            if (!Socket)
+            {
+                co_return;
+            }
+            (void)Socket->Close();
+            (void)co_await Socket->Activity()->Drain();
+        }
+    }
 
     // =========================================================================
     // 工具
@@ -124,25 +131,6 @@ namespace Preview::Shadowsocks2022
         return Psk;
     }
 
-    /**
-     * @brief 按配置选择原始 PSK 或 Base64 密码派生 PSK
-     * @param UsePsk 是否使用 RawPsk
-     * @param RawPsk 原始 16 字节 PSK
-     * @param Password Base64 编码密码
-     * @return 有效 PSK，否则返回空
-     */
-    [[nodiscard]] inline auto ResolvePsk(
-        bool UsePsk,
-        const std::array<std::uint8_t, 16> &RawPsk,
-        std::string_view Password) -> std::optional<std::array<std::uint8_t, 16>>
-    {
-        if (UsePsk)
-        {
-            return RawPsk;
-        }
-        return DecodePsk(Password);
-    }
-
     // =========================================================================
     // 工厂（自由函数，握手在内部完成）
     // =========================================================================
@@ -152,62 +140,109 @@ namespace Preview::Shadowsocks2022
      * @param Upstream 上游传输（所有权移交）
      * @param Config 客户端配置
      * @param Target 目标地址
-     * @return 错误码与协议连接（失败时连接为空）
+     * @return 成功时返回拥有型协议连接；失败时返回完整 Failure。
      */
     [[nodiscard]] inline auto Connect(
         SharedTransmission Upstream,
         const ClientConfig &Config,
-        const Address &Target) -> Net::awaitable<std::pair<Error, SharedConn>>
+        const Address &Target)
+        -> Net::awaitable<std::expected<SharedConn, Preview::Fault::Failure>>
     {
+        if (!Upstream)
+        {
+            co_return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+        }
+        auto Prepared = co_await Preview::Contract::InboundAdmission::Prepare(Upstream);
+        if (!Prepared)
+        {
+            co_return std::unexpected(Prepared.error());
+        }
+        auto Admission = std::move(*Prepared);
         std::shared_ptr<Conn<>> Connection;
-        if (Config.UsePsk)
+        std::optional<Preview::Fault::Failure> CreationFailure;
+        try
         {
-            Connection = std::make_shared<Conn<>>(Config.Psk);
+            Connection = std::make_shared<Conn<>>(ConnOptions{
+                .Executor = Upstream->Executor(), .Psk = Config.Psk});
         }
-        else
+        catch (...)
         {
-            Connection = std::make_shared<Conn<>>(Config.password);
+            CreationFailure = Preview::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception());
         }
-        const auto ErrorCode = co_await Connection->WriteHandshake(std::move(Upstream), Target);
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        if (CreationFailure)
         {
-            Result = SharedConn(std::move(Connection));
+            co_return std::unexpected(co_await Admission.Retire(*CreationFailure));
         }
-        else
+        auto Handshake = Preview::Fault::Failure{};
+        try
         {
-            Connection->Close();
+            Handshake = co_await Connection->WriteHandshake(Upstream, Target);
         }
-        co_return std::pair{ErrorCode, std::move(Result)};
+        catch (...)
+        {
+            Handshake = Preview::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception());
+        }
+        if (Handshake.Failed())
+        {
+            co_return std::unexpected(co_await Admission.Retire(Handshake));
+        }
+        Admission.Release();
+        co_return SharedConn(std::move(Connection));
     }
 
     /**
-     * @brief 创建客户端 UDP 包连接（独立 UDP socket，不依赖 TCP）
-     * @param Executor 执行器
-     * @param Remote 代理服务器 UDP 端点（host:port）
-     * @param Config 客户端配置
-     * @return 包连接（连接失败时为空）
-     * @details 直接创建 UDP socket 连接服务器，逐包 AEAD 加密；
-     * 无 TCP 握手（对齐 SIP022 独立数据报通道）。
+     * @brief 创建客户端独立 UDP 数据报连接。
+     * @param Executor socket 固定使用的执行器。
+     * @param Remote 按值接管的代理服务器端点文本。
+     * @param Config 按值接管的客户端密钥配置。
+     * @return 成功返回非空数据报连接；失败返回完整首个 Failure。
+     * @details 直接创建 UDP socket 并逐包 AEAD 加密，无 TCP 握手。配置或连接失败后，
+     *          工厂沿同一 socket 发起 Close 并等待 Activity 退栈；清理错误保留在载体 owner，
+     *          不替换原始工厂 Failure。取消由关闭与 Activity 生命周期承接。
      */
     [[nodiscard]] inline auto ConnectPacket(
         Net::any_io_executor Executor,
-        const std::string &Remote,
-        const ClientConfig &Config) -> SharedDgram
+        std::string Remote,
+        ClientConfig Config)
+        -> Net::awaitable<std::expected<SharedDgram, Preview::Fault::Failure>>
     {
-        auto Udp = std::make_shared<Preview::Transport::Unreliable>(Executor);
-        if (!Udp->Connect(Remote))
+        std::shared_ptr<Preview::Transport::Unreliable> Udp;
+        try
         {
-            Udp->Close();
-            return nullptr;
+            Udp = std::make_shared<Preview::Transport::Unreliable>(Executor);
         }
-        const auto Psk = ResolvePsk(Config.UsePsk, Config.Psk, Config.password);
-        if (!Psk)
+        catch (...)
         {
-            Udp->Close();
-            return nullptr;
+            co_return std::unexpected(
+                Preview::Contract::InboundAdmission::ExceptionFailure(std::current_exception()));
         }
-        return std::make_shared<Dgram<>>(std::move(Udp), *Psk, UdpRole::Client);
+        const auto Connected = Udp->Connect(Remote);
+        if (!Connected)
+        {
+            const auto Failure = Connected.error();
+            co_await Detail::RetireFailedPacketSocket(Udp);
+            co_return std::unexpected(Failure);
+        }
+        SharedDgram Datagram;
+        std::optional<Preview::Fault::Failure> CreationFailure;
+        try
+        {
+            Datagram = std::make_shared<Dgram<>>(Udp, Config.Psk, UdpRole::Client);
+        }
+        catch (...)
+        {
+            CreationFailure = Preview::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception());
+        }
+        if (CreationFailure)
+        {
+            co_await Detail::RetireFailedPacketSocket(Udp);
+            co_return std::unexpected(*CreationFailure);
+        }
+        co_return Datagram;
     }
 
     /**
@@ -218,93 +253,104 @@ namespace Preview::Shadowsocks2022
      */
     [[nodiscard]] inline auto Accept(
         SharedTransmission Upstream,
-        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, Message, SharedConn>>
+        const ServerConfig &Config)
+        -> Net::awaitable<std::expected<AcceptedConnection, Preview::Fault::Failure>>
     {
+        if (!Upstream)
+        {
+            co_return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+        }
         std::shared_ptr<Conn<>> Connection;
-        if (Config.UsePsk)
+        try
         {
-            Connection = std::make_shared<Conn<>>(Config.Psk,
-                                                  Config.TimeWindow,
-                                                  Config.ResolveAuthenticator(),
-                                                  Config.AuthenticatorOwner);
+            Connection = std::make_shared<Conn<>>(ConnOptions{
+                .Executor = Upstream->Executor(), .Psk = Config.Psk,
+                .TimeWindow = Config.TimeWindow,
+                .AuthenticatorOwner = Config.Authenticator});
         }
-        else
+        catch (...)
         {
-            Connection = std::make_shared<Conn<>>(Config.password,
-                                                  Config.TimeWindow,
-                                                  Config.ResolveAuthenticator(),
-                                                  Config.AuthenticatorOwner);
+            co_return std::unexpected(
+                Preview::Contract::InboundAdmission::ExceptionFailure(
+                    std::current_exception()));
         }
-        auto [ErrorCode, Request] = co_await Connection->ReadHandshake(std::move(Upstream));
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        std::expected<Message, Preview::Fault::Failure> Handshake{
+            std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError})};
+        try
         {
-            Result = SharedConn(std::move(Connection));
+            Handshake = co_await Connection->ReadHandshake(std::move(Upstream));
         }
-        else
+        catch (...)
         {
-            Connection->Close();
+            Handshake = std::unexpected(
+                Preview::Contract::InboundAdmission::ExceptionFailure(
+                    std::current_exception()));
         }
-        co_return std::tuple{ErrorCode, std::move(Request), std::move(Result)};
+        if (!Handshake)
+        {
+            (void)Connection->Close();
+            co_return std::unexpected(Handshake.error());
+        }
+        co_return AcceptedConnection{std::move(*Handshake), SharedConn(std::move(Connection))};
     }
 
     /**
-     * @brief 创建服务端 UDP 包连接（独立 UDP socket，不依赖 TCP）
-     * @param Params 服务端 UDP 装配参数
-     * @return 包连接（绑定失败时为空）
-     * @details 绑定 UDP 端口监听，逐包 AEAD 加解密；无 TCP 握手。
+     * @brief 创建服务端独立 UDP 数据报连接。
+     * @param Params 按值接管执行器、端口与配置；Bound 仅作为短期输出借用。
+     * @return 成功返回非空数据报连接；禁用 UDP、绑定或分配失败返回完整 Failure。
+     * @details 绑定端口并逐包 AEAD 解密；无 TCP 握手。失败后沿同一 socket 发起 Close 并等待
+     *          Activity 退栈，清理失败不覆盖绑定/构造首因，原载体控制 owner 保留未完成关闭。
      */
-    [[nodiscard]] inline auto AcceptPacket(AcceptPacketParameters Params) -> SharedDgram
+    [[nodiscard]] inline auto AcceptPacket(AcceptPacketParameters Params)
+        -> Net::awaitable<std::expected<SharedDgram, Preview::Fault::Failure>>
     {
         if (!Params.Config.EnableUdp)
         {
-            return nullptr;
+            co_return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::NotSupported});
         }
-        auto Udp = std::make_shared<Preview::Transport::Unreliable>(Params.Executor);
-        if (!Udp->Bind(Params.Port))
+        std::shared_ptr<Preview::Transport::Unreliable> Udp;
+        try
         {
-            Udp->Close();
-            return nullptr;
+            Udp = std::make_shared<Preview::Transport::Unreliable>(Params.Executor);
+        }
+        catch (...)
+        {
+            co_return std::unexpected(
+                Preview::Contract::InboundAdmission::ExceptionFailure(std::current_exception()));
+        }
+        const auto Bound = Udp->Bind(Params.Port);
+        if (!Bound)
+        {
+            const auto Failure = Bound.error();
+            co_await Detail::RetireFailedPacketSocket(Udp);
+            co_return std::unexpected(Failure);
         }
         // 独立 UDP 服务端必须按每个已认证数据报的来源回包，不能把
         // Unreliable 的首次来源捕获为全局共享远端。
         Udp->AllowAnyPeer();
-        const auto Psk = ResolvePsk(
-            Params.Config.UsePsk,
-            Params.Config.Psk,
-            Params.Config.password);
-        if (!Psk)
+        SharedDgram Datagram;
+        std::optional<Preview::Fault::Failure> CreationFailure;
+        try
         {
-            Udp->Close();
-            return nullptr;
+            Datagram = std::make_shared<Dgram<>>(Udp, Params.Config.Psk, UdpRole::Server);
+        }
+        catch (...)
+        {
+            CreationFailure = Preview::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception());
+        }
+        if (CreationFailure)
+        {
+            co_await Detail::RetireFailedPacketSocket(Udp);
+            co_return std::unexpected(*CreationFailure);
         }
         if (Params.Bound)
         {
             *Params.Bound = Udp->LocalEndpoint();
         }
-        return std::make_shared<Dgram<>>(std::move(Udp), *Psk, UdpRole::Server);
+        co_return Datagram;
     }
-
-    /**
-     * @brief 使用临时端口创建服务端 UDP 包连接
-     * @param Executor 执行器
-     * @param Port 监听端口（0 = 系统分配）
-     * @param Config 服务端配置（借用）
-     * @return 包连接（绑定失败时为空）
-     */
-    [[nodiscard]] inline auto AcceptPacket(
-        Net::any_io_executor Executor,
-        unsigned short Port,
-        const ServerConfig &Config) -> SharedDgram
-    {
-        return AcceptPacket(AcceptPacketParameters{Executor, Port, Config});
-    }
-
-    // 编解码类型 re-export（Codec.hpp 定义，供外部以本命名空间直接引用）
-    using Preview::Shadowsocks2022::Address;
-    using Preview::Shadowsocks2022::AddressType;
-    using Preview::Shadowsocks2022::Message;
-    using Preview::Shadowsocks2022::Parser;
-    using Preview::Shadowsocks2022::Serializer;
 
 } // namespace Preview::Shadowsocks2022

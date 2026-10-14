@@ -1,391 +1,330 @@
 /**
  * @file Auth.hpp
- * @brief Hysteria2 HTTP/3 认证辅助（QPACK 头块 + HTTP/3 HEADERS 帧）
- * @details 实现 mihomo 客户端兼容的最小 HTTP/3 认证：
- *          1. 解析请求流上的 HEADERS 帧（QPACK 解码）
- *          2. 提取 Hysteria-Auth 头并校验
- *          3. 编码认证响应 HEADERS 帧（:status 233 + Hysteria-UDP/CC-RX/Padding）
- *          仅支持认证所需的最小帧集，不做通用 HTTP/3。
+ * @brief HTTP/3 帧引擎与协议适配器共享的传输值合同。
+ * @details 本头只拥有 HTTP/3 数据值；认证策略、状态约定和应用头由消费协议拥有。
  */
 
 #pragma once
 
-#include <cstring>
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
 
 #include <array>
-#include <charconv>
 #include <cstddef>
+#include <cstring>
+#include <expected>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <new>
+#include <optional>
+#include <stdexcept>
+#include <utility>
+#include <variant>
+#include <vector>
 
+#include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
+#include <Preview/Foundation/Memory/Pointer.hpp>
+#include <Preview/Protocols/Http3/HeaderLimits.hpp>
 #include <Preview/Protocols/Http3/Qpack.hpp>
 
-#include <cstdint>
-#include <span>
-#include <string_view>
+namespace Preview::Quic
+{
+    class StreamProvider;
+}
 
-namespace Preview::Http3 {
+namespace Preview::Http3
+{
 
-    /// Hysteria2 认证相关常量
-    inline constexpr std::uint64_t FrameHeaders = 0x01;  ///< HTTP/3 HEADERS 帧类型
-    inline constexpr std::uint64_t FrameData = 0x00;     ///< HTTP/3 DATA 帧类型
-    inline constexpr std::uint64_t FrameSettings = 0x04; ///< HTTP/3 SETTINGS 帧类型
-    inline constexpr std::uint16_t StatusAuthOk = 233;  ///< Hysteria2 认证成功状态码
+    namespace Net = boost::asio;
 
     /**
-     * @brief 写入 HTTP/3 varint（RFC 9000 §16：高 2 位为长度码，其余大端）
-     * @param Output 输出缓冲区
-     * @param[in,out] Offset 写入偏移，成功后推进实际写入字节数
-     * @param Value 待编码值
-     * @return 是否写入成功（缓冲不足或值溢出返回 false）
-     * @note 与 HPACK/QPACK 整数编码不同：H3 帧头 varint 首字节高 2 位是长度码，
-     *       裸写 ≥0x40 的单字节会被对端误读为多字节 varint
+     * @struct HeaderBlock
+     * @brief 拥有解码字段和其会话竞技场的 HTTP/3 头块。
+     * @details Owner 必须先于 Fields 声明，保证 PMR 容器析构时竞技场仍然存在。
      */
-    [[nodiscard]] inline auto WriteFrameVarint(
-        std::span<std::byte> Output,
-        std::size_t &Offset,
-        const std::uint64_t Value) -> bool
+    struct HeaderBlock final
     {
-        std::size_t Need = 1;
-        std::uint8_t Tag = 0x00;
-        if (Value <= 0x3F)
+        struct FieldRange final
         {
-            Need = 1;
+            std::size_t NameOffset{0};
+            std::size_t NameLength{0};
+            std::size_t ValueOffset{0};
+            std::size_t ValueLength{0};
+        };
+
+        struct ReservedStorage final
+        {
+            std::array<std::byte, HeaderLimits::MaxHeaderSectionBytes> Bytes{};
+            std::array<FieldRange, HeaderLimits::MaxHeaderFields> Fields{};
+            std::size_t ByteCount{0};
+            std::size_t FieldCount{0};
+        };
+
+        std::shared_ptr<Preview::Memory::SessionResource<>> Owner;
+        Preview::Memory::Vector<Qpack::HeaderField> Fields;
+
+        explicit HeaderBlock(std::shared_ptr<Preview::Memory::SessionResource<>> OwnerValue)
+            : Owner(RequireOwner(std::move(OwnerValue))), Fields(Owner->Arena()),
+              Storage_(std::make_unique<ReservedStorage>())
+        {
+            Fields.reserve(HeaderLimits::MaxHeaderFields);
         }
-        else if (Value <= 0x3FFF)
+
+        HeaderBlock(const HeaderBlock &) = delete;
+        auto operator=(const HeaderBlock &) -> HeaderBlock & = delete;
+        HeaderBlock(HeaderBlock &&) noexcept = default;
+        auto operator=(HeaderBlock &&) noexcept -> HeaderBlock & = delete;
+
+        /** @brief 在固定字节区和预留字段索引内复制拥有字段，拒绝超预算输入。 */
+        [[nodiscard]] auto TryAppend(
+            const std::string_view Name,
+            const std::string_view Value) noexcept
+            -> std::expected<void, Preview::Fault::Failure>
         {
-            Need = 2;
-            Tag = 0x40;
-        }
-        else if (Value <= 0x3FFFFFFF)
-        {
-            Need = 4;
-            Tag = 0x80;
-        }
-        else if (Value <= 0x3FFFFFFFFFFFFFFFULL)
-        {
-            Need = 8;
-            Tag = 0xC0;
-        }
-        else
-        {
-            return false;
-        }
-        if (Offset > Output.size() || Need > Output.size() - Offset)
-        {
-            return false;
-        }
-        for (std::size_t I = 0; I < Need; ++I)
-        {
-            const auto Shift = 8 * (Need - 1 - I);
-            auto Byte = static_cast<std::uint8_t>((Value >> Shift) & 0xFF);
-            if (I == 0)
+            if (!Storage_ || Fields.size() >= HeaderLimits::MaxHeaderFields ||
+                Name.size() > HeaderLimits::MaxFieldBytes ||
+                Value.size() > HeaderLimits::MaxFieldBytes)
             {
-                Byte |= Tag;
+                return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::OversizedMsg});
             }
-            Output[Offset++] = static_cast<std::byte>(Byte);
-        }
-        return true;
-    }
-
-    /**
-     * @struct AuthRequest
-     * @brief 解码后的认证请求
-     */
-    struct AuthRequest
-    {
-        Preview::Memory::String Method; ///< :method
-        Preview::Memory::String Host;   ///< :authority
-        Preview::Memory::String Path;   ///< :path
-        Preview::Memory::String Auth;   ///< Hysteria-Auth 头
-        std::uint64_t Rx{0};            ///< Hysteria-CC-RX 头
-
-        explicit AuthRequest(Preview::Memory::ResourcePointer MemoryResource)
-            : Method(MemoryResource),
-              Host(MemoryResource),
-              Path(MemoryResource),
-              Auth(MemoryResource)
-        {
-        }
-    };
-
-    /**
-     * @brief HTTP/3 认证响应编码参数
-     * @details Out 为调用方持有的输出缓冲，函数只借用其视图。
-     */
-    struct AuthResponseParameters
-    {
-        std::uint16_t Status;
-        bool UdpEnabled;
-        std::uint64_t Rx;
-        std::span<std::byte> Out;
-    };
-
-    /**
-     * @brief 解析认证请求 HEADERS 帧载荷（QPACK 块 → 头字段）
-     * @param Data HEADERS 帧载荷（QPACK 编码头块）
-     * @param Output 输出认证请求
-     * @param MemoryResource 内存资源
-     * @return 是否成功（含 :method POST / :path /auth 校验）
-     */
-    [[nodiscard]] auto ParseAuthRequest(
-        std::span<const std::uint8_t> Data,
-        AuthRequest &Output,
-        Preview::Memory::ResourcePointer MemoryResource) -> bool;
-
-    /**
-     * @brief 编码认证响应 HEADERS 帧（含帧头 + QPACK 块）
-     * @param Params 响应状态、UDP 开关、接收速率与输出缓冲区
-     * @return 写入字节数，0 失败
-     * @details 输出完整 HTTP/3 HEADERS 帧：
-     *          [Frame Type varint=1][length varint][QPACK 块]
-     */
-    [[nodiscard]] auto EncodeAuthResponse(const AuthResponseParameters &Params) -> std::size_t;
-
-
-
-    namespace
-    {
-        /**
-         * @brief 查找头字段
-         * @param Fields 头字段列表
-         * @param Name 目标字段名
-         * @return 匹配的字段值，未找到返回空视图
-         */
-        [[nodiscard]] auto FindHeader(
-            const Preview::Memory::Vector<Qpack::HeaderField> &Fields,
-            const std::string_view Name) -> std::string_view
-        {
-            for (const auto &Field : Fields)
+            if (Name.size() > HeaderLimits::MaxHeaderSectionBytes - Storage_->ByteCount ||
+                Value.size() > HeaderLimits::MaxHeaderSectionBytes - Storage_->ByteCount - Name.size())
             {
-                if (Field.Name == Name)
-                {
-                    return std::string_view(Field.value.data(), Field.value.size());
-                }
+                return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::OversizedMsg});
             }
+            const auto Index = Storage_->FieldCount;
+            const auto NameOffset = Storage_->ByteCount;
+            if (!Name.empty())
+            {
+                std::memcpy(Storage_->Bytes.data() + NameOffset, Name.data(), Name.size());
+            }
+            const auto ValueOffset = NameOffset + Name.size();
+            if (!Value.empty())
+            {
+                std::memcpy(Storage_->Bytes.data() + ValueOffset, Value.data(), Value.size());
+            }
+            try
+            {
+                Fields.push_back(Qpack::HeaderField{std::string(Name), std::string(Value)});
+            }
+            catch (const std::bad_alloc &)
+            {
+                return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
+            }
+            catch (...)
+            {
+                return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::ProtocolError});
+            }
+            Storage_->Fields[Index] = FieldRange{NameOffset, Name.size(), ValueOffset, Value.size()};
+            Storage_->ByteCount += Name.size() + Value.size();
+            ++Storage_->FieldCount;
             return {};
         }
-    } // namespace
+
+        /** @brief 复用响应头块的预留区，不释放其固定容量。 */
+        auto Clear() noexcept -> void
+        {
+            Fields.clear();
+            if (Storage_)
+            {
+                Storage_->ByteCount = 0;
+                Storage_->FieldCount = 0;
+            }
+        }
+
+        /** @brief 返回实际拥有字段的解码字节总量；溢出或超限使用上限加一表示。 */
+        [[nodiscard]] auto ByteSize() const noexcept -> std::size_t
+        {
+            std::size_t Total = 0;
+            for (const auto &Field : Fields)
+            {
+                if (Field.Name.size() > HeaderLimits::MaxHeaderSectionBytes - Total)
+                {
+                    return HeaderLimits::MaxHeaderSectionBytes + 1;
+                }
+                Total += Field.Name.size();
+                if (Field.value.size() > HeaderLimits::MaxHeaderSectionBytes - Total)
+                {
+                    return HeaderLimits::MaxHeaderSectionBytes + 1;
+                }
+                Total += Field.value.size();
+            }
+            return Total;
+        }
+
+        /** @brief 返回该块固定预留区的真实容量。 */
+        [[nodiscard]] auto ReservedBytes() const noexcept -> std::size_t
+        {
+            if (!Storage_)
+            {
+                return 0;
+            }
+            return Storage_->Bytes.size();
+        }
+
+        /** @brief 检查直接构造的响应字段是否符合共享 section/count/field 额度。 */
+        [[nodiscard]] auto WithinLimits() const noexcept -> bool
+        {
+            if (Fields.size() > HeaderLimits::MaxHeaderFields)
+            {
+                return false;
+            }
+            for (const auto &Field : Fields)
+            {
+                if (Field.Name.size() > HeaderLimits::MaxFieldBytes ||
+                    Field.value.size() > HeaderLimits::MaxFieldBytes)
+                {
+                    return false;
+                }
+            }
+            return ByteSize() <= HeaderLimits::MaxHeaderSectionBytes;
+        }
+
+    private:
+        [[nodiscard]] static auto RequireOwner(
+            std::shared_ptr<Preview::Memory::SessionResource<>> Value)
+            -> std::shared_ptr<Preview::Memory::SessionResource<>>
+        {
+            if (!Value)
+            {
+                throw std::invalid_argument("HTTP/3 HeaderBlock requires an arena owner");
+            }
+            return Value;
+        }
+
+        std::unique_ptr<ReservedStorage> Storage_;
+    };
+
+    /** @brief HTTP/3 请求头和请求流 FIN。 */
+    struct RequestHead final
+    {
+        HeaderBlock Headers;
+        bool Fin{false};
+
+        RequestHead(HeaderBlock HeadersValue, const bool FinValue)
+            : Headers(std::move(HeadersValue)), Fin(FinValue)
+        {
+        }
+
+        RequestHead(const RequestHead &) = delete;
+        auto operator=(const RequestHead &) -> RequestHead & = delete;
+        RequestHead(RequestHead &&) noexcept = default;
+        auto operator=(RequestHead &&) noexcept -> RequestHead & = default;
+    };
+
+    /** @brief 带真实来源流 ID 的服务端请求事件。 */
+    struct RequestEvent final
+    {
+        std::int64_t StreamId{0};
+        RequestHead Head;
+
+        RequestEvent(std::int64_t StreamIdValue, RequestHead HeadValue)
+            : StreamId(StreamIdValue), Head(std::move(HeadValue))
+        {
+        }
+
+        RequestEvent(const RequestEvent &) = delete;
+        auto operator=(const RequestEvent &) -> RequestEvent & = delete;
+        RequestEvent(RequestEvent &&) noexcept = default;
+        auto operator=(RequestEvent &&) noexcept -> RequestEvent & = default;
+    };
+
+    /** @brief 按值拥有响应头和其竞技场；StreamId/Fin 对应真实请求流与结束标记。
+     * @details HeaderBlock 使本聚合值自动为 move-only；提交前由 caller 拥有，
+     *          提交后由 HTTP/3 session 保持到写出。同步构造不取消、不关闭流。
+     */
+    struct ResponseHead final
+    {
+        std::int64_t StreamId{0};
+        std::uint16_t Status{0};
+        HeaderBlock Headers;
+        bool Fin{false};
+
+    };
+
+    /** @brief 拥有一次读取结果的 HTTP/3 数据事件。 */
+    struct DataEvent final
+    {
+        std::int64_t StreamId{0};
+        std::vector<std::byte> Data;
+        bool Fin{false};
+
+        DataEvent(
+            std::int64_t StreamIdValue,
+            std::vector<std::byte> DataValue,
+            const bool FinValue)
+            : StreamId(StreamIdValue), Data(std::move(DataValue)), Fin(FinValue)
+        {
+        }
+
+        DataEvent(const DataEvent &) = delete;
+        auto operator=(const DataEvent &) -> DataEvent & = delete;
+        DataEvent(DataEvent &&) noexcept = default;
+        auto operator=(DataEvent &&) noexcept -> DataEvent & = default;
+    };
+
+    /** @brief 通用 HTTP/3 流重置事件。 */
+    struct ResetEvent final
+    {
+        std::int64_t StreamId{0};
+        Preview::Fault::Code Error{Preview::Fault::Code::ProtocolError};
+    };
+
+    /** @brief 裸流方向。 */
+    enum class StreamDirection : std::uint8_t
+    {
+        Inbound,
+        Outbound,
+    };
 
     /**
-     * @brief 校验 HTTP/3 请求字段的伪首部约束
-     * @param Fields QPACK 解码后的字段列表
-     * @return 字段名、伪首部和必需字段均有效时返回 true
+     * @brief 提供原生 QUIC 流所有权的通用事件。
+     * @details 事件持有共享 provider，handler 返回 Opaque 后才由协议层消费字节。
      */
-    [[nodiscard]] inline auto ValidateAuthRequestFields(
-        const Preview::Memory::Vector<Qpack::HeaderField> &Fields) -> bool
+    struct RawStreamEvent final
     {
-        std::size_t MethodCount = 0;
-        std::size_t PathCount = 0;
-        std::size_t AuthorityCount = 0;
-        std::size_t SchemeCount = 0;
-        std::size_t AuthCount = 0;
-        std::size_t RxCount = 0;
-        bool SeenRegularField = false;
-        for (const auto &Field : Fields)
-        {
-            if (Field.Name.empty())
-            {
-                return false;
-            }
-            for (const auto Character : Field.Name)
-            {
-                if (Character >= 'A' && Character <= 'Z')
-                {
-                    return false;
-                }
-            }
-            if (Field.Name.front() != ':')
-            {
-                SeenRegularField = true;
-                if (Field.Name == "hysteria-auth")
-                {
-                    ++AuthCount;
-                }
-                else if (Field.Name == "hysteria-cc-rx")
-                {
-                    ++RxCount;
-                }
-                continue;
-            }
-            if (SeenRegularField)
-            {
-                return false;
-            }
-            if (Field.Name == ":method")
-            {
-                ++MethodCount;
-            }
-            else if (Field.Name == ":path")
-            {
-                ++PathCount;
-            }
-            else if (Field.Name == ":authority")
-            {
-                ++AuthorityCount;
-            }
-            else if (Field.Name == ":scheme")
-            {
-                ++SchemeCount;
-            }
-            else
-            {
-                return false;
-            }
-        }
-        return MethodCount == 1 && PathCount == 1 && AuthorityCount <= 1 &&
-               SchemeCount <= 1 && AuthCount == 1 && RxCount <= 1;
-    }
+        std::int64_t StreamId{0};
+        StreamDirection Direction{StreamDirection::Inbound};
+        std::shared_ptr<Preview::Quic::StreamProvider> Provider{};
+    };
 
-    inline auto ParseAuthRequest(
-        std::span<const std::uint8_t> Data,
-        AuthRequest &Output,
-        const Preview::Memory::ResourcePointer MemoryResource) -> bool
+    using ServerEvent = std::variant<RequestEvent, DataEvent, ResetEvent, RawStreamEvent>;
+
+    /** @brief generic HTTP/3 会话输出承载模式。 */
+    enum class StreamMode : std::uint8_t
     {
-        Output.Method.clear();
-        Output.Host.clear();
-        Output.Path.clear();
-        Output.Auth.clear();
-        Output.Rx = 0;
-        auto Fields = Qpack::DecodeHeaderBlock(Data, MemoryResource);
-        if (!ValidateAuthRequestFields(Fields))
-        {
-            return false;
-        }
+        Http3,
+        Opaque,
+    };
 
-        Output.Method.assign(FindHeader(Fields, ":method"));
-        Output.Host.assign(FindHeader(Fields, ":authority"));
-        Output.Path.assign(FindHeader(Fields, ":path"));
-        Output.Auth.assign(FindHeader(Fields, "hysteria-auth"));
-
-        const auto RxStr = FindHeader(Fields, "hysteria-cc-rx");
-        if (!RxStr.empty())
-        {
-            const auto ParseResult = std::from_chars(
-                RxStr.data(), RxStr.data() + RxStr.size(), Output.Rx);
-            if (ParseResult.ec != std::errc{} ||
-                ParseResult.ptr != RxStr.data() + RxStr.size())
-            {
-                return false;
-            }
-        }
-
-        // 认证请求必须匹配 POST https://hysteria/auth
-        return Output.Method == "POST" && Output.Path == "/auth" && !Output.Auth.empty();
-    }
-
-    namespace
+    /** @brief handler 对一个输入事件的 typed 结果。 */
+    struct SessionAction final
     {
-        struct ResponseEncoder
+        std::optional<ResponseHead> Response;
+        StreamMode Mode{StreamMode::Http3};
+
+        SessionAction() = default;
+        explicit SessionAction(StreamMode ModeValue) : Mode(ModeValue)
         {
-            explicit ResponseEncoder(std::span<std::uint8_t> OutputValue)
-                : Output(OutputValue)
-            {
-            }
-
-            [[nodiscard]] auto AppendLiteral(
-                std::string_view Name,
-                std::string_view Value) -> bool
-            {
-                if (Offset > Output.size())
-                {
-                    return false;
-                }
-                const auto Remaining = Output.size() - Offset;
-                const auto OutputWindow = Output.subspan(Offset);
-                const auto EncodedLength = Qpack::EncodeLiteral(
-                    Name,
-                    Value,
-                    OutputWindow);
-                if (EncodedLength == 0 || EncodedLength > Remaining)
-                {
-                    return false;
-                }
-                Offset += EncodedLength;
-                return true;
-            }
-
-            std::span<std::uint8_t> Output;
-            std::size_t Offset{0};
-        };
-    } // namespace
-
-    inline auto EncodeAuthResponse(const AuthResponseParameters &Params) -> std::size_t
-    {
-        // QPACK 块：前缀 + :status + Hysteria-UDP + Hysteria-CC-RX + Hysteria-Padding
-        std::array<std::uint8_t, 512> Block{};
-        const auto BlockSpan = std::span<std::uint8_t>(Block);
-        ResponseEncoder Encoder{BlockSpan};
-        Encoder.Offset = Qpack::EncodePrefix(Block);
-        if (Encoder.Offset == 0)
+        }
+        SessionAction(ResponseHead ResponseValue, StreamMode ModeValue = StreamMode::Http3)
+            : Response(std::move(ResponseValue)), Mode(ModeValue)
         {
-            return 0;
         }
 
-        // :status 字段（静态表无 233 条目，用字面量）
-        char StatusBuffer[5];
-        const auto StatusResult = std::to_chars(
-            StatusBuffer,
-            StatusBuffer + sizeof(StatusBuffer),
-            Params.Status);
-        if (StatusResult.ec != std::errc{})
-        {
-            return 0;
-        }
-        const auto StatusValue = std::string_view(
-            StatusBuffer,
-            static_cast<std::size_t>(StatusResult.ptr - StatusBuffer));
-        if (!Encoder.AppendLiteral(":status", StatusValue))
-        {
-            return 0;
-        }
+        SessionAction(const SessionAction &) = delete;
+        auto operator=(const SessionAction &) -> SessionAction & = delete;
+        SessionAction(SessionAction &&) noexcept = default;
+        auto operator=(SessionAction &&) noexcept -> SessionAction & = default;
+    };
 
-        // Hysteria-UDP: true
-        const char *UdpValue = "false";
-        if (Params.UdpEnabled)
-        {
-            UdpValue = "true";
-        }
-        if (!Encoder.AppendLiteral("hysteria-udp", UdpValue))
-        {
-            return 0;
-        }
-
-        // Hysteria-CC-RX: <Rx>
-        char RxBuffer[24];
-        const auto RxResult = std::to_chars(RxBuffer, RxBuffer + sizeof(RxBuffer), Params.Rx);
-        if (RxResult.ec != std::errc{})
-        {
-            return 0;
-        }
-        const auto RxValue = std::string_view(
-            RxBuffer,
-            static_cast<std::size_t>(RxResult.ptr - RxBuffer));
-        if (!Encoder.AppendLiteral("hysteria-cc-rx", RxValue))
-        {
-            return 0;
-        }
-
-        // Hysteria-Padding: 0（客户端解析用，填 0 表示无 padding）
-        if (!Encoder.AppendLiteral("hysteria-padding", "0"))
-        {
-            return 0;
-        }
-
-        // HTTP/3 帧头：Type=HEADERS(1) + length varint（RFC 9000 §16 格式）
-        std::size_t FrameOffset = 0;
-        if (!WriteFrameVarint(Params.Out, FrameOffset, FrameHeaders) ||
-            !WriteFrameVarint(Params.Out, FrameOffset, Encoder.Offset))
-        {
-            return 0;
-        }
-        if (FrameOffset > Params.Out.size() ||
-            Encoder.Offset > Params.Out.size() - FrameOffset)
-        {
-            return 0;
-        }
-        std::memcpy(Params.Out.data() + FrameOffset, Block.data(), Encoder.Offset);
-        return FrameOffset + Encoder.Offset;
-    }
-
+    using EventHandler = std::function<Net::awaitable<SessionAction>(ServerEvent)>;
 
 } // namespace Preview::Http3

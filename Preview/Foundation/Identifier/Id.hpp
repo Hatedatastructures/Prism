@@ -18,7 +18,9 @@ namespace Preview::Identifier
 
         constexpr Id() noexcept = default;
 
-        explicit constexpr Id(const ValueType ValueValue) noexcept : Value_(ValueValue) {}
+        explicit constexpr Id(const ValueType ValueValue) noexcept : Value_(ValueValue)
+        {
+        }
 
         [[nodiscard]] constexpr auto Value() const noexcept -> ValueType
         {
@@ -30,8 +32,8 @@ namespace Preview::Identifier
             return Value_ != ValueType{};
         }
 
-        friend constexpr auto operator==(const Id &, const Id &) noexcept -> bool = default;
-        friend constexpr auto operator<=>(const Id &, const Id &) noexcept = default;
+        friend constexpr auto operator==(const Id&, const Id&) noexcept -> bool = default;
+        friend constexpr auto operator<=>(const Id&, const Id&) noexcept = default;
 
     private:
         ValueType Value_{};
@@ -44,9 +46,13 @@ namespace Preview::Identifier
     public:
         TextId() = default;
 
-        explicit TextId(std::string_view Value) : Value_(Value) {}
+        explicit TextId(std::string_view Value) : Value_(Value)
+        {
+        }
 
-        explicit TextId(std::string Value) : Value_(std::move(Value)) {}
+        explicit TextId(std::string Value) : Value_(std::move(Value))
+        {
+        }
 
         [[nodiscard]] static auto From(std::string_view Value) -> TextId
         {
@@ -68,8 +74,8 @@ namespace Preview::Identifier
             return !Empty();
         }
 
-        friend auto operator==(const TextId &, const TextId &) noexcept -> bool = default;
-        friend auto operator<=>(const TextId &, const TextId &) noexcept = default;
+        friend auto operator==(const TextId&, const TextId&) noexcept -> bool = default;
+        friend auto operator<=>(const TextId&, const TextId&) noexcept = default;
 
     private:
         std::string Value_;
@@ -110,21 +116,21 @@ namespace Preview::Identifier
 namespace Preview
 {
 
+    using Identifier::AccountId;
+    using Identifier::AccountTag;
     using Identifier::BuiltinId;
     using Identifier::BuiltinSnapshotId;
     using Identifier::BuiltinSnapshotTag;
     using Identifier::BuiltinTag;
-    using Identifier::AccountId;
-    using Identifier::AccountTag;
     using Identifier::GenerationId;
     using Identifier::GenerationTag;
     using Identifier::Id;
     using Identifier::KindId;
     using Identifier::NameId;
-    using Identifier::ProcessId;
     using Identifier::OperationId;
-    using Identifier::ProcessTag;
     using Identifier::OperationTag;
+    using Identifier::ProcessId;
+    using Identifier::ProcessTag;
     using Identifier::RequestId;
     using Identifier::SessionId;
     using Identifier::SessionTag;

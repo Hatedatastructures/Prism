@@ -1,3 +1,4 @@
+/** @file Code.hpp @brief 冷路径描述符注册与冻结的唯一错误类别。 */
 #pragma once
 
 #include <cstdint>
@@ -5,25 +6,19 @@
 namespace Preview::Foundation
 {
 
-    /** @brief Task 2 的轻量值错误。零值表示成功。 */
+    /** @brief 描述符操作的纯值错误；不拥有资源或执行取消、关闭，任意 executor 可读取。 */
     enum class Error : std::uint8_t
     {
         None = 0,
-        Success = None,
         InvalidArgument,
         InvalidDescriptor,
         Duplicate,
-        DuplicateKindName = Duplicate,
         MissingCapability,
-        MissingCapabilities = MissingCapability,
         Frozen,
-        RegistrationFrozen = Frozen,
         AlreadyFrozen,
         NotFound,
         CallbackException,
     };
-
-    using ErrorCode = Error;
 
     [[nodiscard]] constexpr auto IsSuccess(const Error Value) noexcept -> bool
     {

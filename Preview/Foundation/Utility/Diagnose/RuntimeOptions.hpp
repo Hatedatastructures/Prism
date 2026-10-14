@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <Preview/Foundation/Utility/Text/Case.hpp>
+#include <Preview/Foundation/Utility/Diagnose/FormattingLimits.hpp>
 
 namespace Preview::Diagnose
 {
@@ -19,14 +21,14 @@ namespace Preview::Diagnose
      */
     enum class LogLevel : std::uint8_t
     {
-        Trace,    ///< 细粒度诊断信息。
-        Debug,    ///< 调试过程和非关键生命周期信息。
-        Info,     ///< 正常运行和请求活动信息。
-        Access,   ///< 独立的访问或审计通道。
-        Warn,     ///< 可恢复异常或需要关注的情况。
-        Error,    ///< 操作失败，但进程仍可继续运行。
+        Trace, ///< 细粒度诊断信息。
+        Debug, ///< 调试过程和非关键生命周期信息。
+        Info, ///< 正常运行和请求活动信息。
+        Access, ///< 独立的访问或审计通道。
+        Warn, ///< 可恢复异常或需要关注的情况。
+        Error, ///< 操作失败，但进程仍可继续运行。
         Critical, ///< 关键失败；facade 不因普通级别阈值过滤此级别。
-        Off,      ///< 不接受普通日志级别。
+        Off, ///< 不接受普通日志级别。
     };
 
     /**
@@ -38,14 +40,22 @@ namespace Preview::Diagnose
     {
         switch (Level)
         {
-        case LogLevel::Trace: return "Trace";
-        case LogLevel::Debug: return "Debug";
-        case LogLevel::Info: return "Info";
-        case LogLevel::Access: return "Access";
-        case LogLevel::Warn: return "Warn";
-        case LogLevel::Error: return "Error";
-        case LogLevel::Critical: return "Critical";
-        case LogLevel::Off: return "Off";
+        case LogLevel::Trace:
+            return "Trace";
+        case LogLevel::Debug:
+            return "Debug";
+        case LogLevel::Info:
+            return "Info";
+        case LogLevel::Access:
+            return "Access";
+        case LogLevel::Warn:
+            return "Warn";
+        case LogLevel::Error:
+            return "Error";
+        case LogLevel::Critical:
+            return "Critical";
+        case LogLevel::Off:
+            return "Off";
         }
         return "Off";
     }
@@ -60,25 +70,7 @@ namespace Preview::Diagnose
     {
         std::string Result;
         Result.reserve(Value.size());
-        bool Capitalize = true;
-        for (const char RawCharacter : Value)
-        {
-            const auto Character = static_cast<unsigned char>(RawCharacter);
-            if (Character == '_' || Character == '-')
-            {
-                Capitalize = true;
-                continue;
-            }
-            if (Capitalize && Character >= 'a' && Character <= 'z')
-            {
-                Result.push_back(static_cast<char>(Character - 'a' + 'A'));
-            }
-            else
-            {
-                Result.push_back(static_cast<char>(Character));
-            }
-            Capitalize = false;
-        }
+        Preview::Text::TransformPascalCase(Value, [&Result](const char Character) { Result.push_back(Character); });
         return Result;
     }
 
@@ -90,11 +82,13 @@ namespace Preview::Diagnose
     {
         LogLevel Level{LogLevel::Info}; ///< 普通 facade 日志的级别阈值；Access/Audit 和 Critical 有专门规则。
         std::filesystem::path Directory{"logs"}; ///< 日志目录；应用 owner 在初始化时创建。
-        std::string FileName{"preview.log"};     ///< 当前日志文件名，不含目录分隔符。
-        bool Console{false};                     ///< 是否额外启用 stdout sink。
-        std::size_t QueueCapacity{4096U}; ///< spdlog 异步队列容量；并发提交或队列满时调用立即返回 Dropped。
+        std::string FileName{"preview.log"}; ///< 当前日志文件名，不含目录分隔符。
+        bool Console{false}; ///< 是否额外启用 stdout sink。
+        std::size_t QueueCapacity{4096U}; ///< 固定快照队列容量；并发提交或队列满时调用立即返回 Dropped。
+        std::size_t QueueBytes{64U * 1024U * 1024U}; ///< 冷构造队列槽的累计实际容量上限。
+        FormattingLimits Formatting{}; ///< 冷校验/冻结的 width、precision 及累计工作额度。
         std::uint64_t RotateBytes{64ULL * 1024ULL * 1024ULL}; ///< 单个日志文件达到此字节数时轮转。
-        std::uint32_t RotateFiles{8U};                        ///< 轮转时保留的历史文件数。
+        std::uint32_t RotateFiles{8U}; ///< 轮转时保留的历史文件数。
     };
 
     /**

@@ -1,6 +1,0 @@
-# xhttp 子模块
-AddPreviewTest(XhttpNgxE2E.cpp)
-target_link_libraries(XhttpNgxE2E PRIVATE PreviewTransport PreviewProtocolHttp2 PreviewProtocolXhttp PreviewTestSupport)
-
-AddPreviewTest(XhttpErrorMatrix.cpp)
-target_link_libraries(XhttpErrorMatrix PRIVATE PreviewProtocolXhttp PreviewTestSupport)

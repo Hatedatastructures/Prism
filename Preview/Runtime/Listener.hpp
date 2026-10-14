@@ -1,98 +1,48 @@
 /**
  * @file Listener.hpp
- * @brief TCP 监听器骨架（T4-3）
- * @details listener Accept → 亲和性分发（FNV-1a 哈希）→ 会话工厂：
- *          - Accept 循环：async_accept + 分发 + co_spawn 会话
- *          - 亲和性：同一远端地址 → 同一 worker（哈希稳定）
- *          - Stop()：取消 acceptor，Accept 循环退出
- * @note 对应生产 runtime/front/listener + balancer；worker 池执行
- *       模型简化（单 ioc），分发逻辑完整可测
+ * @brief TCP 监听、亲和性分发和会话 admission owner。
+ * @details accept loop 只发布 worker command；Stop/析构关闭 acceptor，
+ *          session 由 SessionControl 取消、delivery 和最终 close 收口。
  */
-
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/error.hpp>
-#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/use_awaitable.hpp>
-
 #include <cstddef>
 #include <cstdint>
 #include <chrono>
 #include <exception>
+#include <system_error>
 #include <functional>
 #include <atomic>
-#include <limits>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
-
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Generation/Lifetime.hpp>
+#include <Preview/Runtime/GenerationPublication.hpp>
+#include <Preview/Runtime/SessionAdmission.hpp>
+#include <Preview/Runtime/AffinityBalancer.hpp>
+#include <Preview/Runtime/ListenerConnectionGate.hpp>
+#include <Preview/Runtime/ListenerConnectionDrain.hpp>
+#include <Preview/Runtime/ListenerCompletion.hpp>
+#include <Preview/Runtime/ListenerAdmissionOwner.hpp>
+#include <Preview/Runtime/ListenerSessionRunner.hpp>
+#include <Preview/Foundation/Identifier/SessionIdAllocator.hpp>
+#include <Preview/Lifecycle/TaskRegistry.hpp>
 #include <Preview/Runtime/Session.hpp>
 #include <Preview/Runtime/SessionRegistry.hpp>
 #include <Preview/Runtime/WorkerGroup.hpp>
-#include <Preview/Transport/Reliable.hpp>
+#include <Preview/Runtime/WorkerDispatchResult.hpp>
 #include <Preview/Transport/Transmission.hpp>
-
 namespace Preview::Runtime
 {
-
     namespace Net = boost::asio;
-
-    /**
-     * @class AffinityBalancer
-     * @brief 亲和性分发器
-     * @details FNV-1a 哈希远端标识 → worker 索引。
-     *          相同标识稳定映射（亲和），分布近似均匀。
-     */
-    class AffinityBalancer
-    {
-    public:
-        /**
-         * @brief 构造
-         * @param WorkerCount worker 数（≥1）
-         */
-        explicit AffinityBalancer(std::size_t WorkerCount) : WorkerCount_(WorkerCount)
-        {
-            if (WorkerCount_ < 1)
-            {
-                WorkerCount_ = 1;
-            }
-        }
-
-        /**
-         * @brief 选择 worker
-         * @param key 亲和性键（如远端地址）
-         * @return worker 索引 [0, WorkerCount)
-         */
-        [[nodiscard]] auto Select(std::string_view key) const noexcept -> std::size_t
-        {
-            std::uint64_t Hash = 14695981039346656037ULL;
-            for (const char c : key)
-            {
-                Hash ^= static_cast<unsigned char>(c);
-                Hash *= 1099511628211ULL;
-            }
-            return static_cast<std::size_t>(Hash % WorkerCount_);
-        }
-
-        /**
-         * @brief worker 数
-         */
-        [[nodiscard]] auto WorkerCount() const noexcept -> std::size_t
-        {
-            return WorkerCount_;
-        }
-
-    private:
-        std::size_t WorkerCount_; ///< worker 数
-    };
-
     /**
      * @class TcpListener
      * @brief TCP 监听器
@@ -103,68 +53,23 @@ namespace Preview::Runtime
     {
     public:
         /// 会话工厂签名：传入远端 IP 仅在调用期间借用；会话需自行复制以延长生命周期。
-        using SessionFactory =
-            std::function<std::shared_ptr<Session>(Preview::SharedTransmission, std::size_t,
-                                                   std::string_view)>;
+        using SessionFactory = std::function<SessionAdmissionResult(SessionAdmission)>;
         using FailureHandler = std::function<void(Preview::Fault::Code)>;
-
         struct Options final
         {
             Net::any_io_executor Executor;
             SessionFactory Factory;
             std::size_t WorkerCount{1};
             std::size_t MaxConnections{0};
+            /// 借用唯一 Process worker 集合；调用方必须保持其存活到 Shutdown 和已提交 admission 排空。
             WorkerGroup *Workers{nullptr};
+            std::shared_ptr<GenerationPublication> Publication;
             Preview::ProcessId Process{};
-            Preview::GenerationId Generation{};
             std::size_t MailboxCapacity{64};
             FailureHandler OnFailure;
         };
-
     private:
-        struct Completion final
-        {
-            using Channel = Net::experimental::channel<void(boost::system::error_code)>;
-
-            explicit Completion(Net::any_io_executor ExecutorValue)
-                : Signal(std::move(ExecutorValue), 1)
-            {
-            }
-
-            auto Reset() noexcept -> void
-            {
-                Completed.store(false, std::memory_order_release);
-            }
-
-            auto Complete() noexcept -> void
-            {
-                if (Completed.exchange(true, std::memory_order_acq_rel))
-                {
-                    return;
-                }
-                (void)Signal.try_send(boost::system::error_code{});
-            }
-
-            [[nodiscard]] auto IsComplete() const noexcept -> bool
-            {
-                return Completed.load(std::memory_order_acquire);
-            }
-
-            [[nodiscard]] auto Wait() -> Net::awaitable<void>
-            {
-                if (IsComplete())
-                {
-                    co_return;
-                }
-                boost::system::error_code Error;
-                co_await Signal.async_receive(
-                    Net::redirect_error(Net::use_awaitable, Error));
-            }
-
-            Channel Signal;
-            std::atomic<bool> Completed{true};
-        };
-
+        using Completion = Detail::ListenerCompletion;
         /**
          * @struct Lifetime
          * @brief detached accept loop 的共享状态
@@ -177,23 +82,28 @@ namespace Preview::Runtime
                 : Ex(std::move(OptionsValue.Executor)), Factory(std::move(OptionsValue.Factory)),
                   OnFailure(std::move(OptionsValue.OnFailure)),
                   Workers(OptionsValue.Workers),
+                  StandaloneTasks(Workers ? std::shared_ptr<Preview::Lifecycle::TaskRegistry>{} :
+                      std::make_shared<Preview::Lifecycle::TaskRegistry>(Ex)),
+                  Publication(std::move(OptionsValue.Publication)),
                   Balancer(Workers ? Workers->Size() : 1),
-                  Generation(OptionsValue.Generation),
                   MaxConnections(OptionsValue.MaxConnections),
+                  ConnectionQuota(std::make_shared<Detail::ListenerConnectionGate::Quota>(
+                      OptionsValue.MaxConnections, Ex)),
                   Acceptor(Ex),
                   AcceptCompletion(std::make_shared<Completion>(Ex))
             {
             }
-
             Net::any_io_executor Ex;
             SessionFactory Factory;
             FailureHandler OnFailure;
             WorkerGroup *Workers{nullptr};
+            /** @brief 无 Worker 的独立 listener root scope；拥有会话 runner 与其有界 task slot。 */
+            std::shared_ptr<Preview::Lifecycle::TaskRegistry> StandaloneTasks;
+            std::shared_ptr<GenerationPublication> Publication;
             AffinityBalancer Balancer;
-            Preview::GenerationId Generation{};
             SessionRegistry Registry;
             std::size_t MaxConnections{0};
-            std::atomic<std::size_t> ActiveConnections{0};
+            std::shared_ptr<Detail::ListenerConnectionGate::Quota> ConnectionQuota;
             Net::ip::tcp::acceptor Acceptor;
             std::shared_ptr<Completion> AcceptCompletion;
             std::atomic<bool> Started{false};
@@ -202,109 +112,131 @@ namespace Preview::Runtime
             std::atomic<bool> Failed{false};
             std::atomic<bool> Stopped{false}; ///< Stop/析构后禁止新会话进入工厂
         };
-
         /**
          * @struct AdmissionRequest
-         * @brief listener 到 worker 的一次性值拥有 admission 请求
-         * @details 请求未被 worker 消费时，析构路径负责关闭入站传输并释放并发槽位；
-         *          request 不借用 accept loop 的局部变量，也不允许回退到 listener executor。
+         * @brief listener 到 worker 的一次性 owning admission 请求。
+         * @details transport 的移交不改变连接槽位 owner；未完成 admission 时析构
+         *          分别处理 transport 和 reservation。
          */
         struct AdmissionRequest final
         {
-            AdmissionRequest(Preview::SharedTransmission TransportValue,
-                             SessionFactory FactoryValue,
-                             std::shared_ptr<Lifetime> StateValue,
-                             SessionInfo InfoValue,
-                             std::size_t WorkerIndexValue,
-                             Preview::WorkerId WorkerValue,
-                             Preview::GenerationId GenerationValue)
-                : Transport(std::move(TransportValue)),
-                  Factory(std::move(FactoryValue)),
-                  State(std::move(StateValue)),
-                  Info(std::move(InfoValue)),
-                  WorkerIndex(WorkerIndexValue),
-                  Worker(WorkerValue),
-                  Generation(GenerationValue)
+            /** @brief admission 的 owning 输入；factory 与 State 覆盖请求执行期。 */
+            struct Options final
+            {
+                Preview::SharedTransmission Transport;
+                std::shared_ptr<Detail::ListenerConnectionGate::Reservation> ConnectionSlot;
+                std::shared_ptr<Detail::ListenerConnectionDrain> RejectionDrain;
+                SessionFactory Factory;
+                std::shared_ptr<Lifetime> State;
+                SessionInfo Info;
+                Preview::WorkerId Worker{};
+                Preview::Foundation::GenerationPin GenerationPin;
+            };
+            explicit AdmissionRequest(Options Input)
+                : Transport(std::move(Input.Transport)),
+                  ConnectionSlot(std::move(Input.ConnectionSlot)),
+                  RejectionDrain(std::move(Input.RejectionDrain)),
+                  Factory(std::move(Input.Factory)),
+                  State(std::move(Input.State)),
+                  Info(std::move(Input.Info)),
+                  Worker(Input.Worker),
+                  GenerationPin(std::move(Input.GenerationPin))
             {
             }
-
             ~AdmissionRequest() noexcept
             {
                 Reject();
             }
-
             AdmissionRequest(const AdmissionRequest &) = delete;
             auto operator=(const AdmissionRequest &) -> AdmissionRequest & = delete;
-
             auto Reject() noexcept -> void
             {
-                if (!Pending)
+                if (Pending.exchange(false, std::memory_order_acq_rel))
                 {
-                    return;
+                    RejectUntransferred();
                 }
-                Pending = false;
-                CloseAcceptedTransport(Transport);
-                ReleaseConnection(State);
             }
-
+            auto RejectUntransferred() noexcept -> void { RejectOwnedTransport(); }
+            /** @brief transport 已移交后的显式异常完成；quota 交给真实 Activity owner。 */
+            auto RejectTransferred(Preview::SharedTransmission RejectedTransport) noexcept -> void
+            { Transport = std::move(RejectedTransport); RejectOwnedTransport(); }
             [[nodiscard]] auto TakeTransport() noexcept -> Preview::SharedTransmission
             {
-                Pending = false;
+                Pending.store(false, std::memory_order_release);
                 return std::move(Transport);
             }
-
+            auto RejectOwnedTransport() noexcept -> void
+            {
+                if (RejectionDrain)
+                {
+                    if (ConnectionSlot) ConnectionSlot->ReleaseTransport();
+                    RejectionDrain->Start(); Transport.reset(); return;
+                }
+                if (ConnectionSlot)
+                { ConnectionSlot->AdoptTransport(std::move(Transport)); ConnectionSlot->RequestRetirement(); return; }
+            }
             Preview::SharedTransmission Transport;
+            std::shared_ptr<Detail::ListenerConnectionGate::Reservation> ConnectionSlot;
+            std::shared_ptr<Detail::ListenerConnectionDrain> RejectionDrain;
+            std::atomic<bool> Pending{true};
             SessionFactory Factory;
             std::shared_ptr<Lifetime> State;
             SessionInfo Info;
-            std::size_t WorkerIndex{0};
             Preview::WorkerId Worker{};
-            Preview::GenerationId Generation{};
-            bool Pending{true};
+            Preview::Foundation::GenerationPin GenerationPin;
+
+            [[nodiscard]] auto Generation() const noexcept -> Preview::GenerationId
+            {
+                if (!GenerationPin)
+                {
+                    return {};
+                }
+                return GenerationPin->Id();
+            }
         };
-
+        static auto MakeAdmission(AdmissionRequest::Options Input) noexcept
+            -> std::shared_ptr<AdmissionRequest>
+        {
+            const auto StableSlot = Input.ConnectionSlot;
+            const auto StableDrain = Input.RejectionDrain;
+            try { return std::make_shared<AdmissionRequest>(std::move(Input)); }
+            catch (...)
+            {
+                if (StableDrain) { StableSlot->ReleaseTransport(); StableDrain->Start(); }
+                else if (StableSlot) StableSlot->RequestRetirement();
+                return {};
+            }
+        }
+        static auto NotifyFailure(const std::shared_ptr<Lifetime> &State,
+                                  const Preview::Fault::Code Code) noexcept -> void
+        {
+            if (!State->OnFailure) return;
+            try { State->OnFailure(Code); }
+            catch (...) {}
+        }
+        struct AcceptCompletionToken final
+        {
+            std::shared_ptr<Lifetime> State; bool Invoked{false}, Failed{false};
+            explicit AcceptCompletionToken(std::shared_ptr<Lifetime> Value) noexcept : State(std::move(Value)) {}
+            AcceptCompletionToken(AcceptCompletionToken&& Other) noexcept : State(std::move(Other.State)), Invoked(Other.Invoked), Failed(Other.Failed) { Other.Invoked = true; }
+            ~AcceptCompletionToken() noexcept { if (!State) return; if (!Invoked || Failed) { State->Ready.store(false); State->Failed.store(true); State->AcceptLoopStarted.store(false); NotifyFailure(State, Preview::Fault::Code::IoError); } State->AcceptCompletion->Complete(); }
+            auto operator()(std::exception_ptr Error) noexcept -> void { Invoked = true; Failed = static_cast<bool>(Error); }
+        };
     public:
-
-        /**
-         * @brief 构造
-         * @param ex 执行器
-         * @param factory 会话工厂
-         * @param WorkerCount worker 数（用于分发）
-         */
+        /** @brief 构造 listener owner；Options 接管 factory 和 worker 配置。 */
         explicit TcpListener(Options OptionsValue)
-            : State_(std::make_shared<Lifetime>(std::move(OptionsValue)))
-        {
-        }
-
-        TcpListener(Net::any_io_executor Executor, SessionFactory Factory)
-            : TcpListener(Options{std::move(Executor), std::move(Factory), 1, 0})
-        {
-        }
-
-        TcpListener(Net::any_io_executor Executor,
-                    SessionFactory Factory,
-                    std::size_t WorkerCount)
-            : TcpListener(Options{std::move(Executor), std::move(Factory), WorkerCount, 0})
-        {
-        }
-
+            : State_(std::make_shared<Lifetime>(std::move(OptionsValue))) {}
         TcpListener(const TcpListener &) = delete;
         auto operator=(const TcpListener &) -> TcpListener & = delete;
         TcpListener(TcpListener &&) = delete;
         auto operator=(TcpListener &&) -> TcpListener & = delete;
-
         /**
          * @brief 析构即停止监听（RAII）
          * @details 不依赖调用方显式 Stop()：关闭 acceptor 让 Accept 循环退出；
          *          detached 循环持有的共享状态在取消完成后自行释放。
          * @note 必须在执行器线程调用（与单 executor 约束一致）。
          */
-        ~TcpListener()
-        {
-            Stop();
-            State_->Registry.BeginShutdown();
-        }
-
+        ~TcpListener() { Stop(); State_->Registry.BeginShutdown(); }
         /**
          * @brief 绑定并启动监听
          * @param BindEp 绑定端点（端口 0 = 随机）
@@ -344,20 +276,18 @@ namespace Preview::Runtime
             State->AcceptLoopStarted.store(true, std::memory_order_release);
             try
             {
-                Net::co_spawn(State->Ex, AcceptLoop(State), Net::detached);
+                Net::co_spawn(State->Ex, AcceptLoop(State), AcceptCompletionToken(State));
             }
             catch (...)
             {
-                State->AcceptLoopStarted.store(false, std::memory_order_release);
-                State->Failed.store(true, std::memory_order_release);
-                boost::system::error_code CloseError;
-                State->Acceptor.close(CloseError);
+                State->AcceptLoopStarted.store(false, std::memory_order_release); State->Failed.store(true, std::memory_order_release);
+                boost::system::error_code CloseError; State->Acceptor.close(CloseError);
                 co_return Preview::Fault::Code::IoError;
             }
-            State->Ready.store(true, std::memory_order_release);
+            if (!State->Failed.load(std::memory_order_acquire))
+                State->Ready.store(true, std::memory_order_release);
             co_return Preview::Fault::Code::Success;
         }
-
         /**
          * @brief 停止监听（关闭 acceptor，Accept 循环退出）
          */
@@ -365,50 +295,55 @@ namespace Preview::Runtime
         {
             State_->Ready.store(false, std::memory_order_release);
             if (State_->Stopped.exchange(true, std::memory_order_acq_rel))
-            {
-                return; // 幂等
-            }
+            { return; }
             boost::system::error_code ec;
             State_->Acceptor.cancel(ec);
             State_->Acceptor.close(ec);
         }
-
         [[nodiscard]] auto IsReady() const noexcept -> bool
         {
             return State_->Ready.load(std::memory_order_acquire) &&
                    !State_->Stopped.load(std::memory_order_acquire) &&
                    !State_->Failed.load(std::memory_order_acquire);
         }
-
         [[nodiscard]] auto IsFailed() const noexcept -> bool
         {
             return State_->Failed.load(std::memory_order_acquire);
         }
-
         /**
          * @brief 获取活动会话注册表
          * @return listener 所有的注册表引用
          */
         [[nodiscard]] auto Registry() noexcept -> SessionRegistry &
-        {
-            return State_->Registry;
-        }
-
+        { return State_->Registry; }
         /**
          * @brief 停止接收并取消、排空活动会话
          * @details Stop 只关闭 acceptor；Registry Shutdown 等待实际会话
-         *          协程完成，不使用阻塞等待或固定 grace 时间。
+         *          子 scope；连接屏障等待已接收 admission 与拒绝 owner 退栈。
+         *          独立 listener root 另行等待会话 runner 的真实 completion handler 退栈。
          */
-        [[nodiscard]] auto Shutdown() -> Net::awaitable<void>
+        [[nodiscard]] auto Shutdown()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
+            co_await Net::this_coro::throw_if_cancelled(false);
             Stop();
             if (State_->AcceptLoopStarted.load(std::memory_order_acquire))
             {
                 co_await State_->AcceptCompletion->Wait();
             }
-            co_await State_->Registry.Shutdown();
+            State_->ConnectionQuota->Drain.Seal();
+            const auto Sessions = co_await State_->Registry.Shutdown();
+            const auto Connections = co_await State_->ConnectionQuota->Drain.Drain();
+            std::expected<void, Preview::Fault::Failure> Standalone;
+            if (State_->StandaloneTasks)
+            {
+                State_->StandaloneTasks->Seal();
+                Standalone = co_await State_->StandaloneTasks->Drain();
+            }
+            if (!Sessions) co_return Sessions;
+            if (!Connections) co_return Connections;
+            co_return Standalone;
         }
-
         /**
          * @brief 本地端点
          */
@@ -416,7 +351,6 @@ namespace Preview::Runtime
         {
             return State_->Acceptor.local_endpoint();
         }
-
         /**
          * @brief 返回连接并发上限
          * @return 0 表示不限制，否则为允许保持的活动 Session 数
@@ -425,173 +359,130 @@ namespace Preview::Runtime
         {
             return State_->MaxConnections;
         }
-
     private:
-        [[nodiscard]] static auto ReserveSessionId() noexcept -> Preview::SessionId
+        static auto RejectAdmission(const std::shared_ptr<AdmissionRequest> &Request,
+                                    const std::shared_ptr<Session> &SessionOwner) noexcept -> void
         {
-            static std::atomic<std::uint64_t> Next{1};
-            auto Candidate = Next.load(std::memory_order_relaxed);
-            while (Candidate != 0)
-            {
-                const auto Following = Candidate == std::numeric_limits<std::uint64_t>::max()
-                                           ? 0
-                                           : Candidate + 1U;
-                if (Next.compare_exchange_weak(
-                        Candidate, Following, std::memory_order_relaxed,
-                        std::memory_order_relaxed))
-                {
-                    return Preview::SessionId{Candidate};
-                }
-            }
-            return {};
+            if (SessionOwner) SessionOwner->SetDeferredCleanup({});
+            if (Request) Request->RejectTransferred({});
         }
-
-        /**
-         * @brief 运行并收口一个已登记会话
-         * @details 使用具名协程函数保存所有参数，避免立即调用带捕获
-         *          coroutine lambda 的临时 closure 生命周期问题。
-         */
-        [[nodiscard]] static auto RunSession(
-            std::shared_ptr<Session> Sess,
-            Preview::SharedTransmission Transport,
-            std::shared_ptr<Lifetime> State,
-            std::shared_ptr<SessionControl> Control,
-            SessionRegistry::Registration Registration) -> Net::awaitable<void>
-        {
-            try
-            {
-                const auto Result = co_await Sess->Run(Transport);
-                if (Preview::Fault::Failed(Result))
-                {
-                    Control->ReportError(Result);
-                }
-            }
-            catch (...)
-            {
-                Control->ReportError(Preview::Fault::Code::IoError,
-                                     std::current_exception());
-            }
-            Sess->Close();
-            Registration.Reset();
-            ReleaseConnection(State);
-        }
-
-        /**
-         * @brief 在选定 worker executor 上执行一次 admission 请求
-         * @details Factory、SessionControl 绑定、注册和 tracked start 均位于 worker command；
-         *          accept loop 只负责发布该 command。
-         */
+        /** @brief 在选定 worker executor 上完成 factory、registry 和 tracked start。 */
         static auto StartSession(const std::shared_ptr<AdmissionRequest> &Request) -> void
         {
-            if (!Request || !Request->State)
+            if (!Request || !Request->State) return;
+            Worker *WorkerValue = nullptr;
+            if (Request->State->Workers)
             {
-                return;
+                WorkerValue = Request->State->Workers->Find(Request->Worker);
             }
-
-            auto *WorkerValue = Request->State->Workers
-                                    ? Request->State->Workers->Find(Request->Worker)
-                                    : nullptr;
             if (Request->State->Workers &&
                 (!WorkerValue || !WorkerValue->IsAccepting()))
             {
                 return;
             }
-
+            if (!Request->GenerationPin || Request->GenerationPin->Id() != Request->Info.Generation)
+            {
+                RejectAdmission(Request, {});
+                NotifyFailure(Request->State, Preview::Fault::Code::Blocked);
+                return;
+            }
             const auto SessionId = Request->Info.Id;
             auto Transport = Request->TakeTransport();
-            const auto Reject = [&Request, &Transport]
-            {
-                CloseAcceptedTransport(Transport);
-                ReleaseConnection(Request->State);
-            };
+            auto Drain = Request->RejectionDrain;
+            std::shared_ptr<Session> Sess, SessionOwner;
             try
             {
-                std::shared_ptr<Session> Sess;
                 if (Request->Factory)
                 {
-                    const std::string_view SourceIp = Request->Info.peer == "unknown"
-                                                          ? std::string_view{"Unknown"}
-                                                          : std::string_view{Request->Info.peer};
-                    Sess = Request->Factory(Transport, Request->WorkerIndex,
-                                            SourceIp);
+                    auto SourceIp = std::string{"Unknown"};
+                    if (Request->Info.peer != "unknown")
+                    {
+                        SourceIp = Request->Info.peer;
+                    }
+                    auto Built = Request->Factory(SessionAdmission{
+                        Transport, Request->Worker, SourceIp, Request->GenerationPin});
+                    if (!Built)
+                    {
+                        RejectAdmission(Request, SessionOwner);
+                        NotifyFailure(Request->State, Built.error().Code);
+                        return;
+                    }
+                    Sess = std::move(*Built);
                 }
                 if (!Sess)
                 {
-                    Reject();
+                    RejectAdmission(Request, SessionOwner);
+                    NotifyFailure(Request->State, Preview::Fault::Code::Blocked);
                     return;
                 }
-
+                SessionOwner = Sess;
+                auto InitialState = std::make_shared<Detail::SessionAdmissionState>();
                 auto Control = Sess->Control();
-                if (!Control)
-                {
-                    Reject();
-                    return;
-                }
-
-                auto Registration =
-                    Request->State->Registry.Register(std::move(Request->Info), Control);
-                if (!Registration)
-                {
-                    Reject();
-                    return;
-                }
-
+                if (!Control) { RejectAdmission(Request, SessionOwner); return; }
+                std::shared_ptr<Preview::Lifecycle::TaskRegistry> StandaloneRoot;
+                Preview::Lifecycle::TaskRegistry *SessionRoot = nullptr;
+                bool Bound = false;
                 if (WorkerValue)
                 {
-                    (void)Control->Bind(
-                        WorkerValue->Executor(),
-                        std::shared_ptr<Preview::Lifecycle::TaskRegistry>(
-                            &WorkerValue->Resources().Tasks,
-                            [](Preview::Lifecycle::TaskRegistry *) {}));
+                    SessionRoot = &WorkerValue->TaskRegistry();
+                    Bound = Control->Bind(
+                        WorkerValue->Executor(), *SessionRoot);
                 }
                 else
                 {
-                    (void)Control->Bind(Request->State->Ex);
+                    StandaloneRoot = Request->State->StandaloneTasks;
+                    if (!StandaloneRoot) { RejectAdmission(Request, SessionOwner); return; }
+                    SessionRoot = StandaloneRoot.get();
+                    Bound = Control->Bind(Request->State->Ex, *SessionRoot);
                 }
+                if (!Bound) { RejectAdmission(Request, SessionOwner); return; }
+                auto Registration =
+                    Request->State->Registry.Register(std::move(Request->Info), Control);
+                if (!Registration) { RejectAdmission(Request, SessionOwner); return; }
+                Sess->SetRegistration(std::move(Registration));
                 Preview::Lifecycle::TaskRequest TaskRequest;
-                TaskRequest.Identity.SessionId = Preview::SessionId{SessionId};
-                TaskRequest.Identity.WorkerId = Request->Worker;
-                TaskRequest.Identity.Generation = Request->Generation;
-                TaskRequest.Cancel = [Transport] { CloseAcceptedTransport(Transport); };
-                const auto Started = Control->Start(
+                TaskRequest.Context.SessionId = Preview::SessionId{SessionId};
+                TaskRequest.Context.WorkerId = Request->Worker;
+                TaskRequest.Context.Generation = Request->Generation();
+                auto CloseAction = std::make_shared<Preview::Executor::PreparedAction>(
+                    std::make_shared<Preview::Executor::ExecutorReclaimer>(Transport->Executor()),
+                    [Transport]() -> std::expected<void, Preview::Fault::Failure>
+                    {
+                        const auto Canceled = Transport->Cancel();
+                        const auto Closed = Transport->Close();
+                        if (!Canceled) return Canceled;
+                        if (!Closed) return Closed;
+                        return {};
+                    });
+                if (!Drain) { RejectAdmission(Request, SessionOwner); return; }
+                Drain->ConfigureSession(CloseAction, InitialState);
+                Sess->SetDeferredCleanup(Drain);
+                if (Request->ConnectionSlot) Request->ConnectionSlot->ReleaseTransport();
+                // task 预约保活 Session/注册 token，直到终态 hook 发布和真实完成 handler 退栈。
+                TaskRequest.Cancel = [Drain, SessionOwner = Sess]
+                    { (void)SessionOwner; Drain->Start(); };
+                const auto Started = Control->StartSession(
+                    *SessionRoot,
                     std::move(TaskRequest),
-                    RunSession(std::move(Sess), Transport, Request->State, Control,
-                               std::move(Registration)));
+                    Detail::RunListenerSession(
+                        Detail::ListenerSessionRunRequest{std::move(Sess), Transport, Drain}));
                 if (!Started)
                 {
-                    Reject();
+                    RejectAdmission(Request, SessionOwner);
                 }
             }
             catch (...)
             {
-                Reject();
+                RejectAdmission(Request, SessionOwner);
             }
         }
-
         /**
          * @brief Accept 循环：接受 → 亲和性分发 → 启动会话
          */
         [[nodiscard]] static auto AcceptLoop(std::shared_ptr<Lifetime> State)
             -> Net::awaitable<void>
         {
-            struct CompletionGuard final
-            {
-                explicit CompletionGuard(std::shared_ptr<Completion> CompletionValue)
-                    : Value(std::move(CompletionValue))
-                {
-                }
-
-                ~CompletionGuard() noexcept
-                {
-                    if (Value)
-                    {
-                        Value->Complete();
-                    }
-                }
-
-                std::shared_ptr<Completion> Value;
-            } Guard(State->AcceptCompletion);
-
+            Detail::ListenerCompletionGuard Guard(State->AcceptCompletion);
             while (true)
             {
                 boost::system::error_code ec;
@@ -625,71 +516,49 @@ namespace Preview::Runtime
                     Sock.close(CloseError);
                     co_return;
                 }
-                if (!TryAcquireConnection(State))
-                {
-                    boost::system::error_code CloseError;
-                    Sock.close(CloseError);
-                    continue;
-                }
-                boost::system::error_code pec;
-                const auto Remote = Sock.remote_endpoint(pec);
-                std::string Peer;
-                if (pec)
-                {
-                    Peer = "unknown";
-                }
-                else
-                {
-                    Peer = Remote.address().to_string();
-                }
-                const auto WorkerIndex = State->Balancer.Select(Peer);
-                const auto Worker = Preview::WorkerId{
-                    static_cast<std::uint64_t>(WorkerIndex + 1)};
-                auto Transport = Preview::Transport::MakeReliable(std::move(Sock));
+                auto Prepared = Detail::ListenerAdmissionOwner::Prepare(
+                    std::move(Sock),
+                    {State->Ex, State->ConnectionQuota, State->Balancer,
+                     State->Workers, State->Publication, State->OnFailure});
+                if (!Prepared) continue;
+                auto [Transport, ConnectionSlot, RejectionDrain, Peer, Worker,
+                    GenerationPin] =
+                    std::move(*Prepared);
                 if (!State->Factory ||
                     State->Stopped.load(std::memory_order_acquire))
                 {
-                    CloseAcceptedTransport(Transport);
-                    ReleaseConnection(State);
-                    if (State->Stopped.load(std::memory_order_acquire))
-                    {
-                        co_return;
-                    }
+                    ConnectionSlot->ReleaseTransport();
+                    RejectionDrain->Start();
+                    if (State->Stopped.load(std::memory_order_acquire)) co_return;
                     continue;
                 }
-
                 SessionInfo Info;
-                const auto SessionId = ReserveSessionId();
+                const auto SessionId = Preview::Foundation::Identifier::ReserveSessionId();
                 if (!SessionId)
                 {
-                    CloseAcceptedTransport(Transport);
-                    ReleaseConnection(State);
-                    if (State->OnFailure)
-                    {
-                        try
-                        {
-                            State->OnFailure(Preview::Fault::Code::ResourceUnavailable);
-                        }
-                        catch (...)
-                        {
-                        }
-                    }
+                    ConnectionSlot->ReleaseTransport();
+                    RejectionDrain->Start();
+                    NotifyFailure(State, Preview::Fault::Code::ResourceUnavailable);
                     continue;
                 }
                 Info.Id = SessionId.Value();
                 Info.peer = Peer;
+                Info.Worker = Worker;
+                Info.Generation = GenerationPin->Id();
                 Info.StartedAt = static_cast<std::uint64_t>(
                     std::chrono::steady_clock::now().time_since_epoch().count());
-                auto Request = std::make_shared<AdmissionRequest>(
-                    std::move(Transport), State->Factory, State, std::move(Info),
-                    State->Workers ? WorkerIndex : WorkerIndex + 1U,
-                    Worker, State->Workers ? State->Workers->Generation() : State->Generation);
-                const auto Result = State->Workers
-                                        ? State->Workers->Dispatch(
-                                              Worker, Request->Generation,
-                                              [Request] { StartSession(Request); })
-                                        : Mailbox::Result::Accepted;
-                if (Result != Mailbox::Result::Accepted)
+                auto Request = MakeAdmission(AdmissionRequest::Options{
+                    std::move(Transport), std::move(ConnectionSlot), std::move(RejectionDrain), State->Factory,
+                    State, std::move(Info), Worker, std::move(GenerationPin)});
+                if (!Request) continue;
+                auto Result = WorkerDispatchResult::Accepted;
+                if (State->Workers)
+                {
+                    Result = State->Workers->Dispatch(
+                        Worker, Request->Generation(),
+                        [Request] { StartSession(Request); });
+                }
+                if (Result != WorkerDispatchResult::Accepted)
                 {
                     Request->Reject();
                     if (State->Stopped.load(std::memory_order_acquire))
@@ -703,40 +572,6 @@ namespace Preview::Runtime
                 }
             }
         }
-
-        static auto CloseAcceptedTransport(const Preview::SharedTransmission &Transport) -> void
-        {
-            if (Transport && Transport->IsOpen())
-            {
-                Transport->Cancel();
-                Transport->Close();
-            }
-        }
-
-        [[nodiscard]] static auto TryAcquireConnection(const std::shared_ptr<Lifetime> &State) noexcept -> bool
-        {
-            if (State->MaxConnections == 0)
-            {
-                return true;
-            }
-            auto Current = State->ActiveConnections.load(std::memory_order_relaxed);
-            while (Current < State->MaxConnections &&
-                   !State->ActiveConnections.compare_exchange_weak(
-                       Current, Current + 1, std::memory_order_acquire, std::memory_order_relaxed))
-            {
-            }
-            return Current < State->MaxConnections;
-        }
-
-        static auto ReleaseConnection(const std::shared_ptr<Lifetime> &State) noexcept -> void
-        {
-            if (State->MaxConnections != 0)
-            {
-                State->ActiveConnections.fetch_sub(1, std::memory_order_release);
-            }
-        }
-
         std::shared_ptr<Lifetime> State_; ///< accept loop 生命周期状态
     };
-
 } // namespace Preview::Runtime

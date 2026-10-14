@@ -14,7 +14,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 AddContractTest(PreviewProductionBridgeTest.cpp)
-target_link_libraries(PreviewProductionBridgeTest PRIVATE PreviewRuntime)
+target_link_libraries(PreviewProductionBridgeTest PRIVATE PreviewRuntime PreviewComposition)
 
 AddContractTest(PreviewConfigurationTest.cpp)
 target_link_libraries(PreviewConfigurationTest PRIVATE PreviewRuntime)

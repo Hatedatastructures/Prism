@@ -8,6 +8,7 @@
 #include <Preview/Application/Configuration/ResolvedSecrets.hpp>
 #include <Preview/Composition/Builtin/Snapshot.hpp>
 #include <Preview/Foundation/Identifier/Id.hpp>
+#include <Preview/Foundation/Generation/Lifetime.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -29,7 +30,7 @@ namespace Preview::Application::Configuration
     };
 
     /** @brief 已校验、可被会话 pin 的配置 generation。 */
-    class ConfigurationGeneration final
+    class ConfigurationGeneration final : public Preview::Foundation::GenerationLifetime
     {
     public:
         ConfigurationGeneration(const ConfigurationGeneration &) = delete;
@@ -37,7 +38,7 @@ namespace Preview::Application::Configuration
         ConfigurationGeneration(ConfigurationGeneration &&) = delete;
         auto operator=(ConfigurationGeneration &&) -> ConfigurationGeneration & = delete;
 
-        [[nodiscard]] auto Id() const noexcept -> Preview::GenerationId
+        [[nodiscard]] auto Id() const noexcept -> Preview::GenerationId override
         {
             return Id_;
         }

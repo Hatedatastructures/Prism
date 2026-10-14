@@ -16,6 +16,8 @@
 namespace Preview::Application::Configuration
 {
 
+    class SecretResolutionTransaction;
+
     class SecretRefResolver final
     {
     public:
@@ -53,6 +55,11 @@ namespace Preview::Application::Configuration
             return Resolver_;
         }
 
+        [[nodiscard]] auto TakeCallbackValue() && -> Callback
+        {
+            return std::move(Resolver_);
+        }
+
     private:
         Callback Resolver_;
     };
@@ -62,63 +69,19 @@ namespace Preview::Application::Configuration
     class MapSecretRefResolver final
     {
     public:
-        explicit MapSecretRefResolver(std::map<std::string, std::string> Values)
-            : Values_(std::make_shared<const std::map<std::string, std::string>>(std::move(Values)))
-        {
-        }
+        explicit MapSecretRefResolver(std::map<std::string, std::string> Values);
 
         [[nodiscard]] auto Resolve(std::string_view Reference) const
-            -> std::optional<std::string>
-        {
-            const auto It = Values_->find(std::string(Reference));
-            if (It == Values_->end() || It->second.empty())
-            {
-                return std::nullopt;
-            }
-            return It->second;
-        }
-
-        [[nodiscard]] auto CallbackValue() const -> SecretRefResolver::Callback
-        {
-            const auto Values = Values_;
-            return [Values](std::string_view Reference) -> std::optional<std::string>
-            {
-                const auto It = Values->find(std::string(Reference));
-                if (It == Values->end() || It->second.empty())
-                {
-                    return std::nullopt;
-                }
-                return It->second;
-            };
-        }
+            -> std::optional<std::string>;
+        [[nodiscard]] auto CallbackValue() const -> SecretRefResolver::Callback;
 
     private:
-        std::shared_ptr<const std::map<std::string, std::string>> Values_;
+        std::shared_ptr<SecretResolutionTransaction> Resolution_;
     };
 
     /** @brief 构造内联配置密钥优先、外部回调兜底的解析器。 */
-    [[nodiscard]] inline auto MakeChainedSecretResolver(
+    [[nodiscard]] auto MakeChainedSecretResolver(
         std::map<std::string, std::string> InlineValues,
-        SecretRefResolver::Callback Fallback = {}) -> SecretRefResolver::Callback
-    {
-        const auto InlineResolver = MapSecretRefResolver(std::move(InlineValues)).CallbackValue();
-        return [InlineResolver = std::move(InlineResolver), Fallback = std::move(Fallback)](
-                   std::string_view Reference) -> std::optional<std::string>
-        {
-            if (InlineResolver)
-            {
-                const auto Value = InlineResolver(Reference);
-                if (Value && !Value->empty())
-                {
-                    return Value;
-                }
-            }
-            if (Fallback)
-            {
-                return Fallback(Reference);
-            }
-            return std::nullopt;
-        };
-    }
+        SecretRefResolver::Callback Fallback = {}) -> SecretRefResolver::Callback;
 
 } // namespace Preview::Application::Configuration

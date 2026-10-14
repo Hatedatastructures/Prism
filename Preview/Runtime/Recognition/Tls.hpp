@@ -20,17 +20,13 @@
 
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Runtime/Recognition/ProbeBuffer.hpp>
+#include <Preview/Runtime/Recognition/TlsRecordReader.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Recognition
 {
 
     namespace Net = boost::asio;
-
-    inline constexpr std::size_t TlsRecordHeaderSize = 5;
-    inline constexpr std::size_t MaxTlsRecordPayload = 16 * 1024;
-    inline constexpr std::size_t MaxTlsClientHelloBytes = 64 * 1024;
-    inline constexpr std::size_t MaxTlsSessionIdBytes = 32;
 
     /// ClientHello 解析结果
     struct ClientHelloFeatures
@@ -54,93 +50,6 @@ namespace Preview::Recognition
         bool HasPsk{false};
         bool HasEch{false};
     };
-
-    /**
-     * @brief 读取完整 TLS Handshake record
-     * @param Transport 入站传输
-     * @param Preread 已从 Transport 消费的前缀
-     * @return 错误码与完整 record（含 5 字节 record header）
-     */
-    [[nodiscard]] inline auto ReadTlsRecord(Preview::Transmission &Transport,
-                                             std::span<const std::byte> Preread = {})
-        -> Net::awaitable<std::pair<Error, std::vector<std::uint8_t>>>
-    {
-        if (Preread.size() > TlsRecordHeaderSize + MaxTlsRecordPayload)
-        {
-            co_return std::pair{Error::BadLength, std::vector<std::uint8_t>{}};
-        }
-
-        std::vector<std::uint8_t> Record;
-        Record.reserve(TlsRecordHeaderSize + MaxTlsRecordPayload);
-        if (!Preread.empty())
-        {
-            const auto *Bytes = reinterpret_cast<const std::uint8_t *>(Preread.data());
-            Record.insert(Record.end(), Bytes, Bytes + Preread.size());
-        }
-
-        while (Record.size() < TlsRecordHeaderSize)
-        {
-            std::array<std::byte, TlsRecordHeaderSize> Chunk{};
-            std::error_code Ec;
-            const auto Need = TlsRecordHeaderSize - Record.size();
-            const auto Read = co_await Transport.async_read_some(std::span<std::byte>(Chunk).first(Need), Ec);
-            if (Ec)
-            {
-                Error Status = Error::IoError;
-                if (Read == 0 && Preview::Fault::ToCode(Ec) == Preview::Fault::Code::Eof)
-                {
-                    Status = Error::UnexpectedEof;
-                }
-                co_return std::pair{Status, std::vector<std::uint8_t>{}};
-            }
-            if (Read == 0 || Read > Need)
-            {
-                co_return std::pair{Error::UnexpectedEof, std::vector<std::uint8_t>{}};
-            }
-            const auto *Bytes = reinterpret_cast<const std::uint8_t *>(Chunk.data());
-            Record.insert(Record.end(), Bytes, Bytes + Read);
-        }
-
-        if (Record[0] != 0x16 || Record[1] != 0x03)
-        {
-            co_return std::pair{Error::BadMessage, std::vector<std::uint8_t>{}};
-        }
-        const auto PayloadLength = static_cast<std::size_t>(Record[3]) << 8 | Record[4];
-        if (PayloadLength > MaxTlsRecordPayload)
-        {
-            co_return std::pair{Error::BadLength, std::vector<std::uint8_t>{}};
-        }
-        const auto Total = TlsRecordHeaderSize + PayloadLength;
-        if (Record.size() > Total)
-        {
-            co_return std::pair{Error::BadLength, std::vector<std::uint8_t>{}};
-        }
-        const auto AlreadyRead = Record.size();
-        Record.resize(Total);
-        auto Offset = AlreadyRead;
-        while (Offset < Total)
-        {
-            std::error_code Ec;
-            const auto Read = co_await Transport.async_read_some(
-                std::span<std::byte>(reinterpret_cast<std::byte *>(Record.data() + Offset), Total - Offset),
-                Ec);
-            if (Ec)
-            {
-                Error Status = Error::IoError;
-                if (Read == 0 && Preview::Fault::ToCode(Ec) == Preview::Fault::Code::Eof)
-                {
-                    Status = Error::UnexpectedEof;
-                }
-                co_return std::pair{Status, std::vector<std::uint8_t>{}};
-            }
-            if (Read == 0 || Read > Total - Offset)
-            {
-                co_return std::pair{Error::UnexpectedEof, std::vector<std::uint8_t>{}};
-            }
-            Offset += Read;
-        }
-        co_return std::pair{Error::None, std::move(Record)};
-    }
 
     namespace detail
     {

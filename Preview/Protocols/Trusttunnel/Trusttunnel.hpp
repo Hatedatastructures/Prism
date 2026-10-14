@@ -1,144 +1,219 @@
 /**
  * @file Trusttunnel.hpp
- * @brief TrustTunnel 协议入口（聚合头 + 工厂函数）
- * @details 协议族统一入口：
- * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
- *   Accept / AcceptPacket（服务端）——认证握手在工厂内部完成
- * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
- * - 连接：Conn（流，Conn.hpp，CONNECT 隧道）、
- *   Dgram（包，Dgram.hpp，HTTP/2 数据帧承载）
- * - 编解码/认证：Codec.hpp（Basic Auth 构造/解析/校验）
+ * @brief TrustTunnel 唯一 public stream/datagram factory。
+ * @details 请求按值拥有握手输入；成功结果含目标和唯一 connection/datagram owner。
+ *          失败以 Fault::Failure 返回，由 factory Cancel、Close 并等待 Activity Drain。
  */
-
 #pragma once
 
-#include <boost/asio/awaitable.hpp>
-
-#include <cstddef>
-#include <cstdint>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <tuple>
-#include <utility>
-
-#include <Preview/Foundation/Error.hpp>
-#include <Preview/Transport/Transmission.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Contract/Ingress/InboundAdmission.hpp>
 #include <Preview/Protocols/Trusttunnel/Codec.hpp>
 #include <Preview/Protocols/Trusttunnel/Conn.hpp>
-#include <Preview/Protocols/Trusttunnel/Http2.hpp>
+#include <Preview/Protocols/Trusttunnel/Detail/Conn.hpp>
 #include <Preview/Protocols/Trusttunnel/Dgram.hpp>
+#include <Preview/Protocols/Trusttunnel/Detail/Dgram.hpp>
 #include <Preview/Protocols/Trusttunnel/Types.hpp>
+
+#include <expected>
+#include <exception>
+#include <memory>
+#include <new>
+#include <string>
+#include <system_error>
+#include <utility>
 
 namespace Preview::Trusttunnel
 {
-
-    // =========================================================================
-    // 配置（客户端与服务端字段分开定义）
-    // =========================================================================
-
-    /**
-     * @struct ConnectParameters
-     * @brief TrustTunnel 客户端连接装配参数
-     * @details Upstream 的所有权转移给新连接；Config 与 Target 视图在握手期间借用。
-     */
-    struct ConnectParameters
+    struct ConnectParameters final
     {
         SharedTransmission Upstream;
-        const ClientConfig &Config;
-        std::string_view Target;
-        std::uint16_t Port;
+        ClientConfig Configuration;
+        std::string Target;
+        std::uint16_t Port{0};
     };
 
-    // =========================================================================
-    // 工厂（自由函数，握手在内部完成）
-    // =========================================================================
+    struct AcceptedConnection final
+    {
+        std::string Target;
+        SharedConn Connection;
+    };
+
+    struct AcceptedDatagram final
+    {
+        std::string Target;
+        SharedDgram Datagram;
+    };
 
     /**
-     * @brief 创建客户端流连接并完成 CONNECT 握手
-     * @param Params 客户端连接装配参数
-     * @return 错误码与协议连接（失败时连接为空）
+     * @brief 建立带 Basic Auth 的 TCP CONNECT。
+     * @param Parameters 按值拥有上游、认证配置、目标和端口，覆盖全部挂起握手时段。
+     * @return 唯一 expected 结果；失败保留 Code/Native，工厂执行 Cancel、Close 与 Activity Drain。
+     * @details executor 固定为上游原 executor；成功 Conn 拥有唯一连接，WriteShutdown 保留反向读取，
+     *          最终 Close 由调用者发起并通过 Activity Drain 等待实际退出。
      */
-    [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> Net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Connect(ConnectParameters Parameters)
+        -> Net::awaitable<std::expected<SharedConn, Preview::Fault::Failure>>
     {
-        auto Connection = std::make_shared<Conn<>>(
-            std::move(Params.Upstream), Params.Config.username, Params.Config.password);
-        const auto ErrorCode = co_await Connection->WriteHandshake(Params.Target, Params.Port);
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        auto Prepared = co_await Preview::Contract::InboundAdmission::Prepare(Parameters.Upstream);
+        if (!Prepared) co_return std::unexpected(Prepared.error());
+        auto Admission = std::move(*Prepared);
+        std::exception_ptr Fatal;
+        try
         {
-            Result = SharedConn(std::move(Connection));
+            auto Created = Detail::Conn<>::Create(ConnRequest{
+                std::move(Parameters.Upstream),
+                Parameters.Configuration.username,
+                Parameters.Configuration.password});
+            if (!Created)
+                co_return std::unexpected(co_await Admission.Retire(Created.error()));
+            auto Connection = std::move(*Created);
+            auto Tracked = Admission.Track(
+                std::static_pointer_cast<Preview::Transmission>(Connection));
+            if (!Tracked)
+                co_return std::unexpected(co_await Admission.Retire(Tracked.error()));
+            const auto Handshake = co_await Connection->WriteHandshake(Parameters.Target, Parameters.Port);
+            if (!Handshake)
+            {
+                co_return std::unexpected(co_await Admission.Retire(Handshake.error()));
+            }
+            Admission.Release();
+            co_return Connection;
         }
-        else
+        catch (const std::bad_alloc &)
         {
-            Connection->Close();
+            Fatal = std::current_exception();
         }
-        co_return std::pair{ErrorCode, std::move(Result)};
+        co_return std::unexpected(co_await Admission.Retire(
+            Preview::Contract::InboundAdmission::ExceptionFailure(std::move(Fatal))));
     }
 
     /**
-     * @brief 创建客户端 UDP 包连接（CONNECT 后包一层 Dgram）
-     * @param Params 客户端连接装配参数
-     * @return 错误码与包连接（失败时连接为空）
+     * @brief 建立 CONNECT 后的数据报装饰器。
+     * @param Parameters 按值拥有上游、配置和目标；配置跨异步握手期间保持有效。
+     * @return 唯一 expected 结果；失败退休同一 connection owner，成功值只保留 Dgram owner。
+     * @details 使用上游 executor；半关闭由 Dgram/Conn 的传输语义决定，最终 Close 与 Activity Drain 归调用者。
      */
-    [[nodiscard]] inline auto ConnectPacket(ConnectParameters Params)
-        -> Net::awaitable<std::pair<Error, SharedDgram>>
+    [[nodiscard]] inline auto ConnectPacket(ConnectParameters Parameters)
+        -> Net::awaitable<std::expected<SharedDgram, Preview::Fault::Failure>>
     {
-        auto [ErrorCode, Connection] = co_await Connect(std::move(Params));
-        if (ErrorCode != Error::None)
+        auto Connected = co_await Connect(std::move(Parameters));
+        if (!Connected) co_return std::unexpected(Connected.error());
+        auto Connection = std::move(*Connected);
+        auto Prepared = co_await Preview::Contract::InboundAdmission::Prepare(
+            std::static_pointer_cast<Preview::Transmission>(Connection));
+        if (!Prepared) co_return std::unexpected(Prepared.error());
+        auto Admission = std::move(*Prepared);
+        std::exception_ptr Fatal;
+        try
         {
-            co_return std::pair{ErrorCode, SharedDgram{}};
+            auto Created = Detail::Dgram::Create(
+                DgramRequest{std::static_pointer_cast<Preview::Transmission>(Connection)});
+            if (!Created)
+            {
+                co_return std::unexpected(co_await Admission.Retire(Created.error()));
+            }
+            auto Tracked = Admission.Track(
+                std::static_pointer_cast<Preview::Transmission>(*Created));
+            if (!Tracked)
+                co_return std::unexpected(co_await Admission.Retire(Tracked.error()));
+            Connection.reset();
+            Admission.Release();
+            co_return SharedDgram(std::move(*Created));
         }
-        co_return std::pair{Error::None, std::make_shared<Dgram>(std::move(Connection))};
+        catch (const std::bad_alloc &)
+        {
+            Fatal = std::current_exception();
+        }
+        co_return std::unexpected(co_await Admission.Retire(
+            Preview::Contract::InboundAdmission::ExceptionFailure(std::move(Fatal))));
     }
 
     /**
-     * @brief 接收服务端流连接并完成 CONNECT 认证
-     * @param Upstream 上游传输（所有权移交）
-     * @param Config 服务端配置
-     * @return 错误码、解析的目标与协议连接（失败时连接为空）
+     * @brief 接收服务端 CONNECT 并验证 Basic Auth。
+     * @param Upstream 按值接管的单一上游传输。
+     * @param Configuration 按值拥有的认证配置，在协程挂起期间有效。
+     * @return 唯一 expected 结果；成功值同时拥有请求目标和 stream，失败保留 Code/Native 且完成清理。
+     * @details 握手与失败清理使用上游原 executor；成功半关闭只关本端写方向，最终 Close/Drain 归调用者。
      */
     [[nodiscard]] inline auto Accept(
         SharedTransmission Upstream,
-        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, std::string, SharedConn>>
+        ServerConfig Configuration)
+        -> Net::awaitable<std::expected<AcceptedConnection, Preview::Fault::Failure>>
     {
-        auto Connection = std::make_shared<Conn<>>(
-            std::move(Upstream), Config.username, Config.password);
-        std::string Target;
-        const auto ErrorCode = co_await Connection->ReadHandshake(Target);
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        auto Prepared = co_await Preview::Contract::InboundAdmission::Prepare(Upstream);
+        if (!Prepared) co_return std::unexpected(Prepared.error());
+        auto Admission = std::move(*Prepared);
+        std::exception_ptr Fatal;
+        try
         {
-            Result = SharedConn(std::move(Connection));
+            auto Created = Detail::Conn<>::Create(ConnRequest{
+                std::move(Upstream), Configuration.username, Configuration.password});
+            if (!Created)
+                co_return std::unexpected(co_await Admission.Retire(Created.error()));
+            auto Connection = std::move(*Created);
+            auto Tracked = Admission.Track(
+                std::static_pointer_cast<Preview::Transmission>(Connection));
+            if (!Tracked)
+                co_return std::unexpected(co_await Admission.Retire(Tracked.error()));
+            std::string Target;
+            const auto Handshake = co_await Connection->ReadHandshake(Target);
+            if (!Handshake)
+            {
+                co_return std::unexpected(co_await Admission.Retire(Handshake.error()));
+            }
+            Admission.Release();
+            co_return AcceptedConnection{std::move(Target), std::move(Connection)};
         }
-        else
+        catch (const std::bad_alloc &)
         {
-            Connection->Close();
+            Fatal = std::current_exception();
         }
-        co_return std::tuple{ErrorCode, std::move(Target), std::move(Result)};
+        co_return std::unexpected(co_await Admission.Retire(
+            Preview::Contract::InboundAdmission::ExceptionFailure(std::move(Fatal))));
     }
 
     /**
-     * @brief 接收服务端 UDP 包连接
-     * @param Upstream 上游传输（所有权移交）
-     * @param Config 服务端配置
-     * @return 错误码、解析的目标与包连接（失败时连接为空）
+     * @brief 接收服务端 CONNECT 并创建 datagram owner。
+     * @param Upstream 按值接管的单一上游传输。
+     * @param Configuration 按值拥有的认证配置。
+     * @return 唯一 expected 结果；失败由 factory 关闭并排空 connection，成功只留下拥有它的 Dgram。
+     * @details 使用上游原 executor；最终关闭与 Activity Drain 由成功 Dgram 的调用者负责。
      */
     [[nodiscard]] inline auto AcceptPacket(
         SharedTransmission Upstream,
-        const ServerConfig &Config)
-        -> Net::awaitable<std::tuple<Error, std::string, SharedDgram>>
+        ServerConfig Configuration)
+        -> Net::awaitable<std::expected<AcceptedDatagram, Preview::Fault::Failure>>
     {
-        auto [ErrorCode, Target, Connection] = co_await Accept(std::move(Upstream), Config);
-        if (ErrorCode != Error::None)
+        auto Accepted = co_await Accept(std::move(Upstream), std::move(Configuration));
+        if (!Accepted) co_return std::unexpected(Accepted.error());
+        auto Result = std::move(*Accepted);
+        auto Prepared = co_await Preview::Contract::InboundAdmission::Prepare(
+            std::static_pointer_cast<Preview::Transmission>(Result.Connection));
+        if (!Prepared) co_return std::unexpected(Prepared.error());
+        auto Admission = std::move(*Prepared);
+        std::exception_ptr Fatal;
+        try
         {
-            co_return std::tuple{ErrorCode, std::move(Target), SharedDgram{}};
+            auto Created = Detail::Dgram::Create(
+                DgramRequest{std::static_pointer_cast<Preview::Transmission>(Result.Connection)});
+            if (!Created)
+            {
+                co_return std::unexpected(co_await Admission.Retire(Created.error()));
+            }
+            auto Tracked = Admission.Track(
+                std::static_pointer_cast<Preview::Transmission>(*Created));
+            if (!Tracked)
+                co_return std::unexpected(co_await Admission.Retire(Tracked.error()));
+            Result.Connection.reset();
+            Admission.Release();
+            co_return AcceptedDatagram{std::move(Result.Target), SharedDgram(std::move(*Created))};
         }
-        co_return std::tuple{
-            Error::None,
-            std::move(Target),
-            std::make_shared<Dgram>(std::move(Connection))};
+        catch (const std::bad_alloc &)
+        {
+            Fatal = std::current_exception();
+        }
+        co_return std::unexpected(co_await Admission.Retire(
+            Preview::Contract::InboundAdmission::ExceptionFailure(std::move(Fatal))));
     }
-
 } // namespace Preview::Trusttunnel

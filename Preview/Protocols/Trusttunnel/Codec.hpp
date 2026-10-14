@@ -18,7 +18,7 @@
 #include <string_view>
 
 #include <Preview/Foundation/Error.hpp>
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Account/Authenticator.hpp>
 #include <Preview/Foundation/Utility/Crypto/Base64.hpp>
 #include <Preview/Protocols/Trusttunnel/Types.hpp>
 

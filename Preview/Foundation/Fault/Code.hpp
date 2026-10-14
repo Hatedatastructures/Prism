@@ -169,7 +169,7 @@ namespace Preview::Fault
 
     /**
      * @brief 获取错误码的零分配描述
-     * @param value 错误码枚举值
+     * @param Value 错误码枚举值
      * @return 错误描述字符串视图，生命周期与程序相同
      * @details 将错误码转换为人类可读的字符串描述，
      * 返回的字符串视图指向静态存储期数据，可安全用于
@@ -250,9 +250,9 @@ namespace Preview::Fault
 
     /**
      * @brief 检查错误码是否表示成功
-     * @param c 错误码枚举值
-     * @return success 返回 true，否则返回 false
-     * @details 语义等价于 c == Code::Success，
+     * @param Value 错误码枚举值
+     * @return 表示成功时返回 true，否则返回 false
+     * @details 语义等价于 Value == Code::Success，
      * 使用此函数可提高代码表达力。
      */
     [[nodiscard]] constexpr auto Succeeded(const Code Value) noexcept -> bool
@@ -262,10 +262,10 @@ namespace Preview::Fault
 
     /**
      * @brief 检查错误码是否表示失败
-     * @param c 错误码枚举值
-     * @return 非 success 返回 true，否则返回 false
+     * @param Value 错误码枚举值
+     * @return 表示失败时返回 true，否则返回 false
      * @details Succeeded() 的互补函数，语义等价于
-     * c != Code::Success。
+     * Value != Code::Success。
      */
     [[nodiscard]] constexpr auto Failed(const Code Value) noexcept -> bool
     {

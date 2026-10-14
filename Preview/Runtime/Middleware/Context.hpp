@@ -1,9 +1,8 @@
 /**
  * @file Context.hpp
  * @brief 中间件管线上下文
- * @details 在中间件链中传递的共享状态：目标地址、流量统计、
- * 传输所有权、检测结果、填充配置等。对应生产库 forward_pipeline
- * 的 pipeline_options 职责。
+ * @details DataPlane 是协议接入后的唯一目标、身份、租约和根传输来源。
+ *          Context 另外持有出站传输及会话运行服务，中间件原地装饰根传输。
  */
 
 #pragma once
@@ -11,6 +10,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -18,13 +18,14 @@
 #include <boost/asio/awaitable.hpp>
 
 #include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Account/Credential.hpp>
-#include <Preview/Account/Lease.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Foundation/Identifier/Id.hpp>
 #include <Preview/Lifecycle/TaskState.hpp>
 #include <Preview/Net/Target.hpp>
-#include <Preview/Runtime/Contract/DataPlane.hpp>
+#include <Preview/Contract/Ingress/DataPlane.hpp>
 #include <Preview/Transport/Transmission.hpp>
+#include <Preview/Transport/PadPolicy.hpp>
+#include <Preview/Foundation/Memory/BytePool.hpp>
 #include <Preview/Foundation/Utility/TrafficSink.hpp>
 
 namespace Preview::Runtime
@@ -40,185 +41,91 @@ namespace Preview::Middleware
     /**
      * @class Context
      * @brief 管线执行上下文
-     * @details 持有管线内共享的数据：入站传输（可被中间件替换）、
-     * 目标地址、协议检测结果、流量统计指针。中间件通过修改
-     * Inbound 实现"包装"语义（如 pad/mux 装饰）。
+     * @details 协议工厂结果移入 DataPlane；具名访问器直接引用该唯一事实。
+     *          Dial 产出的 Outbound 按运行阶段存活，最终关闭由 Session relay 拥有。
      */
     class Context
     {
     public:
         /// 协议握手后的 typed 数据面；Session 只消费该字段进行分派。
-        Preview::Runtime::ProtocolDataPlane DataPlane{};
+        Preview::Contract::ProtocolDataPlane DataPlane{};
         /// listener 提交的稳定任务身份（值语义，不持有 registry）。
         Preview::Lifecycle::TaskIdentity TaskIdentity{};
         std::shared_ptr<Preview::Runtime::SessionControl> Control{};
-        /// 认证后的 typed 账户身份；租约仍由 DataPlane owner 持有。
-        Preview::AccountId AccountId{};
-        /// 入站传输（中间件可替换包装）
-        Preview::SharedTransmission Inbound;
         /// 上游传输（Dial 中间件产出，relay 中间件消费）
         Preview::SharedTransmission Outbound;
-        /// 目标地址（拨号中间件消费）
-        Preview::Network::Target Target;
         /// 入站 peer IP；按会话拥有，不放入共享服务配置。
         std::string SourceIp;
-        /// 检测到的协议类型
-        std::uint16_t detected{0};
         /// 协议专用接入回调的受控名称，供识别结果为 Unknown 时记录 Accept 失败。
         std::string ProtocolNameForLog{};
-        /// Dgram 会话标记（AcceptProtocol 设置；Session 转走 udp_service）
-        bool IsDgram{false};
-        /**
-         * @brief 流量统计接口兼容别名
-         * @details 具体接口位于 Foundation，保留该别名以兼容
-         *          运行时调用方并阻止协议层依赖完整 Context。
-         */
-        using TrafficSink = Preview::Foundation::TrafficSink;
+        /// 拨号函数签名：成功交出 owning 传输（非空），失败保留领域码与原生 cause。
         using DialFn = std::function<boost::asio::awaitable<
-            std::pair<Preview::Fault::Code, Preview::SharedTransmission>>(
+            std::expected<Preview::SharedTransmission, Preview::Fault::Failure>>(
                 const Preview::Network::Target &)>;
 
-        /// 流量统计回调（relay 中间件消费）
-        TrafficSink *traffic{nullptr};
-        /// 流量统计 owner；供 detached 数据面子协程跨越 Session 生命周期持有。
-        std::shared_ptr<TrafficSink> TrafficOwner{};
+        /// 流量统计 owner；relay 与 detached 数据面只消费这一份 shared sink。
+        std::shared_ptr<Preview::Foundation::TrafficSink> Traffic{};
+        /// 真正worker块池，装饰器只共享现有容量，不创建会话局部最大池。
+        std::shared_ptr<Preview::Memory::BytePool> Bytes{};
         /// 当前 Session 的 worker-owned 出站拨号函数；mux 子流必须继承该 owner。
         DialFn Dial{};
-        /// 认证通过后的用户标识（Auth 中间件写入，relay 统计按此聚合）
-        std::string identity{};
-        /// 非敏感日志展示身份；为空时使用 AccountId，不能从凭据派生。
-        std::string DisplayIdentity{};
-        /// 协议接入器已完成凭据认证时，跳过通用 Auth 中间件
-        bool ProtocolAuthenticated{false};
-        /// 认证通过后的账户租约，持有期间计入并发连接配额
-        Preview::Account::AccountLease AccountLease{};
-        /// 通用认证输入的 secure 所有权；不保存原始 secret 字符串。
-        std::shared_ptr<const Preview::Account::Credential> Credential{};
-        /// 非敏感身份标签（例如 SOCKS5 用户名或远端标识）。
-        std::string RawIdentity{};
         /// 填充配置（可选，pad 中间件消费）
         struct PadConfig
         {
             bool Enabled{false};
-            std::size_t MinSize{64};
-            std::size_t MaxSize{1024};
+            std::shared_ptr<const Preview::Transport::PadConfig> Policy{}; ///< 冷编译且不可变的数值范围。
         };
-        const PadConfig *pad{nullptr};
+        const PadConfig *Pad{nullptr};
         /// 缓冲区大小（relay 中间件消费）
         std::size_t BufferSize{16384};
         /// 管线空闲超时（>0 时 relay 优先使用；0 = 用 relay 构造参数）
-        std::chrono::milliseconds timeout{0};
-        /// 拨号完成回调（协议注入：拨号成功/失败后发送协议级应答）
-        std::function<boost::asio::awaitable<void>(Preview::Fault::Code)> PostDial{};
+        std::chrono::milliseconds Timeout{0};
 
-        /**
-         * @brief 安装 secure 认证凭据
-         * @param Value 凭据所有权移交
-         */
-        auto SetCredential(Preview::Account::Credential Value) -> void
-        {
-            Credential = std::make_shared<const Preview::Account::Credential>(std::move(Value));
-        }
-
-        /**
-         * @brief 安装协议数据面并同步 Session 需要的值语义元数据
-         * @param Value 协议数据面（所有权移交）
-         */
-        auto SetDataPlane(Preview::Runtime::ProtocolDataPlane Value) -> void
+        /** @brief 移入唯一握手结果；不复制认证或目标事实。 */
+        auto SetDataPlane(Preview::Contract::ProtocolDataPlane Value) -> void
         {
             DataPlane = std::move(Value);
-            Target = DataPlane.Target;
-            identity = DataPlane.Identity;
-            DisplayIdentity = DataPlane.DisplayIdentity;
-            AccountId = DataPlane.AccountId;
-            ProtocolAuthenticated = DataPlane.ProtocolAuthenticated;
-            PostDial = DataPlane.PostDial;
-            if (DataPlane.AccountLease)
-            {
-                AccountLease = std::move(*DataPlane.AccountLease);
-            }
-            if (const auto Transport = DataPlane.Transport())
-            {
-                Inbound = Transport;
-            }
         }
 
-        /**
-         * @brief 将中间件替换后的 Inbound 回写到 typed 流数据面
-         */
-        auto SynchronizeDataPlane() noexcept -> void
+        [[nodiscard]] auto Inbound() noexcept -> Preview::SharedTransmission&
         {
-            if (auto *Stream = DataPlane.Stream())
-            {
-                Stream->Transport = Inbound;
-            }
-            else if (auto *Datagram = DataPlane.Datagram())
-            {
-                Datagram->Transport = Inbound;
-            }
-            else if (auto *Mux = DataPlane.Mux())
-            {
-                Mux->Transport = Inbound;
-            }
+            return std::visit([](auto& Root) -> Preview::SharedTransmission&
+                { return Root.Transport; }, DataPlane.Root);
         }
+        [[nodiscard]] auto Inbound() const noexcept -> const Preview::SharedTransmission&
+        {
+            return std::visit([](const auto& Root) -> const Preview::SharedTransmission&
+                { return Root.Transport; }, DataPlane.Root);
+        }
+        [[nodiscard]] auto Target() noexcept -> Preview::Network::Target& { return DataPlane.Target; }
+        [[nodiscard]] auto Target() const noexcept -> const Preview::Network::Target& { return DataPlane.Target; }
+        [[nodiscard]] auto Identity() noexcept -> std::string& { return DataPlane.Identity; }
+        [[nodiscard]] auto Identity() const noexcept -> const std::string& { return DataPlane.Identity; }
+        [[nodiscard]] auto DisplayIdentity() noexcept -> std::string& { return DataPlane.DisplayIdentity; }
+        [[nodiscard]] auto DisplayIdentity() const noexcept -> const std::string& { return DataPlane.DisplayIdentity; }
+        [[nodiscard]] auto AccountId() noexcept -> Preview::AccountId& { return DataPlane.AccountId; }
+        [[nodiscard]] auto AccountId() const noexcept -> const Preview::AccountId& { return DataPlane.AccountId; }
+        [[nodiscard]] auto AccountLease() noexcept -> Preview::Account::AccountLease& { return DataPlane.AccountLease; }
+        [[nodiscard]] auto AccountLease() const noexcept -> const Preview::Account::AccountLease& { return DataPlane.AccountLease; }
+        [[nodiscard]] auto ProtocolAuthenticated() noexcept -> bool& { return DataPlane.ProtocolAuthenticated; }
+        [[nodiscard]] auto ProtocolAuthenticated() const noexcept -> const bool& { return DataPlane.ProtocolAuthenticated; }
+        [[nodiscard]] auto PostDial() noexcept -> decltype(DataPlane.PostDial)& { return DataPlane.PostDial; }
+        [[nodiscard]] auto IsDatagram() const noexcept -> bool { return DataPlane.IsDatagram(); }
 
         [[nodiscard]] auto UserForLog() const -> std::string
         {
-            if (!DisplayIdentity.empty())
+            if (!DataPlane.DisplayIdentity.empty())
             {
-                return DisplayIdentity;
+                return DataPlane.DisplayIdentity;
             }
-            if (AccountId)
+            if (DataPlane.AccountId)
             {
-                return std::to_string(AccountId.Value());
+                return std::to_string(DataPlane.AccountId.Value());
             }
             return {};
         }
 
-        /**
-         * @brief 将旧入口输入物化为 typed 根数据面
-         * @param DatagramService 旧会话服务的值语义回调
-         * @details 该适配只位于 Context 边界，Session 不读取旧标志。
-         */
-        auto MaterializeDataPlane(Preview::Runtime::DatagramDataPlane::ServiceFn DatagramService)
-            -> void
-        {
-            if (DataPlane.HasTransport())
-            {
-                if (auto *Datagram = DataPlane.Datagram(); Datagram && !Datagram->Service)
-                {
-                    Datagram->Service = std::move(DatagramService);
-                }
-                return;
-            }
-            DataPlane.DisplayIdentity = DisplayIdentity;
-            if (IsDgram)
-            {
-                DataPlane.Root = Preview::Runtime::DatagramDataPlane{Inbound,
-                                                                       std::move(DatagramService)};
-            }
-            else
-            {
-                DataPlane.Root = Preview::Runtime::StreamDataPlane{Inbound};
-            }
-        }
 
-        [[nodiscard]] auto PromoteToMux(std::string Mode) -> bool
-        {
-            if (!DataPlane.IsStream())
-            {
-                return false;
-            }
-            const auto Transport = DataPlane.Transport();
-            if (!Transport || Mode.empty())
-            {
-                return false;
-            }
-            DataPlane.Root = Preview::Runtime::MuxRootDataPlane{
-                Transport, std::move(Mode)};
-            Inbound = Transport;
-            return true;
-        }
     };
 
 } // namespace Preview::Middleware

@@ -1,5 +1,7 @@
 # Preview 覆盖率报告
 
+> 文档状态说明（2026-10-05）：本文保留原版本的规范、测试数据或对拍记录。路径、完成标记和数字按原记录日期与源码解释；当前 Preview 生产合同、已执行范围和剩余责任见[当前执行状态](../preview-refactor/2026-10-03-preview-no-compat-status.md)，原结果不作为今日源码全量或互操作通过证明。
+
 > 采集日期：2026-08-18 晚间
 > 命令：`gcovr --root . --gcov-ignore-errors=no_working_dir_found --gcov-ignore-parse-errors=negative_hits.warn --merge-mode-functions=separate --filter "tests/common/" --exclude ".*_deps.*" --exclude ".*core/http[23].*" --html-details build/coverage.html --print-summary`
 > 报告文件：`build/coverage.html`

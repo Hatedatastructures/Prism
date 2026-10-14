@@ -1,209 +1,103 @@
-/**
- * @file DrainBarrier.hpp
- * @brief 基于真实 active 计数的异步排空屏障
- * @details Drain 只有在计数降为零时才完成，不使用固定延迟或 grace timer。
- *          通知由绑定 executor 串行执行；单槽 channel 在多个等待者之间
- *          传递同一个零计数事件，不建立无界等待队列。
- */
-
+/** @file DrainBarrier.hpp @brief 真实计数与显式失败的可等待屏障。 */
 #pragma once
-
-#include <boost/asio/any_io_executor.hpp>
-#include <boost/asio/dispatch.hpp>
-#include <boost/asio/experimental/channel.hpp>
+#include <Preview/Foundation/Executor/ContextOwner.hpp>
+#include <Preview/Foundation/Executor/ExecutorReclaimer.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Lifecycle/Detail/DrainNotification.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/redirect_error.hpp>
+#include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
-
 #include <atomic>
 #include <cstddef>
+#include <expected>
 #include <memory>
 #include <utility>
-
-#include <Preview/Resource/ExecutorReclaimer.hpp>
-
 namespace Preview::Lifecycle
 {
-
     namespace Net = boost::asio;
-
+    /** @brief Enter/Leave 可跨线程；通知使用线程安全 channel，不在归还路径分配投递动作。
+     * @details 调用方保持 owner。取消、blocked 只返回失败，不清零 active；无半关闭。
+     */
     class DrainBarrier final
     {
-    private:
-        using Completion = Net::experimental::channel<void(boost::system::error_code)>;
-
         struct State final
         {
-            explicit State(std::shared_ptr<Preview::Resource::ExecutorReclaimer> ReclaimerValue)
-                : Reclaimer(std::move(ReclaimerValue)), Signal(Reclaimer->Executor(), 1)
-            {
-            }
-
-            auto NotifyZero() -> void
-            {
-                if (Active.load(std::memory_order_acquire) != 0 &&
-                    !Blocked.load(std::memory_order_acquire))
-                {
-                    return;
-                }
-                (void)Signal.try_send(boost::system::error_code{});
-            }
-
-            std::shared_ptr<Preview::Resource::ExecutorReclaimer> Reclaimer;
-            Completion Signal;
+            explicit State(std::shared_ptr<Preview::Executor::ExecutorReclaimer> Value)
+                : ContextPin(Preview::Executor::ContextOwner::Find(Value->Executor())),
+                  Reclaimer(std::move(Value)), Signal(Reclaimer->Executor(), 1),
+                  Notification(Detail::DrainNotification::Bind(Reclaimer->Executor())) {}
+            /** @brief 独立覆盖 drain awaitable 生命周期；最后释放 context service owner。 */
+            std::shared_ptr<Preview::Executor::ContextOwner> ContextPin;
+            std::shared_ptr<Preview::Executor::ExecutorReclaimer> Reclaimer;
+            Net::experimental::concurrent_channel<void(boost::system::error_code)> Signal;
+            std::shared_ptr<const std::atomic<bool>> Notification;
             std::atomic<std::size_t> Active{0};
-            std::atomic<bool> Sealed{false};
-            std::atomic<bool> Blocked{false};
+            std::atomic<bool> Sealed{false}, Blocked{false};
+            auto Notify() -> void
+            {
+                if (Notification->load(std::memory_order_acquire))
+                    (void)Signal.try_send(boost::system::error_code{});
+            }
         };
-
     public:
-        explicit DrainBarrier(std::shared_ptr<Preview::Resource::ExecutorReclaimer> Reclaimer)
-            : State_(std::make_shared<State>(std::move(Reclaimer)))
-        {
-        }
-
-        DrainBarrier(const DrainBarrier &) = delete;
-        auto operator=(const DrainBarrier &) -> DrainBarrier & = delete;
-        DrainBarrier(DrainBarrier &&) = delete;
-        auto operator=(DrainBarrier &&) -> DrainBarrier & = delete;
-
-        /**
-         * @brief 增加一个待排空节点
-         * @return 屏障未封止且成功计数返回 true
-         */
+        explicit DrainBarrier(std::shared_ptr<Preview::Executor::ExecutorReclaimer> Value)
+            : State_(std::make_shared<State>(std::move(Value))) {}
+        DrainBarrier(const DrainBarrier&) = delete;
+        auto operator=(const DrainBarrier&) -> DrainBarrier& = delete;
+        /** @brief 成功后调用者必须立即构造拥有型预约；拒绝不改变最终计数。 */
         [[nodiscard]] auto Enter() noexcept -> bool
         {
-            if (State_->Sealed.load(std::memory_order_acquire) ||
-                State_->Blocked.load(std::memory_order_acquire))
-            {
-                return false;
-            }
-            State_->Active.fetch_add(1, std::memory_order_acq_rel);
-            if (State_->Sealed.load(std::memory_order_acquire))
-            {
-                const auto Remaining = State_->Active.fetch_sub(1, std::memory_order_acq_rel) - 1;
-                if (Remaining == 0)
-                {
-                    const auto StateValue = State_;
-                    if (!State_->Reclaimer->Post([StateValue] { StateValue->NotifyZero(); }))
-                    {
-                        State_->Blocked.store(true, std::memory_order_release);
-                        (void)State_->Signal.try_send(boost::system::error_code{});
-                    }
-                }
-                return false;
-            }
+            if (State_->Sealed.load() || State_->Blocked.load()) return false;
+            State_->Active.fetch_add(1);
+            if (State_->Sealed.load() || State_->Blocked.load()) { Leave(); return false; }
             return true;
         }
-
-        /**
-         * @brief 释放一个待排空节点
-         * @details 只有从 1 变为 0 时才发送一次零计数通知。
-         */
+        /** @brief 真实 owner 退栈后归还一次，最后一个归还者唤醒全部 drain 链。 */
         auto Leave() noexcept -> void
         {
-            auto Previous = State_->Active.load(std::memory_order_acquire);
-            for (;;)
+            auto Count = State_->Active.load();
+            while (Count != 0)
             {
-                if (Previous == 0)
-                {
-                    return;
-                }
-                if (State_->Active.compare_exchange_weak(
-                        Previous, Previous - 1, std::memory_order_acq_rel, std::memory_order_acquire))
-                {
-                    break;
-                }
-            }
-            const auto Remaining = Previous - 1;
-            if (Remaining != 0)
-            {
+                if (!State_->Active.compare_exchange_weak(Count, Count - 1)) continue;
+                if (Count == 1) State_->Notify();
                 return;
             }
-            const auto StateValue = State_;
-            if (!StateValue->Reclaimer->Post([StateValue] { StateValue->NotifyZero(); }))
-            {
-                Block();
-            }
         }
-
-        /**
-         * @brief 封止新节点
-         * @details 封止不改变当前计数，既有节点仍需真实完成。
-         */
         auto Seal() noexcept -> void
+        { State_->Sealed.store(true); }
+        auto Block() noexcept -> void { State_->Blocked.store(true); State_->Notify(); }
+        /** @brief 读取准入封止状态；已进入的预约仍必须真实归还。 */
+        [[nodiscard]] auto IsSealed() const noexcept -> bool { return State_->Sealed.load(); }
+        /** @brief 读取仍由实际 owner 持有的 drain 预约数。 */
+        [[nodiscard]] auto Active() const noexcept -> std::size_t { return State_->Active.load(); }
+        /** @brief 读取排空阻断状态；不改变真实 active 计数。 */
+        [[nodiscard]] auto IsBlocked() const noexcept -> bool { return State_->Blocked.load(); }
+        /** @brief 原 executor 驱动等待，零 active 才成功；不把 Blocked 当成完成。 */
+        [[nodiscard]] auto Drain() -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+        { return DrainState(State_); }
+    private:
+        [[nodiscard]] static auto DrainState(std::shared_ptr<State> Value)
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
-            if (State_->Sealed.exchange(true, std::memory_order_acq_rel))
+            co_await Net::this_coro::throw_if_cancelled(false);
+            while (!Value->Blocked.load() && Value->Active.load() != 0)
             {
-                return;
-            }
-            if (State_->Active.load(std::memory_order_acquire) == 0)
-            {
-                const auto StateValue = State_;
-                if (!State_->Reclaimer->Post([StateValue] { StateValue->NotifyZero(); }))
+                if (!Value->Reclaimer->CanDispatch())
+                    co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+                boost::system::error_code Error;
+                co_await Value->Signal.async_receive(Net::redirect_error(Net::use_awaitable, Error));
+                if (Error)
                 {
-                    Block();
+                    if (Value->Blocked.load() || Value->Active.load() == 0) Value->Notify();
+                    co_return std::unexpected(Preview::Fault::FromNative(static_cast<std::error_code>(Error)));
                 }
             }
+            Value->Notify();
+            if (Value->Blocked.load()) co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
-
-        /**
-         * @brief 标记排空无法继续，并唤醒当前等待者
-         * @details 当 executor 投递失败时，继续等待零计数没有进展保证；
-         *          显式 blocked 状态让上层可以报告不完整收口而不永久挂起。
-         */
-        auto Block() noexcept -> void
-        {
-            State_->Blocked.store(true, std::memory_order_release);
-            (void)State_->Signal.try_send(boost::system::error_code{});
-        }
-
-        [[nodiscard]] auto IsSealed() const noexcept -> bool
-        {
-            return State_->Sealed.load(std::memory_order_acquire);
-        }
-
-        [[nodiscard]] auto Active() const noexcept -> std::size_t
-        {
-            return State_->Active.load(std::memory_order_acquire);
-        }
-
-        [[nodiscard]] auto IsBlocked() const noexcept -> bool
-        {
-            return State_->Blocked.load(std::memory_order_acquire);
-        }
-
-        /**
-         * @brief 异步等待实际 active 计数归零
-         * @note 必须由关联 executor 驱动；不阻塞线程，也不使用 grace delay。
-         */
-        [[nodiscard]] auto Drain() -> Net::awaitable<void>
-        {
-            return DrainState(State_);
-        }
-
-    private:
-        [[nodiscard]] static auto DrainState(std::shared_ptr<State> StateValue)
-            -> Net::awaitable<void>
-        {
-            const auto Executor = StateValue->Reclaimer->Executor();
-            co_await Net::dispatch(Executor, Net::use_awaitable);
-            if (StateValue->Blocked.load(std::memory_order_acquire) ||
-                StateValue->Active.load(std::memory_order_acquire) == 0)
-            {
-                co_return;
-            }
-
-            while (!StateValue->Blocked.load(std::memory_order_acquire) &&
-                   StateValue->Active.load(std::memory_order_acquire) != 0)
-            {
-                boost::system::error_code ErrorCode;
-                co_await StateValue->Signal.async_receive(
-                    Net::redirect_error(Net::use_awaitable, ErrorCode));
-            }
-            (void)StateValue->Signal.try_send(boost::system::error_code{});
-        }
-
         std::shared_ptr<State> State_;
     };
-
-} // namespace Preview::Lifecycle
+}

@@ -1,848 +1,198 @@
 /**
  * @file Conn.hpp
- * @brief SOCKS5 流连接对象（TCP，实现 Transmission）
- * @details 单条 SOCKS5 连接的完整协议状态：
- * - 客户端握手：WriteHandshake(RequestValue)（Greeting → 方法选择 → 认证 →
- *   请求 → 响应校验），成功后 BindEndpoint() 可取 BND 地址
- * - 服务端握手：ReadHandshake(Config)（Greeting → 方法协商 → 认证 →
- *   请求解析 → 响应），返回解析的请求
- * 握手后为纯字节流透传（预读缓冲优先）。UDP 数据面由 Dgram.hpp
- * 提供（独立包连接类型，嵌入本连接）。
- * @note 对齐 mihomo transport：TCP 采用纯流传输语义。
+ * @brief SOCKS5 流连接的正式 Transmission 载体
+ * @details 构造时接管上游并由 ConnTransport 持有传输路径，异步操作使用上游 executor。
+ *          Cancel 转交上游控制 owner；WriteShutdown 只半关闭写方向，反向读取继续可用；
+ *          Close 交付最终关闭，Activity::Drain 确认实际 I/O 退栈。
+ *          RFC1929 认证及账户租约由 ConnAuth 拥有，握手/请求状态由 ConnHandshake 拥有。
+ *          UDP 关联服务由 UdpAssoc.hpp 独立拥有。
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <memory>
-#include <optional>
 #include <span>
-#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
-#include <vector>
 
-#include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
-#include <Preview/Protocols/Common/Address.hpp>
-
-#include <Preview/Foundation/Authenticator.hpp>
-#include <Preview/Foundation/Error.hpp>
-#include <Preview/Transport/Transmission.hpp>
-#include <Preview/Protocols/Socks5/Codec.hpp>
+#include <Preview/Protocols/Socks5/ConnAuth.hpp>
+#include <Preview/Protocols/Socks5/ConnHandshake.hpp>
+#include <Preview/Protocols/Socks5/ConnTransport.hpp>
 #include <Preview/Protocols/Socks5/Types.hpp>
+#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Socks5
 {
 
     /**
      * @class Conn
-     * @brief SOCKS5 流连接对象
-     * @details 单条连接的协议状态：双端握手、数据透传、预读缓冲、
-     * 认证状态。实现 Transmission 接口可挂载装饰器链。
-     * 由工厂创建，调用方以 shared_ptr 持有。
-     * @tparam Memory 会话内存策略（默认 8KB Arena；可注入自定义策略）
+     * @brief SOCKS5 流连接 owner
+     * @tparam Memory 会话内存策略
+     * @details 构造时接管底层 SharedTransmission；异步操作沿 ConnTransport executor 执行。
+     *          Cancel 转交上游控制 owner，WriteShutdown 保留反向读取，Close 交付最终关闭。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Conn : public Preview::Transmission, public std::enable_shared_from_this<Conn<Memory>>
+    class Conn : public Preview::Transmission
     {
     public:
-        /// 内存策略类型（对外暴露，供嵌套层/测试使用）
         using MemoryType = Memory;
 
-        /**
-         * @brief 构造函数（工厂调用）
-         * @param Upstream 上游传输（所有权移交）
-         */
-        explicit Conn(SharedTransmission Upstream) : NextLayer_(std::move(Upstream))
+        /** @brief 接管底层传输所有权。 */
+        explicit Conn(SharedTransmission Upstream)
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              Mem_{}, Transport_(std::move(Upstream), Mem_), Handshake_(Mem_)
         {
         }
 
-        /**
-         * @brief 获取执行器
-         */
         [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
-            if (!NextLayer_)
-            {
-                return {};
-            }
-            return NextLayer_->Executor();
+            const auto Value = Transport_.Executor();
+            return Value ? Value : Preview::Transmission::Executor();
         }
 
-        /**
-         * @brief 异步读取（预读缓冲优先）
-         * @param Buffer 接收缓冲区
-         * @param ErrorCode 错误码输出参数
-         * @return 实际读取字节数
-         * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
-         */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        /** @brief 预读缓冲优先的部分读取；结果与借用沿正式前门交付一次。 */
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
-            if (Used_ > 0)
-            {
-                const auto N = std::min(Buffer.size(), Used_);
-                std::memcpy(Buffer.data(), Buf_.data(), N);
-                if (N < Used_)
-                {
-                    std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
-                }
-                else
-                {
-                    Buf_.clear();
-                }
-                Used_ -= N;
-                co_return N;
-            }
-            if (!NextLayer_)
-            {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
-            }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            Transport_.ReadSome(Buffer, std::move(Handler));
         }
 
-        /**
-         * @brief 异步写入（透传）
-         */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        /** @brief 异步部分写入，保持底层短写语义。 */
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
-            if (!NextLayer_)
-            {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
-            }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            Transport_.WriteSome(Buffer, std::move(Handler));
         }
 
-        /**
-         * @brief 关闭传输层
-         */
-        auto Close() -> void override
+        /** @brief 真实写半关闭转交底层；读取方向仍然可用。 */
+        auto StartWriteShutdown(Completion Handler) -> void override
         {
-            if (NextLayer_)
-            {
-                NextLayer_->Close();
-            }
+            Transport_.WriteShutdown(std::move(Handler));
         }
 
-        /**
-         * @brief 取消挂起操作
-         */
-        auto Cancel() -> void override
+        /** @brief 封止并交付底层关闭；实际退出由 Activity()->Drain() 另行等待。 */
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
-            if (NextLayer_)
-            {
-                NextLayer_->Cancel();
-            }
+            return Transport_.Close();
         }
 
-        /**
-         * @brief 会话是否有效（已握手且底层存在）
-         * @return 有效返回 true
-         */
+        /** @brief 可重复取消底层 I/O；成功只表示命令已接管，不宣称已经关闭。 */
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            return Transport_.Cancel();
+        }
+
         [[nodiscard]] auto IsValid() const noexcept -> bool
         {
-            return NextLayer_ != nullptr && Handshaken_;
+            return Transport_.HasUpstream() && Handshake_.IsHandshaken();
         }
 
-        /**
-         * @brief 获取底层传输共享引用
-         * @return 底层传输共享指针；空连接返回空指针
-         */
         [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
         {
-            return NextLayer_;
+            return Transport_.Underlying();
         }
 
-        /**
-         * @brief 获取底层传输共享引用（const 版本）
-         * @return 底层传输共享指针；空连接返回空指针
-         */
         [[nodiscard]] auto Underlying() const noexcept -> SharedTransmission
         {
-            return NextLayer_;
+            return Transport_.Underlying();
         }
 
-        /**
-         * @brief 获取内层传输（装饰器链导航）
-         */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return NextLayer_.get();
+            return Transport_.NextLayer();
         }
 
-        /**
-         * @brief 获取内层传输（const 版本）
-         */
-        [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
+        [[nodiscard]] auto NextLayer() const noexcept
+            -> const Preview::Transmission * override
         {
-            return NextLayer_.get();
+            return Transport_.NextLayer();
         }
 
-        /**
-         * @brief 释放底层传输所有权
-         */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(NextLayer_);
+            return Transport_.Release();
         }
 
-        /**
-         * @brief 客户端握手：Greeting → 方法选择 → 认证 → 请求 → 响应
-         * @param RequestValue 目标请求（命令 + Target）
-         * @param Config 客户端认证配置
-         * @return 错误码
-         * @details 完整客户端流程（RFC 1928 + 1929）。成功后 BND
-         * 地址可通过 BindEndpoint() 获取（UDP_ASSOCIATE 用）。
-         */
+        /** @brief 客户端完整握手。 */
         [[nodiscard]] auto WriteHandshake(
-            const Request &RequestValue,
-            const ClientConfig &Config) -> Net::awaitable<Error>
+            const Preview::Socks5::Request &RequestValue,
+            const ClientConfig &Config)
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
-            const auto &EnableAuth = Config.EnableAuth;
-            const auto &Username = Config.username;
-            const auto &Password = Config.password;
-            // 1. 发送 Greeting
-            Greeting GreetingValue;
-            GreetingValue.Ver = Version;
-            if (EnableAuth)
-            {
-                GreetingValue.Methods =
-                    std::vector<std::uint8_t>{static_cast<std::uint8_t>(AuthMethod::UserPass)};
-            }
-            else
-            {
-                GreetingValue.Methods =
-                    std::vector<std::uint8_t>{static_cast<std::uint8_t>(AuthMethod::NoAuth)};
-            }
-            BuildGreeting(GreetingValue, TxWire_);
-            if (TxWire_.empty())
-            {
-                co_return Error::BadLength;
-            }
-            if (co_await SendBytes(TxWire_))
-            {
-                co_return Error::IoError;
-            }
-
-            // 2. 读取方法选择
-            std::array<std::uint8_t, 2> Selection{};
-            if (co_await ReadExact(std::span<std::uint8_t>(Selection)))
-            {
-                co_return Error::IoError;
-            }
-            if (Selection[0] != Version)
-            {
-                co_return Error::VersionMismatch;
-            }
-            std::uint8_t ExpectedMethod;
-            if (EnableAuth)
-            {
-                ExpectedMethod = static_cast<std::uint8_t>(AuthMethod::UserPass);
-            }
-            else
-            {
-                ExpectedMethod = static_cast<std::uint8_t>(AuthMethod::NoAuth);
-            }
-            if (Selection[1] != ExpectedMethod)
-            {
-                // 客户端只允许配置所声明的方法，禁止服务端把认证连接降级为 NOAUTH，
-                // 也不接受未声明的扩展方法。
-                co_return Error::NotSupported;
-            }
-
-            // 3. 认证（如需，RFC 1929）
-            if (Selection[1] == static_cast<std::uint8_t>(AuthMethod::UserPass))
-            {
-                BuildUserpass(Username, Password, TxWire_);
-                if (TxWire_.empty())
-                {
-                    co_return Error::BadLength;
-                }
-                if (co_await SendBytes(TxWire_))
-                {
-                    co_return Error::IoError;
-                }
-                std::array<std::uint8_t, 2> Response{};
-                if (co_await ReadExact(std::span<std::uint8_t>(Response)))
-                {
-                    co_return Error::IoError;
-                }
-                if (Response[0] != 0x01 || Response[1] != 0x00)
-                {
-                    co_return Error::BadAuth;
-                }
-            }
-
-            // 4. 发送请求
-            BuildRequest(RequestValue, TxWire_);
-            if (TxWire_.empty())
-            {
-                co_return Error::BadAddress;
-            }
-            if (co_await SendBytes(TxWire_))
-            {
-                co_return Error::IoError;
-            }
-
-            // 5. 读取响应并校验
-            Reply ReplyValue;
-            const auto ErrorCode = co_await ReadReply(ReplyValue);
-            if (ErrorCode != Error::None)
-            {
-                co_return ErrorCode;
-            }
-            if (ReplyValue.Code != ReplyCode::Success)
-            {
-                co_return Error::BadAuth;
-            }
-            Bind_ = ReplyValue.Bind;
-            Handshaken_ = true;
-            co_return Error::None;
+            using HandshakeRequest = typename ConnHandshake<Memory>::WriteHandshakeRequest;
+            return Handshake_.WriteHandshake(HandshakeRequest{
+                Transport_, Auth_, RequestValue, Config});
         }
 
-        /**
-         * @brief 服务端握手：Greeting → 方法协商 → 认证 → 请求 → 响应
-         * @param Config 服务端命令与认证配置
-         * @return 错误码与解析的请求
-         * @details 完整服务端流程（RFC 1928 + 1929）。失败时按协议
-         * 发送对应错误响应。
-         */
+        /** @brief 服务端完整握手并返回解析请求。 */
         [[nodiscard]] auto ReadHandshake(const ServerConfig &Config)
-            -> Net::awaitable<std::pair<Error, Request>>
+            -> Net::awaitable<std::expected<Preview::Socks5::Request, Preview::Fault::Failure>>
         {
-            const auto &EnableTcp = Config.EnableTcp;
-            const auto &EnableUdp = Config.EnableUdp;
-            const auto &EnableAuth = Config.EnableAuth;
-            const auto &Username = Config.username;
-            const auto &Password = Config.password;
-            // 1. 方法协商：共享 codec Parser 读取 Greeting
-            auto [GreetingError, GreetingMessage] =
-                co_await ReadMessage(Message::Kind::Greeting);
-            if (GreetingError != Error::None)
-            {
-                co_return std::pair{GreetingError, Request{}};
-            }
-            const auto &Methods = GreetingMessage.Methods;
-
-            // 2. 选择认证方法（检查客户端方法列表）
-            std::uint8_t SelectedMethod;
-            if (EnableAuth)
-            {
-                SelectedMethod = static_cast<std::uint8_t>(AuthMethod::UserPass);
-            }
-            else
-            {
-                SelectedMethod = static_cast<std::uint8_t>(AuthMethod::NoAuth);
-            }
-            const bool Acceptable =
-                std::find(Methods.begin(), Methods.end(), SelectedMethod) != Methods.end();
-            if (!Acceptable)
-            {
-                const auto ReplyError =
-                    co_await SendMethodReply(static_cast<std::uint8_t>(AuthMethod::NoAcceptable));
-                if (ReplyError != Error::None)
-                {
-                    co_return std::pair{ReplyError, Request{}};
-                }
-                co_return std::pair{Error::NotSupported, Request{}};
-            }
-
-            // 3. 发送方法选择
-            if (co_await SendMethodReply(SelectedMethod) != Error::None)
-            {
-                co_return std::pair{Error::IoError, Request{}};
-            }
-
-            // 4. 认证（如需）
-            if (SelectedMethod == static_cast<std::uint8_t>(AuthMethod::UserPass))
-            {
-                const auto AuthenticationError =
-                    co_await UserpassAuth(Username, Password, Config.ResolveAuthenticator());
-                if (AuthenticationError != Error::None)
-                {
-                    co_return std::pair{AuthenticationError, Request{}};
-                }
-            }
-
-            // 5. 解析请求
-            auto [RequestError, RequestMessage] =
-                co_await ReadMessage(Message::Kind::Request);
-            if (RequestError != Error::None)
-            {
-                co_await SendReply(ReplyCode::GeneralFailure);
-                co_return std::pair{RequestError, Request{}};
-            }
-            Request RequestValue;
-            RequestValue.Cmd = RequestMessage.Cmd;
-            RequestValue.Target = RequestMessage.addr;
-
-            // 6. 命令检查
-            if (RequestValue.Cmd == Command::Connect && !EnableTcp)
-            {
-                co_await SendReply(ReplyCode::CommandNotSupported);
-                co_return std::pair{Error::NotSupported, Request{}};
-            }
-            if (RequestValue.Cmd == Command::UdpAssociate && !EnableUdp)
-            {
-                co_await SendReply(ReplyCode::CommandNotSupported);
-                co_return std::pair{Error::NotSupported, Request{}};
-            }
-
-            // 7. CONNECT 应答（默认立即发送；defer 时由调用方拨号后发送）
-            if (!Config.DeferConnectReply)
-            {
-                const auto ReplyError = co_await SendReply(ReplyCode::Success);
-                if (ReplyError != Error::None)
-                {
-                    co_return std::pair{ReplyError, Request{}};
-                }
-            }
-            Req_ = RequestValue;
-            Handshaken_ = true;
-            co_return std::pair{Error::None, std::move(RequestValue)};
+            return Handshake_.ReadHandshake(Transport_, Auth_, Config);
         }
 
-        /**
-         * @brief 获取服务端握手解析的请求
-         * @return 请求（ReadHandshake 成功后有效）
-         */
-        [[nodiscard]] auto Parsed() const -> const Request &
+        [[nodiscard]] auto Parsed() const -> const Preview::Socks5::Request &
         {
-            return Req_;
+            return Handshake_.Parsed();
         }
 
-        /**
-         * @brief 获取客户端握手返回的绑定地址（UDP_ASSOCIATE 的 BND）
-         * @return 绑定地址（握手前为空）
-         */
         [[nodiscard]] auto BindEndpoint() const -> const Address &
         {
-            return Bind_;
+            return Handshake_.BindEndpoint();
         }
 
-        /**
-         * @brief 转移协议认证产生的账户租约
-         * @return 已认证账户租约；无认证或静态认证时为空
-         */
+        /** @brief 转移协议认证产生的账户租约。 */
         [[nodiscard]] auto TakeAuthLease() -> Preview::Account::AccountLease
         {
-            return std::move(AuthLease_);
+            return Auth_.TakeAuthLease();
         }
 
-        /** @brief 获取认证后的 typed 账户身份。 */
         [[nodiscard]] auto AccountId() const noexcept -> Preview::AccountId
         {
-            return AccountId_;
+            return Auth_.AccountId();
         }
 
-        /** @brief 获取认证后的非敏感身份文本。 */
         [[nodiscard]] auto Identity() const noexcept -> std::string_view
         {
-            return Identity_;
+            return Auth_.Identity();
         }
 
-        /** @brief 获取仅供日志显示的非敏感身份文本。 */
         [[nodiscard]] auto DisplayIdentity() const noexcept -> std::string_view
         {
-            return DisplayIdentity_;
+            return Auth_.DisplayIdentity();
         }
 
-        /**
-         * @brief 精确分段读取（供包连接复用预读缓冲）
-         * @param Buffer 目标缓冲区
-         * @return true = 失败（EOF / 底层错误）
-         */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)
-            -> Net::awaitable<bool>
-        {
-            return ReadExactImpl(Buffer);
-        }
-
-        /**
-         * @brief 发送 CONNECT 应答（延迟握手由调用方拨号后发送）
-         * @param Code 响应码
-         * @return 发送错误码
-         */
+        /** @brief 发送延迟 CONNECT 应答。 */
         [[nodiscard]] auto SendConnectReply(ReplyCode Code) const
-            -> Net::awaitable<Error>
+            -> Net::awaitable<ReplyResult<std::size_t>>
         {
-            co_return co_await SendReply(Code);
+            return Handshake_.SendConnectReply(Transport_, Code);
         }
 
         /**
-         * @brief 发送带 BND 地址的应答（UDP_ASSOCIATE 用）
-         * @param Code 响应码
-         * @param Bind BND 地址（空 = 0.0.0.0:0）
-         * @return 发送错误码
+         * @brief 发送带 BND 地址的 UDP_ASSOCIATE 应答。
+         * @param Code 按值传入的 SOCKS5 回复码。
+         * @param Bind 按值拥有的 BND 地址；暂停期间不借用调用者的对象。
+         * @return 完整 wire 字节或协议码、Native cause 与 partial progress。
+         * @note ConnHandshake 持有 wire 缓冲至 WriteSome completion；调用者须串行化该方向写。
          */
         [[nodiscard]] auto SendAssocReply(
             ReplyCode Code,
-            const Address &Bind) const -> Net::awaitable<Error>
+            Address Bind) -> Net::awaitable<ReplyResult<std::size_t>>
         {
-            co_return co_await SendReply(Code, Bind);
+            return Handshake_.SendAssocReply(Transport_, Code, std::move(Bind));
         }
 
     private:
-        /**
-         * @brief 发送方法选择回复
-         */
-        [[nodiscard]] auto SendMethodReply(std::uint8_t Method) const -> Net::awaitable<Error>
-        {
-            const std::array<std::uint8_t, 2> Wire{Version, Method};
-            if (co_await SendBytes(Wire))
-            {
-                co_return Error::IoError;
-            }
-            co_return Error::None;
-        }
-
-        /**
-         * @brief RFC 1929 用户名/密码认证（服务端）
-         * @param Username 期望用户名
-         * @param Password 期望密码
-         * @param Auth 认证器（nullptr = 静态比对）
-         * @return 错误码；凭据失败为 BadAuth，底层读写失败为 IoError
-         */
-        [[nodiscard]] auto UserpassAuth(
-            const std::string &Username,
-            const std::string &Password,
-            const Preview::Authenticator *Auth) -> Net::awaitable<Error>
-        {
-            std::array<std::uint8_t, 2> Head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(Head)))
-            {
-                co_return Error::IoError;
-            }
-            if (Head[0] != 0x01)
-            {
-                co_return Error::BadAuth;
-            }
-            std::vector<std::uint8_t> UserBytes(Head[1]);
-            if (co_await ReadExact(UserBytes))
-            {
-                co_return Error::IoError;
-            }
-            std::array<std::uint8_t, 1> PasswordLength{};
-            if (co_await ReadExact(std::span<std::uint8_t>(PasswordLength)))
-            {
-                co_return Error::IoError;
-            }
-            std::vector<std::uint8_t> PasswordBytes(PasswordLength[0]);
-            if (co_await ReadExact(PasswordBytes))
-            {
-                co_return Error::IoError;
-            }
-            const std::string UserValue(UserBytes.begin(), UserBytes.end());
-            const std::string PasswordValue(PasswordBytes.begin(), PasswordBytes.end());
-            bool Authenticated = !UserValue.empty() && !PasswordValue.empty();
-            if (Authenticated && Auth)
-            {
-                auto AuthenticationResult = Auth->Authenticate(Preview::AuthenticationRequest{
-                    .AccountId = {},
-                    .Identity = UserValue,
-                    .Credential = Preview::Account::CredentialView::Password(PasswordValue),
-                    .Rate = {}});
-                Authenticated = AuthenticationResult.Accepted;
-                if (Authenticated)
-                {
-                    AuthLease_ = std::move(AuthenticationResult.Lease);
-                    AccountId_ = AuthenticationResult.AccountId;
-                    Identity_ = std::move(AuthenticationResult.Identity);
-                    DisplayIdentity_ = std::move(AuthenticationResult.DisplayIdentity);
-                }
-            }
-            else if (Authenticated)
-            {
-                const auto UserMatches = Preview::ConstantTimeEqual(UserValue, Username);
-                const auto PasswordMatches = Preview::ConstantTimeEqual(PasswordValue, Password);
-                Authenticated = UserMatches && PasswordMatches;
-                if (Authenticated)
-                {
-                    DisplayIdentity_ = UserValue;
-                }
-            }
-            std::uint8_t Status;
-            if (Authenticated)
-            {
-                Status = std::uint8_t{0x00};
-            }
-            else
-            {
-                Status = std::uint8_t{0x01};
-            }
-            const std::array<std::uint8_t, 2> Response{0x01, Status};
-            if (co_await SendBytes(Response))
-            {
-                co_return Error::IoError;
-            }
-            if (!Authenticated)
-            {
-                co_return Error::BadAuth;
-            }
-            co_return Error::None;
-        }
-
-        /**
-         * @brief 发送响应（Bind 空 = 0.0.0.0:0）
-         */
-        [[nodiscard]] auto SendReply(ReplyCode Code, const Address &Bind = {}) const
-            -> Net::awaitable<Error>
-        {
-            Reply ReplyValue;
-            ReplyValue.Ver = Version;
-            ReplyValue.Code = Code;
-            if (Bind.Host.empty())
-            {
-                ReplyValue.Bind.Type = AddressType::Ipv4;
-                ReplyValue.Bind.Host = "0.0.0.0";
-                ReplyValue.Bind.Port = 0;
-            }
-            else
-            {
-                ReplyValue.Bind = Bind;
-            }
-            BuildReply(ReplyValue, TxWire_);
-            if (TxWire_.empty())
-            {
-                co_return Error::BadAddress;
-            }
-            if (co_await SendBytes(TxWire_))
-            {
-                co_return Error::IoError;
-            }
-            co_return Error::None;
-        }
-
-        /**
-         * @brief 读取并解析请求（命令 + 地址）
-         */
-        [[nodiscard]] auto ReadRequest(Request &Output) -> Net::awaitable<Error>
-        {
-            std::array<std::uint8_t, 4> Head{};
-            const auto ErrorCode = co_await ReadExact(std::span<std::uint8_t>(Head));
-            if (ErrorCode)
-            {
-                co_return Error::IoError;
-            }
-            if (Head[0] != Version)
-            {
-                co_return Error::VersionMismatch;
-            }
-            Output.Cmd = static_cast<Command>(Head[1]);
-            if (Output.Cmd != Command::Connect && Output.Cmd != Command::UdpAssociate)
-            {
-                co_return Error::NotSupported;
-            }
-            if (Head[2] != 0)
-            {
-                co_return Error::BadMessage;
-            }
-            Output.Target.Type = static_cast<AddressType>(Head[3]);
-            co_return co_await ReadAddress(Output.Target);
-        }
-
-        /**
-         * @brief 读取一条由共享 codec Parser 定义的消息
-         * @param Kind 期望消息类型
-         * @return 解析错误与消息
-         * @details 按字节驱动 parser，预读仍由 Conn 的内部缓冲保留，
-         *          后续认证/请求阶段不会丢失同一 TCP read 中的字节。
-         */
-        [[nodiscard]] auto ReadMessage(Message::Kind Kind)
-            -> Net::awaitable<std::pair<Error, Message>>
-        {
-            Parser ParserValue;
-            ParserValue.Expect(Kind);
-            const auto NeedMore = make_error_code(Error::NeedMore);
-            while (!ParserValue.IsDone())
-            {
-                std::array<std::uint8_t, 1> Byte{};
-                if (co_await ReadExactImpl(std::span<std::uint8_t>(Byte)))
-                {
-                    co_return std::pair{Error::IoError, Message{}};
-                }
-                std::error_code ParseError;
-                ParserValue.Put(Net::const_buffer(Byte.data(), Byte.size()), ParseError);
-                if (ParseError && ParseError != NeedMore)
-                {
-                    co_return std::pair{static_cast<Error>(ParseError.value()), Message{}};
-                }
-            }
-            co_return std::pair{Error::None, ParserValue.Get()};
-        }
-
-        /**
-         * @brief 读取响应（Reply）
-         */
-        [[nodiscard]] auto ReadReply(Reply &Output) -> Net::awaitable<Error>
-        {
-            std::array<std::uint8_t, 4> Head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(Head)))
-            {
-                co_return Error::IoError;
-            }
-            if (Head[0] != Version)
-            {
-                co_return Error::VersionMismatch;
-            }
-            if (Head[2] != 0)
-            {
-                co_return Error::BadMessage;
-            }
-            Output.Code = static_cast<ReplyCode>(Head[1]);
-            Output.Bind.Type = static_cast<AddressType>(Head[3]);
-            co_return co_await ReadAddress(Output.Bind);
-        }
-
-        /**
-         * @brief 读取地址（ATYP + ADDR + PORT）
-         * @details 地址体委托统一实现（见 Protocol/common::ReadAddressBody），
-         *          端口（2B BE）本地读取。
-         */
-        [[nodiscard]] auto ReadAddress(Address &Output) -> Net::awaitable<Error>
-        {
-            const auto ErrorCode = co_await Preview::Protocol::Common::ReadAddressBody(
-                Output,
-                [this](std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
-                {
-                    return ReadExactImpl(Buffer);
-                });
-            if (ErrorCode != Error::None)
-            {
-                co_return ErrorCode;
-            }
-            if (Output.Type == AddressType::Domain && Output.Host.empty())
-            {
-                co_return Error::BadMessage;
-            }
-            std::array<std::uint8_t, 2> Port{};
-            if (co_await ReadExactImpl(std::span<std::uint8_t>(Port)))
-            {
-                co_return Error::IoError;
-            }
-            Output.Port = static_cast<std::uint16_t>(Port[0]) << 8 | Port[1];
-            co_return Error::None;
-        }
-
-        /**
-         * @brief 精确读取指定字节数（内部缓冲优先 + 底层补充）
-         * @param Buffer 目标缓冲区
-         * @return true = 失败（EOF / 底层错误）
-         */
-        [[nodiscard]] auto ReadExactImpl(std::span<std::uint8_t> Buffer)
-            -> Net::awaitable<bool>
-        {
-            std::size_t Done = 0;
-            while (Done < Buffer.size())
-            {
-                if (Used_ > 0)
-                {
-                    const auto N = std::min(Buffer.size() - Done, Used_);
-                    std::memcpy(Buffer.data() + Done, Buf_.data(), N);
-                    if (N < Used_)
-                    {
-                        std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
-                        Used_ -= N;
-                    }
-                    else
-                    {
-                        Buf_.clear();
-                        Used_ = 0;
-                    }
-                    Done += N;
-                    continue;
-                }
-                if (!NextLayer_)
-                {
-                    co_return true;
-                }
-                std::array<std::uint8_t, 512> Chunk{};
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()), ErrorCode);
-                if (ErrorCode || N == 0)
-                {
-                    co_return true;
-                }
-                if (N > Chunk.size())
-                {
-                    co_return true;
-                }
-                Buf_.insert(Buf_.end(), Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(N));
-                Used_ += N;
-            }
-            co_return false;
-        }
-
-        /**
-         * @brief 发送全部字节
-         * @param Data 数据
-         * @return true = 失败
-         */
-        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
-            -> Net::awaitable<bool>
-        {
-            std::size_t Done = 0;
-            while (Done < Data.size())
-            {
-                if (!NextLayer_)
-                {
-                    co_return true;
-                }
-                std::error_code ErrorCode;
-                ErrorCode.clear();
-                const auto N = co_await NextLayer_->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data() + Done),
-                                               Data.size() - Done),
-                    ErrorCode);
-                if (ErrorCode)
-                {
-                    co_return true;
-                }
-                if (N == 0)
-                {
-                    co_return true; // 底层零字节写入，防死循环
-                }
-                if (N > Data.size() - Done)
-                {
-                    co_return true;
-                }
-                Done += N;
-            }
-            co_return false;
-        }
-
-        SharedTransmission NextLayer_; ///< 上游传输（独占所有权）
-        Request Req_;                    ///< 服务端握手解析结果
-        Address Bind_;                   ///< 客户端握手 BND 地址
-        Preview::Account::AccountLease AuthLease_{}; ///< 协议认证租约
-        Preview::AccountId AccountId_{};              ///< typed 账户身份
-        std::string Identity_{};                      ///< 非敏感身份文本
-        std::string DisplayIdentity_{};               ///< 日志展示身份
-        Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
-        typename Memory::template Buffer<std::uint8_t> Buf_{Mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）
-        std::size_t Used_{0};            ///< 缓冲中有效字节数
-        bool Handshaken_{false};         ///< 握手完成标志
-        /// 发送缓冲（Arena 复用，热路径零分配）；mutable：const 握手方法内可写
-        mutable typename Memory::template Buffer<std::uint8_t> TxWire_{Mem_.Arena()};
+        Memory Mem_;
+        ConnTransport<Memory> Transport_;
+        ConnAuth<Memory> Auth_;
+        ConnHandshake<Memory> Handshake_;
     };
 
-    /// 流连接共享指针（默认内存策略）
     using SharedConn = std::shared_ptr<Conn<>>;
 
     static_assert(Preview::TransmissionLike<Conn<>>);

@@ -30,12 +30,14 @@
 #include <Preview/Foundation/Memory/Types.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Foundation/Memory/Pool.hpp>
+#include <Preview/Foundation/Memory/OwnedBytes.hpp>
+#include <Preview/Foundation/Memory/BytePool.hpp>
 
 // Coroutine 子模块
-#include <Preview/Foundation/Utility/Coroutine/Registry.hpp>
 
 // Fault 子模块
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Foundation/Fault/Compatible.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
 

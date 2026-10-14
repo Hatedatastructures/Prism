@@ -10,7 +10,7 @@
 #include <Preview/Composition/Recognition/TlsCandidateFactory.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Net/Target.hpp>
-#include <Preview/Protocols/Shadowtls/Carrier.hpp>
+#include <Preview/Protocols/Shadowtls/Server.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Dial.hpp>
 
 #include <charconv>
@@ -47,6 +47,35 @@ namespace Preview::Composition::Recognition
         {
             std::string Host;
             std::uint16_t Port{0};
+        };
+
+        struct ShadowtlsDialTarget final
+        {
+            Preview::Middleware::Builtin::DialMiddleware::DialFn Dial;
+            Preview::Network::Target Target;
+
+            struct Request final
+            {
+                Preview::Middleware::Builtin::DialMiddleware::DialFn Dial;
+                Preview::Network::Target Target;
+            };
+
+            [[nodiscard]] static auto Run(Request Value)
+                -> boost::asio::awaitable<Preview::Shadowtls::Result<Preview::SharedTransmission>>
+            {
+                auto Dialed = co_await Value.Dial(Value.Target);
+                if (!Dialed)
+                    co_return std::unexpected(Preview::Shadowtls::FailureFromFault(Dialed.error()));
+                if (!*Dialed)
+                    co_return std::unexpected(Preview::Shadowtls::FailureFromError(Preview::Error::NotOpen));
+                co_return std::move(*Dialed);
+            }
+
+            [[nodiscard]] auto operator()(std::span<const std::uint8_t>) const
+                -> boost::asio::awaitable<Preview::Shadowtls::Result<Preview::SharedTransmission>>
+            {
+                return Run(Request{Dial, Target});
+            }
         };
 
         [[nodiscard]] inline auto ParseShadowtlsPort(std::string_view Value)
@@ -119,38 +148,15 @@ namespace Preview::Composition::Recognition
         }
 
         auto Dial = std::move(Options.Dial);
-        auto Host = Destination->Host;
-        const auto Port = Destination->Port;
+        auto Host = Preview::Network::ParseHost(Destination->Host);
+        if (!Host) return std::unexpected(ShadowtlsCarrierBuildError::InvalidDestination);
+        Preview::Network::Target Target{std::move(*Host), Destination->Port};
         Preview::Shadowtls::ServerOptions RelayOptions;
-        RelayOptions.DialTarget = [Dial = std::move(Dial), Host = std::move(Host), Port](
-                                       std::span<const std::uint8_t>)
-            -> boost::asio::awaitable<Preview::SharedTransmission>
-        {
-            Preview::Network::Target Target;
-            Target.Host = Host;
-            Target.Port = std::to_string(Port);
-            auto [Code, Transport] = co_await Dial(Target);
-            if (Preview::Fault::Failed(Code) || !Transport)
-            {
-                co_return nullptr;
-            }
-            co_return Transport;
-        };
+        RelayOptions.DialTarget = detail::ShadowtlsDialTarget{
+            std::move(Dial), std::move(Target)};
 
         return CarrierAcceptFn(MakeShadowtlsServerAccept(
             std::move(RelayOptions), Preview::Shadowtls::ServerConfig{std::move(Options.Password)}));
-    }
-
-    /**
-     * @brief Compatibility facade factory used by carrier-level tests and callers
-     *        that already own a fully assembled ShadowTLS relay configuration.
-     */
-    [[nodiscard]] inline auto MakeShadowtlsCarrier(
-        Preview::Shadowtls::ServerOptions Options,
-        Preview::Shadowtls::ServerConfig Config)
-        -> Preview::Composition::Carrier::FacadeCarrier
-    {
-        return Preview::Shadowtls::MakeFacadeCarrier(std::move(Options), std::move(Config));
     }
 
 } // namespace Preview::Composition::Recognition

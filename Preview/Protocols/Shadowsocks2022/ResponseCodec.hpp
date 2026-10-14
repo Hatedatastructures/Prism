@@ -443,156 +443,151 @@ namespace Preview::Shadowsocks2022
         return Output;
     }
 
-    /**
-     * @brief 解析 UDP 数据报（逐包 AEAD 无状态解密）
-     * @param Input 解析输入
-     * @return 错误码
-     */
+    namespace detail
+    {
+
+        struct UdpParseState final
+        {
+            std::array<std::uint8_t, SessionIdLen> SessionId{};
+            std::array<std::uint8_t, 12> Nonce{};
+            std::vector<std::uint8_t> Body;
+            std::uint64_t PacketId{0}, Timestamp{0};
+            std::size_t Offset{0};
+            std::uint8_t Type{0};
+        };
+
+        [[nodiscard]] inline auto DecodeSeparateHeader(std::span<const std::uint8_t> SessionKey,
+                                                       std::span<const std::uint8_t> Packet,
+                                                       UdpParseState &State) -> Error
+        {
+            if (SessionKey.size() != AeadKeyLen ||
+                Packet.size() < SeparateHdrLen + 1 + UdpTsLen + 1 + 2 + AeadTagLen)
+                return Error::BadLength;
+            const auto Separate = Packet.first(SeparateHdrLen);
+            const auto SeparatePlain = detail::CryptSeparate(
+                SessionKey,
+                std::span<const std::uint8_t, SeparateHdrLen>(Separate),
+                false);
+            if (!SeparatePlain)
+                return Error::BadAuth;
+            std::memcpy(State.SessionId.data(), SeparatePlain->data(), SessionIdLen);
+            for (std::size_t I = 0; I < PacketIdLen; ++I)
+                State.PacketId = (State.PacketId << 8) |
+                                 SeparatePlain->at(SessionIdLen + I);
+            std::memcpy(State.Nonce.data(), SeparatePlain->data() + SessionIdLen / 2,
+                        SessionIdLen / 2);
+            std::memcpy(State.Nonce.data() + SessionIdLen / 2,
+                        SeparatePlain->data() + SessionIdLen, PacketIdLen);
+            return Error::None;
+        }
+
+        [[nodiscard]] inline auto OpenUdpBody(std::span<const std::uint8_t> SessionKey,
+                                              std::span<const std::uint8_t> Packet,
+                                              UdpParseState &State) -> Error
+        {
+            const auto Subkey = Preview::Shadowsocks2022::SessionKey(
+                SessionKey,
+                std::span<const std::uint8_t>(State.SessionId),
+                AeadKeyLen);
+            auto Body = detail::UdpOpen(detail::UdpOpenInput{
+                Subkey, State.Nonce, Packet.subspan(SeparateHdrLen), {}});
+            if (!Body)
+                return Error::BadAuth;
+            State.Body = std::move(*Body);
+            return Error::None;
+        }
+
+        [[nodiscard]] inline auto ValidateUdpBody(const UdpParseInput &Input,
+                                                  UdpParseState &State) -> Error
+        {
+            if (State.Body.size() < 1 + UdpTsLen + 2)
+                return Error::BadLength;
+            State.Type = State.Body[0];
+            if (State.Type != HeaderTypeClient && State.Type != HeaderTypeServer)
+                return Error::BadMessage;
+            for (std::size_t I = 0; I < UdpTsLen; ++I)
+                State.Timestamp = (State.Timestamp << 8) | State.Body[1 + I];
+            const auto Now = Input.Now != 0
+                                 ? Input.Now
+                                 : static_cast<std::uint64_t>(
+                                       std::chrono::duration_cast<std::chrono::seconds>(
+                                           std::chrono::system_clock::now().time_since_epoch())
+                                           .count());
+            const auto Difference = Now >= State.Timestamp
+                                        ? Now - State.Timestamp
+                                        : State.Timestamp - Now;
+            if (Difference > Input.TimeWindow)
+                return Error::BadMessage;
+
+            // SIP022 / sing-shadowsocks 的权威顺序：server 帧先携带 client session id。
+            State.Offset = 1 + UdpTsLen;
+            if (State.Type == HeaderTypeServer)
+            {
+                if (State.Body.size() - State.Offset < SessionIdLen)
+                    return Error::BadLength;
+                if (Input.RemoteSessionId)
+                    std::memcpy(Input.RemoteSessionId->data(),
+                                State.Body.data() + State.Offset,
+                                SessionIdLen);
+                State.Offset += SessionIdLen;
+            }
+            if (State.Body.size() - State.Offset < 2)
+                return Error::BadLength;
+            const auto PaddingLength =
+                (static_cast<std::size_t>(State.Body[State.Offset]) << 8) |
+                State.Body[State.Offset + 1];
+            State.Offset += 2;
+            if (State.Body.size() - State.Offset < PaddingLength)
+                return Error::BadLength;
+            State.Offset += PaddingLength;
+            return Error::None;
+        }
+
+        [[nodiscard]] inline auto ParseUdpAddressPayload(const UdpParseInput &Input,
+                                                         UdpParseState &State) -> Error
+        {
+            std::size_t Consumed = 0;
+            const auto AddressError = ParseAddress(
+                std::span<const std::uint8_t>(State.Body).subspan(State.Offset),
+                *Input.Target,
+                Consumed);
+            if (AddressError != Error::None)
+                return AddressError;
+            State.Offset += Consumed;
+            Input.payload->assign(State.Body.begin() + static_cast<std::ptrdiff_t>(State.Offset),
+                                  State.Body.end());
+            return Error::None;
+        }
+
+    } // namespace detail
+
+    /** @brief 解析 UDP 数据报（逐包 AEAD 无状态解密）。 */
     [[nodiscard]] inline auto ParseUdpPacket(const UdpParseInput &Input) -> Error
     {
         if (!Input.Target || !Input.payload)
-        {
             return Error::BadLength;
-        }
-        const auto &SessionKey16 = Input.SessionKey;
-        const auto &Packet = Input.packet;
-        auto &Target = *Input.Target;
-        auto &Payload = *Input.payload;
-        Payload.clear();
-        if (SessionKey16.size() != AeadKeyLen ||
-            Packet.size() < SeparateHdrLen + 1 + UdpTsLen + 1 + 2 + AeadTagLen)
-        {
-            return Error::BadLength;
-        }
-        const auto Separate = Packet.first(SeparateHdrLen);
-        const auto SeparatePlain = detail::CryptSeparate(
-            SessionKey16,
-            std::span<const std::uint8_t, SeparateHdrLen>(Separate),
-            false);
-        if (!SeparatePlain)
-        {
-            return Error::BadAuth;
-        }
-
-        const auto SessionId = std::span<const std::uint8_t>(
-            SeparatePlain->data(), SessionIdLen);
-        std::uint64_t PacketId = 0;
-        for (std::size_t I = 0; I < PacketIdLen; ++I)
-        {
-            PacketId = (PacketId << 8) | SeparatePlain->at(SessionIdLen + I);
-        }
-        const auto Subkey = Preview::Shadowsocks2022::SessionKey(
-            SessionKey16,
-            SessionId,
-            AeadKeyLen);
-        std::array<std::uint8_t, 12> Nonce{};
-        std::memcpy(Nonce.data(), SeparatePlain->data() + SessionIdLen / 2, SessionIdLen / 2);
-        std::memcpy(Nonce.data() + SessionIdLen / 2,
-                    SeparatePlain->data() + SessionIdLen, PacketIdLen);
-        const auto Body = detail::UdpOpen(detail::UdpOpenInput{
-            Subkey,
-            Nonce,
-            Packet.subspan(SeparateHdrLen),
-            {}});
-        if (!Body)
-        {
-            return Error::BadAuth;
-        }
-        if (Body->size() < 1 + UdpTsLen + 2)
-        {
-            return Error::BadLength;
-        }
-        const auto Type = (*Body)[0];
-        if (Type != HeaderTypeClient && Type != HeaderTypeServer)
-        {
-            return Error::BadMessage;
-        }
-        std::uint64_t Timestamp = 0;
-        for (std::size_t I = 0; I < UdpTsLen; ++I)
-        {
-            Timestamp = (Timestamp << 8) | (*Body)[1 + I];
-        }
-        std::uint64_t Now;
-        if (Input.Now != 0)
-        {
-            Now = Input.Now;
-        }
-        else
-        {
-            Now = static_cast<std::uint64_t>(
-                std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::system_clock::now().time_since_epoch())
-                    .count());
-        }
-        std::uint64_t Difference;
-        if (Now >= Timestamp)
-        {
-            Difference = Now - Timestamp;
-        }
-        else
-        {
-            Difference = Timestamp - Now;
-        }
-        if (Difference > Input.TimeWindow)
-        {
-            return Error::BadMessage;
-        }
-
-        // SIP022 / sing-shadowsocks 权威顺序：
-        //   Client 帧：[type][epoch][paddingLen 2B][padding][addrport][payload]
-        //   Server 帧：[type][epoch][clientSessionId 8B][paddingLen 2B][padding]
-        //              [addrport][payload]
-        std::size_t Off = 1 + UdpTsLen;
-        if (Type == HeaderTypeServer)
-        {
-            if (Body->size() - Off < SessionIdLen)
-            {
-                return Error::BadLength;
-            }
-            if (Input.RemoteSessionId)
-            {
-                std::memcpy(Input.RemoteSessionId->data(), Body->data() + Off, SessionIdLen);
-            }
-            Off += SessionIdLen;
-        }
-        if (Body->size() - Off < 2)
-        {
-            return Error::BadLength;
-        }
-        const auto PaddingLength = static_cast<std::size_t>((*Body)[Off]) << 8 | (*Body)[Off + 1];
-        Off += 2;
-        if (Body->size() - Off < PaddingLength)
-        {
-            return Error::BadLength;
-        }
-        Off += PaddingLength;
-        std::size_t Consumed = 0;
-        const auto AddressError = ParseAddress(
-            std::span<const std::uint8_t>(*Body).subspan(Off),
-            Target,
-            Consumed);
-        if (AddressError != Error::None)
-        {
-            return AddressError;
-        }
-        Off += Consumed;
-        Payload.assign(Body->begin() + static_cast<std::ptrdiff_t>(Off), Body->end());
+        Input.payload->clear();
+        detail::UdpParseState State;
+        auto ErrorValue = detail::DecodeSeparateHeader(Input.SessionKey, Input.packet, State);
+        if (ErrorValue != Error::None)
+            return ErrorValue;
+        ErrorValue = detail::OpenUdpBody(Input.SessionKey, Input.packet, State);
+        if (ErrorValue != Error::None)
+            return ErrorValue;
+        ErrorValue = detail::ValidateUdpBody(Input, State);
+        if (ErrorValue != Error::None)
+            return ErrorValue;
+        ErrorValue = detail::ParseUdpAddressPayload(Input, State);
+        if (ErrorValue != Error::None)
+            return ErrorValue;
         if (Input.SessionId)
-        {
-            std::memcpy(Input.SessionId->data(), SessionId.data(), SessionIdLen);
-        }
+            std::memcpy(Input.SessionId->data(), State.SessionId.data(), SessionIdLen);
         if (Input.PacketId)
-        {
-            *Input.PacketId = PacketId;
-        }
+            *Input.PacketId = State.PacketId;
         if (Input.HeaderType)
-        {
-            *Input.HeaderType = Type;
-        }
+            *Input.HeaderType = State.Type;
         if (Input.Timestamp)
-        {
-            *Input.Timestamp = Timestamp;
-        }
+            *Input.Timestamp = State.Timestamp;
         return Error::None;
     }
 

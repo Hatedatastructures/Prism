@@ -7,6 +7,7 @@
 #pragma once
 
 #include <Preview/Net/Dns/Cache.hpp>
+#include <Preview/Net/Dns/Coalescer.hpp>
 #include <Preview/Net/Dns/Config.hpp>
 #include <Preview/Net/Dns/Rules.hpp>
 #include <Preview/Net/Dns/Upstream.hpp>
@@ -58,6 +59,45 @@ namespace Preview::Network::Dns::Detail
         Options.QueryMode = ConfigValue.QueryMode;
         Options.DefaultTimeout = std::chrono::milliseconds(ConfigValue.TimeoutMs);
         Options.MaxConnsPerServer = ConfigValue.MaxConnsPerServer;
+        Options.MaxIdleConnsPerPool = ConfigValue.MaxIdleConnsPerPool;
+        return Options;
+    }
+
+    /**
+     * @brief 生成 single-flight 预算
+     * @param ConfigValue Resolver 配置
+     * @return Coalescer 配置
+     */
+    [[nodiscard]] inline auto MakeCoalescerOptions(const Config &ConfigValue) -> CoalescerOptions
+    {
+        CoalescerOptions Options;
+        Options.MaxFlights = ConfigValue.MaxFlights;
+        Options.MaxWaitersPerFlight = ConfigValue.MaxWaitersPerFlight;
+        return Options;
+    }
+
+    /**
+     * @struct ResolverOptions
+     * @brief Resolver 子模块冻结选项：缓存、single-flight 与上游查询
+     */
+    struct ResolverOptions
+    {
+        CacheOptions Cache;      ///< 缓存容量与 TTL 策略
+        CoalescerOptions Flight; ///< flight 与等待者预算
+        UpstreamOptions Upstream;///< 上游列表、策略、超时与连接池预算
+    };
+
+    /**
+     * @brief 生成 Resolver 子模块完整冻结选项
+     * @param ConfigValue Resolver 配置
+     * @return 缓存、flight 与上游查询选项
+     */
+    [[nodiscard]] inline auto MakeResolverOptions(const Config &ConfigValue) -> ResolverOptions
+    {
+        ResolverOptions Options;
+        Options.Cache = MakeCacheOptions(ConfigValue);
+        Options.Flight = MakeCoalescerOptions(ConfigValue);
+        Options.Upstream = MakeUpstreamOptions(ConfigValue);
         return Options;
     }
 

@@ -8,7 +8,6 @@
 #include "ConfigurationError.hpp"
 #include "ConfigurationGeneration.hpp"
 #include "ConfigurationParser.hpp"
-#include "ConfigurationStore.hpp"
 #include "ConfigurationValidator.hpp"
 #include "GenerationBuilder.hpp"
 #include "PreviewConfiguration.hpp"

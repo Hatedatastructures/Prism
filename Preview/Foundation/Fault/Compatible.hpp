@@ -25,7 +25,7 @@ namespace Preview::Fault
 
     /**
      * @brief 获取缓存的错误消息
-     * @param c 错误码枚举值
+     * @param C 错误码枚举值
      * @return 错误消息字符串的常量引用，生命周期与程序相同
      * @details 返回预分配的错误消息引用，首次调用时分配并
      * 缓存，后续调用直接返回引用，无内存分配。
@@ -36,13 +36,13 @@ namespace Preview::Fault
         constexpr auto CodeCount = static_cast<std::size_t>(Code::Count);
         static const auto Messages = []()
         {
-            std::array<std::string, CodeCount + 1> arr{};
+            std::array<std::string, CodeCount + 1> MessageEntries{};
             for (std::size_t I = 0; I < CodeCount; ++I)
             {
-                arr[I] = std::string(Describe(static_cast<Code>(I)));
+                MessageEntries[I] = std::string(Describe(static_cast<Code>(I)));
             }
-            arr[CodeCount] = "unknown";
-            return arr;
+            MessageEntries[CodeCount] = "unknown";
+            return MessageEntries;
         }();
 
         if (const auto Index = static_cast<std::size_t>(C); Index < CodeCount)
@@ -74,7 +74,7 @@ namespace Preview::Fault
 
         /**
          * @brief 获取错误码对应的消息
-         * @param c 错误码整数值
+         * @param ErrorValue 错误码整数值
          * @return 错误消息字符串
          */
         [[nodiscard]] auto message(int ErrorValue) const -> std::string override
@@ -91,8 +91,8 @@ namespace Preview::Fault
      */
     [[nodiscard]] inline auto Category() noexcept -> const std::error_category &
     {
-        static FaultCategory instance;
-        return instance;
+        static FaultCategory Instance;
+        return Instance;
     }
 
 } // namespace Preview::Fault
@@ -102,7 +102,7 @@ namespace Preview::Fault
 
     /**
      * @brief 创建错误码（std 路径 ADL 入口）
-     * @param c 自定义错误码枚举值
+     * @param ErrorValue 自定义错误码枚举值
      * @return 对应的标准错误码对象
      * @details 将 Fault::Code 枚举值转换为 std::error_code。
      * 留在 Preview::Fault 供 std::error_code 构造 ADL 查找。
@@ -137,7 +137,7 @@ namespace std
     {
         /**
          * @brief 计算错误码的哈希值
-         * @param c 错误码枚举值
+         * @param ErrorValue 错误码枚举值
          * @return 哈希值
          */
         [[nodiscard]] auto operator()(const Preview::Fault::Code ErrorValue) const noexcept -> std::size_t
@@ -182,7 +182,7 @@ namespace boost::system
 
         /**
          * @brief 获取错误码对应的消息
-         * @param c 错误码整数值
+         * @param ErrorValue 错误码整数值
          * @return 错误消息字符串
          */
         [[nodiscard]] auto message(int ErrorValue) const -> std::string override
@@ -199,13 +199,13 @@ namespace boost::system
      */
     [[nodiscard]] inline auto Category() noexcept -> const boost::system::error_category &
     {
-        static FaultCategory instance;
-        return instance;
+        static FaultCategory Instance;
+        return Instance;
     }
 
     /**
      * @brief 创建 Boost 错误码
-     * @param c 自定义错误码枚举值
+     * @param ErrorValue 自定义错误码枚举值
      * @return 对应的 Boost 错误码对象
      * @details 将 Fault::Code 枚举值转换为
      * boost::system::error_code，配合特化支持隐式转换。

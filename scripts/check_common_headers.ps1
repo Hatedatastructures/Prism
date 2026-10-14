@@ -18,9 +18,10 @@ if (-not $RepoRoot) {
 $previewRoots = @(
     (Join-Path $RepoRoot "Preview/Account")
     (Join-Path $RepoRoot "Preview/Application")
+    (Join-Path $RepoRoot "Preview/Boundary")
     (Join-Path $RepoRoot "Preview/Composition")
+    (Join-Path $RepoRoot "Preview/Contract")
     (Join-Path $RepoRoot "Preview/Foundation")
-    (Join-Path $RepoRoot "Preview/Ingress")
     (Join-Path $RepoRoot "Preview/Lifecycle")
     (Join-Path $RepoRoot "Preview/Net")
     (Join-Path $RepoRoot "Preview/Operations")
@@ -33,6 +34,7 @@ $previewRoots = @(
 )
 $testSupportDir = Join-Path $RepoRoot "tests/TestSupport"
 $commonDir = Join-Path $RepoRoot "tests/common"
+$experimentDir = Join-Path $RepoRoot "tests/Experiments/Preview"
 $previewCmake = Join-Path $RepoRoot "Preview/CMakeLists.txt"
 $testSupportCmake = Join-Path $testSupportDir "CMakeLists.txt"
 $commonCmake = Join-Path $commonDir "CMakeLists.txt"
@@ -84,7 +86,7 @@ function Get-TargetSources {
     $insideTargetSources = $false
     foreach ($rawLine in Get-Content $CmakeFile -Encoding UTF8) {
         $line = $rawLine.Trim()
-        if ($line -match '^target_sources\(\s*([A-Za-z][A-Za-z0-9_]*)\s+INTERFACE\s*$') {
+        if ($line -match '^(?:target_sources|add_library|add_executable)\(\s*([A-Za-z][A-Za-z0-9_]*)(?:\s+(?:(?:INTERFACE|PUBLIC|PRIVATE|STATIC|SHARED|MODULE|OBJECT)\s*))?$') {
             $activeTarget = $Matches[1]
             $insideTargetSources = $true
             continue
@@ -95,10 +97,18 @@ function Get-TargetSources {
             $insideTargetSources = $false
             continue
         }
-        if ($line -match '^[A-Za-z0-9_/.-]+\.hpp$') {
+        $sourceLine = $line.TrimEnd(')').Trim('"')
+        if ($sourceLine -match '^\$\{(?:CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/(tests/Experiments/Preview/[A-Za-z0-9_/.-]+\.hpp)$') {
             $registrations += [pscustomobject]@{
                 Target = $activeTarget
-                Path = "$PathPrefix/$line"
+                Path = $Matches[1]
+            }
+            continue
+        }
+        if ($line -match '^([A-Za-z0-9_/.-]+\.hpp)\)?$') {
+            $registrations += [pscustomobject]@{
+                Target = $activeTarget
+                Path = "$PathPrefix/$($Matches[1])"
             }
         }
     }
@@ -107,7 +117,7 @@ function Get-TargetSources {
 
 # 1. Collect all public headers in the active preview and tests/common roots.
 $diskFiles = @()
-$sourceRoots = $previewRoots + @($testSupportDir, $commonDir)
+$sourceRoots = $previewRoots + @($testSupportDir, $commonDir, $experimentDir)
 foreach ($sourceRoot in $sourceRoots) {
     $diskFiles += Get-ChildItem -Path $sourceRoot -Recurse -Filter *.hpp -File |
         ForEach-Object {
@@ -118,14 +128,29 @@ $diskFiles = $diskFiles | Sort-Object -Unique
 
 # 2. Parse target_sources from both CMake owners.
 $registrations = @()
-    $registrations += Get-TargetSources $previewCmake "Preview"
+$previewCmakeFiles = Get-ChildItem -LiteralPath (Join-Path $RepoRoot "Preview") -Recurse -Filter CMakeLists.txt -File
+foreach ($CmakeFile in $previewCmakeFiles) {
+    $Directory = Split-Path -Parent $CmakeFile.FullName
+    $PathPrefix = $Directory.Substring($RepoRoot.Length + 1).Replace("\", "/")
+    $registrations += Get-TargetSources $CmakeFile.FullName $PathPrefix
+}
 $registrations += Get-TargetSources $testSupportCmake "tests/TestSupport"
 $registrations += Get-TargetSources $commonCmake "tests/common"
+Get-ChildItem -LiteralPath (Join-Path $RepoRoot "tests/Preview") -Recurse -Filter CMakeLists.txt -File |
+    ForEach-Object {
+        $Directory = Split-Path -Parent $_.FullName
+        $PathPrefix = $Directory.Substring($RepoRoot.Length + 1).Replace("\", "/")
+        $registrations += Get-TargetSources $_.FullName $PathPrefix |
+            Where-Object { $_.Path.StartsWith('tests/Experiments/Preview/') }
+    }
 $cmakeEntries = $registrations | ForEach-Object { $_.Path }
-$allowedTargetPattern = '^(Preview|TestSupport|ProductionTestSupport)[A-Za-z0-9]*$'
+$allowedTargetPattern = '^(Preview|PrismPreview|TestSupport|ProductionTestSupport|Experimental)[A-Za-z0-9]*$'
 $problems = @()
 
-$unknownTargets = $registrations | Where-Object { $_.Target -notmatch $allowedTargetPattern }
+$unknownTargets = $registrations | Where-Object {
+    $_.Target -notmatch $allowedTargetPattern -and
+    !$_.Path.StartsWith('tests/Experiments/Preview/')
+}
 if ($unknownTargets) {
     $problems += "UNKNOWN TARGET (header registered on a non-module target):"
     $problems += $unknownTargets | ForEach-Object { "  $($_.Target): $($_.Path)" }

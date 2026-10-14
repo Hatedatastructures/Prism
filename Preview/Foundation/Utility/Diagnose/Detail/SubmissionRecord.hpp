@@ -4,15 +4,15 @@
  */
 #pragma once
 
-#include <cstdint>
-#include <string>
-#include <vector>
-
 #include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
 #include <Preview/Foundation/Utility/Diagnose/PrefixCache.hpp>
 #include <Preview/Foundation/Utility/Diagnose/RenderMode.hpp>
 #include <Preview/Foundation/Utility/Diagnose/RuntimeOptions.hpp>
 #include <Preview/Foundation/Utility/Diagnose/SubmissionReceipt.hpp>
+
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace Preview::Diagnose::Detail
 {
@@ -23,12 +23,12 @@ namespace Preview::Diagnose::Detail
      */
     struct CapturedField final
     {
-        FieldId Id{};                                  ///< 字段目录中的稳定 ID。
+        FieldId Id{}; ///< 字段目录中的稳定 ID。
         FieldValueKind Kind{FieldValueKind::Unsigned}; ///< 字段值编码种类。
-        std::uint64_t Unsigned{0U};                    ///< 数值型字段值。
-        bool Boolean{false};                           ///< 布尔型字段值。
-        std::string Text{};                            ///< 已拥有的有界文本值。
-        bool Truncated{false};                         ///< 文本是否发生截断。
+        std::uint64_t Unsigned{0U}; ///< 数值型字段值。
+        bool Boolean{false}; ///< 布尔型字段值。
+        std::string Text{}; ///< 已拥有的有界文本值。
+        bool Truncated{false}; ///< 文本是否发生截断。
     };
 
     /**
@@ -38,8 +38,8 @@ namespace Preview::Diagnose::Detail
     struct CapturedContext final
     {
         RenderMode Mode{RenderMode::CompactHuman}; ///< 本条记录的渲染模式。
-        PrefixCache Prefix{};                      ///< 已缓存的 W/S 前缀。
-        std::vector<CapturedField> Fields{};       ///< 扩展模式下选中的拥有型字段。
+        PrefixCache Prefix{}; ///< 已缓存的 W/S 前缀。
+        std::vector<CapturedField> Fields{}; ///< 扩展模式下选中的拥有型字段。
     };
 
     /**
@@ -48,12 +48,13 @@ namespace Preview::Diagnose::Detail
      */
     struct SubmissionRecord final
     {
-        LogLevel Level{LogLevel::Info};                ///< 记录级别。
-        std::uint64_t Sequence{0U};                    ///< backend 分配的提交序号。
-        std::uint64_t TimestampMilliseconds{0U};       ///< Structured 模式的 Unix 毫秒时间戳。
+        LogLevel Level{LogLevel::Info}; ///< 记录级别。
+        std::uint64_t Sequence{0U}; ///< backend 分配的提交序号。
+        std::uint64_t TimestampMilliseconds{0U}; ///< Structured 模式的 Unix 毫秒时间戳。
         SubmissionKind Kind{SubmissionKind::Ordinary}; ///< 普通记录或可靠审计记录。
-        std::string Message{};                         ///< 已格式化并拥有的业务消息。
-        CapturedContext Context{};                     ///< 提交前拥有的上下文快照。
+        std::string Message{}; ///< 已格式化并拥有的业务消息。
+        bool MessageTruncated{false}; ///< 后台渲染超过输出预算时明确标记。
+        CapturedContext Context{}; ///< 提交前拥有的上下文快照。
     };
 
 } // namespace Preview::Diagnose::Detail

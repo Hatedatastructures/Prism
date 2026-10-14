@@ -12,7 +12,6 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -21,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <span>
@@ -30,9 +30,11 @@
 #include <vector>
 
 #include <Preview/Foundation/Error.hpp>
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Account/Authenticator.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Protocols/Common/Address.hpp>
+#include <Preview/Protocols/Common/ExactIo.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Vless/Codec.hpp>
 #include <Preview/Protocols/Vless/Types.hpp>
@@ -50,27 +52,22 @@ namespace Preview::Vless
      * 调用方以 shared_ptr 持有。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Conn : public Preview::Transmission, public std::enable_shared_from_this<Conn<Memory>>
+    class Conn : public Preview::Transmission
     {
     public:
         /**
          * @brief 构造函数（工厂调用）
          * @param Upstream 上游传输（所有权移交）
          * @param Uuid 协议 UUID（16 字节，凭据/校验用）
-         * @param Auth 认证器（旧兼容裸指针；nullptr = 静态比对 uuid）
-         * @param AuthOwner 认证器共享所有权（可选）
+         * @param AuthOwner 认证器共享所有权
          */
         explicit Conn(
             SharedTransmission Upstream,
             std::array<std::uint8_t, UuidLen> Uuid,
-            const Preview::Authenticator *Auth = nullptr,
             Preview::SharedAuthenticator AuthOwner = {})
-            : NextLayer_(std::move(Upstream)), Uuid_(Uuid), AuthOwner_(std::move(AuthOwner)), Auth_(Auth)
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Upstream)), Uuid_(Uuid), AuthOwner_(std::move(AuthOwner))
         {
-            if (AuthOwner_)
-            {
-                Auth_ = AuthOwner_.get();
-            }
         }
 
         /**
@@ -80,81 +77,68 @@ namespace Preview::Vless
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
 
         /**
-         * @brief 异步读取（预读缓冲优先）
-         * @param Buffer 接收缓冲区
-         * @param ErrorCode 错误码输出参数
-         * @return 实际读取字节数
+         * @brief 预读缓冲优先的部分读；结果与借用沿正式前门交付一次
+         * @param Buffer 接收缓冲区（借用到 completion 返回）
+         * @param Handler 正式完成；命中预读缓冲或上游已释放时异步交付
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
-            if (Used_ > 0)
+            if (Used_ > 0 || !NextLayer_)
             {
-                const auto N = std::min(Buffer.size(), Used_);
-                std::memcpy(Buffer.data(), Buf_.data(), N);
-                if (N < Used_)
-                {
-                    std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
-                }
-                else
-                {
-                    Buf_.clear();
-                }
-                Used_ -= N;
-                co_return N;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), TakePending(Buffer));
+                return;
             }
-            if (!NextLayer_)
-            {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
-            }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            NextLayer_->ReadSome(Buffer, std::move(Handler));
         }
 
         /**
-         * @brief 异步写入（透传）
+         * @brief 底层透传写入，保持短写语义
          */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            NextLayer_->WriteSome(Buffer, std::move(Handler));
         }
 
-        /**
-         * @brief 关闭传输层
-         */
-        auto Close() -> void override
+        /** @brief 真实写半关闭转交底层载体；读取方向保持可用。 */
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
+            }
+            NextLayer_->WriteShutdown(std::move(Handler));
+        }
+
+        /** @brief 封止并交付底层关闭；实际退出由 Activity()->Drain() 另行等待。 */
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Close();
+                return NextLayer_->Close();
             }
+            return {};
         }
 
-        /**
-         * @brief 取消挂起操作
-         */
-        auto Cancel() -> void override
+        /** @brief 可重复取消底层 I/O；成功不表示连接已关闭。 */
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Cancel();
+                return NextLayer_->Cancel();
             }
+            return {};
         }
 
         /**
@@ -218,11 +202,11 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto WriteHandshake(
             const Address &Target,
-            Command Cmd = Command::Tcp) -> Net::awaitable<Error>
+            Command Cmd = Command::Tcp) -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (Cmd != Command::Tcp && Cmd != Command::Udp && Cmd != Command::Mux)
             {
-                co_return Error::BadMessage;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::BadMessage));
             }
             RequestHeader RequestValue;
             RequestValue.Version = ProtocolVersion;
@@ -232,28 +216,30 @@ namespace Preview::Vless
             const auto Wire = BuildRequest(RequestValue);
             if (Wire.empty())
             {
-                co_return Error::BadAddress;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::BadAddress));
             }
-            if (co_await SendBytes(Wire))
+            const auto Written = co_await Preview::Protocol::Common::WriteAllIo(NextLayer_, Wire);
+            if (Written.Failure.Failed())
             {
-                co_return Error::IoError;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromIo(Written));
             }
 
             std::array<std::uint8_t, 2> Response{};
-            if (co_await ReadExactImpl(std::span<std::uint8_t>(Response)))
+            const auto Read = co_await Preview::Protocol::Common::ReadExactIo(NextLayer_, Response);
+            if (Read.Failure.Failed())
             {
-                co_return Error::IoError;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromIo(Read));
             }
             if (Response[0] != ProtocolVersion)
             {
-                co_return Error::BadMagic;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::BadMagic));
             }
             if (Response[1] != 0x00)
             {
-                co_return Error::BadMessage;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::BadMessage));
             }
             Handshaken_ = true;
-            co_return Error::None;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
         /**
@@ -268,27 +254,27 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto ReadHandshake(bool EnableTcp = true, bool EnableUdp = true,
                                           bool EnableMux = true)
-            -> Net::awaitable<std::pair<Error, RequestHeader>>
+            -> Net::awaitable<std::expected<RequestHeader, Preview::Fault::Failure>>
         {
             // 认证器只负责凭据映射；wire 结构和命令边界统一由共享 Parser 解析。
-            Parser RequestParser(Uuid_, Auth_ == nullptr);
+            Parser RequestParser(Uuid_, !AuthOwner_);
             std::error_code ParseError;
             const auto NeedMore = make_error_code(Error::NeedMore);
             while (!RequestParser.IsDone())
             {
                 std::array<std::uint8_t, 1> Byte{};
-                if (co_await ReadExactImpl(std::span<std::uint8_t>(Byte)))
+                const auto Read = co_await Preview::Protocol::Common::ReadExactIo(NextLayer_, Byte);
+                if (Read.Failure.Failed())
                 {
-                    co_return std::pair{Error::IoError, RequestHeader{}};
+                    co_return std::unexpected(Preview::Protocol::Common::FailureFromIo(Read));
                 }
                 ParseError.clear();
                 RequestParser.Put(Net::const_buffer(Byte.data(), Byte.size()), ParseError);
                 if (ParseError && ParseError != NeedMore)
                 {
                     const auto ParserError = static_cast<Error>(ParseError.value());
-                    co_return std::pair{
-                        ParserError == Error::AuthFailed ? Error::BadAuth : ParserError,
-                        RequestHeader{}};
+                    co_return std::unexpected(
+                        Preview::Protocol::Common::FailureFromProtocolError(ParserError));
                 }
             }
 
@@ -297,7 +283,8 @@ namespace Preview::Vless
             if ((Cmd == Command::Tcp && !EnableTcp) || (Cmd == Command::Udp && !EnableUdp) ||
                 (Cmd == Command::Mux && !EnableMux))
             {
-                co_return std::pair{Error::NotSupported, RequestHeader{}};
+                co_return std::unexpected(
+                    Preview::Protocol::Common::FailureFromProtocolError(Error::Unsupported));
             }
 
             RequestHeader RequestValue;
@@ -306,34 +293,36 @@ namespace Preview::Vless
             RequestValue.Cmd = Cmd;
             RequestValue.Target = Parsed.dst;
 
-            if (Auth_)
+            if (const auto *Authenticator = AuthOwner_.get())
             {
-                auto AuthenticationResult = Auth_->Authenticate(Preview::AuthenticationRequest{
+                auto AuthenticationResult = Authenticator->Authenticate(Preview::AuthenticationRequest{
                     .AccountId = {},
                     .Identity = {},
                     .Credential = Preview::Account::CredentialView{
                         Preview::Account::CredentialKind::Uuid,
                         std::as_bytes(std::span<const std::uint8_t>(RequestValue.Uuid))},
                     .Rate = {}});
-                if (!AuthenticationResult.Accepted)
+                if (!AuthenticationResult)
                 {
-                    co_return std::pair{Error::BadAuth, RequestHeader{}};
+                    co_return std::unexpected(
+                        Preview::Protocol::Common::FailureFromProtocolError(Error::BadAuth));
                 }
-                AuthLease_ = std::move(AuthenticationResult.Lease);
-                AccountId_ = AuthenticationResult.AccountId;
-                Identity_ = std::move(AuthenticationResult.Identity);
+                AuthLease_ = std::move(*AuthenticationResult);
+                AccountId_ = AuthLease_.AccountId();
+                Identity_ = std::string(AuthLease_.Identity());
             }
 
             // 发送 2 字节响应 [Version 0x00][Addons Length 0x00]
             const auto Resp = MakeResponse();
-            if (co_await SendBytes(Resp))
+            const auto Written = co_await Preview::Protocol::Common::WriteAllIo(NextLayer_, Resp);
+            if (Written.Failure.Failed())
             {
-                co_return std::pair{Error::IoError, RequestHeader{}};
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromIo(Written));
             }
 
             Parsed_ = RequestValue;
             Handshaken_ = true;
-            co_return std::pair{Error::None, std::move(RequestValue)};
+            co_return RequestValue;
         }
 
         /**
@@ -378,6 +367,27 @@ namespace Preview::Vless
         }
 
     private:
+        /** @brief 消费预读缓冲；无缓冲或上游已释放时返回 0 字节与确定的领域失败码。 */
+        [[nodiscard]] auto TakePending(std::span<std::byte> Buffer) -> Preview::IoResult
+        {
+            if (Used_ == 0)
+            {
+                return {0, {Preview::Fault::Code::IoError}};
+            }
+            const auto N = std::min(Buffer.size(), Used_);
+            std::memcpy(Buffer.data(), Buf_.data(), N);
+            if (N < Used_)
+            {
+                std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
+            }
+            else
+            {
+                Buf_.clear();
+            }
+            Used_ -= N;
+            return {N, {}};
+        }
+
         /**
          * @brief 读取地址体（ATYP 已从尾部解析）
          * @param Output 输出地址
@@ -427,15 +437,14 @@ namespace Preview::Vless
                     co_return true;
                 }
                 std::array<std::uint8_t, 512> Chunk{};
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()), ErrorCode);
-                if (ErrorCode || N == 0 || N > Chunk.size())
+                const auto Part = co_await NextLayer_->ReadSome(
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()));
+                if (Part.Failure.Failed() || Part.Bytes == 0 || Part.Bytes > Chunk.size())
                 {
                     co_return true;
                 }
-                Buf_.insert(Buf_.end(), Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(N));
-                Used_ += N;
+                Buf_.insert(Buf_.end(), Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(Part.Bytes));
+                Used_ += Part.Bytes;
             }
             co_return false;
         }
@@ -455,21 +464,18 @@ namespace Preview::Vless
                 {
                     co_return true;
                 }
-                std::error_code ErrorCode;
-                ErrorCode.clear();
-                const auto N = co_await NextLayer_->async_write_some(
+                const auto Part = co_await NextLayer_->WriteSome(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data() + Done),
-                                               Data.size() - Done),
-                    ErrorCode);
-                if (ErrorCode)
+                                               Data.size() - Done));
+                if (Part.Failure.Failed())
                 {
                     co_return true;
                 }
-                if (N == 0 || N > Data.size() - Done)
+                if (Part.Bytes == 0 || Part.Bytes > Data.size() - Done)
                 {
                     co_return true; // 底层零字节写入，防死循环
                 }
-                Done += N;
+                Done += Part.Bytes;
             }
             co_return false;
         }
@@ -477,7 +483,6 @@ namespace Preview::Vless
         SharedTransmission NextLayer_;          ///< 上游传输（独占所有权）
         std::array<std::uint8_t, UuidLen> Uuid_; ///< 协议 UUID（凭据/校验）
         Preview::SharedAuthenticator AuthOwner_{}; ///< 认证器共享所有权
-        const Preview::Authenticator *Auth_{nullptr}; ///< 认证器（兼容裸指针）
         Preview::Account::AccountLease AuthLease_{}; ///< 协议认证租约
         Preview::AccountId AccountId_{};              ///< typed 账户身份
         std::string Identity_{};                      ///< 非敏感身份文本

@@ -1,0 +1,10 @@
+# 跨协议真实 Session 场景按被测 owner 分组。
+add_subdirectory(Admission)
+add_subdirectory(Datagram)
+add_subdirectory(Mux)
+add_subdirectory(Shadowsocks2022)
+add_subdirectory(Socks5)
+add_subdirectory(Transport)
+add_subdirectory(Trojan)
+add_subdirectory(Vless)
+add_subdirectory(Vmess)

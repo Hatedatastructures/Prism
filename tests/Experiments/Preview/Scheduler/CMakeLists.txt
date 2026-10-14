@@ -1,0 +1,2 @@
+AddPreviewTest(SchedulerTest.cpp)
+target_link_libraries(SchedulerTest PRIVATE PreviewFoundation)

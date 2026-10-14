@@ -11,24 +11,33 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <string>
 #include <vector>
 
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Account/Authenticator.hpp>
+#include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 
 namespace Preview::Socks5
 {
 
+    /**
+     * @brief SOCKS5 延迟应答的协议失败、传输首因和已提交 wire 字节。
+     * @details Protocol 保留 SOCKS5 领域码；Transport 保留 Native category/value；Bytes 是真实进度。
+     */
+    struct ReplyFailure final
+    {
+        Error Protocol{Error::None}; ///< 唯一 SOCKS5 协议错误码。
+        Preview::Fault::Failure Transport{}; ///< 传输首因与原生错误身份。
+        std::size_t Bytes{0}; ///< 已由写 completion 确认的应答 wire 字节。
+    };
+
+    template <typename Value>
+    using ReplyResult = std::expected<Value, ReplyFailure>;
+
     /// 协议版本
     inline constexpr std::uint8_t Version = 0x05;
-
-    /// 认证方法常量（BeastTest 兼容）
-    inline constexpr std::uint8_t AuthNone = 0x00;
-    inline constexpr std::uint8_t AuthUserPass = 0x02;
-
-    /// 命令常量（BeastTest 兼容）
-    inline constexpr std::uint8_t CmdConnect = 0x01;
-    inline constexpr std::uint8_t CmdUdpAssociate = 0x03;
 
     /// 认证方法
     enum class AuthMethod : std::uint8_t
@@ -93,7 +102,7 @@ namespace Preview::Socks5
     {
         /// 地址类型
         AddressType Type{AddressType::Domain};
-        /// 主机
+        /// 主机：IPv4 为点分文本，IPv6 为 16 个网络序字节，域名为原始字节。
         std::string Host;
         /// 端口
         std::uint16_t Port{0};
@@ -153,9 +162,9 @@ namespace Preview::Socks5
         /// 是否启用用户名/密码认证（RFC 1929）
         bool EnableAuth = false;
         /// 认证用户名（EnableAuth 为 true 时生效）
-        std::string username;
+        std::string Username;
         /// 认证密码（EnableAuth 为 true 时生效）
-        std::string password;
+        std::string Password;
     };
 
     /**
@@ -171,31 +180,10 @@ namespace Preview::Socks5
         bool EnableUdp = true;
         /// 是否启用用户名/密码认证（RFC 1929）
         bool EnableAuth = false;
-        /// 认证用户名（EnableAuth 为 true 时有效）
-        std::string username;
-        /// 认证密码（EnableAuth 为 true 时有效）
-        std::string password;
-        /// 认证器（旧兼容字段；优先使用 AuthenticatorOwner）
-        const Preview::Authenticator *Authenticator{nullptr};
+        /// 唯一 owning 认证器；启用认证时必须存在。
+        Preview::SharedAuthenticator Authenticator{};
         /// 延迟 CONNECT 成功应答：true = 由调用方在拨号完成后发送
         bool DeferConnectReply = false;
-        /// 认证器共享所有权；用于长期存活的 handler/Profile
-        Preview::SharedAuthenticator AuthenticatorOwner{};
-
-        /**
-         * @brief 获取服务端认证器
-         * @return 优先返回共享所有权中的认证器，否则返回兼容的非拥有指针
-         * @note 返回值不转移认证器所有权。
-         */
-        [[nodiscard]] auto ResolveAuthenticator() const noexcept
-            -> const Preview::Authenticator *
-        {
-            if (AuthenticatorOwner)
-            {
-                return AuthenticatorOwner.get();
-            }
-            return Authenticator;
-        }
     };
 
 } // namespace Preview::Socks5

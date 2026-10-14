@@ -1,3 +1,0 @@
-# configuration 子模块测试
-AddPreviewTest(ConfigurationTest.cpp)
-target_link_libraries(ConfigurationTest PRIVATE PreviewConfiguration PreviewComposition PreviewTestSupport)

@@ -8,7 +8,16 @@
 #include <prism/preview/WorkerBridge.hpp>
 #include <prism/runtime/worker/worker.hpp>
 
-#include <Preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <Preview/Protocols/Anytls/IngressFactory.hpp>
+#include <Preview/Protocols/Vless/IngressFactory.hpp>
+#include <Preview/Protocols/Trojan/IngressFactory.hpp>
+#include <Preview/Protocols/Vmess/IngressFactory.hpp>
+#include <Preview/Foundation/Generation/Lifetime.hpp>
+#include <Preview/Protocols/Socks5/Binding.hpp>
+#include <Preview/Protocols/Anytls/IngressFactory.hpp>
+#include <Preview/Protocols/Vless/IngressFactory.hpp>
+#include <Preview/Protocols/Trojan/IngressFactory.hpp>
+#include <Preview/Protocols/Vmess/IngressFactory.hpp>
 #include <Preview/Composition/Recognition/CandidateFactory.hpp>
 #include <Preview/Net/Dialer/Dialer.hpp>
 #include <Preview/Runtime/Session.hpp>
@@ -119,6 +128,14 @@ namespace psm::preview
         {
             namespace Net = boost::asio;
 
+            struct BridgeGeneration final : Preview::Foundation::GenerationLifetime
+            {
+                [[nodiscard]] auto Id() const noexcept -> Preview::GenerationId override
+                {
+                    return Preview::GenerationId{1};
+                }
+            };
+
             auto Inbound = std::make_shared<Preview::Transport::Reliable>(
                 std::move(Parameters.socket));
             auto Dialer = std::make_shared<Preview::Network::Dialer::Dialer>(
@@ -128,12 +145,25 @@ namespace psm::preview
             Preview::Socks5::ServerConfig SocksConfig;
             SocksConfig.EnableTcp = true;
             SocksConfig.EnableUdp = false;
-            SocksConfig.EnableAuth = true;
-            SocksConfig.username = "prism";
-            SocksConfig.password = "prism";
+            SocksConfig.EnableAuth = false;
             SocksConfig.DeferConnectReply = true;
-            Services->AcceptProtocol = Preview::Runtime::MakeAcceptSocks5(
-                std::move(SocksConfig));
+            auto Generation = std::make_shared<BridgeGeneration>();
+            auto Prepared = Preview::Socks5::Prepare(
+                Preview::Socks5::Preparation{"production-bridge", Generation, std::move(SocksConfig)},
+                Preview::Socks5::BindingServices{
+                    Parameters.worker->ioc.get_executor(),
+                    Preview::Contract::AuthenticationServices{Generation, {}, {}},
+                    Preview::Contract::DatagramServices{}});
+            if (!Prepared)
+            {
+                co_return;
+            }
+            auto Bound = Preview::Socks5::Bind(std::move(*Prepared), std::stop_token{});
+            if (!Bound)
+            {
+                co_return;
+            }
+            Services->AcceptProtocol = *Bound;
             Services->Dial = [Dialer](const Preview::Network::Target &Target)
                 -> Net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
             {
@@ -185,7 +215,7 @@ namespace psm::preview
                 Parameters.worker->ioc.get_executor());
             auto Services = std::make_shared<Preview::Runtime::SessionServices>();
 
-            Preview::Composition::Recognition::HttpConfig HttpConfig;
+            Preview::Http11::IngressOptions HttpConfig;
             Services->AcceptProtocol =
                 Preview::Composition::Recognition::CandidateFactory::MakeHttp(
                     {}, std::move(HttpConfig)).Accept;

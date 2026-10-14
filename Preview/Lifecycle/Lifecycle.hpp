@@ -7,6 +7,7 @@
 
 #include <Preview/Lifecycle/CancellationDomain.hpp>
 #include <Preview/Lifecycle/DrainBarrier.hpp>
-#include <Preview/Lifecycle/FailureBoundary.hpp>
+#include <Preview/Lifecycle/TaskRetirementReceipt.hpp>
+
 #include <Preview/Lifecycle/TaskRegistry.hpp>
 #include <Preview/Lifecycle/TaskState.hpp>

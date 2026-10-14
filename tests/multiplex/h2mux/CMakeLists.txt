@@ -1,4 +1,7 @@
 AddProductionTest(H2mux.cpp)
 AddProductionTest(H2muxCraft.cpp)
+AddProductionTest(H2muxCraftDeep.cpp)
+AddProductionTest(H2muxCraftAsync.cpp)
+AddProductionTest(H2muxCraftDeep2.cpp)
 AddProductionTest(SingmuxRequest.cpp)
 AddProductionTest(SingmuxE2E.cpp)

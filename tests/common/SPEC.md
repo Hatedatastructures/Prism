@@ -1,5 +1,7 @@
 # preview 协议库规范（tests/common）
 
+> 文档状态说明（2026-10-05）：本文保留原版本的规范、测试数据或对拍记录。路径、完成标记和数字按原记录日期与源码解释；当前 Preview 生产合同、已执行范围和剩余责任见[当前执行状态](../../docs/preview-refactor/2026-10-03-preview-no-compat-status.md)，原结果不作为今日源码全量或互操作通过证明。
+
 > 本规范描述 `tests/common/`（preview 库）的**真实架构**与统一设计标准。
 > 参考 Go 参考实现（mihomo transport / sing 系列）的接口模式。目标：
 > **可替换主项目 src/prism 的新一代架构**（NEXTGEN_TASK.md）。

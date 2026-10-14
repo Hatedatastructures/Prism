@@ -1,269 +1,124 @@
-/**
- * @file CancellationDomain.hpp
- * @brief 可分层传播的取消域
- * @details 取消状态立即通过原子值可见，取消信号在各自绑定的 executor 上
- *          发出。子域以 weak snapshot 注册到父域，生命周期结束时会移除自身，
- *          不保留 owner 裸指针，也不维护自有无界事件队列。
- */
-
+/** @file CancellationDomain.hpp @brief 绑定单一 executor 的侵入式取消树。 */
 #pragma once
-
-#include <boost/asio/any_io_executor.hpp>
+#include <Preview/Foundation/Executor/ExecutorReclaimer.hpp>
 #include <boost/asio/cancellation_signal.hpp>
-
 #include <atomic>
 #include <memory>
-#include <utility>
-#include <vector>
-
-#include <Preview/Resource/ExecutorReclaimer.hpp>
-
 namespace Preview::Lifecycle
 {
-
     namespace Net = boost::asio;
-
+    /** @brief 取消树在绑定 executor 通知任务 hook；观察者只以 weak 引用接入。 */
+    class CancellationObserver
+    {
+    public:
+        virtual ~CancellationObserver() = default;
+        virtual auto OnCancellation() -> void = 0;
+    };
+    /** @brief 取消状态跨线程只读；树链接和信号由原 executor 串行访问。
+     * @details 子域拥有独立节点，父只保留节点直到 Detach；无兄弟数组复制。
+     * 无半关闭及资源最终关闭；取消只唤醒操作，owner 必须继续等待 drain。
+     */
     class CancellationDomain final
     {
-    private:
-        struct State;
-
-        struct ChildSnapshot final
-        {
-            std::vector<std::weak_ptr<State>> Items;
-        };
-
         struct State final : std::enable_shared_from_this<State>
         {
-            State(Net::any_io_executor ExecutorValue,
-                  std::shared_ptr<Preview::Resource::ExecutorReclaimer> ReclaimerValue,
-                  std::weak_ptr<State> ParentValue)
-                : Executor(std::move(ExecutorValue)),
-                  Reclaimer(std::move(ReclaimerValue)),
-                  Parent(std::move(ParentValue)),
-                  Children(std::make_shared<const ChildSnapshot>())
-            {
-            }
-
-            ~State() noexcept
-            {
-                if (const auto ParentValue = Parent.lock())
-                {
-                    ParentValue->RemoveChild(this);
-                }
-            }
-
-            auto AddChild(const std::shared_ptr<State> &Child) -> void
-            {
-                for (;;)
-                {
-                    auto Current = Children.load(std::memory_order_acquire);
-                    auto Next = std::make_shared<ChildSnapshot>(*Current);
-                    Next->Items.push_back(Child);
-                    if (Children.compare_exchange_weak(
-                            Current,
-                            std::shared_ptr<const ChildSnapshot>(std::move(Next)),
-                            std::memory_order_release,
-                            std::memory_order_acquire))
-                    {
-                        return;
-                    }
-                }
-            }
-
-            auto RequestCancellation() noexcept -> void
-            {
-                CancellationRequested.store(true, std::memory_order_release);
-                const auto Current = Children.load(std::memory_order_acquire);
-                for (const auto &Entry : Current->Items)
-                {
-                    if (const auto Child = Entry.lock())
-                    {
-                        Child->RequestCancellation();
-                    }
-                }
-            }
-
-            auto RemoveChild(const State *Target) noexcept -> void
-            {
-                try
-                {
-                    for (;;)
-                    {
-                        auto Current = Children.load(std::memory_order_acquire);
-                        auto Next = std::make_shared<ChildSnapshot>();
-                        Next->Items.reserve(Current->Items.size());
-                        bool Removed = false;
-                        for (const auto &Entry : Current->Items)
-                        {
-                            const auto Child = Entry.lock();
-                            if (!Child || Child.get() == Target)
-                            {
-                                Removed = true;
-                                continue;
-                            }
-                            Next->Items.push_back(Child);
-                        }
-                        if (!Removed)
-                        {
-                            return;
-                        }
-                        if (Children.compare_exchange_weak(
-                                Current,
-                                std::shared_ptr<const ChildSnapshot>(std::move(Next)),
-                                std::memory_order_release,
-                                std::memory_order_acquire))
-                        {
-                            return;
-                        }
-                    }
-                }
-                catch (...)
-                {
-                }
-            }
-
-            [[nodiscard]] auto Cancel() noexcept -> bool
-            {
-                if (Cancelled.exchange(true, std::memory_order_acq_rel))
-                {
-                    return false;
-                }
-                CancellationRequested.store(true, std::memory_order_release);
-
-                const auto Current = Children.load(std::memory_order_acquire);
-                for (const auto &Entry : Current->Items)
-                {
-                    if (const auto Child = Entry.lock())
-                    {
-                        (void)Child->Cancel();
-                    }
-                }
-
-                const auto Self = shared_from_this();
-                if (!Reclaimer->Post(
-                        [Self]
-                        {
-                            Self->Signal.emit(Net::cancellation_type::all);
-                        }))
-                {
-                    DispatchBlocked.store(true, std::memory_order_release);
-                }
-                return true;
-            }
-
-            Net::any_io_executor Executor;
-            std::shared_ptr<Preview::Resource::ExecutorReclaimer> Reclaimer;
+            explicit State(std::shared_ptr<Preview::Executor::ExecutorReclaimer> Value)
+                : Reclaimer(std::move(Value)) {}
+            std::shared_ptr<Preview::Executor::ExecutorReclaimer> Reclaimer;
             std::weak_ptr<State> Parent;
-            std::atomic<std::shared_ptr<const ChildSnapshot>> Children;
+            std::shared_ptr<State> First;
+            std::shared_ptr<State> Next;
             Net::cancellation_signal Signal;
-            std::atomic<bool> CancellationRequested{false};
+            std::atomic<std::weak_ptr<CancellationObserver>> Observer;
+            std::atomic<bool> Requested{false};
             std::atomic<bool> Cancelled{false};
-            std::atomic<bool> DispatchBlocked{false};
+            std::atomic<bool> Blocked{false};
+            std::atomic<bool> Detached{false};
+            auto Attach(const std::shared_ptr<State>& Child) -> void
+            {
+                Prune();
+                if (Child->Detached.load()) return;
+                Child->Next = std::move(First);
+                First = Child;
+                if (Requested.load()) Child->Requested.store(true);
+                if (Cancelled.load()) Child->Emit();
+            }
+            auto Prune() -> void
+            {
+                auto* Link = &First;
+                while (*Link)
+                {
+                    if ((*Link)->Detached.load()) { *Link = std::move((*Link)->Next); continue; }
+                    Link = &(*Link)->Next;
+                }
+            }
+            auto Emit() -> void
+            {
+                Prune();
+                if (Cancelled.exchange(true)) return;
+                Requested.store(true);
+                if (auto Value = Observer.load().lock())
+                {
+                    try { Value->OnCancellation(); }
+                    catch (...) { Blocked.store(true, std::memory_order_release); }
+                }
+                Signal.emit(Net::cancellation_type::all);
+                for (auto Child = First; Child; Child = Child->Next) Child->Emit();
+            }
         };
-
-        explicit CancellationDomain(std::shared_ptr<State> StateValue) : State_(std::move(StateValue)) {}
-
+        explicit CancellationDomain(std::shared_ptr<State> Value) : State_(std::move(Value)) {}
     public:
-        explicit CancellationDomain(
-            Net::any_io_executor Executor,
-            std::shared_ptr<Preview::Resource::ExecutorReclaimer> Reclaimer = {})
-            : State_(std::make_shared<State>(
-                  Executor,
-                  Reclaimer ? std::move(Reclaimer)
-                            : std::make_shared<Preview::Resource::ExecutorReclaimer>(Executor),
-                  std::weak_ptr<State>{}))
+        explicit CancellationDomain(Net::any_io_executor Executor,
+            std::shared_ptr<Preview::Executor::ExecutorReclaimer> Reclaimer = {})
         {
+            if (!Reclaimer) Reclaimer = std::make_shared<Preview::Executor::ExecutorReclaimer>(std::move(Executor));
+            State_ = std::make_shared<State>(std::move(Reclaimer));
         }
-
-        CancellationDomain(const CancellationDomain &) = delete;
-        auto operator=(const CancellationDomain &) -> CancellationDomain & = delete;
-        CancellationDomain(CancellationDomain &&) = delete;
-        auto operator=(CancellationDomain &&) -> CancellationDomain & = delete;
-
-        /**
-         * @brief 创建当前域的子域
-         * @return 新建的子域；父域已取消时子域立即进入取消状态
-         */
+        ~CancellationDomain() { Detach(); }
+        CancellationDomain(const CancellationDomain&) = delete;
+        auto operator=(const CancellationDomain&) -> CancellationDomain& = delete;
+        /** @brief 接管独立子节点；链接在绑定 executor 执行，取消可先于链接发布。 */
         [[nodiscard]] auto CreateChild() -> std::shared_ptr<CancellationDomain>
         {
-            auto ChildState = std::make_shared<State>(State_->Executor, State_->Reclaimer, State_);
-            State_->AddChild(ChildState);
-            auto Child = std::shared_ptr<CancellationDomain>(new CancellationDomain(std::move(ChildState)));
-            if (State_->Cancelled.load(std::memory_order_acquire))
-            {
-                (void)Child->Cancel();
-            }
-            else if (IsCancellationRequested())
-            {
-                Child->RequestCancellation();
-            }
+            auto ChildState = std::make_shared<State>(State_->Reclaimer);
+            ChildState->Parent = State_;
+            auto Child = std::shared_ptr<CancellationDomain>(new CancellationDomain(ChildState));
+            if (!State_->Reclaimer->Post([Parent = State_, ChildState] { Parent->Attach(ChildState); }))
+                ChildState->Blocked.store(true);
             return Child;
         }
-
-        /**
-         * @brief 发出一次取消请求
-         * @return 首次发出返回 true，重复调用返回 false
-         */
-        [[nodiscard]] auto Cancel() noexcept -> bool
+        /** @brief 释放唯一取消节点；可重复，既有投递仍保活节点至原 executor 处理。 */
+        auto Detach() noexcept -> void { State_->Detached.store(true); }
+        /** @brief 跨线程发布取消；信号只在绑定 executor 发出，失败标记 Blocked。 */
+        [[nodiscard]] auto Cancel() -> bool
         {
-            return State_->Cancel();
+            if (State_->Requested.exchange(true) && State_->Cancelled.load()) return false;
+            if (!State_->Reclaimer->Post([Value = State_] { Value->Emit(); })) State_->Blocked.store(true);
+            return true;
         }
-
-        /**
-         * @brief 递归发布取消请求标记，但不派发取消信号
-         */
-        auto RequestCancellation() noexcept -> void
-        {
-            State_->RequestCancellation();
-        }
-
-        [[nodiscard]] auto IsCancelled() const noexcept -> bool
-        {
-            return State_->Cancelled.load(std::memory_order_acquire);
-        }
-
-        /**
-         * @brief 查询当前域及所有父域是否已请求或开始取消
-         */
+        /** @brief 在提交时发布任务观察者；观察者必须由任务预约保活至信号解绑。 */
+        auto Observe(std::weak_ptr<CancellationObserver> Observer) noexcept -> void { State_->Observer.store(std::move(Observer)); }
+        auto RequestCancellation() noexcept -> void { State_->Requested.store(true); }
+        /** @brief 读取取消状态；无半关闭、最终关闭或 executor 调度副作用。 */
+        [[nodiscard]] auto IsCancelled() const noexcept -> bool { return State_->Cancelled.load(); }
+        /** @brief 读取当前域及父域的取消请求，不访问兄弟链表。 */
         [[nodiscard]] auto IsCancellationRequested() const noexcept -> bool
         {
-            auto Current = State_;
-            while (Current)
-            {
-                if (Current->Cancelled.load(std::memory_order_acquire) ||
-                    Current->CancellationRequested.load(std::memory_order_acquire))
-                {
-                    return true;
-                }
-                Current = Current->Parent.lock();
-            }
+            for (auto Value = State_; Value; Value = Value->Parent.lock())
+                if (Value->Requested.load()) return true;
             return false;
         }
-
+        /** @brief 读取本域信号交付阻断事实，不能当成成功取消或完成。 */
         [[nodiscard]] auto IsDispatchBlocked() const noexcept -> bool
-        {
-            return State_->DispatchBlocked.load(std::memory_order_acquire);
-        }
-
-        [[nodiscard]] auto Slot() noexcept -> Net::cancellation_slot
-        {
-            return State_->Signal.slot();
-        }
-
-        [[nodiscard]] auto Executor() const -> Net::any_io_executor
-        {
-            return State_->Executor;
-        }
-
-        [[nodiscard]] auto Reclaimer() const
-            -> const std::shared_ptr<Preview::Resource::ExecutorReclaimer> &
-        {
-            return State_->Reclaimer;
-        }
-
+        { return State_->Blocked.load() || !State_->Reclaimer->CanDispatch(); }
+        /** @brief 只允许在绑定 executor 借用 slot，借用不跨越该域最终退休。 */
+        [[nodiscard]] auto Slot() noexcept -> Net::cancellation_slot { return State_->Signal.slot(); }
+        /** @brief 按值返回绑定 executor，调用方保持其 context 至全部 I/O 退栈。 */
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor { return State_->Reclaimer->Executor(); }
+        /** @brief 借用原 executor 的交付 owner；不转移 context 的最终释放责任。 */
+        [[nodiscard]] auto Reclaimer() const -> const std::shared_ptr<Preview::Executor::ExecutorReclaimer>&
+        { return State_->Reclaimer; }
     private:
         std::shared_ptr<State> State_;
     };
-
-} // namespace Preview::Lifecycle
+}

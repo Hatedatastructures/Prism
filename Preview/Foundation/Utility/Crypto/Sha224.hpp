@@ -1,51 +1,53 @@
 /**
  * @file Sha224.hpp
- * @brief SHA224 哈希工具
- * @details 提供基于 OpenSSL 的 SHA224 哈希计算功能，用于 Trojan 协议凭据处理。
- * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
+ * @brief 固定输出 SHA224 凭据编码。
  */
 #pragma once
 
-#include <Preview/Foundation/Memory/Container.hpp>
-
+#include <Preview/Foundation/Utility/Crypto/Operation.hpp>
 #include <openssl/sha.h>
-
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdint>
-#include <string>
+#include <expected>
 #include <string_view>
 
 namespace Preview::Crypto
 {
-
     /**
-     * @brief 计算字符串的 SHA224 哈希值
-     * @param input 输入字符串
-     * @return 56 字节的十六进制哈希字符串
+     * @brief 计算字符串的 SHA224 十六进制凭据；输入同步借用，结果拥有 56 个字符。
+     * @details 不分配字符串；逐步检查摘要操作，临时原始摘要和上下文在返回时擦除。
+     *          无取消、半关闭、最终关闭或 executor 行为；失败不提供伪造凭据。
      */
-    [[nodiscard]] inline auto Sha224(std::string_view Input) -> std::string
+    [[nodiscard]] inline auto Sha224(const std::string_view Input)
+        -> std::expected<std::array<char, 56>, Fault::Failure>
     {
+        SHA256_CTX Context{};
+        const SecretScope ContextCleanup{
+            {reinterpret_cast<std::uint8_t *>(&Context), sizeof(Context)}};
         std::array<std::uint8_t, SHA224_DIGEST_LENGTH> Hash{};
-        SHA224(reinterpret_cast<const std::uint8_t *>(Input.data()), Input.size(), Hash.data());
-
-        std::string Result;
-        Result.reserve(56);
-        for (const auto Byte : Hash)
+        const SecretScope HashCleanup{Hash};
+        ERR_clear_error();
+        if (SHA224_Init(&Context) != 1 || SHA224_Update(&Context, Input.data(), Input.size()) != 1 ||
+            SHA224_Final(Hash.data(), &Context) != 1)
         {
-            constexpr char HexChars[] = "0123456789abcdef";
-            Result.push_back(HexChars[(Byte >> 4) & 0x0F]);
-            Result.push_back(HexChars[Byte & 0x0F]);
+            return std::unexpected(Detail::NativeFailure(Fault::Code::CryptoError));
+        }
+        std::array<char, 56> Result{};
+        const SecretScope ResultCleanup{
+            {reinterpret_cast<std::uint8_t *>(Result.data()), Result.size()}};
+        constexpr char HexChars[] = "0123456789abcdef";
+        for (std::size_t Index = 0; Index < Hash.size(); ++Index)
+        {
+            Result[Index * 2] = HexChars[(Hash[Index] >> 4) & 0x0F];
+            Result[Index * 2 + 1] = HexChars[Hash[Index] & 0x0F];
         }
         return Result;
     }
 
-    /**
-     * @brief 检查字符串是否为有效的十六进制字符串
-     * @param str 输入字符串
-     * @return 如果字符串只包含十六进制字符则返回 true
-     */
-    [[nodiscard]] inline auto IsHex(std::string_view Text) -> bool
+    /** @brief 同步检查借用文本是否全部为十六进制字符，不分配或拥有资源。 */
+    [[nodiscard]] inline auto IsHex(const std::string_view Text) noexcept -> bool
     {
         for (const auto Character : Text)
         {
@@ -58,18 +60,20 @@ namespace Preview::Crypto
     }
 
     /**
-     * @brief 将凭据转换为 SHA224 哈希（如果还不是哈希）
-     * @param Credential 凭据字符串（可能是明文或已哈希）
-     * @return 56 字节的十六进制哈希字符串
-     * @details 如果输入已经是 56 字节的十六进制字符串，直接返回；
-     * 否则计算其 SHA224 哈希值。
+     * @brief 将借用凭据规范为调用者拥有的 56 字符值；已编码内容保持原字节。
+     * @return 明文转换的 SHA224 失败原样返回；无取消、关闭和 executor 行为。
      */
-    [[nodiscard]] inline auto NormalizeCredential(std::string_view Credential) -> std::string
+    [[nodiscard]] inline auto NormalizeCredential(const std::string_view Credential)
+        -> std::expected<std::array<char, 56>, Fault::Failure>
     {
         if (Credential.size() == 56 && IsHex(Credential))
         {
-            return std::string{Credential};
+            std::array<char, 56> Result{};
+            const SecretScope Cleanup{
+                {reinterpret_cast<std::uint8_t *>(Result.data()), Result.size()}};
+            std::copy(Credential.begin(), Credential.end(), Result.begin());
+            return Result;
         }
         return Sha224(Credential);
     }
-} // namespace Preview::Crypto
+}

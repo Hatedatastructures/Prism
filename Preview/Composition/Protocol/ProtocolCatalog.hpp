@@ -9,6 +9,7 @@
 
 #include <Preview/Composition/Builtin/Capability.hpp>
 #include <Preview/Composition/Recognition/ProtocolMatrix.hpp>
+#include <Preview/Contract/Ingress/Protocol.hpp>
 
 #include <algorithm>
 #include <array>
@@ -17,9 +18,57 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <variant>
 
 namespace Preview::Composition::Protocol
 {
+    /** @brief 五种互不混淆的正式装配槽位；配置别名只在本目录规范化一次。 */
+    enum class ProviderCategory : std::uint8_t
+    {
+        TcpProxy,
+        QuicProxy,
+        TlsCarrier,
+        Mux,
+        Ech,
+    };
+
+    /**
+     * @brief TLS recognition 类型。
+     * @details Native 至 Gun 七种拥有 typed carrier descriptor；TrustTunnel 仅表示 TLS 后的协议候选，
+     *          不构成 carrier provider slot，也不能通过 RegisterTlsCarrier 注册。
+     */
+    enum class CarrierKind : std::uint8_t
+    {
+        None,
+        Native,
+        Reality,
+        Shadowtls,
+        Restls,
+        WebSocket,
+        Xhttp,
+        Gun,
+        TrustTunnel,
+    };
+
+    enum class MuxSlot : std::uint8_t
+    {
+        Binding,
+    };
+
+    enum class EchSlot : std::uint8_t
+    {
+        ServerKeys,
+    };
+
+    using ProviderIdentity = std::variant<Preview::Contract::ProtocolType, CarrierKind, MuxSlot, EchSlot>;
+
+    /** @brief 可直接索引槽位的 typed identity；热路径不从字符串反推。 */
+    struct ProviderKey final
+    {
+        ProviderCategory Category;
+        ProviderIdentity Identity;
+        friend auto operator==(const ProviderKey&, const ProviderKey&) noexcept -> bool = default;
+    };
 
     enum class DescriptorKind : std::uint8_t
     {
@@ -27,10 +76,18 @@ namespace Preview::Composition::Protocol
         Carrier,
     };
 
+    /** @brief 协议监听准备阶段所需的证书 owner。 */
+    enum class TlsResourceRequirement : std::uint8_t
+    {
+        None,
+        NativeCertificate,
+        NativeCertificateOrCarrier,
+    };
+
     struct ProtocolDescriptor final
     {
         DescriptorKind Kind{DescriptorKind::Protocol};
-        Preview::Recognition::ProtocolType Id{Preview::Recognition::ProtocolType::Unknown};
+        Preview::Contract::ProtocolType Id{Preview::Contract::ProtocolType::Unknown};
         std::string_view Name;
         Preview::Composition::Recognition::OperationScope Scope{
             Preview::Composition::Recognition::OperationScope::TcpRecognition};
@@ -39,12 +96,29 @@ namespace Preview::Composition::Protocol
         bool SupportsTcp{false};
         bool SupportsUdp{false};
         bool SupportsQuic{false};
+        CarrierKind Carrier{CarrierKind::None};
+        std::string_view AccountKey;
+        TlsResourceRequirement TlsResource{TlsResourceRequirement::None};
+
+        /** @brief 按 descriptor 的类别生成无歧义正式槽位键。 */
+        [[nodiscard]] constexpr auto Slot() const noexcept -> ProviderKey
+        {
+            if (Kind == DescriptorKind::Carrier)
+            {
+                return {ProviderCategory::TlsCarrier, Carrier};
+            }
+            if (SupportsQuic)
+            {
+                return {ProviderCategory::QuicProxy, Id};
+            }
+            return {ProviderCategory::TcpProxy, Id};
+        }
     };
 
     class ProtocolCatalog final
     {
     public:
-        [[nodiscard]] static auto All() noexcept -> std::span<const ProtocolDescriptor>
+        [[nodiscard]] static constexpr auto All() noexcept -> std::span<const ProtocolDescriptor>
         {
             return Descriptors_;
         }
@@ -52,12 +126,10 @@ namespace Preview::Composition::Protocol
         [[nodiscard]] static auto Find(const std::string_view Name) noexcept
             -> std::optional<ProtocolDescriptor>
         {
-            const auto CanonicalName = Name == "shadowsocks2022" ? std::string_view{"ss2022"}
-                                                                   : Name;
-            const auto It = std::find_if(
-                Descriptors_.begin(), Descriptors_.end(),
-                [CanonicalName](const ProtocolDescriptor &Descriptor)
-                { return Descriptor.Name == CanonicalName; });
+            auto CanonicalName = Name;
+            if (Name == "websocket") CanonicalName = "ws";
+            const auto It = std::find_if(Descriptors_.begin(), Descriptors_.end(),
+                [CanonicalName](const ProtocolDescriptor& Descriptor) { return Descriptor.Name == CanonicalName; });
             if (It == Descriptors_.end())
             {
                 return std::nullopt;
@@ -65,12 +137,12 @@ namespace Preview::Composition::Protocol
             return *It;
         }
 
-        [[nodiscard]] static auto Find(const Preview::Recognition::ProtocolType Id) noexcept
+        [[nodiscard]] static auto Find(const Preview::Contract::ProtocolType Id) noexcept
             -> std::optional<ProtocolDescriptor>
         {
-            const auto It = std::find_if(
-                Descriptors_.begin(), Descriptors_.end(),
-                [Id](const ProtocolDescriptor &Descriptor) { return Descriptor.Id == Id; });
+            const auto It = std::find_if(Descriptors_.begin(), Descriptors_.end(),
+                [Id](const ProtocolDescriptor& Descriptor)
+                { return Descriptor.Kind == DescriptorKind::Protocol && Descriptor.Id == Id; });
             if (It == Descriptors_.end())
             {
                 return std::nullopt;
@@ -78,8 +150,36 @@ namespace Preview::Composition::Protocol
             return *It;
         }
 
-        [[nodiscard]] static auto Supports(
-            const std::string_view Name,
+        /** @brief 以协议、carrier、Mux 或 ECH 的 typed key 查询，不存在的槽位返回空。 */
+        [[nodiscard]] static auto Find(const ProviderKey& Key) noexcept
+            -> std::optional<ProtocolDescriptor>
+        {
+            const auto It = std::find_if(Descriptors_.begin(), Descriptors_.end(),
+                [&Key](const ProtocolDescriptor& Descriptor) { return Descriptor.Slot() == Key; });
+            if (It == Descriptors_.end()) return std::nullopt;
+            return *It;
+        }
+
+        [[nodiscard]] static auto Find(const CarrierKind Kind) noexcept
+            -> std::optional<ProtocolDescriptor>
+        {
+            return Find(ProviderKey{ProviderCategory::TlsCarrier, Kind});
+        }
+
+        [[nodiscard]] static auto CarrierName(const CarrierKind Kind) noexcept -> std::string_view
+        {
+            if (Kind == CarrierKind::TrustTunnel)
+            {
+                const auto Descriptor = Find(Preview::Contract::ProtocolType::TrustTunnel);
+                if (Descriptor) return Descriptor->Name;
+                return {};
+            }
+            const auto Descriptor = Find(Kind);
+            if (Descriptor) return Descriptor->Name;
+            return {};
+        }
+
+        [[nodiscard]] static auto Supports(const std::string_view Name,
             const Preview::Composition::Recognition::OperationScope Scope) noexcept -> bool
         {
             const auto Descriptor = Find(Name);
@@ -91,7 +191,7 @@ namespace Preview::Composition::Protocol
             {
             case Preview::Composition::Recognition::OperationScope::TcpRecognition:
                 return Descriptor->SupportsTcp;
-            case Preview::Composition::Recognition::OperationScope::UdpAssociation:
+            case Preview::Composition::Recognition::OperationScope::DatagramAssociation:
                 return Descriptor->SupportsUdp;
             case Preview::Composition::Recognition::OperationScope::QuicBinding:
                 return Descriptor->SupportsQuic;
@@ -102,112 +202,84 @@ namespace Preview::Composition::Protocol
 
     private:
         inline static constexpr std::array<ProtocolDescriptor, 17> Descriptors_{
-            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Recognition::ProtocolType::Http,
-                               "http", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false,
-                               false},
-            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Recognition::ProtocolType::Socks5,
-                               "socks5", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream,
-                                                       Builtin::Capability::Datagram,
-                                                       Builtin::Capability::Multiplex},
-                               true, true, false},
-            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Recognition::ProtocolType::Vless,
-                               "vless", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream,
-                                                       Builtin::Capability::Datagram,
-                                                       Builtin::Capability::Multiplex},
-                               true, true, false},
-            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Recognition::ProtocolType::Trojan,
-                               "trojan", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream,
-                                                       Builtin::Capability::Datagram,
-                                                       Builtin::Capability::Multiplex},
-                               true, true, false},
-            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Recognition::ProtocolType::Vmess,
-                               "vmess", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream,
-                                                       Builtin::Capability::Datagram,
-                                                       Builtin::Capability::Multiplex},
-                               true, true, false},
-            ProtocolDescriptor{DescriptorKind::Protocol,
-                               Preview::Recognition::ProtocolType::Shadowsocks,
-                               "ss2022", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream,
-                                                       Builtin::Capability::Datagram,
-                                                       Builtin::Capability::Multiplex},
-                               true, true, false},
-            ProtocolDescriptor{DescriptorKind::Protocol,
-                               Preview::Recognition::ProtocolType::Hysteria2,
-                               "hysteria2", Recognition::OperationScope::QuicBinding,
-                               Builtin::CapabilitySet{Builtin::Capability::Quic},
-                               Builtin::CapabilitySet{Builtin::Capability::Quic,
-                                                       Builtin::Capability::Alpn},
-                               false, false, true},
-            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Recognition::ProtocolType::Tuic,
-                               "tuic", Recognition::OperationScope::QuicBinding,
-                               Builtin::CapabilitySet{Builtin::Capability::Quic},
-                               Builtin::CapabilitySet{Builtin::Capability::Quic,
-                                                       Builtin::Capability::Alpn},
-                               false, false, true},
-            ProtocolDescriptor{DescriptorKind::Protocol,
-                               Preview::Recognition::ProtocolType::AnyTls,
-                               "anytls", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport,
-                                                       Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream,
-                                                       Builtin::Capability::Multiplex},
-                               true, false, false},
-            ProtocolDescriptor{DescriptorKind::Protocol,
-                               Preview::Recognition::ProtocolType::TrustTunnel,
-                               "trusttunnel", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Transport,
-                                                       Builtin::Capability::Tls,
-                                                       Builtin::Capability::Alpn},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream,
-                                                       Builtin::Capability::Datagram},
-                               true, true, false},
-            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Recognition::ProtocolType::Tls,
-                               "native", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false,
-                               false},
-            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Recognition::ProtocolType::Tls,
-                               "reality", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false,
-                               false},
-            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Recognition::ProtocolType::Tls,
-                               "shadowtls", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false,
-                               false},
-            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Recognition::ProtocolType::Tls,
-                               "restls", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false,
-                               false},
-            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Recognition::ProtocolType::Tls,
-                               "ws", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false,
-                               false},
-            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Recognition::ProtocolType::Tls,
-                               "xhttp", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, true,
-                               false},
-            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Recognition::ProtocolType::Tls,
-                               "gun", Recognition::OperationScope::TcpRecognition,
-                               Builtin::CapabilitySet{Builtin::Capability::Tls},
-                               Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false,
-                               false}};
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Http, "http",
+                Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false, false,
+                CarrierKind::None, "Http"},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Socks5, "socks5",
+                Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport},
+                Builtin::CapabilitySet{Builtin::Capability::Stream, Builtin::Capability::Datagram,
+                    Builtin::Capability::Multiplex},
+                true, true, false, CarrierKind::None, "Socks5"},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Vless, "vless",
+                Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport},
+                Builtin::CapabilitySet{Builtin::Capability::Stream, Builtin::Capability::Datagram,
+                    Builtin::Capability::Multiplex},
+                true, true, false, CarrierKind::None, "Vless"},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Trojan, "trojan",
+                Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport},
+                Builtin::CapabilitySet{Builtin::Capability::Stream, Builtin::Capability::Datagram,
+                    Builtin::Capability::Multiplex},
+                true, true, false, CarrierKind::None, "Trojan"},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Vmess, "vmess",
+                Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport},
+                Builtin::CapabilitySet{Builtin::Capability::Stream, Builtin::Capability::Datagram,
+                    Builtin::Capability::Multiplex},
+                true, true, false, CarrierKind::None, "Vmess"},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Shadowsocks,
+                "ss2022", Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport},
+                Builtin::CapabilitySet{Builtin::Capability::Stream, Builtin::Capability::Datagram,
+                    Builtin::Capability::Multiplex},
+                true, true, false, CarrierKind::None, "Shadowsocks2022"},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Hysteria2,
+                "hysteria2", Recognition::OperationScope::QuicBinding,
+                Builtin::CapabilitySet{Builtin::Capability::Quic},
+                Builtin::CapabilitySet{Builtin::Capability::Quic, Builtin::Capability::Alpn}, false, false,
+                true, CarrierKind::None, {}, TlsResourceRequirement::NativeCertificateOrCarrier},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::Tuic, "tuic",
+                Recognition::OperationScope::QuicBinding, Builtin::CapabilitySet{Builtin::Capability::Quic},
+                Builtin::CapabilitySet{Builtin::Capability::Quic, Builtin::Capability::Alpn}, false, false,
+                true, CarrierKind::None, {}, TlsResourceRequirement::NativeCertificateOrCarrier},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::AnyTls, "anytls",
+                Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport, Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream, Builtin::Capability::Multiplex}, true,
+                false, false, CarrierKind::None, "AnyTls",
+                TlsResourceRequirement::NativeCertificateOrCarrier},
+            ProtocolDescriptor{DescriptorKind::Protocol, Preview::Contract::ProtocolType::TrustTunnel,
+                "trusttunnel", Recognition::OperationScope::TcpRecognition,
+                Builtin::CapabilitySet{Builtin::Capability::Transport, Builtin::Capability::Tls,
+                    Builtin::Capability::Alpn},
+                Builtin::CapabilitySet{Builtin::Capability::Stream, Builtin::Capability::Datagram}, true,
+                true, false, CarrierKind::None, "TrustTunnel",
+                TlsResourceRequirement::NativeCertificate},
+            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Contract::ProtocolType::Tls, "native",
+                Recognition::OperationScope::TcpRecognition, Builtin::CapabilitySet{Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false, false, CarrierKind::Native},
+            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Contract::ProtocolType::Tls, "reality",
+                Recognition::OperationScope::TcpRecognition, Builtin::CapabilitySet{Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false, false, CarrierKind::Reality},
+            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Contract::ProtocolType::Tls, "shadowtls",
+                Recognition::OperationScope::TcpRecognition, Builtin::CapabilitySet{Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false, false, CarrierKind::Shadowtls},
+            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Contract::ProtocolType::Tls, "restls",
+                Recognition::OperationScope::TcpRecognition, Builtin::CapabilitySet{Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false, false, CarrierKind::Restls},
+            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Contract::ProtocolType::Tls, "ws",
+                Recognition::OperationScope::TcpRecognition, Builtin::CapabilitySet{Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false, false, CarrierKind::WebSocket},
+            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Contract::ProtocolType::Tls, "xhttp",
+                Recognition::OperationScope::TcpRecognition, Builtin::CapabilitySet{Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, true, false, CarrierKind::Xhttp},
+            ProtocolDescriptor{DescriptorKind::Carrier, Preview::Contract::ProtocolType::Tls, "gun",
+                Recognition::OperationScope::TcpRecognition, Builtin::CapabilitySet{Builtin::Capability::Tls},
+                Builtin::CapabilitySet{Builtin::Capability::Stream}, true, false, false, CarrierKind::Gun}};
     };
 
 } // namespace Preview::Composition::Protocol

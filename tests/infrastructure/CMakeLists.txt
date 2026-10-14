@@ -1,4 +1,8 @@
 AddProductionTest(Config.cpp)
+AddProductionTest(TlsRecord.cpp)
+AddProductionTest(TlsSignal.cpp)
+AddProductionTest(TestRunnerDeep.cpp)
+target_compile_options(TestRunnerDeep PRIVATE -O0 -fno-inline)
 AddProductionTest(Exception.cpp)
 AddProductionTest(Fault.cpp)
 AddProductionTest(FeatureBitmapExtended.cpp)

@@ -7,15 +7,17 @@
  *          Transmission::Type::Udp，供协议数据面复用。
  */
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <system_error>
 
+#include <Preview/Protocols/Common/IoBridge.hpp>
+#include <Preview/Transport/Detail/IoCompletion.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Quic
@@ -87,13 +89,22 @@ namespace Preview::Quic
      */
     class DatagramAdapter final : public Preview::Transmission
     {
+        [[nodiscard]] static auto RequireProviderExecutor(const SharedDatagramProvider &Provider)
+            -> Net::any_io_executor
+        {
+            if (!Provider || !Provider->Executor())
+                throw std::invalid_argument("DatagramAdapter requires a provider executor");
+            return Provider->Executor();
+        }
+
     public:
         /**
          * @brief 构造适配器
          * @param Provider 数据报提供者（所有权移交）
          */
         explicit DatagramAdapter(SharedDatagramProvider Provider)
-            : Provider_(std::move(Provider))
+            : Preview::Transmission(RequireProviderExecutor(Provider)),
+              Provider_(std::move(Provider))
         {
         }
 
@@ -103,7 +114,7 @@ namespace Preview::Quic
             {
                 return Provider_->Executor();
             }
-            return ExecutorType{};
+            return Preview::Transmission::Executor();
         }
 
         [[nodiscard]] auto TransportType() const noexcept -> Type override
@@ -111,55 +122,109 @@ namespace Preview::Quic
             return Type::Udp;
         }
 
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        /**
+         * @brief 部分读取（委托提供者）；结果与借用沿正式前门交付一次。
+         */
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            if (!Provider_)
-            {
-                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
-                co_return 0;
-            }
-            const auto Received = co_await Provider_->Receive(Buffer, ErrorCode);
-            if (!ErrorCode && Received > Buffer.size())
-            {
-                ErrorCode = make_error_code(Error::BadLength);
-                co_return 0;
-            }
-            co_return Received;
+            Preview::Protocols::StartPartialRead(
+                Preview::Protocols::PartialReadInput<DatagramAdapter>{Owner(), Buffer, Executor()},
+                std::move(Handler));
         }
 
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        /**
+         * @brief 部分写入（委托提供者）。
+         */
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            if (!Provider_)
-            {
-                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
-                co_return 0;
-            }
-            const auto Written = co_await Provider_->Send(Buffer, ErrorCode);
-            if (!ErrorCode && Written != Buffer.size())
-            {
-                ErrorCode = make_error_code(Error::IoError);
-            }
-            co_return Written;
+            Preview::Protocols::StartPartialWrite(
+                Preview::Protocols::PartialWriteInput<DatagramAdapter>{Owner(), Buffer, Executor()},
+                std::move(Handler));
         }
 
-        auto Close() -> void override
+        /**
+         * @brief 数据报载体没有独立写方向 END_STREAM；半关闭按已交付返回。
+         * @note 调用者不得据此断言对端已收到半关闭；反向读取保持可用。
+         */
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {}});
+        }
+
+        /**
+         * @brief 关闭数据报载体
+         * @return 命令交付成功；实际退出由 Activity()->Drain() 另行等待。
+         */
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
             if (Provider_)
             {
                 Provider_->Close();
             }
+            return {};
         }
 
-        auto Cancel() -> void override
+        /**
+         * @brief 取消挂起的数据报操作；不宣称已经关闭。
+         */
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
             if (Provider_)
             {
                 Provider_->Cancel();
             }
+            return {};
+        }
+
+        /** @brief 数据面部分读取实现，由正式前门复用。 */
+        [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            if (!Provider_)
+            {
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(std::make_error_code(std::errc::bad_file_descriptor))};
+            }
+            std::error_code ErrorCode;
+            const auto Received = co_await Provider_->Receive(Buffer, ErrorCode);
+            if (Received > Buffer.size())
+            {
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(make_error_code(Error::BadLength))};
+            }
+            if (ErrorCode)
+            {
+                co_return Preview::IoResult{Received, Preview::Fault::FromNative(ErrorCode)};
+            }
+            co_return Preview::IoResult{Received, {}};
+        }
+
+        /** @brief 数据面部分写入实现，由正式前门复用；数据报必须整包交付。 */
+        [[nodiscard]] auto WritePartial(std::span<const std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            if (!Provider_)
+            {
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(std::make_error_code(std::errc::bad_file_descriptor))};
+            }
+            std::error_code ErrorCode;
+            const auto Written = co_await Provider_->Send(Buffer, ErrorCode);
+            if (Written > Buffer.size())
+            {
+                co_return Preview::IoResult{
+                    0, Preview::Fault::FromNative(make_error_code(Error::BadLength))};
+            }
+            if (ErrorCode)
+            {
+                co_return Preview::IoResult{Written, Preview::Fault::FromNative(ErrorCode)};
+            }
+            if (Written != Buffer.size())
+            {
+                co_return Preview::IoResult{
+                    Written, Preview::Fault::FromNative(make_error_code(Error::IoError))};
+            }
+            co_return Preview::IoResult{Written, {}};
         }
 
         [[nodiscard]] auto IsOpen() const -> bool override
@@ -173,6 +238,12 @@ namespace Preview::Quic
         }
 
     private:
+        /** @brief 完成交付前的 owner 借用；存活由本次传输预约与调用者共同保证。 */
+        [[nodiscard]] auto Owner() -> std::shared_ptr<DatagramAdapter>
+        {
+            return std::static_pointer_cast<DatagramAdapter>(Transmission::shared_from_this());
+        }
+
         SharedDatagramProvider Provider_;
     };
 

@@ -1,5 +1,7 @@
 # Prism Next-Gen 实施计划
 
+> 文档状态说明（2026-10-05）：本文保留原版本的分析、计划或验收快照，文中的“当前”、完成标记、路径和测试数字均属于原记录时点。今天的 Preview 入口、已执行范围与剩余责任见[开发入口](../Preview/README.md)和[当前执行状态](preview-refactor/2026-10-03-preview-no-compat-status.md)。本轮不改写原始历史结果；旧任务提示词需先核对现行 AGENTS.md、无兼容层计划和真实源码，不能直接替代当前任务卡。
+
 > 当前权威本地门禁（2026-09-11）：Release 构建 exit `0`；功能并行 `3853/3853`，
 > perf/stress 串行 `94/94`，CTest 注册 `3972`、active `3947`、`25` 个测试明确
 > Disabled；`Perf_Recognition` `936.62s`，perf/stress 标签时间 `957.38s`，全量墙钟

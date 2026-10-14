@@ -132,7 +132,7 @@ func TestProxyGroupsMatchServerTCPBindings(t *testing.T) {
 		"vless":           "VLESS TCP",
 		"trojan":          "Trojan Native TLS TCP",
 		"vmess":           "VMess TCP",
-		"shadowsocks2022": "SS2022 TCP",
+		"ss2022":          "SS2022 TCP",
 	}
 	expected := map[string]bool{"DIRECT": true}
 	for _, binding := range server.ProtocolBindings {

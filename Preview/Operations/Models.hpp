@@ -6,9 +6,18 @@
 #pragma once
 
 #include <Preview/Statistics/Statistics.hpp>
+#include <Preview/Operations/Metrics.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Foundation/Identifier/Id.hpp>
+#include <Preview/Operations/CommandTargetScope.hpp>
+#include <Preview/Operations/QueryPage.hpp>
+#include <Preview/Operations/ScopedCollectionModels.hpp>
+#include <Preview/Operations/ConfigurationIssue.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -20,6 +29,56 @@ namespace Preview::Operations
     struct OperationTag;
     using OperationId = Preview::Identifier::Id<OperationTag>;
 
+    /**
+     * @class BootstrapIdentity
+     * @brief 单个 Operations listener 的进程身份和命令凭据。
+     * @details 由 Application 冷启动生成并以 const 共享所有；此值不执行网络、取消、
+     *          半关闭或最终关闭，凭据只通过受 Host/Origin 约束的 Bootstrap 响应公开。
+     */
+    class BootstrapIdentity final
+    {
+    public:
+        using Incarnation = std::array<std::uint8_t, 16>;
+        using CommandToken = std::array<std::uint8_t, 32>;
+
+        /** @brief 冷启动身份和凭据；路由能力由已装配的控制器声明。 */
+        struct Options final
+        {
+            Preview::ProcessId Process{};
+            Incarnation ProcessIncarnation{};
+            CommandToken Token{};
+        };
+
+        explicit BootstrapIdentity(Options Value)
+            : Process_(Value.Process),
+              Incarnation_(std::move(Value.ProcessIncarnation)),
+              CommandToken_(std::move(Value.Token))
+        {
+        }
+
+        /** @brief 返回当前 Runtime::Process 提供的稳定进程身份。 */
+        [[nodiscard]] auto Process() const noexcept -> Preview::ProcessId
+        {
+            return Process_;
+        }
+
+        /** @brief 借用本次启动的随机 incarnation 字节。 */
+        [[nodiscard]] auto ProcessIncarnation() const noexcept -> const Incarnation &
+        {
+            return Incarnation_;
+        }
+
+        /** @brief 借用本 listener 唯一的 256-bit 命令令牌字节。 */
+        [[nodiscard]] auto Token() const noexcept -> const CommandToken &
+        {
+            return CommandToken_;
+        }
+
+    private:
+        Preview::ProcessId Process_{};
+        Incarnation Incarnation_{};
+        CommandToken CommandToken_{};
+    };
     using HealthStatus = Preview::Statistics::HealthStatus;
     using HealthSnapshot = Preview::Statistics::HealthSnapshot;
     using GenerationSnapshot = Preview::Statistics::GenerationSnapshot;
@@ -32,27 +91,6 @@ namespace Preview::Operations
     using TaskSnapshot = Preview::Statistics::TaskSnapshot;
     using EventSnapshot = Preview::Statistics::DetailedEvent;
 
-    struct PageRequest final
-    {
-        static constexpr std::size_t MaxLimit = 256;
-
-        std::uint64_t Cursor{0};
-        std::size_t Limit{50};
-
-        [[nodiscard]] auto BoundedLimit() const noexcept -> std::size_t
-        {
-            return Limit > MaxLimit ? MaxLimit : Limit;
-        }
-    };
-
-    template <typename Value>
-    struct Page final
-    {
-        std::vector<Value> Items;
-        std::uint64_t NextCursor{0};
-        bool HasMore{false};
-    };
-
     struct HealthQuery final
     {
         Preview::RequestId Correlation{};
@@ -61,6 +99,7 @@ namespace Preview::Operations
     struct GenerationQuery final
     {
         Preview::RequestId Correlation{};
+        Preview::ProcessId Process{};
         Preview::GenerationId Id{};
     };
 
@@ -85,17 +124,28 @@ namespace Preview::Operations
         Preview::SessionId Id{};
     };
 
+    /** @brief 以 process/generation/worker/session 完整父身份查询指定 stream。 */
     struct StreamQuery final
     {
         Preview::RequestId Correlation{};
         PageRequest Page{};
-        Preview::StreamId Id{};
+        Preview::ProcessId Process{}; ///< stream 所属进程。
+        Preview::SessionId Session{}; ///< stream 所属会话。
+        Preview::StreamId Id{}; ///< 被查询的 stream。
+        Preview::GenerationId Generation{}; ///< 父会话绑定的 generation。
+        Preview::WorkerId Worker{}; ///< 父会话绑定的 worker。
     };
 
     struct TaskQuery final
     {
         Preview::RequestId Correlation{};
         PageRequest Page{};
+        Preview::ProcessId Process{};
+        Preview::GenerationId Generation{};
+        Preview::WorkerId Worker{};
+        Preview::SessionId Session{};
+        Preview::StreamId Stream{};
+        Preview::TaskId ParentTask{};
         Preview::TaskId Id{};
     };
 
@@ -107,12 +157,16 @@ namespace Preview::Operations
     };
 
     using QueryValue = std::variant<HealthQuery,
+                                    MetricsQuery,
                                     GenerationQuery,
+                                    ConfigurationQuery,
                                     WorkerQuery,
                                     AccountQuery,
                                     SessionQuery,
                                     StreamQuery,
+                                    StreamListQuery,
                                     TaskQuery,
+                                    TaskListQuery,
                                     EventQuery>;
 
     struct Query final
@@ -127,12 +181,18 @@ namespace Preview::Operations
         }
     };
 
+    enum class ReloadMode : std::uint8_t
+    {
+        ValidateOnly,
+        Apply,
+    };
+
     struct ReloadCommand final
     {
         Preview::RequestId Correlation{};
-        Preview::GenerationId CurrentGeneration{};
-        Preview::GenerationId TargetGeneration{};
-        bool ValidateOnly{false};
+        Preview::GenerationId BaseGeneration{};
+        ReloadMode Mode{ReloadMode::ValidateOnly};
+        std::string ConfigurationJson;
     };
 
     struct RevokeCommand final
@@ -145,20 +205,43 @@ namespace Preview::Operations
     struct CancelCommand final
     {
         Preview::RequestId Correlation{};
+        Preview::ProcessId Process{};
+        Preview::GenerationId Generation{};
+        Preview::WorkerId Worker{};
         Preview::SessionId Session{};
         Preview::StreamId Stream{};
+        Preview::TaskId ParentTask{};
         Preview::TaskId Task{};
     };
 
-    struct DrainCommand final
+    /** @brief 完整标识父 Session 与 root task 下单一 mux child stream 的 reset 命令。 */
+    struct StreamResetCommand final
     {
         Preview::RequestId Correlation{};
+        Preview::ProcessId Process{};
+        Preview::GenerationId Generation{};
         Preview::WorkerId Worker{};
-        bool StopAccepting{true};
+        Preview::SessionId Session{};
+        Preview::StreamId Stream{};
+        Preview::TaskId ParentTask{};
+        Preview::TaskId Task{};
+    };
+
+    struct ProcessDrainCommand final
+    {
+        Preview::RequestId Correlation{};
         bool Force{false};
     };
 
-    using CommandValue = std::variant<ReloadCommand, RevokeCommand, CancelCommand, DrainCommand>;
+    struct WorkerDrainCommand final
+    {
+        Preview::RequestId Correlation{};
+        Preview::WorkerId Worker{};
+        bool Force{false};
+    };
+
+    using CommandValue = std::variant<ReloadCommand, RevokeCommand, CancelCommand, StreamResetCommand,
+                                      ProcessDrainCommand, WorkerDrainCommand>;
 
     struct Command final
     {
@@ -193,6 +276,10 @@ namespace Preview::Operations
         Rejected,
         Unavailable,
         Failed,
+        TimedOut,
+        Blocked,
+        RestartRequired,
+        Conflict,
         Invalid,
     };
 
@@ -201,13 +288,18 @@ namespace Preview::Operations
         Preview::RequestId Correlation{};
         CommandStatus Status{CommandStatus::Unavailable};
         OperationId Operation{};
+        Preview::ProcessId Process{};
         Preview::GenerationId Generation{};
         Preview::WorkerId Worker{};
         Preview::AccountId Account{};
         Preview::SessionId Session{};
         Preview::StreamId Stream{};
         Preview::TaskId Task{};
+        Preview::TaskId ParentTask{};
+        std::vector<ConfigurationIssue> ConfigurationIssues;
+        std::vector<std::string> RestartRequiredFields;
         std::string Message{};
+        Preview::Fault::Failure Failure{};
 
         [[nodiscard]] static auto Completed(const Preview::RequestId Correlation,
                                             const Preview::WorkerId Worker = {},
@@ -254,32 +346,153 @@ namespace Preview::Operations
             return Result;
         }
 
-        [[nodiscard]] static auto Failed(const Preview::RequestId Correlation) -> CommandResult
+        [[nodiscard]] static auto Failed(const Preview::RequestId Correlation,
+                                         const Preview::Fault::Failure Failure) -> CommandResult
         {
             auto Result = Completed(Correlation);
             Result.Status = CommandStatus::Failed;
             Result.Message = "handler_failed";
+            Result.Failure = Failure;
             return Result;
         }
+
+        [[nodiscard]] static auto TimedOut(const Preview::RequestId Correlation,
+                                           const Preview::Fault::Failure Failure) -> CommandResult
+        {
+            auto Result = Completed(Correlation);
+            Result.Status = CommandStatus::TimedOut;
+            Result.Message = "command_timeout";
+            Result.Failure = Failure;
+            return Result;
+        }
+
+        [[nodiscard]] static auto Blocked(const Preview::RequestId Correlation,
+                                          const Preview::Fault::Failure Failure) -> CommandResult
+        {
+            auto Result = Completed(Correlation);
+            Result.Status = CommandStatus::Blocked;
+            Result.Message = "command_blocked";
+            Result.Failure = Failure;
+            return Result;
+        }
+
+        [[nodiscard]] static auto RestartRequired(
+            const Preview::RequestId Correlation,
+            const Preview::GenerationId Generation) -> CommandResult
+        {
+            auto Result = Rejected(Correlation);
+            Result.Status = CommandStatus::RestartRequired;
+            Result.Generation = Generation;
+            Result.Message = "restart_required";
+            return Result;
+        }
+
+        /** @brief 读取基准已过期；返回真实当前代，未开始候选准备或发布。 */
+        [[nodiscard]] static auto Conflict(const Preview::RequestId Correlation,
+            const Preview::GenerationId Generation) -> CommandResult
+        {
+            auto Result = Completed(Correlation, {}, Generation);
+            Result.Status = CommandStatus::Conflict;
+            Result.Message = "generation_conflict";
+            return Result;
+        }
+
+        [[nodiscard]] static auto FromFailure(const Preview::RequestId Correlation,
+                                              const Preview::Fault::Failure Failure) -> CommandResult
+        {
+            if (Failure.Code == Preview::Fault::Code::Timeout)
+            {
+                return TimedOut(Correlation, Failure);
+            }
+            if (Failure.Code == Preview::Fault::Code::Blocked)
+            {
+                return Blocked(Correlation, Failure);
+            }
+            return Failed(Correlation, Failure);
+        }
+
+        [[nodiscard]] static auto HandlerFailed(const Preview::RequestId Correlation) -> CommandResult
+        {
+            return Failed(Correlation,
+                          Preview::Fault::Failure{Preview::Fault::Code::GenericError});
+        }
     };
+
+    /** @brief 按目标类型把身份字段写入唯一命令结果。 */
+    inline auto ApplyCommandTarget(CommandResult &Result, const ProcessTargetScope &Target) noexcept -> void
+    {
+        Result.Process = Target.Process;
+    }
+
+    inline auto ApplyCommandTarget(CommandResult &Result, const WorkerTargetScope &Target) noexcept -> void
+    {
+        Result.Process = Target.Process;
+        Result.Generation = Target.Generation;
+        Result.Worker = Target.Worker;
+    }
+
+    inline auto ApplyCommandTarget(CommandResult &Result, const AccountTargetScope &Target) noexcept -> void
+    {
+        Result.Generation = Target.Generation;
+        Result.Account = Target.Account;
+    }
+
+    inline auto ApplyCommandTarget(CommandResult &Result, const SessionTargetScope &Target) noexcept -> void
+    {
+        Result.Process = Target.Process;
+        Result.Generation = Target.Generation;
+        Result.Worker = Target.Worker;
+        Result.Session = Target.Session;
+    }
+
+    inline auto ApplyCommandTarget(CommandResult &Result, const StreamTargetScope &Target) noexcept -> void
+    {
+        Result.Process = Target.Process;
+        Result.Generation = Target.Generation;
+        Result.Worker = Target.Worker;
+        Result.Session = Target.Session;
+        Result.Stream = Target.Stream;
+        Result.ParentTask = Target.ParentTask;
+        Result.Task = Target.Task;
+    }
+
+    inline auto ApplyCommandTarget(CommandResult &Result, const TaskTargetScope &Target) noexcept -> void
+    {
+        Result.Process = Target.Process;
+        Result.Generation = Target.Generation;
+        Result.Worker = Target.Worker;
+        Result.Session = Target.Session;
+        Result.Stream = Target.Stream;
+        Result.ParentTask = Target.ParentTask;
+        Result.Task = Target.Task;
+    }
+
+    /** @brief 在 Accepted 与 terminal 中投影同一 typed operation target。 */
+    inline auto ApplyCommandTarget(CommandResult &Result, const CommandTargetScope &Scope) noexcept -> void
+    {
+        std::visit([&Result](const auto &Target) { ApplyCommandTarget(Result, Target); }, Scope);
+    }
 
     enum class QueryStatus : std::uint8_t
     {
         Ok,
         Unavailable,
+        NotFound,
         Failed,
         Invalid,
     };
 
     using QueryPayload = std::variant<std::monostate,
                                       HealthSnapshot,
+                                      MetricsSnapshot,
                                       GenerationSnapshot,
+                                      ConfigurationSnapshot,
                                       Page<WorkerSnapshot>,
                                       Page<AccountSnapshot>,
                                       Page<SessionSnapshot>,
                                       Page<StreamSnapshot>,
                                       Page<TaskSnapshot>,
-                                      Page<EventSnapshot>>;
+                                      Preview::Statistics::EventPage>;
 
     struct QueryResult final
     {
@@ -287,6 +500,7 @@ namespace Preview::Operations
         QueryStatus Status{QueryStatus::Unavailable};
         QueryPayload Value{};
         std::string Message{};
+        Preview::Fault::Failure Failure{};
 
         [[nodiscard]] static auto Unavailable(const Preview::RequestId Correlation) -> QueryResult
         {
@@ -294,9 +508,24 @@ namespace Preview::Operations
                                "handler_unavailable"};
         }
 
-        [[nodiscard]] static auto Failed(const Preview::RequestId Correlation) -> QueryResult
+        [[nodiscard]] static auto NotFound(const Preview::RequestId Correlation) -> QueryResult
         {
-            return QueryResult{Correlation, QueryStatus::Failed, std::monostate{}, "handler_failed"};
+            return QueryResult{Correlation, QueryStatus::NotFound, std::monostate{},
+                "stream_not_found"};
+        }
+
+        [[nodiscard]] static auto Invalid(const Preview::RequestId Correlation) -> QueryResult
+        {
+            return QueryResult{Correlation, QueryStatus::Invalid, std::monostate{},
+                "invalid_query"};
+        }
+
+        [[nodiscard]] static auto Failed(
+            const Preview::RequestId Correlation,
+            Preview::Fault::Failure Failure) -> QueryResult
+        {
+            return QueryResult{
+                Correlation, QueryStatus::Failed, std::monostate{}, "handler_failed", Failure};
         }
 
         [[nodiscard]] static auto Sessions(const Preview::RequestId Correlation,
@@ -311,8 +540,21 @@ namespace Preview::Operations
             return QueryResult{Correlation, QueryStatus::Ok, std::move(Value), {}};
         }
 
+        [[nodiscard]] static auto Metrics(const Preview::RequestId Correlation,
+                                          MetricsSnapshot Value) -> QueryResult
+        {
+            return QueryResult{Correlation, QueryStatus::Ok, std::move(Value), {}};
+        }
+
         [[nodiscard]] static auto Generation(const Preview::RequestId Correlation,
                                              GenerationSnapshot Value) -> QueryResult
+        {
+            return QueryResult{Correlation, QueryStatus::Ok, std::move(Value), {}};
+        }
+
+        [[nodiscard]] static auto Configuration(
+            const Preview::RequestId Correlation,
+            ConfigurationSnapshot Value) -> QueryResult
         {
             return QueryResult{Correlation, QueryStatus::Ok, std::move(Value), {}};
         }
@@ -342,7 +584,7 @@ namespace Preview::Operations
         }
 
         [[nodiscard]] static auto Events(const Preview::RequestId Correlation,
-                                         Page<EventSnapshot> Value) -> QueryResult
+                                         Preview::Statistics::EventPage Value) -> QueryResult
         {
             return QueryResult{Correlation, QueryStatus::Ok, std::move(Value), {}};
         }

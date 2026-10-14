@@ -2,8 +2,9 @@
  * @file Fallback.hpp
  * @brief DNS 上游结果与 Fallback 查询策略细节
  * @details 提供结果校验、失败包装、Fastest 选择和 Fallback 顺序策略。
- *          查询/超时行为通过模板回调注入，保持调用边界静态分发，避免
- *          在 DNS 查询路径引入 std::function 或额外类型擦除。
+ *          查询行为通过模板回调注入，保持调用边界静态分发，避免在 DNS
+ *          查询路径引入 std::function 或额外类型擦除；单次尝试的绝对
+ *          deadline 由 QueryExecutor 内部竞速，Fallback 不再叠加超时层。
  */
 
 #pragma once
@@ -17,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-#include <Preview/Foundation/Error.hpp>
+#include <Preview/Net/Dns/Detail/ResolverFailure.hpp>
 #include <Preview/Net/Dns/Answer.hpp>
 #include <Preview/Net/Dns/Types.hpp>
 
@@ -26,17 +27,16 @@ namespace Preview::Network::Dns::Detail
 
     /**
      * @brief 构造已校验的 DNS 查询结果
-     * @param scan 应答扫描结果
+     * @param Scan 按值接管的校验应答；地址与摘要共用同一实际结果
      * @param addr 上游地址
      * @param start 查询开始时间
      * @return 规范化查询结果
      */
-    [[nodiscard]] inline auto BuildCheckedResult(const AnswerSet &Scan, const std::string &Address,
+    [[nodiscard]] inline auto BuildCheckedResult(AnswerSet Scan, const std::string &Address,
                                                   std::chrono::steady_clock::time_point Start)
         -> QueryResult
     {
         QueryResult Result;
-        Result.Response = Scan;
         Result.ServerAddr = Address;
         Result.RttMs = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -44,10 +44,10 @@ namespace Preview::Network::Dns::Detail
                 .count());
         if (Scan.Rcode != 0 && Scan.Rcode != 3)
         {
-            Result.Error = make_error_code(Error::ProtocolError);
+            Result.Error = Preview::Fault::Failure{Preview::Fault::Code::ProtocolError, {}};
             return Result;
         }
-        Result.Ips.assign(Scan.Ips.begin(), Scan.Ips.end());
+        Result.Response = std::move(Scan);
         return Result;
     }
 
@@ -63,39 +63,46 @@ namespace Preview::Network::Dns::Detail
     {
         QueryResult Result;
         Result.ServerAddr = Address;
-        Result.Error = ErrorCode;
+        Result.Error = ResolverFailureFromBoost(ErrorCode);
         return Result;
     }
 
     /**
-     * @brief 顺序尝试全部上游
-     * @tparam QueryFn 单服务器查询回调
-     * @tparam TimeoutFn 查询超时包装回调
-     * @param Servers 上游服务器列表
-     * @param query 查询消息
-     * @param qtNum 查询类型数值
-     * @param queryFn 单服务器查询回调
-     * @param timeoutFn 超时包装回调
-     * @return 首个成功结果；全部失败返回最后一个结果
+     * @brief 一次顺序 Fallback 查询的值请求。
+     * @details Servers、Query 和回调随异步请求按值存活；不借用临时 wire buffer。
      */
-    template <typename QueryMessage, typename QueryFn, typename TimeoutFn>
-    [[nodiscard]] inline auto ResolveFallback(const std::vector<Server> &Servers,
-                                              const QueryMessage &query, const std::uint16_t qtNum,
-                                              QueryFn queryFn, TimeoutFn timeoutFn)
+    template <typename QueryMessage, typename QueryFn>
+    struct FallbackRequest final
+    {
+        std::vector<Server> Servers;
+        QueryMessage Query;
+        QueryFn QueryFunction;
+    };
+
+    /**
+     * @brief 顺序尝试全部上游。
+     * @tparam QueryMessage 查询消息值类型。
+     * @tparam QueryFn 单服务器查询回调。
+     * @param Request 按值拥有的上游快照、查询消息与查询回调。
+     * @return 首个成功结果；全部失败返回最后一个结果。
+     * @details 不引入 std::function、动态注册或第二套 DNS 结果事实。
+     */
+    template <typename QueryMessage, typename QueryFn>
+    [[nodiscard]] inline auto ResolveFallback(FallbackRequest<QueryMessage, QueryFn> Request)
         -> boost::asio::awaitable<QueryResult>
     {
         QueryResult Last;
-        for (const auto &ServerConfig : Servers)
+        for (const auto &ServerConfig : Request.Servers)
         {
-            Last = co_await timeoutFn(queryFn(ServerConfig, query, qtNum), ServerConfig);
-            if (!Last.Error && (!Last.Ips.empty() || Last.Response.Rcode == 3))
+            Last = co_await Request.QueryFunction(ServerConfig, Request.Query);
+        if (Last.Error.Succeeded() && (!Last.Response.Ips.Empty() || Last.Response.Rcode == 3))
             {
                 co_return Last;
             }
         }
-        if (!Last.Error)
+        if (Last.Error.Succeeded())
         {
-            Last.Error = make_error_code(Error::BadAddress);
+            Last.Error = Preview::Fault::Failure{Preview::Fault::Code::DnsFailed, {}};
         }
         co_return Last;
     }
@@ -110,7 +117,8 @@ namespace Preview::Network::Dns::Detail
         QueryResult *Best = nullptr;
         for (auto &Result : Results)
         {
-            if (!Result.Error && !Result.Ips.empty() && (!Best || Result.RttMs < Best->RttMs))
+            if (Result.Error.Succeeded() && !Result.Response.Ips.Empty() &&
+                (!Best || Result.RttMs < Best->RttMs))
             {
                 Best = &Result;
             }
@@ -124,7 +132,7 @@ namespace Preview::Network::Dns::Detail
             return std::move(Results.front());
         }
         QueryResult FailedResult;
-        FailedResult.Error = make_error_code(Error::BadAddress);
+        FailedResult.Error = Preview::Fault::Failure{Preview::Fault::Code::DnsFailed, {}};
         return FailedResult;
     }
 

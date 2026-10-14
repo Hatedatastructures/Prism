@@ -1,112 +1,57 @@
-# 故障排除
+# Preview 故障排查
 
-本文档提供 Prism 常见问题的排查方法和解决方案。
+先记录源码 revision/工作树、配置路径和 hash、`PrismPreview` binary hash、启动时间和原始错误。字段合同见[配置说明](configuration.md)，当前已验证与未完成责任见[执行状态](../preview-refactor/2026-10-03-preview-no-compat-status.md)。
 
-## 常见问题速查
+## 启动失败
 
-### Q1：程序启动失败
+在终端运行 `build/src/PrismPreview.exe` 或给出配置路径位置参数，查看 stderr 的 `code/path/message`。按 Path 定位：
 
-**排查步骤**：
+| 错误位置或现象 | 先检查 |
+| --- | --- |
+| 配置文件打开失败 | 默认 executable 同目录是否有 PreviewConfiguration.json；位置参数和工作目录 |
+| UnknownField / MissingField / InvalidType | 严格 PascalCase、14 个必填根字段、JSON 值类型；旧版 agent/pool 字段不适用 |
+| Accounts / SecretRef / Generation | 凭据格式、secret reference 与环境变量是否存在；UUID、16-byte PSK 合同 |
+| NativeTls | 相对配置目录的证书/私钥路径、文件读取权限、PEM 格式和匹配关系 |
+| Listeners / Bind | 地址是否属于本机、端口范围及占用、UDP/QUIC 是否共享入口 |
+| Routes | 当前非空 `Routes` 会被 `ConfigurationStartup` 以 `UnsupportedService` 拒绝；保留为空，直到 startup 接线完成 |
+| Logging | 日志目录可写、FileName 是纯文件名、Level 与 RenderMode 名称 |
+| 程序尚未输出业务错误就无法加载 | 实际 MinGW/C++ runtime DLL 与 PATH，而非假定全部静态链接 |
 
-1. **检查运行环境**：确认使用 MinGW 编译环境（程序静态链接，无外部依赖）
-2. **查看日志**：检查配置中 `trace.path_name` 指定的日志目录
-3. **端口占用**：修改配置中的端口号
-
-**解决方案**：
+只读检查端口和进程，核对 PID 后再决定操作：
 
 ```powershell
-# 检查端口占用
-netstat -ano | findstr :8081
+Get-NetTCPConnection -State Listen -LocalPort 1080 -ErrorAction SilentlyContinue
+Get-Process -Name PrismPreview -ErrorAction SilentlyContinue
+Get-FileHash -Algorithm SHA256 '.\build\src\PrismPreview.exe'
+Get-FileHash -Algorithm SHA256 '.\build\src\PreviewConfiguration.json'
 ```
 
-### Q2：无法连接代理
+端口可能属于用户的其他服务，不能只按名称杀进程或删除 `build/tests` 来排查。
 
-**排查步骤**：
+## 已 READY 但请求失败
 
-1. **确认服务运行**：`tasklist | findstr Prism.exe`
-2. **检查防火墙**：允许代理端口通过
-3. **测试连接**：`telnet 127.0.0.1 8081`
+核对 READY 中实际端口、客户端代理类型、凭据和目标。默认是 SOCKS5，使用 `socks5h://` 时域名解析发生在代理侧。正确密码与错误密码分别发请求；记录认证结果、后端是否实际 dial、literal payload/response、字节数和关闭结果。
 
-**解决方案**：
+TLS 场景同时检查协议 binding、carrier、SNI/ALPN、证书和 secret。DNS 场景检查目标域名、当前 Dns.Servers、Timeout 与服务器可达性。TCP listener 可连只说明接入成功，UDP/QUIC 则需要实际数据报/握手证据。
 
-- Windows 防火墙：控制面板 → 系统和安全 → Windows 防火墙 → 允许应用通过防火墙
-- Linux 防火墙：`sudo ufw allow 8081/tcp`
+## 日志与观察
 
-### Q3：速度慢
+临时将 `Logging.Level` 设置为 `Debug`、`Console` 设置为 true；每次修改后重启实际使用这份配置的进程。日志相对目录按进程工作目录解释，结构化输出需要 `RenderMode: Structured`。完整模块说明见 [Diagnose 指南](../../Preview/Foundation/Utility/Diagnose/README.md)。
 
-**排查步骤**：
+普通日志是有界非阻塞观察，可因竞争或队列容量被丢弃。日志行缺席需与提交/丢弃指标、请求结果一起判断；输出失败不得进入业务错误处理路径。
 
-1. **调整连接池**：减少空闲时间，增加缓存数量
-2. **检查网络**：测试直连速度
-3. **系统优化**：调整 TCP 参数
+## 卡住、连接断开或速度下降
 
-**解决方案**：
+先定位发生阶段：识别/认证、dial、读写、半关闭、child admission、root cancel 或 drain。保留 typed error、线程/任务身份和原始输出，使用有界测试复现。旧版 `pool.max_cache_per_endpoint`、`multiplex.*` 调优片段不属于当前 Preview JSON，不能靠加入未知字段修复。
 
-```json
-{
-  "pool": {
-    "max_cache_per_endpoint": 64,
-    "max_idle_seconds": 30
-  }
-}
+比较同源码、配置、payload、并发与目标条件下的直连/代理结果。单次吞吐、Perf label 或 overload 丢弃不足以说明改善；分配、p50/p95/p99、CPU 和内存须按当前性能卡测量。
+
+## 停机与测试定位
+
+前台用 Ctrl+C 请求停止，等待自然退出，再查对应端口和 PID。若有 cancel/drain 错误，保存错误并与强杀清理分别记录。测试只使用已经构建的 binary；先查看当前真实 suite：
+
+```powershell
+ctest --test-dir build -N -R '^(ConfiguredMuxSession|ProviderAcceptPath|BindingLifetime)\.'
 ```
 
-### Q4：证书问题
-
-**排查步骤**：
-
-1. **生成证书**：使用 OpenSSL 生成有效证书
-2. **检查路径**：确保证书文件存在且有读取权限
-3. **格式验证**：确保证书为 PEM 格式
-
-**生成自签名证书**：
-
-```bash
-openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
-```
-
----
-
-## 日志分析技巧
-
-### 按级别过滤
-
-重点关注 `error` 和 `warn` 级别日志。
-
-### 按时间搜索
-
-查找特定时间段的日志，定位问题发生时刻。
-
-### 关键词搜索
-
-搜索特定 IP、域名或错误代码。
-
-### 模式识别
-
-寻找重复出现的错误模式，识别系统性问题。
-
----
-
-## 调试模式
-
-启用详细日志：
-
-```json
-{
-  "trace": {
-    "log_level": "debug",
-    "enable_console": true
-  }
-}
-```
-
-### 日志级别说明
-
-| 级别 | 说明 |
-|------|------|
-| `trace` | 最详细，记录所有操作 |
-| `debug` | 调试信息，开发阶段使用 |
-| `info` | 常规信息，生产环境推荐 |
-| `warn` | 警告信息，需要关注 |
-| `error` | 错误信息，需要处理 |
-| `critical` | 严重错误，需要立即处理 |
+不能把一个模块的旧绿灯或 factory 通过当作当前 listener 和完整重构通过。发现生产缺陷时同步问题台账 `logs/issues.md`，保留失败输入和版本，再按同一场景验证修复。

@@ -1,29 +1,56 @@
 /**
  * @file Types.hpp
- * @brief Native 伪装方案类型定义
- * @details Native 是原生 TLS 兜底方案：服务端完成 TLS 握手后
- *          直通（传输透明，无内层协议伪装）。配置为空结构，
- *          仅作为方案占位与聚合头入口。
+ * @brief Native TLS façade 的 owning 输入与稳定结果类型。
  */
-
 #pragma once
+
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Foundation/Memory/BytePool.hpp>
+#include <Preview/Transport/Transmission.hpp>
+
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/ssl/context.hpp>
+
+#include <expected>
+#include <functional>
+#include <memory>
+#include <string>
 
 namespace Preview::Native
 {
+    namespace Net = boost::asio;
 
     /**
-     * @struct Config
-     * @brief Native 方案配置
-     * @details 当前无配置项（TLS 证书由调用方 SSL 上下文提供）。
-     * @note Enabled() 始终返回 true；Native 是否挂载由调用方决定。
+     * @brief 服务端 Native TLS 的 owning transport 与已协商元数据。
+     * @details SNI 与 ECH 接受位来自握手完成后的 BoringSSL SSL 对象；成功接受 ECH 时，
+     *          SNI 为解密后的 inner 值，未接受或 GREASE 时保留外层值。
      */
-    struct Config
+    struct NegotiatedTlsSession final
     {
-        /// 方案是否启用（Native 始终可用，由调用方决定是否挂载）
-        [[nodiscard]] auto Enabled() const noexcept -> bool
-        {
-            return true;
-        }
+        SharedTransmission Transport;
+        std::string ServerName;
+        std::string Alpn;
+        std::string TlsVersion;
+        bool EchAccepted{false};
     };
 
-} // namespace Preview::Native
+    using AcceptResult = std::expected<NegotiatedTlsSession, Preview::Fault::Failure>;
+    using ConnectResult = std::expected<SharedTransmission, Preview::Fault::Failure>;
+
+    /** @brief Native 服务端 TLS 握手的 owning 冷路径输入。 */
+    struct AcceptRequest final
+    {
+        SharedTransmission Raw;
+        std::reference_wrapper<Net::ssl::context> SslContext;
+        std::shared_ptr<Preview::Memory::BytePool> Bytes;
+    };
+
+    /** @brief Native 客户端 TLS 握手的 owning 冷路径输入。 */
+    struct ConnectRequest final
+    {
+        SharedTransmission Raw;
+        std::reference_wrapper<Net::ssl::context> SslContext;
+        std::string ServerName;
+        std::shared_ptr<Preview::Memory::BytePool> Bytes;
+    };
+}

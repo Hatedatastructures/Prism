@@ -4,11 +4,11 @@
  */
 #pragma once
 
+#include <Preview/Foundation/Identifier/Id.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
-
-#include <Preview/Foundation/Identifier/Id.hpp>
 
 namespace Preview::Diagnose
 {
@@ -83,25 +83,44 @@ namespace Preview::Diagnose
     {
         switch (Id)
         {
-        case FieldId::Worker: return "Worker";
-        case FieldId::Session: return "Session";
-        case FieldId::Correlation: return "Correlation";
-        case FieldId::Process: return "Process";
-        case FieldId::Generation: return "Generation";
-        case FieldId::Task: return "Task";
-        case FieldId::Operation: return "Operation";
-        case FieldId::Protocol: return "Protocol";
-        case FieldId::Route: return "Route";
-        case FieldId::Stream: return "Stream";
-        case FieldId::Carrier: return "Carrier";
-        case FieldId::Sni: return "Sni";
-        case FieldId::Alpn: return "Alpn";
-        case FieldId::TlsVersion: return "TlsVersion";
-        case FieldId::Stage: return "Stage";
-        case FieldId::Status: return "Status";
-        case FieldId::FaultCode: return "FaultCode";
-        case FieldId::NativeError: return "NativeError";
-        case FieldId::ElapsedMs: return "ElapsedMs";
+        case FieldId::Worker:
+            return "Worker";
+        case FieldId::Session:
+            return "Session";
+        case FieldId::Correlation:
+            return "Correlation";
+        case FieldId::Process:
+            return "Process";
+        case FieldId::Generation:
+            return "Generation";
+        case FieldId::Task:
+            return "Task";
+        case FieldId::Operation:
+            return "Operation";
+        case FieldId::Protocol:
+            return "Protocol";
+        case FieldId::Route:
+            return "Route";
+        case FieldId::Stream:
+            return "Stream";
+        case FieldId::Carrier:
+            return "Carrier";
+        case FieldId::Sni:
+            return "Sni";
+        case FieldId::Alpn:
+            return "Alpn";
+        case FieldId::TlsVersion:
+            return "TlsVersion";
+        case FieldId::Stage:
+            return "Stage";
+        case FieldId::Status:
+            return "Status";
+        case FieldId::FaultCode:
+            return "FaultCode";
+        case FieldId::NativeError:
+            return "NativeError";
+        case FieldId::ElapsedMs:
+            return "ElapsedMs";
         }
         return {};
     }
@@ -109,7 +128,8 @@ namespace Preview::Diagnose
     /**
      * @brief 描述一个字段的编译期元数据。
      * @details 这些属性供类型化上下文、字段编解码和运行时字段目录共同使用。
-     * 通过字段编解码接口写入时，文本值须可转换为 std::string_view；其他类别要求值类型与 Value 完全匹配。
+     * 通过字段编解码接口写入时，文本值须属于正式无分配 Text::ViewInput 类型；
+     * 不接收任意用户转换，领域类型先显式取得稳定 View。其他类别要求值类型与 Value 完全匹配。
      * @tparam IdValue 字段在日志记录中的稳定 ID。
      * @tparam Value 字段的声明值类型，也是非文本字段要求的精确类型。
      * @tparam KindValue 字段的编码类别，决定快照保存数值、布尔值还是文本。
@@ -119,8 +139,8 @@ namespace Preview::Diagnose
      * @tparam ContextIdentityValue 是否将该字段作为上下文身份的一部分处理。
      */
     template <FieldId IdValue, typename Value, FieldValueKind KindValue,
-              FieldVisibility VisibilityValue = FieldVisibility::StructuredOnly,
-              std::size_t MaxLengthValue = 0U, bool SensitiveValue = false, bool ContextIdentityValue = false>
+        FieldVisibility VisibilityValue = FieldVisibility::StructuredOnly, std::size_t MaxLengthValue = 0U,
+        bool SensitiveValue = false, bool ContextIdentityValue = false>
     struct FieldDefinition final
     {
         using ValueType = Value;
@@ -155,10 +175,9 @@ namespace Preview::Diagnose
     namespace Fields
     {
         using WorkerDefinition = FieldDefinition<FieldId::Worker, Preview::WorkerId, FieldValueKind::Unsigned,
-                                                 FieldVisibility::HumanVisible, 0U, false, true>;
-        using SessionDefinition =
-            FieldDefinition<FieldId::Session, Preview::SessionId, FieldValueKind::Unsigned,
-                            FieldVisibility::HumanVisible, 0U, false, true>;
+            FieldVisibility::HumanVisible, 0U, false, true>;
+        using SessionDefinition = FieldDefinition<FieldId::Session, Preview::SessionId,
+            FieldValueKind::Unsigned, FieldVisibility::HumanVisible, 0U, false, true>;
         using CorrelationDefinition =
             FieldDefinition<FieldId::Correlation, Preview::RequestId, FieldValueKind::Unsigned>;
         using ProcessDefinition =
@@ -168,33 +187,28 @@ namespace Preview::Diagnose
         using TaskDefinition = FieldDefinition<FieldId::Task, Preview::TaskId, FieldValueKind::Unsigned>;
         using OperationDefinition =
             FieldDefinition<FieldId::Operation, Preview::OperationId, FieldValueKind::Unsigned>;
-        using ProtocolDefinition =
-            FieldDefinition<FieldId::Protocol, std::string_view, FieldValueKind::ShortText,
-                            FieldVisibility::StructuredOnly, 64U>;
+        using ProtocolDefinition = FieldDefinition<FieldId::Protocol, std::string_view,
+            FieldValueKind::ShortText, FieldVisibility::StructuredOnly, 64U>;
         using RouteDefinition = FieldDefinition<FieldId::Route, std::string_view, FieldValueKind::ShortText,
-                                                FieldVisibility::StructuredOnly, 64U>;
+            FieldVisibility::StructuredOnly, 64U>;
         using StreamDefinition =
             FieldDefinition<FieldId::Stream, Preview::StreamId, FieldValueKind::Unsigned>;
-        using CarrierDefinition =
-            FieldDefinition<FieldId::Carrier, std::string_view, FieldValueKind::ShortText,
-                            FieldVisibility::HumanVisible, 64U>;
+        using CarrierDefinition = FieldDefinition<FieldId::Carrier, std::string_view,
+            FieldValueKind::ShortText, FieldVisibility::HumanVisible, 64U>;
         using SniDefinition = FieldDefinition<FieldId::Sni, std::string_view, FieldValueKind::ShortText,
-                                              FieldVisibility::HumanVisible, 64U>;
+            FieldVisibility::HumanVisible, 64U>;
         using AlpnDefinition = FieldDefinition<FieldId::Alpn, std::string_view, FieldValueKind::ShortText,
-                                               FieldVisibility::StructuredOnly, 64U>;
-        using TlsVersionDefinition =
-            FieldDefinition<FieldId::TlsVersion, std::string_view, FieldValueKind::ShortText,
-                            FieldVisibility::HumanVisible, 64U>;
+            FieldVisibility::StructuredOnly, 64U>;
+        using TlsVersionDefinition = FieldDefinition<FieldId::TlsVersion, std::string_view,
+            FieldValueKind::ShortText, FieldVisibility::HumanVisible, 64U>;
         using StageDefinition = FieldDefinition<FieldId::Stage, std::string_view, FieldValueKind::ShortText,
-                                                FieldVisibility::StructuredOnly, 64U>;
+            FieldVisibility::StructuredOnly, 64U>;
         using StatusDefinition = FieldDefinition<FieldId::Status, std::string_view, FieldValueKind::ShortText,
-                                                 FieldVisibility::StructuredOnly, 64U>;
-        using FaultCodeDefinition =
-            FieldDefinition<FieldId::FaultCode, std::string_view, FieldValueKind::ShortText,
-                            FieldVisibility::StructuredOnly, 64U>;
-        using NativeErrorDefinition =
-            FieldDefinition<FieldId::NativeError, std::string_view, FieldValueKind::BoundedText,
-                            FieldVisibility::StructuredOnly, 256U, true>;
+            FieldVisibility::StructuredOnly, 64U>;
+        using FaultCodeDefinition = FieldDefinition<FieldId::FaultCode, std::string_view,
+            FieldValueKind::ShortText, FieldVisibility::StructuredOnly, 64U>;
+        using NativeErrorDefinition = FieldDefinition<FieldId::NativeError, std::string_view,
+            FieldValueKind::BoundedText, FieldVisibility::StructuredOnly, 256U, true>;
         using ElapsedMsDefinition =
             FieldDefinition<FieldId::ElapsedMs, std::uint64_t, FieldValueKind::Unsigned>;
 

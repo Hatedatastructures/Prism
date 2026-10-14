@@ -29,12 +29,18 @@ namespace Preview::Shadowsocks2022
         inline constexpr std::size_t AesKeyLen = 16;
         inline constexpr std::size_t AesNonceLen = 12;
 
-        [[nodiscard]] inline auto ValidAeadInput(std::span<const std::uint8_t> Key,
-                                                 std::span<const std::uint8_t> Nonce,
-                                                 std::span<const std::uint8_t> Data) noexcept -> bool
+        struct AeadInput final
+        {
+            std::span<const std::uint8_t> Key;
+            std::span<const std::uint8_t> Nonce;
+            std::span<const std::uint8_t> Data;
+        };
+
+        [[nodiscard]] inline auto ValidAeadInput(const AeadInput &Input) noexcept -> bool
         {
             constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
-            return Key.size() == AesKeyLen && Nonce.size() == AesNonceLen && Data.size() <= MaxInt;
+            return Input.Key.size() == AesKeyLen && Input.Nonce.size() == AesNonceLen &&
+                   Input.Data.size() <= MaxInt;
         }
 
         /**
@@ -55,25 +61,21 @@ namespace Preview::Shadowsocks2022
 
         /**
          * @brief AEAD 加密并写入新缓冲
-         * @param Key 密钥
-         * @param Nonce Nonce
-         * @param Plain 明文
+         * @param Input 密钥、Nonce 和明文；三者只借用至同步返回
          * @param Out 输出缓冲
          * @return 输出字节数，失败返回 0
          */
         template <typename Alloc>
-        [[nodiscard]] inline auto AeadSeal(std::span<const std::uint8_t> Key,
-                                           std::span<const std::uint8_t> Nonce,
-                                           std::span<const std::uint8_t> Plain,
-                                           std::vector<std::uint8_t, Alloc> &Out) -> std::size_t
+        [[nodiscard]] inline auto AeadSeal(
+            const AeadInput Input, std::vector<std::uint8_t, Alloc> &Out) -> std::size_t
         {
             Out.clear();
-            if (!ValidAeadInput(Key, Nonce, Plain) ||
-                Plain.size() > (std::numeric_limits<std::size_t>::max)() - AeadTagLen)
+            if (!ValidAeadInput(Input) ||
+                Input.Data.size() > (std::numeric_limits<std::size_t>::max)() - AeadTagLen)
             {
                 return 0;
             }
-            Out.resize(Plain.size() + AeadTagLen);
+            Out.resize(Input.Data.size() + AeadTagLen);
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
             {
@@ -81,11 +83,12 @@ namespace Preview::Shadowsocks2022
                 return 0;
             }
             int Len = 0;
-            bool Ok = EVP_EncryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            bool Ok = EVP_EncryptInit_ex(
+                          Ctx, EVP_aes_128_gcm(), nullptr, Input.Key.data(), Input.Nonce.data()) == 1;
             if (Ok)
             {
-                Ok = EVP_EncryptUpdate(Ctx, Out.data(), &Len, Plain.data(),
-                                       static_cast<int>(Plain.size())) == 1;
+                Ok = EVP_EncryptUpdate(Ctx, Out.data(), &Len, Input.Data.data(),
+                                       static_cast<int>(Input.Data.size())) == 1;
             }
             int OutLen = 0;
             if (Ok)
@@ -101,7 +104,7 @@ namespace Preview::Shadowsocks2022
             {
                 Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + OutLen) == 1;
             }
-            if (!Ok || OutLen != static_cast<int>(Plain.size()))
+            if (!Ok || OutLen != static_cast<int>(Input.Data.size()))
             {
                 EVP_CIPHER_CTX_free(Ctx);
                 Out.clear();
@@ -114,28 +117,24 @@ namespace Preview::Shadowsocks2022
 
         /**
          * @brief AEAD 加密到已有缓冲的偏移处
-         * @param Key 密钥
-         * @param Nonce Nonce
-         * @param Plain 明文
+         * @param Input 密钥、Nonce 和明文；三者只借用至同步返回
          * @param Out 输出缓冲
          * @param Offset 写入偏移
          * @return 写入字节数，失败返回 0
          */
         template <typename Alloc>
-        [[nodiscard]] inline auto AeadSeal(std::span<const std::uint8_t> Key,
-                                           std::span<const std::uint8_t> Nonce,
-                                           std::span<const std::uint8_t> Plain,
-                                           std::vector<std::uint8_t, Alloc> &Out,
-                                           const std::size_t Offset) -> std::size_t
+        [[nodiscard]] inline auto AeadSeal(
+            const AeadInput Input, std::vector<std::uint8_t, Alloc> &Out,
+            const std::size_t Offset) -> std::size_t
         {
-            if (!ValidAeadInput(Key, Nonce, Plain) || Offset > (std::numeric_limits<std::size_t>::max)() -
-                                                           Plain.size() - AeadTagLen)
+            if (!ValidAeadInput(Input) || Offset > (std::numeric_limits<std::size_t>::max)() -
+                                             Input.Data.size() - AeadTagLen)
             {
                 return 0;
             }
-            if (Out.size() < Offset + Plain.size() + AeadTagLen)
+            if (Out.size() < Offset + Input.Data.size() + AeadTagLen)
             {
-                Out.resize(Offset + Plain.size() + AeadTagLen);
+                Out.resize(Offset + Input.Data.size() + AeadTagLen);
             }
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
@@ -144,11 +143,12 @@ namespace Preview::Shadowsocks2022
                 return 0;
             }
             int Len = 0;
-            bool Ok = EVP_EncryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            bool Ok = EVP_EncryptInit_ex(
+                          Ctx, EVP_aes_128_gcm(), nullptr, Input.Key.data(), Input.Nonce.data()) == 1;
             if (Ok)
             {
-                Ok = EVP_EncryptUpdate(Ctx, Out.data() + Offset, &Len, Plain.data(),
-                                       static_cast<int>(Plain.size())) == 1;
+                Ok = EVP_EncryptUpdate(Ctx, Out.data() + Offset, &Len, Input.Data.data(),
+                                       static_cast<int>(Input.Data.size())) == 1;
             }
             int OutLen = 0;
             if (Ok)
@@ -165,7 +165,7 @@ namespace Preview::Shadowsocks2022
                 Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_GET_TAG, 16,
                                          Out.data() + Offset + OutLen) == 1;
             }
-            if (!Ok || OutLen != static_cast<int>(Plain.size()))
+            if (!Ok || OutLen != static_cast<int>(Input.Data.size()))
             {
                 EVP_CIPHER_CTX_free(Ctx);
                 Out.resize(Offset);
@@ -178,35 +178,31 @@ namespace Preview::Shadowsocks2022
         /**
          * @brief AEAD 加密并返回独立缓冲
          */
-        [[nodiscard]] inline auto AeadSeal(std::span<const std::uint8_t> Key,
-                                           std::span<const std::uint8_t> Nonce,
-                                           std::span<const std::uint8_t> Plain)
+        [[nodiscard]] inline auto AeadSeal(const AeadInput Input)
             -> std::vector<std::uint8_t>
         {
             std::vector<std::uint8_t> Out;
-            (void)AeadSeal(Key, Nonce, Plain, Out);
+            (void)AeadSeal(Input, Out);
             return Out;
         }
 
         /**
          * @brief AEAD 解密并返回独立缓冲
-         * @param Key 密钥
-         * @param Nonce Nonce
-         * @param Cipher 密文（含 tag）
+         * @param Input 密钥、Nonce 和含 tag 的密文；输入只借用至同步返回
          * @return 明文；认证失败返回空
          */
-        [[nodiscard]] inline auto AeadOpen(std::span<const std::uint8_t> Key,
-                                           std::span<const std::uint8_t> Nonce,
-                                           std::span<const std::uint8_t> Cipher)
+        [[nodiscard]] inline auto AeadOpen(const AeadInput Input)
             -> std::vector<std::uint8_t>
         {
-            if (Cipher.size() < AeadTagLen ||
-                !ValidAeadInput(Key, Nonce,
-                                std::span<const std::uint8_t>(Cipher).subspan(0, Cipher.size() - AeadTagLen)))
+            if (Input.Data.size() < AeadTagLen ||
+                !ValidAeadInput(AeadInput{
+                    Input.Key, Input.Nonce,
+                    std::span<const std::uint8_t>(Input.Data).subspan(
+                        0, Input.Data.size() - AeadTagLen)}))
             {
                 return {};
             }
-            const auto CipherLen = Cipher.size() - AeadTagLen;
+            const auto CipherLen = Input.Data.size() - AeadTagLen;
             std::vector<std::uint8_t> Out(CipherLen);
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
@@ -214,10 +210,12 @@ namespace Preview::Shadowsocks2022
                 return {};
             }
             int Len = 0;
-            bool Ok = EVP_DecryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            bool Ok = EVP_DecryptInit_ex(
+                          Ctx, EVP_aes_128_gcm(), nullptr, Input.Key.data(), Input.Nonce.data()) == 1;
             if (Ok && CipherLen > 0)
             {
-                Ok = EVP_DecryptUpdate(Ctx, Out.data(), &Len, Cipher.data(), static_cast<int>(CipherLen)) == 1;
+                Ok = EVP_DecryptUpdate(
+                         Ctx, Out.data(), &Len, Input.Data.data(), static_cast<int>(CipherLen)) == 1;
             }
             int OutLen = 0;
             if (CipherLen > 0)
@@ -227,7 +225,7 @@ namespace Preview::Shadowsocks2022
             if (Ok)
             {
                 Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
-                                         const_cast<std::uint8_t *>(Cipher.data()) + CipherLen) == 1;
+                                         const_cast<std::uint8_t *>(Input.Data.data()) + CipherLen) == 1;
             }
             if (Ok)
             {
@@ -247,19 +245,19 @@ namespace Preview::Shadowsocks2022
          * @brief AEAD 解密到调用方复用缓冲
          */
         template <typename Alloc>
-        [[nodiscard]] inline auto AeadOpen(std::span<const std::uint8_t> Key,
-                                           std::span<const std::uint8_t> Nonce,
-                                           std::span<const std::uint8_t> Cipher,
-                                           std::vector<std::uint8_t, Alloc> &Out) -> bool
+        [[nodiscard]] inline auto AeadOpen(
+            const AeadInput Input, std::vector<std::uint8_t, Alloc> &Out) -> bool
         {
             Out.clear();
-            if (Cipher.size() < AeadTagLen ||
-                !ValidAeadInput(Key, Nonce,
-                                std::span<const std::uint8_t>(Cipher).subspan(0, Cipher.size() - AeadTagLen)))
+            if (Input.Data.size() < AeadTagLen ||
+                !ValidAeadInput(AeadInput{
+                    Input.Key, Input.Nonce,
+                    std::span<const std::uint8_t>(Input.Data).subspan(
+                        0, Input.Data.size() - AeadTagLen)}))
             {
                 return false;
             }
-            const auto CipherLen = Cipher.size() - AeadTagLen;
+            const auto CipherLen = Input.Data.size() - AeadTagLen;
             Out.resize(CipherLen);
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
@@ -268,10 +266,12 @@ namespace Preview::Shadowsocks2022
                 return false;
             }
             int Len = 0;
-            bool Ok = EVP_DecryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            bool Ok = EVP_DecryptInit_ex(
+                          Ctx, EVP_aes_128_gcm(), nullptr, Input.Key.data(), Input.Nonce.data()) == 1;
             if (Ok && CipherLen > 0)
             {
-                Ok = EVP_DecryptUpdate(Ctx, Out.data(), &Len, Cipher.data(), static_cast<int>(CipherLen)) == 1;
+                Ok = EVP_DecryptUpdate(
+                         Ctx, Out.data(), &Len, Input.Data.data(), static_cast<int>(CipherLen)) == 1;
             }
             int OutLen = 0;
             if (CipherLen > 0)
@@ -281,7 +281,7 @@ namespace Preview::Shadowsocks2022
             if (Ok)
             {
                 Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
-                                         const_cast<std::uint8_t *>(Cipher.data()) + CipherLen) == 1;
+                                         const_cast<std::uint8_t *>(Input.Data.data()) + CipherLen) == 1;
             }
             if (Ok)
             {
@@ -339,7 +339,7 @@ namespace Preview::Shadowsocks2022
             const std::array<std::uint8_t, 2> LenPlain{
                 static_cast<std::uint8_t>((Plain.size() >> 8) & 0xFF),
                 static_cast<std::uint8_t>(Plain.size() & 0xFF)};
-            const auto LenN = detail::AeadSeal(Key_, Nonce_, LenPlain, Out);
+            const auto LenN = detail::AeadSeal(detail::AeadInput{Key_, Nonce_, LenPlain}, Out);
             if (LenN == 0)
             {
                 Nonce_ = StartNonce;
@@ -347,7 +347,7 @@ namespace Preview::Shadowsocks2022
             }
             detail::IncNonce(Nonce_);
             Out.resize(LenN + Plain.size() + AeadTagLen);
-            if (detail::AeadSeal(Key_, Nonce_, Plain, Out, LenN) == 0)
+            if (detail::AeadSeal(detail::AeadInput{Key_, Nonce_, Plain}, Out, LenN) == 0)
             {
                 Out.clear();
                 Nonce_ = StartNonce;
@@ -380,7 +380,7 @@ namespace Preview::Shadowsocks2022
             {
                 return std::nullopt;
             }
-            const auto LenPlain = detail::AeadOpen(Key_, Nonce_, Head.first(LenBlockSize));
+            const auto LenPlain = detail::AeadOpen(detail::AeadInput{Key_, Nonce_, Head.first(LenBlockSize)});
             if (LenPlain.size() != 2)
             {
                 return std::nullopt;
@@ -403,7 +403,8 @@ namespace Preview::Shadowsocks2022
                                        std::vector<std::uint8_t, Alloc> &Out) -> std::size_t
         {
             Out.clear();
-            if (Data.size() < AeadTagLen || !detail::AeadOpen(Key_, Nonce_, Data, Out))
+            if (Data.size() < AeadTagLen ||
+                !detail::AeadOpen(detail::AeadInput{Key_, Nonce_, Data}, Out))
             {
                 return 0;
             }
@@ -465,7 +466,7 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto SealRaw(std::span<const std::uint8_t> Plain)
             -> std::vector<std::uint8_t>
         {
-            auto Out = detail::AeadSeal(Key_, Nonce_, Plain);
+            auto Out = detail::AeadSeal(detail::AeadInput{Key_, Nonce_, Plain});
             if (!Out.empty())
             {
                 detail::IncNonce(Nonce_);
@@ -479,7 +480,7 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto OpenRaw(std::span<const std::uint8_t> Data)
             -> std::vector<std::uint8_t>
         {
-            auto Out = detail::AeadOpen(Key_, Nonce_, Data);
+            auto Out = detail::AeadOpen(detail::AeadInput{Key_, Nonce_, Data});
             if (!Out.empty())
             {
                 detail::IncNonce(Nonce_);
@@ -494,7 +495,7 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto OpenRaw(std::span<const std::uint8_t> Data,
                                    std::vector<std::uint8_t, Alloc> &Out) -> bool
         {
-            if (!detail::AeadOpen(Key_, Nonce_, Data, Out))
+            if (!detail::AeadOpen(detail::AeadInput{Key_, Nonce_, Data}, Out))
             {
                 return false;
             }

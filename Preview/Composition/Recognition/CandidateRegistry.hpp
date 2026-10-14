@@ -1,6 +1,6 @@
 /**
  * @file CandidateRegistry.hpp
- * @brief Settings 协议候选构造器注册表
+ * @brief Preview 配置协议候选构造器注册表
  * @details Registry 只负责按配置中的协议名查找 Composition builder；具体
  *          凭据、carrier 和 handler 仍由注册时捕获的 builder 持有。注册表
  *          可复制出独立工厂，供 detached SessionFactory 脱离注册表对象继续使用。
@@ -9,34 +9,65 @@
 #pragma once
 
 #include <functional>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <Preview/Composition/Recognition/CandidateFactory.hpp>
 #include <Preview/Composition/Recognition/LayeredCandidateFactory.hpp>
 #include <Preview/Composition/Recognition/TrusttunnelCandidate.hpp>
-#include <Preview/Composition/Settings/Loader.hpp>
+#include <Preview/Composition/Recognition/TlsCarrierHelpers.hpp>
+#include <Preview/Composition/Recognition/ShadowtlsCarrier.hpp>
+#include <Preview/Composition/Recognition/RestlsCarrier.hpp>
+#include <Preview/Protocols/Http1/IngressFactory.hpp>
+#include <Preview/Composition/Protocol/ProtocolCatalog.hpp>
 
 namespace Preview::Composition::Recognition
 {
 
     /**
-     * @brief 按 Settings 候选创建完整 Runtime binding
+     * @brief 按 Preview 配置候选创建完整 Runtime binding
      */
-    using SettingsCandidateFactory = std::function<std::optional<CandidateBinding>(
-        const Preview::Settings::RecognitionCandidate &)>;
-
     namespace detail
     {
 
-        [[nodiscard]] inline auto OptionsFrom(
-            const Preview::Settings::RecognitionCandidate &Candidate) -> CandidateOptions
+        [[nodiscard]] inline auto CanonicalCarrierScheme(std::string_view Scheme) -> std::string
         {
-            return CandidateOptions{Candidate.Id, Candidate.Name, Candidate.Priority, Candidate.Tier,
-                                     Candidate.Fallback};
+            const auto Descriptor = Preview::Composition::Protocol::ProtocolCatalog::Find(Scheme);
+            if (Descriptor && (Descriptor->Kind == Preview::Composition::Protocol::DescriptorKind::Carrier ||
+                               Descriptor->Id == Preview::Contract::ProtocolType::TrustTunnel))
+                return std::string(Descriptor->Name);
+            return std::string(Scheme);
+        }
+
+        [[nodiscard]] inline auto CarrierForScheme(std::string_view Scheme)
+            -> std::optional<TlsCarrier>
+        {
+            const auto Descriptor = Preview::Composition::Protocol::ProtocolCatalog::Find(Scheme);
+            if (!Descriptor) return std::nullopt;
+            if (Descriptor->Kind == Preview::Composition::Protocol::DescriptorKind::Carrier)
+                return Descriptor->Carrier;
+            if (Descriptor->Id == Preview::Contract::ProtocolType::TrustTunnel)
+                return TlsCarrier::TrustTunnel;
+            return std::nullopt;
+        }
+
+        [[nodiscard]] inline auto OptionsFrom(
+            const CandidateDefinition &Candidate) -> CandidateOptions
+        {
+            CandidateOptions Options;
+            Options.Id = Candidate.Id;
+            Options.Name = Candidate.Name;
+            Options.Priority = Candidate.Priority;
+            Options.Tier = Candidate.Tier;
+            Options.Fallback = Candidate.Fallback;
+            Options.BindingId = Candidate.BindingId;
+            Options.UdpEnabled = Candidate.UdpEnabled;
+            return Options;
         }
 
     } // namespace detail
@@ -45,8 +76,8 @@ namespace Preview::Composition::Recognition
      * @class CandidateRegistry
      * @brief 配置协议名到候选构造器的不可共享状态注册表
      * @details 注册只允许一次，避免后注册的 builder 静默改变已经审查过的
-     *          配置语义。协议名按 ASCII 小写规范化，ss2022 与 shadowsocks
-     *          作为同一个协议别名处理。带 Scheme 的候选必须同时注册 carrier
+     *          配置语义。协议名按 ASCII 小写规范化，不将历史名称映射到内建协议。
+     *          带 Scheme 的候选必须同时注册 carrier
      *          接入回调，避免配置元数据看似生效但实际走明文 passthrough。
      */
     class CandidateRegistry
@@ -54,10 +85,22 @@ namespace Preview::Composition::Recognition
     public:
         struct CarrierRegistration final
         {
-            std::string Scheme;
+            Preview::Composition::Protocol::ProviderKey Key;
             CarrierAcceptFn Accept;
             CarrierAcceptPreparedFn AcceptPrepared;
+            /** @brief TLS accept callback 实际捕获并保活 Native SSL_CTX。 */
+            bool HasNativeTlsContext{false};
         };
+
+    private:
+        struct BuilderState final
+        {
+            std::unordered_map<std::string, CandidateBuilder> Builders;
+            std::unordered_map<std::string, CarrierRegistration> Carriers;
+            std::unordered_map<std::string, CarrierRegistration> CarriersById;
+        };
+
+    public:
 
         /**
          * @brief 注册协议候选构造器
@@ -65,165 +108,85 @@ namespace Preview::Composition::Recognition
          * @param Builder 候选构造器
          * @return 名称合法且未重复注册时返回 true
          */
-        [[nodiscard]] auto Register(std::string_view Protocol, SettingsCandidateFactory Builder) -> bool
+        [[nodiscard]] auto Register(std::string_view Protocol, CandidateBuilder Builder) -> bool
         {
             const auto Name = Canonicalize(Protocol);
             if (Name.empty() || !Builder)
             {
                 return false;
             }
-            return Builders_.emplace(Name, std::move(Builder)).second;
+            return State_.Builders.emplace(Name, std::move(Builder)).second;
         }
 
         /**
-         * @brief 注册外层 carrier 接入回调
-         * @param Scheme 外层方案名
-         * @param Accept carrier 服务端接入回调
-         * @return 名称合法且未重复注册时返回 true
+         * @brief 将一个已绑定的 typed TLS carrier 放入候选工厂目录。
+         * @param Key 必须命中 ProtocolCatalog 中真实 DescriptorKind::Carrier 的 typed 槽位。
+         * @param Id 空值表示默认 scheme，非空值表示本配置 carrier instance。
+         * @param Registration 按值接管的唯一普通或 prepared 接入回调。
+         * @return 唯一注册成功；重复 ID/key、类别不符或回调形状无效时返回 false。
          */
-        [[nodiscard]] auto RegisterCarrier(std::string_view Scheme, CarrierAcceptFn Accept) -> bool
+        [[nodiscard]] auto RegisterTlsCarrier(
+            Preview::Composition::Protocol::ProviderKey Key,
+            std::string Id,
+            CarrierRegistration Registration) -> bool
         {
-            const auto Name = Normalize(Scheme);
-            if (Name.empty() || !Accept)
+            using Category = Preview::Composition::Protocol::ProviderCategory;
+            const auto *Kind = std::get_if<Preview::Composition::Protocol::CarrierKind>(&Key.Identity);
+            if (Key.Category != Category::TlsCarrier || Kind == nullptr ||
+                (*Kind == Preview::Composition::Protocol::CarrierKind::None) ||
+                (static_cast<bool>(Registration.Accept) == static_cast<bool>(Registration.AcceptPrepared)))
             {
                 return false;
             }
-            return Carriers_.emplace(
-                Name, CarrierRegistration{Name, std::move(Accept), {}}).second;
-        }
-
-        /**
-         * @brief 按配置实例 ID 注册 carrier 接入回调。
-         * @param Id 配置中的 CarrierConfiguration.Id
-         * @param Scheme carrier 方案名
-         * @param Accept 服务端接入回调
-         * @return 名称合法且未重复注册时返回 true
-         */
-        [[nodiscard]] auto RegisterCarrier(std::string_view Id,
-                                            std::string_view Scheme,
-                                            CarrierAcceptFn Accept) -> bool
-        {
+            const auto Descriptor = Preview::Composition::Protocol::ProtocolCatalog::Find(Key);
+            if (!Descriptor || Descriptor->Kind !=
+                    Preview::Composition::Protocol::DescriptorKind::Carrier)
+            {
+                return false;
+            }
+            const auto Scheme = Descriptor->Name;
+            Registration.Key = Key;
+            if (Id.empty())
+            {
+                return State_.Carriers.emplace(std::string(Scheme), std::move(Registration)).second;
+            }
             const auto CarrierId = Normalize(Id);
-            const auto CarrierScheme = Normalize(Scheme);
-            if (CarrierId.empty() || CarrierScheme.empty() || !Accept)
+            if (CarrierId.empty())
             {
                 return false;
             }
-            return CarriersById_.emplace(
-                CarrierId, CarrierRegistration{CarrierScheme, std::move(Accept), {}}).second;
+            return State_.CarriersById.emplace(CarrierId, std::move(Registration)).second;
         }
 
-        [[nodiscard]] auto RegisterPreparedCarrier(std::string_view Id,
-                                                    std::string_view Scheme,
-                                                    CarrierAcceptPreparedFn Accept) -> bool
+        /**
+         * @brief 为一个 configured instance 注册唯一 cold candidate builder。
+         * @param Id 配置实例 ID；BuildFrom 以 instance/Id 冷查找，不进入热路径。
+         * @param Builder 按候选元数据生成 owning CandidateBinding；返回值拥有唯一 Accept。
+         * @return ID 合法、builder 非空且此前未注册时为 true。
+         * @note 注册只在 profile 冷构造阶段发生；发布后 factory 不再动态查名或改写。
+         */
+        [[nodiscard]] auto RegisterConfigured(std::string Id, CandidateBuilder Builder) -> bool
         {
-            const auto CarrierId = Normalize(Id);
-            const auto CarrierScheme = Normalize(Scheme);
-            if (CarrierId.empty() || CarrierScheme.empty() || !Accept)
+            if (Id.empty() || !Builder)
             {
                 return false;
             }
-            return CarriersById_.emplace(
-                CarrierId, CarrierRegistration{CarrierScheme, {}, std::move(Accept)}).second;
+            return State_.Builders.emplace("instance/" + std::move(Id), std::move(Builder)).second;
         }
 
         /**
-         * @brief 注册 HTTP CONNECT 候选构造器
-         * @param Config HTTP 服务端配置
-         * @return 注册成功返回 true
+         * @brief 登记 provider 的唯一冷候选构造器，输入按值进入不可变 factory 快照。
+         * @return ID 合法、builder 尚未登记时为 true；分配异常直接传播。
+         * @note 同步注册没有 I/O、取消或半关闭；发布后的 binding 在载体 executor 接入，
+         *       最终取消、半关闭与 Close/Drain 由 protocol/root owner 执行。
          */
-        [[nodiscard]] auto RegisterHttp(HttpConfig Config = {}) -> bool
+        [[nodiscard]] auto RegisterConfiguredProvider(
+            std::string Id, ProviderCandidateInputs Inputs) -> bool
         {
-            auto Shared = std::make_shared<const HttpConfig>(std::move(Config));
-            return Register("http", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
-                            { return CandidateFactory::MakeHttp(detail::OptionsFrom(Candidate), *Shared); });
-        }
-
-        /**
-         * @brief 注册 SOCKS5 候选构造器
-         * @param Config SOCKS5 服务端配置
-         * @return 注册成功返回 true
-         */
-        [[nodiscard]] auto RegisterSocks5(Preview::Socks5::ServerConfig Config = {}) -> bool
-        {
-            auto Shared = std::make_shared<const Preview::Socks5::ServerConfig>(std::move(Config));
-            return Register("socks5", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
-                            { return CandidateFactory::MakeSocks5(detail::OptionsFrom(Candidate), *Shared); });
-        }
-
-        /**
-         * @brief 注册 VLESS 候选构造器
-         * @param Config VLESS 服务端配置
-         * @return 注册成功返回 true
-         */
-        [[nodiscard]] auto RegisterVless(Preview::Vless::ServerConfig Config = {}) -> bool
-        {
-            auto Shared = std::make_shared<const Preview::Vless::ServerConfig>(std::move(Config));
-            return Register("vless", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
-                            { return CandidateFactory::MakeVless(detail::OptionsFrom(Candidate), *Shared); });
-        }
-
-        /**
-         * @brief 注册 Trojan 候选构造器
-         * @param Config Trojan 服务端配置
-         * @return 注册成功返回 true
-         */
-        [[nodiscard]] auto RegisterTrojan(Preview::Trojan::ServerConfig Config = {}) -> bool
-        {
-            auto Shared = std::make_shared<const Preview::Trojan::ServerConfig>(std::move(Config));
-            return Register("trojan", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
-                            { return CandidateFactory::MakeTrojan(detail::OptionsFrom(Candidate), *Shared); });
-        }
-
-        /**
-         * @brief 注册 VMess 候选构造器
-         * @param Config VMess 服务端配置
-         * @return 注册成功返回 true
-         */
-        [[nodiscard]] auto RegisterVmess(Preview::Vmess::ServerConfig Config = {}) -> bool
-        {
-            auto Shared = std::make_shared<const Preview::Vmess::ServerConfig>(std::move(Config));
-            return Register("vmess", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
-                            { return CandidateFactory::MakeVmess(detail::OptionsFrom(Candidate), *Shared); });
-        }
-
-        /**
-         * @brief 注册 Shadowsocks 2022 候选构造器
-         * @param Config SS2022 服务端配置
-         * @return 注册成功返回 true
-         */
-        [[nodiscard]] auto RegisterSs2022(Preview::Shadowsocks2022::ServerConfig Config = {}) -> bool
-        {
-            auto Shared = std::make_shared<const Preview::Shadowsocks2022::ServerConfig>(std::move(Config));
-            return Register("ss2022", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
-                            { return CandidateFactory::MakeSs2022(detail::OptionsFrom(Candidate), *Shared); });
-        }
-
-        /**
-         * @brief 注册 AnyTLS 候选构造器
-         * @param Config AnyTLS 服务端配置
-         * @return 注册成功返回 true
-         */
-        [[nodiscard]] auto RegisterAnytls(Preview::Anytls::ServerConfig Config = {}) -> bool
-        {
-            auto Shared = std::make_shared<const Preview::Anytls::ServerConfig>(std::move(Config));
-            return Register("anytls", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
-                            { return CandidateFactory::MakeAnytls(detail::OptionsFrom(Candidate), *Shared); });
-        }
-
-        [[nodiscard]] auto RegisterTrusttunnel(
-            std::shared_ptr<boost::asio::ssl::context> NativeTls,
-            Preview::Trusttunnel::ServerConfig Config = {}) -> bool
-        {
-            auto SharedTls = std::move(NativeTls);
-            auto SharedConfig = std::make_shared<const Preview::Trusttunnel::ServerConfig>(
-                std::move(Config));
-            return Register("trusttunnel", [SharedTls, SharedConfig](const auto &Candidate)
-                            -> std::optional<CandidateBinding>
-                            {
-                                return MakeTrusttunnelCandidate(
-                                    detail::OptionsFrom(Candidate), SharedTls, *SharedConfig);
-                            });
+            return RegisterConfigured(std::move(Id),
+                [Inputs = std::move(Inputs)](const auto &Candidate)
+                    -> std::optional<CandidateBinding>
+                { return CandidateFactory::MakeConfiguredProvider(detail::OptionsFrom(Candidate), Inputs); });
         }
 
         /**
@@ -237,47 +200,51 @@ namespace Preview::Composition::Recognition
         }
 
         /**
-         * @brief 按配置候选创建 binding
-         * @param Candidate 配置候选
-         * @return builder 存在且构造成功时返回 binding
+         * @brief 按 cold 配置候选创建 owning binding。
+         * @param Candidate 同步借用的候选值；registry 不保存其地址。
+         * @return builder 存在且构造成功时返回 binding，否则返回空值；异常沿调用者传播。
+         * @note 仅执行同步配置/owner 组装，无网络 I/O、cancellation、executor、stream
+         *       half-close 或最终关闭；成功后的 Accept/root/stream owner 负责 Close/Drain。
          */
-        [[nodiscard]] auto Build(const Preview::Settings::RecognitionCandidate &Candidate) const
+        [[nodiscard]] auto Build(const CandidateDefinition &Candidate) const
             -> std::optional<CandidateBinding>
         {
-            return BuildFrom(Candidate, Builders_, Carriers_, CarriersById_);
+            return BuildFrom(Candidate, State_);
         }
 
         /**
-         * @brief 创建独立的 Settings 工厂
+         * @brief 创建独立的配置候选工厂快照
          * @return 按值持有当前 builder 快照的工厂
          * @details 返回的工厂不借用当前 Registry，适合捕获到长期存活的
          *          listener/session factory 中。
          */
-        [[nodiscard]] auto MakeFactory() const -> SettingsCandidateFactory
+        [[nodiscard]] auto MakeFactory() const -> CandidateBuilder
         {
-            auto Builders = Builders_;
-            auto Carriers = Carriers_;
-            auto CarriersById = CarriersById_;
-            return [Builders = std::move(Builders), Carriers = std::move(Carriers),
-                    CarriersById = std::move(CarriersById)](
-                       const Preview::Settings::RecognitionCandidate &Candidate)
+            const auto Snapshot = std::make_shared<const BuilderState>(State_);
+            return [Snapshot = std::move(Snapshot)](const CandidateDefinition &Candidate)
                        -> std::optional<CandidateBinding>
             {
-                return BuildFrom(Candidate, Builders, Carriers, CarriersById);
+                return BuildFrom(Candidate, *Snapshot);
             };
         }
 
     private:
         [[nodiscard]] static auto BuildFrom(
-            const Preview::Settings::RecognitionCandidate &Candidate,
-            const std::unordered_map<std::string, SettingsCandidateFactory> &Builders,
-            const std::unordered_map<std::string, CarrierRegistration> &Carriers,
-            const std::unordered_map<std::string, CarrierRegistration> &CarriersById)
+            const CandidateDefinition &Candidate,
+            const BuilderState &State)
             -> std::optional<CandidateBinding>
         {
-            const auto Protocol = Canonicalize(Candidate.Protocol);
-            const auto BuilderIt = Builders.find(Protocol);
-            if (BuilderIt == Builders.end())
+            auto Protocol = std::string{};
+            if (Candidate.ProtocolId.empty())
+            {
+                Protocol = Canonicalize(Candidate.Protocol);
+            }
+            else
+            {
+                Protocol = "instance/" + Candidate.ProtocolId;
+            }
+            const auto BuilderIt = State.Builders.find(Protocol);
+            if (BuilderIt == State.Builders.end())
             {
                 return std::nullopt;
             }
@@ -301,6 +268,12 @@ namespace Preview::Composition::Recognition
             {
                 return std::nullopt;
             }
+            const auto CanonicalScheme = detail::CanonicalCarrierScheme(Scheme);
+            const auto Carrier = detail::CarrierForScheme(CanonicalScheme);
+            if (!Carrier)
+            {
+                return std::nullopt;
+            }
             if (Inner->Spec.Kind == Core::CandidateKind::TlsCarrier)
             {
                 if (Normalize(Inner->Spec.Scheme) == Scheme)
@@ -309,11 +282,18 @@ namespace Preview::Composition::Recognition
                 }
                 return std::nullopt;
             }
+            const auto Descriptor =
+                Preview::Composition::Protocol::ProtocolCatalog::Find(CanonicalScheme);
+            if (!Descriptor ||
+                Descriptor->Kind != Preview::Composition::Protocol::DescriptorKind::Carrier)
+            {
+                return std::nullopt;
+            }
             const CarrierRegistration *Registration = nullptr;
             if (!Candidate.CarrierId.empty())
             {
-                const auto CarrierIt = CarriersById.find(Normalize(Candidate.CarrierId));
-                if (CarrierIt == CarriersById.end() || CarrierIt->second.Scheme != Scheme)
+                const auto CarrierIt = State.CarriersById.find(Normalize(Candidate.CarrierId));
+                if (CarrierIt == State.CarriersById.end())
                 {
                     return std::nullopt;
                 }
@@ -321,14 +301,18 @@ namespace Preview::Composition::Recognition
             }
             else
             {
-                const auto CarrierIt = Carriers.find(Scheme);
-                if (CarrierIt == Carriers.end())
+                const auto CarrierIt = State.Carriers.find(CanonicalScheme);
+                if (CarrierIt == State.Carriers.end())
                 {
                     return std::nullopt;
                 }
                 Registration = &CarrierIt->second;
             }
             if (!Registration || (!Registration->Accept && !Registration->AcceptPrepared))
+            {
+                return std::nullopt;
+            }
+            if (Registration->Key != Descriptor->Slot())
             {
                 return std::nullopt;
             }
@@ -340,6 +324,8 @@ namespace Preview::Composition::Recognition
             Options.ServerNames = Candidate.ServerNames;
             Options.Alpn = Candidate.Alpn;
             Options.Fallback = Candidate.Fallback;
+            Options.Carrier = *Carrier;
+            Options.HasNativeTlsContext = Registration->HasNativeTlsContext;
             if (Registration->AcceptPrepared)
             {
                 return LayeredCandidateFactory::MakePrepared(
@@ -374,29 +360,22 @@ namespace Preview::Composition::Recognition
 
         [[nodiscard]] static auto Canonicalize(std::string_view Protocol) -> std::string
         {
-            auto Name = Normalize(Protocol);
-            if (Name == "shadowsocks")
-            {
-                Name = "ss2022";
-            }
-            return Name;
+            return Normalize(Protocol);
         }
 
         [[nodiscard]] auto Find(std::string_view Protocol) const
-            -> const SettingsCandidateFactory *
+            -> const CandidateBuilder *
         {
             const auto Name = Canonicalize(Protocol);
-            const auto It = Builders_.find(Name);
-            if (It == Builders_.end())
+            const auto It = State_.Builders.find(Name);
+            if (It == State_.Builders.end())
             {
                 return nullptr;
             }
             return &It->second;
         }
 
-        std::unordered_map<std::string, SettingsCandidateFactory> Builders_;
-        std::unordered_map<std::string, CarrierRegistration> Carriers_;
-        std::unordered_map<std::string, CarrierRegistration> CarriersById_;
+        BuilderState State_;
     };
 
 } // namespace Preview::Composition::Recognition

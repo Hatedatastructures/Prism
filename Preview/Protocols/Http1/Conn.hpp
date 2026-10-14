@@ -4,7 +4,6 @@
  * @details 服务端：读头 → 解析 →（可选认证）→ 400/407；CONNECT 的
  *          200/502 响应由拨号后的 handler 发送
  *          - ReadRequest：读完整请求头（65536 上限防慢速 OOM）
- *          - CheckBasic：Proxy-Authorization 校验（Basic + Authenticator）
  *          - SendResponse：标准响应（200/400/407/502）
  *          客户端：SendConnect / ReadResponse（状态码验证）
  * @note 参照主项目 src/prism/Protocol/http/handler/Conn.cpp
@@ -26,11 +25,11 @@
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
-#include <Preview/Foundation/Authenticator.hpp>
 #include <Preview/Foundation/ByteSpan.hpp>
-#include <Preview/Foundation/Utility/Crypto/Base64.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Protocols/Http1/Parser.hpp>
+#include <Preview/Protocols/Http1/ForwardRequest.hpp>
 #include <Preview/Transport/Preview.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
@@ -61,46 +60,22 @@ namespace Preview::Http11
      */
     [[nodiscard]] inline auto SendResponse(SharedTransmission Transport,
                                             std::string_view Body)
-        -> Net::awaitable<Fault::Code>
+        -> Net::awaitable<Fault::Failure>
     {
         if (!Transport)
         {
-            co_return Fault::Code::IoError;
+            co_return Fault::Failure{Fault::Code::IoError};
         }
-        std::error_code ErrorCode;
-        co_await Transport->AsyncWrite(AsBytesSpan(Body), ErrorCode);
-        if (ErrorCode)
+        const auto Result = co_await Transport->WriteExact(AsBytesSpan(Body));
+        if (Result.Failure.Failed())
         {
-            co_return Fault::Code::IoError;
+            co_return Result.Failure;
         }
-        co_return Fault::Code::Success;
-    }
-
-    /**
-     * @brief 校验 Basic 认证头
-     * @param Authorization Proxy-Authorization 值（"Basic <base64>"）
-     * @param Auth 认证器
-     * @return 认证结果（Ok + identity）
-     */
-    [[nodiscard]] inline auto CheckBasic(
-        std::string_view Authorization,
-        const Preview::Authenticator &Auth) -> Preview::AuthResult
-    {
-        constexpr std::string_view BasicPrefix = "Basic ";
-        if (Authorization.size() <= BasicPrefix.size() ||
-            !detail::Iequals(Authorization.substr(0, BasicPrefix.size()), BasicPrefix))
+        if (Result.Bytes != Body.size())
         {
-            return {false, {}};
+            co_return Fault::Failure{Fault::Code::IoError};
         }
-        const auto Decoded = Preview::Crypto::Base64Decode(Authorization.substr(BasicPrefix.size()));
-        const auto Colon = Decoded.find(':');
-        if (Colon == std::string_view::npos || Colon == Decoded.size() - 1)
-        {
-            return {false, {}};
-        }
-        const auto User = std::string_view(Decoded).substr(0, Colon);
-        const auto Pass = std::string_view(Decoded).substr(Colon + 1);
-        return Auth.Check(User, Pass);
+        co_return Fault::Failure{Fault::Code::Success};
     }
 
     /**
@@ -116,7 +91,9 @@ namespace Preview::Http11
          * @brief 构造
          * @param Transport 底层传输
          */
-        explicit ServerConn(SharedTransmission Transport) : Transport_(std::move(Transport))
+        explicit ServerConn(SharedTransmission Transport,
+                            std::shared_ptr<Preview::Memory::BytePool> Bytes)
+            : Transport_(std::move(Transport)), Bytes_(std::move(Bytes))
         {
             Buffer_.resize(4096);
         }
@@ -124,9 +101,10 @@ namespace Preview::Http11
         /**
          * @brief 读取并解析完整请求头
          * @param Request 解析结果
-         * @return 成功或 io_error/parse_error
+         * @return 请求解析状态或原样保留 Native 的读失败。
          */
-        [[nodiscard]] auto ReadRequest(HttpRequest &Request) -> Net::awaitable<Fault::Code>
+        [[nodiscard]] auto ReadRequest(HttpRequest &Request)
+            -> Net::awaitable<Fault::Failure>
         {
             std::size_t Used = 0;
             while (true)
@@ -147,28 +125,32 @@ namespace Preview::Http11
                                 std::string_view(Buffer_.data() + BodyOffset, Used - BodyOffset));
                             Preread_.assign(Tail.begin(), Tail.end());
                         }
-                        co_return Fault::Code::Success;
+                        co_return Fault::Failure{Fault::Code::Success};
                     }
-                    co_return Fault::Code::ParseError;
+                    co_return Fault::Failure{Fault::Code::ParseError};
                 }
                 if (Used >= Buffer_.size())
                 {
                     if (Buffer_.size() >= MaxHdrSize)
                     {
-                        co_return Fault::Code::ParseError;
+                        co_return Fault::Failure{Fault::Code::ParseError};
                     }
                     Buffer_.resize(Buffer_.size() * 2);
                 }
-                std::error_code ErrorCode;
-                const auto Count = co_await Transport_->async_read_some(
-                    AsBytesSpan(std::span(Buffer_.data() + Used, Buffer_.size() - Used)), ErrorCode);
-                if (ErrorCode || Count == 0)
+                const auto Part = co_await Transport_->ReadSome(
+                    AsBytesSpan(std::span(Buffer_.data() + Used, Buffer_.size() - Used)));
+                const auto Count = Part.Bytes;
+                if (Part.Failure.Failed())
                 {
-                    co_return Fault::Code::IoError;
+                    co_return Part.Failure;
+                }
+                if (Count == 0)
+                {
+                    co_return Fault::Failure{Fault::Code::IoError};
                 }
                 if (Count > Buffer_.size() - Used)
                 {
-                    co_return Fault::Code::IoError;
+                    co_return Fault::Failure{Fault::Code::IoError};
                 }
                 Used += Count;
             }
@@ -179,7 +161,8 @@ namespace Preview::Http11
          * @param Body 响应字节
          * @return 成功或 io_error
          */
-        [[nodiscard]] auto SendResponse(std::string_view Body) -> Net::awaitable<Fault::Code>
+        [[nodiscard]] auto SendResponse(std::string_view Body)
+            -> Net::awaitable<Fault::Failure>
         {
             co_return co_await Preview::Http11::SendResponse(Transport_, Body);
         }
@@ -194,15 +177,23 @@ namespace Preview::Http11
             {
                 return std::move(Transport_);
             }
-            return Preview::Transport::WrapWithPreview(
-                std::move(Transport_), std::span<const std::byte>(Preread_.data(), Preread_.size()));
+            const auto Created = Preview::Transport::PreviewTransport::Create(
+                Transport_, Preview::Transport::PrefixInput{
+                    std::span<const std::byte>(Preread_.data(), Preread_.size()), Bytes_, {}});
+            if (!Created)
+            {
+                return {};
+            }
+            Transport_.reset();
+            return *Created;
         }
 
         /**
          * @brief 释放普通 HTTP 请求的转发流
-         * @return 先回放 origin-form 请求行、原始头字段和共包正文的传输
-         * @details 普通代理请求的请求头已经被握手读取；这里将 absolute-form
-         *          请求行改写后与其余原始字节一起回放，避免 relay 丢掉首包。
+         * @return 先回放 origin-form 请求行、源站头字段和首请求正文的传输
+         * @details 普通代理请求的请求头已经被握手读取；认证信息与逐跳字段
+         *          在序列化时移除。Content-Length、chunked、无正文请求只消费
+         *          首个消息边界；CONNECT 仍由 Release() 保持原始隧道语义。
          */
         [[nodiscard]] auto ReleaseForward() -> SharedTransmission
         {
@@ -211,14 +202,29 @@ namespace Preview::Http11
                 return {};
             }
             const auto Raw = std::string_view(Buffer_.data(), Used_);
-            const auto Forwarded = BuildForwardRequest(Raw, Request_);
+            const auto HeaderRaw = Raw.substr(0, Request_.HdrEnd);
+            const auto Forwarded = BuildForwardRequest(HeaderRaw, Request_);
             if (Forwarded.empty())
             {
                 return {};
             }
-            Preread_.clear();
-            return Preview::Transport::WrapWithPreview(
-                std::move(Transport_), AsBytesSpan(std::string_view(Forwarded)));
+            ForwardRequestOptions Options;
+            Options.Inner = std::move(Transport_);
+            Options.Header = Forwarded;
+            Options.Preread = std::move(Preread_);
+            const auto UpgradeRequested = Request_.Headers.HasUpgrade &&
+                                          Request_.Headers.ConnectionContains("upgrade");
+            Options.AwaitUpgrade = UpgradeRequested;
+            if (Request_.Headers.HasTransferEncoding)
+            {
+                Options.BodyMode = ForwardBodyMode::Chunked;
+            }
+            else if (Request_.Headers.HasContentLength)
+            {
+                Options.BodyMode = ForwardBodyMode::ContentLength;
+                Options.ContentLength = Request_.Headers.ContentLength;
+            }
+            return MakeForwardRequestTransport(std::move(Options));
         }
 
     private:
@@ -227,6 +233,7 @@ namespace Preview::Http11
         std::vector<std::byte> Preread_; ///< 请求头之后已读入的隧道数据
         HttpRequest Request_{};          ///< 最近一次握手解析结果
         std::size_t Used_{0};            ///< 握手阶段已读取的原始字节数
+        std::shared_ptr<Preview::Memory::BytePool> Bytes_;
     };
 
     /**
@@ -251,10 +258,9 @@ namespace Preview::Http11
         -> Net::awaitable<Fault::Code>
     {
         const auto Req = MakeConnectRequest(Params.Host, Params.Port, Params.Authorization);
-        std::error_code ErrorCode;
         const auto Bytes = AsBytesSpan(Req);
-        co_await Params.Transport->AsyncWrite(Bytes, ErrorCode);
-        if (ErrorCode)
+        const auto Result = co_await Params.Transport->WriteExact(Bytes);
+        if (Result.Failure.Failed() || Result.Bytes != Bytes.size())
         {
             co_return Fault::Code::IoError;
         }
@@ -285,7 +291,8 @@ namespace Preview::Http11
      */
     [[nodiscard]] inline auto ReadResponse(
         SharedTransmission &Transport,
-        std::error_code &ErrorCode) -> Net::awaitable<int>
+        std::error_code &ErrorCode,
+        std::shared_ptr<Preview::Memory::BytePool> Bytes) -> Net::awaitable<int>
     {
         std::string Buffer;
         Buffer.resize(1024);
@@ -299,9 +306,16 @@ namespace Preview::Http11
                 const auto BodyOffset = HeadersEnd + 4;
                 if (BodyOffset < Used)
                 {
-                    Transport = Preview::Transport::WrapWithPreview(
-                        std::move(Transport),
-                        AsBytesSpan(std::string_view(Buffer.data() + BodyOffset, Used - BodyOffset)));
+                    const auto Created = Preview::Transport::PreviewTransport::Create(
+                        Transport, Preview::Transport::PrefixInput{
+                            AsBytesSpan(std::string_view(Buffer.data() + BodyOffset, Used - BodyOffset)),
+                            Bytes, {}});
+                    if (!Created)
+                    {
+                        ErrorCode = Preview::Fault::ToNative(Created.error());
+                        co_return 0;
+                    }
+                    Transport = *Created;
                 }
                 co_return ParseStatusCode(DataView);
             }
@@ -314,8 +328,10 @@ namespace Preview::Http11
                 }
                 Buffer.resize(Buffer.size() * 2);
             }
-            const auto Count = co_await Transport->async_read_some(
-                AsBytesSpan(std::span(Buffer.data() + Used, Buffer.size() - Used)), ErrorCode);
+            const auto Part = co_await Transport->ReadSome(
+                AsBytesSpan(std::span(Buffer.data() + Used, Buffer.size() - Used)));
+            ErrorCode = Preview::Fault::ToNative(Part.Failure);
+            const auto Count = Part.Bytes;
             if (ErrorCode || Count == 0)
             {
                 co_return 0;

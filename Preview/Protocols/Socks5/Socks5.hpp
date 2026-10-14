@@ -15,17 +15,22 @@
 #include <boost/asio/awaitable.hpp>
 
 #include <cstddef>
+#include <expected>
+#include <exception>
 #include <memory>
+#include <optional>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
+#include <Preview/Contract/Ingress/InboundAdmission.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Protocols/Common/ExactIo.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Socks5/Codec.hpp>
 #include <Preview/Protocols/Socks5/Conn.hpp>
 #include <Preview/Protocols/Socks5/Dgram.hpp>
+#include <Preview/Protocols/Socks5/Reply.hpp>
 #include <Preview/Protocols/Socks5/Types.hpp>
 #include <Preview/Protocols/Socks5/UdpAssoc.hpp>
 
@@ -46,6 +51,18 @@ namespace Preview::Socks5
         Command Cmd{Command::Connect};
     };
 
+    struct AcceptedConnection final
+    {
+        Request RequestValue;
+        SharedConn Connection;
+    };
+
+    struct AcceptedDatagram final
+    {
+        Request RequestValue;
+        SharedDgram Connection;
+    };
+
     // =========================================================================
     // 工厂（自由函数，握手在内部完成）
     // =========================================================================
@@ -53,44 +70,61 @@ namespace Preview::Socks5
     /**
      * @brief 创建客户端流连接并完成握手（sing DialConn 语义）
      * @param Params 客户端连接装配参数
-     * @return 错误码与协议连接（失败时连接为空）
+     * @return 成功时返回拥有型协议连接；失败时返回完整 Failure。
      * @details 内部流程：创建 Conn → WriteHandshake 完成客户端
      * 完整握手（Greeting/方法选择/认证/请求/响应）。
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> Net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::expected<SharedConn, Preview::Fault::Failure>>
     {
-        Request req;
-        req.Cmd = Params.Cmd;
-        req.Target = Params.Target;
-        auto Connection = std::make_shared<Conn<>>(std::move(Params.Upstream));
-        const auto ErrorCode = co_await Connection->WriteHandshake(req, Params.Config);
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        if (!Params.Upstream)
         {
-            Result = SharedConn(std::move(Connection));
+            co_return std::unexpected(
+                Preview::Protocol::Common::FailureFromProtocolError(Error::NotOpen));
         }
-        else
+        auto Prepared = co_await Preview::Contract::InboundAdmission::Prepare(Params.Upstream);
+        if (!Prepared) co_return std::unexpected(Prepared.error());
+        auto Admission = std::move(*Prepared);
+        Request RequestValue;
+        RequestValue.Cmd = Params.Cmd;
+        RequestValue.Target = Params.Target;
+        std::shared_ptr<Conn<>> Connection;
+        std::optional<Preview::Fault::Failure> CreationFailure;
+        try
         {
-            Connection->Close();
+            Connection = std::make_shared<Conn<>>(std::move(Params.Upstream));
         }
-        co_return std::pair{ErrorCode, std::move(Result)};
-    }
-
-    /**
-     * @brief 使用默认 CONNECT 命令创建客户端流连接
-     * @param Upstream 上游传输（所有权移交）
-     * @param Config 客户端配置（借用）
-     * @param Target 目标地址（借用）
-     * @return 错误码与协议连接
-     */
-    [[nodiscard]] inline auto Connect(
-        SharedTransmission Upstream,
-        const ClientConfig &Config,
-        const Address &Target) -> Net::awaitable<std::pair<Error, SharedConn>>
-    {
-        auto Result = co_await Connect(ConnectParameters{std::move(Upstream), Config, Target});
-        co_return Result;
+        catch (...)
+        {
+            CreationFailure = Preview::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception());
+        }
+        if (CreationFailure)
+        {
+            co_return std::unexpected(co_await Admission.Retire(*CreationFailure));
+        }
+        if (const auto Tracked = Admission.Track(Connection); !Tracked)
+        {
+            const auto Failure = Tracked.error();
+            co_return std::unexpected(co_await Admission.Retire(Failure));
+        }
+        auto Handshake = std::expected<void, Preview::Fault::Failure>{};
+        try
+        {
+            Handshake = co_await Connection->WriteHandshake(RequestValue, Params.Config);
+        }
+        catch (...)
+        {
+            Handshake = std::unexpected(
+                Preview::Contract::InboundAdmission::ExceptionFailure(std::current_exception()));
+        }
+        if (!Handshake)
+        {
+            const auto Failure = Handshake.error();
+            co_return std::unexpected(co_await Admission.Retire(Failure));
+        }
+        Admission.Release();
+        co_return SharedConn(std::move(Connection));
     }
 
     /**
@@ -103,15 +137,16 @@ namespace Preview::Socks5
     [[nodiscard]] inline auto ConnectPacket(
         SharedTransmission Upstream,
         const ClientConfig &Config,
-        const Address &Target) -> Net::awaitable<std::pair<Error, SharedDgram>>
+        const Address &Target)
+        -> Net::awaitable<std::expected<SharedDgram, Preview::Fault::Failure>>
     {
-        auto [ErrorCode, Connection] = co_await Connect(
+        auto Connection = co_await Connect(
             ConnectParameters{std::move(Upstream), Config, Target, Command::UdpAssociate});
-        if (ErrorCode != Error::None)
+        if (!Connection)
         {
-            co_return std::pair{ErrorCode, SharedDgram{}};
+            co_return std::unexpected(Connection.error());
         }
-        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Connection))};
+        co_return std::make_shared<Dgram<>>(std::move(*Connection));
     }
 
     /**
@@ -124,20 +159,32 @@ namespace Preview::Socks5
      */
     [[nodiscard]] inline auto Accept(
         SharedTransmission Upstream,
-        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, Request, SharedConn>>
+        const ServerConfig &Config)
+        -> Net::awaitable<std::expected<AcceptedConnection, Preview::Fault::Failure>>
     {
+        if (!Upstream)
+        {
+            co_return std::unexpected(
+                Preview::Protocol::Common::FailureFromProtocolError(Error::NotOpen));
+        }
         auto Connection = std::make_shared<Conn<>>(std::move(Upstream));
-        auto [ErrorCode, Request] = co_await Connection->ReadHandshake(Config);
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        auto Handshake = std::expected<Request, Preview::Fault::Failure>{
+            std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError})};
+        try
         {
-            Result = SharedConn(std::move(Connection));
+            Handshake = co_await Connection->ReadHandshake(Config);
         }
-        else
+        catch (...)
         {
-            Connection->Close();
+            Handshake = std::unexpected(
+                Preview::Contract::InboundAdmission::ExceptionFailure(std::current_exception()));
         }
-        co_return std::tuple{ErrorCode, std::move(Request), std::move(Result)};
+        if (!Handshake)
+        {
+            (void)Connection->Close();
+            co_return std::unexpected(Handshake.error());
+        }
+        co_return AcceptedConnection{std::move(*Handshake), SharedConn(std::move(Connection))};
     }
 
     /**
@@ -148,17 +195,23 @@ namespace Preview::Socks5
      */
     [[nodiscard]] inline auto AcceptPacket(
         SharedTransmission Upstream,
-        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, Request, SharedDgram>>
+        const ServerConfig &Config)
+        -> Net::awaitable<std::expected<AcceptedDatagram, Preview::Fault::Failure>>
     {
-        auto [ErrorCode, Request, Connection] = co_await Accept(std::move(Upstream), Config);
-        if (ErrorCode != Error::None)
+        auto Accepted = co_await Accept(std::move(Upstream), Config);
+        if (!Accepted)
         {
-            co_return std::tuple{ErrorCode, std::move(Request), SharedDgram{}};
+            co_return std::unexpected(Accepted.error());
         }
-        co_return std::tuple{
-            Error::None,
-            std::move(Request),
-            std::make_shared<Dgram<>>(std::move(Connection))};
+        if (Accepted->RequestValue.Cmd != Command::UdpAssociate)
+        {
+            (void)Accepted->Connection->Close();
+            co_return std::unexpected(
+                Preview::Protocol::Common::FailureFromProtocolError(Error::BadMessage));
+        }
+        co_return AcceptedDatagram{
+            std::move(Accepted->RequestValue),
+            std::make_shared<Dgram<>>(std::move(Accepted->Connection))};
     }
 
 } // namespace Preview::Socks5

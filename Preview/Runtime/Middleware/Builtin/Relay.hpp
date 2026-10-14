@@ -1,421 +1,56 @@
-/**
- * @file Relay.hpp
- * @brief 双向转发中间件
- * @details 在 Inbound 与 Outbound 之间建立双向隧道：
- * Inbound → Outbound（上行）+ Outbound → Inbound（下行）并发执行。
- * 空闲超时自动关闭，结束时上报流量统计。
- * 对应生产库 net/connection/tunnel/tunnel_relay 的中间件化。
- */
-
+/** @file Relay.hpp @brief Runtime 管线只消费唯一 Net 可靠 relay owner。 */
 #pragma once
-
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/error.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
-#include <boost/asio/redirect_error.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <boost/asio/use_awaitable.hpp>
-
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <chrono>
-#include <cstddef>
-#include <exception>
-#include <memory>
-#include <string_view>
-#include <vector>
-
-#include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Foundation/Fault/Handling.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Net/Relay/Relay.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Middleware/Pipeline.hpp>
-#include <Preview/Statistics/Redaction.hpp>
-#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Middleware::Builtin
 {
-
     namespace Net = boost::asio;
-
-    namespace detail
-    {
-
-        inline auto ReportRelayFailure(const std::string_view Name,
-                                       const std::string_view Detail) noexcept -> void
-        {
-            try
-            {
-                const auto Redacted = Preview::Statistics::RedactSensitiveText(Detail);
-                (void)Preview::Diagnose::Trace(
-                    "RelayDirectionFailed Middleware={} Error={}",
-                    Preview::Diagnose::PascalCaseToken(Name), Redacted);
-            }
-            catch (...)
-            {
-            }
-        }
-
-        /**
-         * @struct RelayState
-         * @brief 双向 relay 的共享运行状态
-         * @details 两个方向的协程都持有该对象，确保缓冲区、计数器、定时器和
-         * 关闭标志在所有异步操作完成前保持有效。上下行必须使用不同缓冲区，
-         * 避免一个方向挂起读操作时被另一个方向覆盖数据。
-         */
-        struct RelayState
-        {
-            RelayState(Preview::SharedTransmission in, Preview::SharedTransmission out,
-                        std::size_t BufferSize, std::chrono::milliseconds idle)
-                : Inbound(std::move(in)), Outbound(std::move(out)), UpBuffer(BufferSize),
-                  DownBuffer(BufferSize), IdleTimer(Inbound->Executor()), IdleTimeout(idle)
-            {
-            }
-
-            Preview::SharedTransmission Inbound;
-            Preview::SharedTransmission Outbound;
-            std::vector<std::byte> UpBuffer;
-            std::vector<std::byte> DownBuffer;
-            std::array<std::size_t, 2> Total{0, 0};
-            Net::steady_timer IdleTimer;
-            std::chrono::milliseconds IdleTimeout;
-            std::atomic_size_t CompletedDirections{0};
-            std::atomic_bool closed{false};
-            std::atomic_bool TimedOut{false};
-            std::array<std::error_code, 2> DirectionFault{};
-            std::exception_ptr DirectionError{}; ///< 方向协程异常（诊断用，正常完成时为空）
-        };
-
-        /**
-         * @brief 幂等关闭 relay 两端
-         * @param State relay 共享状态
-         */
-        inline auto CloseRelay(const std::shared_ptr<RelayState> &State) -> void
-        {
-            if (State->closed.exchange(true, std::memory_order_acq_rel))
-            {
-                return;
-            }
-            State->Inbound->Close();
-            State->Outbound->Close();
-            State->IdleTimer.cancel();
-        }
-
-        /**
-         * @brief 记录一个 relay 方向已完成
-         * @param State relay 共享状态
-         */
-        inline auto CompleteDirection(const std::shared_ptr<RelayState> &State) -> void
-        {
-            State->CompletedDirections.fetch_add(1, std::memory_order_release);
-        }
-
-        /**
-         * @brief 重置 relay 空闲计时器
-         * @param State relay 共享状态
-         */
-        inline auto ResetIdleTimer(const std::shared_ptr<RelayState> &State) -> void
-        {
-            if (State->IdleTimeout > std::chrono::milliseconds::zero())
-            {
-                State->IdleTimer.expires_after(State->IdleTimeout);
-            }
-        }
-
-        /**
-         * @brief 执行单向转发（src → dst）
-         * @tparam Idx 方向索引（0 = 上行 Inbound→Outbound，1 = 下行 Outbound→Inbound）
-         * @param State relay 共享状态
-         * @param Name 方向名（异常日志）
-         * @details 上下行唯一差异为方向索引与日志文案，统一实现消除镜像重复。
-         */
-        template <std::size_t Idx>
-        auto RelayDirection(std::shared_ptr<RelayState> State, std::string_view Name)
-            -> Net::awaitable<void>
-        {
-            Preview::SharedTransmission *Source = nullptr;
-            Preview::SharedTransmission *Destination = nullptr;
-            std::vector<std::byte> *Buffer = nullptr;
-            if (Idx == 0)
-            {
-                Source = &State->Inbound;
-                Destination = &State->Outbound;
-                Buffer = &State->UpBuffer;
-            }
-            else
-            {
-                Source = &State->Outbound;
-                Destination = &State->Inbound;
-                Buffer = &State->DownBuffer;
-            }
-            try
-            {
-                while (true)
-                {
-                    std::error_code ReadEc;
-                    const auto N = co_await (*Source)->async_read_some(
-                        std::span<std::byte>(*Buffer), ReadEc);
-                    if (N > Buffer->size())
-                    {
-                        State->DirectionFault[Idx] = Preview::Fault::Code::IoError;
-                        CloseRelay(State);
-                        CompleteDirection(State);
-                        co_return;
-                    }
-                    if (N == 0)
-                    {
-                        // 真实 TCP 将 FIN 映射为 Fault::Code::Eof；它和内存传输的
-                        // 空错误码都表示干净半关闭，不能因此关闭反向数据流。
-                        const bool CleanEof = ReadEc == Preview::Fault::Code::Eof;
-                        if (ReadEc && !CleanEof)
-                        {
-                            State->DirectionFault[Idx] = ReadEc;
-                            CloseRelay(State);
-                        }
-                        else
-                        {
-                            (*Destination)->Shutdown();
-                        }
-                        CompleteDirection(State);
-                        co_return;
-                    }
-                    ResetIdleTimer(State);
-
-                    std::error_code WriteEc;
-                    co_await (*Destination)->AsyncWrite(
-                        std::span<const std::byte>(Buffer->data(), N), WriteEc);
-                    // 流量按实际写入计：写失败不计入，避免错误路径虚增统计
-                    if (!WriteEc)
-                    {
-                        State->Total[Idx] += N;
-                    }
-                    if (WriteEc)
-                    {
-                        State->DirectionFault[Idx] = WriteEc;
-                        CloseRelay(State);
-                        CompleteDirection(State);
-                        co_return;
-                    }
-                    ResetIdleTimer(State);
-
-                    if (ReadEc)
-                    {
-                        const bool CleanEof = ReadEc == Preview::Fault::Code::Eof;
-                        if (CleanEof)
-                        {
-                            (*Destination)->Shutdown();
-                        }
-                        else
-                        {
-                            State->DirectionFault[Idx] = ReadEc;
-                            CloseRelay(State);
-                        }
-                        CompleteDirection(State);
-                        co_return;
-                    }
-                }
-            }
-            catch (const std::exception &e)
-            {
-                State->DirectionError = std::current_exception();
-                ReportRelayFailure(Name, e.what());
-                CloseRelay(State);
-                CompleteDirection(State);
-            }
-            catch (...)
-            {
-                State->DirectionError = std::current_exception();
-                ReportRelayFailure(Name, "unknown");
-                CloseRelay(State);
-                CompleteDirection(State);
-            }
-        }
-
-        /**
-         * @brief 执行上行转发（Inbound → Outbound）
-         * @param State relay 共享状态
-         * @note 转发层：统一实现见 RelayDirection
-         */
-        inline auto RelayUp(const std::shared_ptr<RelayState> &State)
-            -> Net::awaitable<void>
-        {
-            co_await RelayDirection<0>(State, "relay uplink terminated by exception");
-        }
-
-        /**
-         * @brief 执行下行转发（Outbound → Inbound）
-         * @param State relay 共享状态
-         * @note 转发层：统一实现见 RelayDirection
-         */
-        inline auto RelayDown(const std::shared_ptr<RelayState> &State)
-            -> Net::awaitable<void>
-        {
-            co_await RelayDirection<1>(State, "relay downlink terminated by exception");
-        }
-
-        /**
-         * @brief 等待 relay 空闲超时
-         * @param State relay 共享状态
-         */
-        inline auto RelayIdle(const std::shared_ptr<RelayState> &State)
-            -> Net::awaitable<void>
-        {
-            if (State->IdleTimeout <= std::chrono::milliseconds::zero())
-            {
-                Net::steady_timer hold(State->Inbound->Executor());
-                hold.expires_after(std::chrono::hours(24));
-                boost::system::error_code HoldEc;
-                co_await hold.async_wait(Net::redirect_error(Net::use_awaitable, HoldEc));
-                co_return;
-            }
-
-            while (true)
-            {
-                boost::system::error_code TimerEc;
-                co_await State->IdleTimer.async_wait(
-                    Net::redirect_error(Net::use_awaitable, TimerEc));
-                if (TimerEc == Net::error::operation_aborted)
-                {
-                    if (State->closed.load(std::memory_order_acquire) ||
-                        State->CompletedDirections.load(std::memory_order_acquire) == 2)
-                    {
-                        co_return;
-                    }
-                    continue;
-                }
-                State->TimedOut.store(true, std::memory_order_release);
-                CloseRelay(State);
-                co_return;
-            }
-        }
-
-    } // namespace detail
-
     /**
-     * @class RelayMiddleware
-     * @brief 双向转发中间件
-     * @details 消费 ctx.Inbound（客户端侧）并拨号 Outbound（上游侧），
-     * 建立双向隧道。Outbound 由 DialMiddleware 或调用方预置。
-     * @note 本中间件为管线终点（Handle 后隧道运行至关闭）。
+     * @brief 借用管线上下文至 relay 完成并返回完整 Failure。
+     * @details Net relay owner 持有两端，处理取消、双向半关闭与最终关闭；Runtime 只投影 Code 写日志。
+     * @param Inbound 借用的入站传输；relay 完成前不得关闭或替换。
+     * @param ContextValue 借用至 awaitable 完成，提供 owning 出站传输与统计观察目标。
+     * @return 最早方向的领域错误及 Native；成功返回空 Failure。
+     * @note 在入站传输 executor 上运行；取消由调用者 awaitable 传递，Net relay owner 执行最终关闭。
      */
     class RelayMiddleware final : public Middleware
     {
     public:
-        /**
-         * @brief 构造函数
-         * @param Outbound 上游传输（已拨号；可为空，由管线前序注入）
-         * @param IdleTimeout 空闲超时（0 = 禁用）
-         */
         explicit RelayMiddleware(Preview::SharedTransmission Outbound,
-                                  std::chrono::milliseconds IdleTimeout = std::chrono::seconds(300))
-            : Outbound_(std::move(Outbound)), IdleTimeout_(IdleTimeout)
+            std::chrono::milliseconds IdleTimeout = std::chrono::seconds(300))
+            : Outbound_(std::move(Outbound)), IdleTimeout_(IdleTimeout) {}
+        [[nodiscard]] auto Name() const -> std::string_view override { return "relay"; }
+        [[nodiscard]] auto LastTotals() const noexcept -> const std::array<std::size_t, 2>& { return Last_.Total; }
+        [[nodiscard]] auto LastDirectionFailures() const noexcept -> const std::array<Preview::Fault::Failure, 2>&
+        { return Last_.DirectionFailure; }
+        /** @brief 共享传输作为拥有值移交，返回完整最终 Failure；流量观察仅投影已结束结果。 */
+        auto Handle(Preview::SharedTransmission& Inbound, Context& ContextValue)
+            -> Net::awaitable<Preview::Fault::Failure> override
         {
+            auto Outbound = ContextValue.Outbound;
+            if (!Outbound) Outbound = Outbound_;
+            auto Timeout = IdleTimeout_;
+            if (ContextValue.Timeout.count() > 0) Timeout = ContextValue.Timeout;
+            Preview::Foundation::TrafficObservation Observation{
+                ContextValue.Traffic,
+                Preview::Foundation::TrafficEvent{
+                    .Generation = ContextValue.TaskIdentity.Generation,
+                    .Worker = ContextValue.TaskIdentity.WorkerId,
+                    .Session = ContextValue.TaskIdentity.SessionId,
+                    .Stream = ContextValue.TaskIdentity.StreamId,
+                    .Task = ContextValue.TaskIdentity.TaskId,
+                    .Account = ContextValue.DataPlane.AccountId}};
+            Last_ = co_await Preview::Network::Relay::Run(
+                {Inbound, Outbound, ContextValue.BufferSize, Timeout, Observation, ContextValue.Bytes});
+            Observation.Complete(Last_.Failure);
+            co_return Last_.Failure;
         }
-
-        /**
-         * @brief 获取中间件名称
-         */
-        [[nodiscard]] auto Name() const -> std::string_view override
-        {
-            return "relay";
-        }
-
-        /**
-         * @brief 获取最近一次 relay 方向协程异常
-         * @return 异常指针（正常完成/正常半关闭时为空）
-         */
-        [[nodiscard]] auto LastDirectionError() const -> std::exception_ptr
-        {
-            return LastDirectionError_;
-        }
-
-        [[nodiscard]] auto LastTotals() const noexcept -> const std::array<std::size_t, 2> &
-        {
-            return LastTotals_;
-        }
-
-        [[nodiscard]] auto LastDirectionFaults() const noexcept
-            -> const std::array<std::error_code, 2> &
-        {
-            return LastDirectionFaults_;
-        }
-
-        /**
-         * @brief 建立双向隧道并运行至关闭
-         * @param Inbound 入站传输
-         * @param ctx 管线上下文
-         * @return 隧道结束码（success = 正常关闭）
-         */
-        auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
-            -> Net::awaitable<Preview::Fault::Code> override
-        {
-            // 优先使用管线上下文注入的 Outbound（Dial 中间件产出）
-            auto Outbound = Outbound_;
-            if (ctx.Outbound)
-            {
-                Outbound = ctx.Outbound;
-            }
-            if (!Inbound || !Outbound)
-            {
-                co_return Preview::Fault::Code::BadGateway;
-            }
-
-            const auto BufferSize = (std::max)(ctx.BufferSize, std::size_t{2});
-
-            // 空闲超时：ctx.timeout 优先（>0），否则构造参数（0 = 禁用）
-            auto EffectiveTimeout = IdleTimeout_;
-            if (ctx.timeout > std::chrono::milliseconds::zero())
-            {
-                EffectiveTimeout = ctx.timeout;
-            }
-
-            auto State = std::make_shared<detail::RelayState>(Inbound, Outbound, BufferSize,
-                                                               EffectiveTimeout);
-            detail::ResetIdleTimer(State);
-
-            // 正常路径等待上下行都完成；任一方向发生 I/O 错误时由该方向关闭双方。
-            using Net::experimental::awaitable_operators::operator&&;
-            using Net::experimental::awaitable_operators::operator||;
-            co_await ((detail::RelayUp(State) && detail::RelayDown(State)) ||
-                      detail::RelayIdle(State));
-
-            detail::CloseRelay(State);
-
-
-            // 方向协程异常留痕：正常半关闭路径应为空（诊断可观测）
-            LastDirectionError_ = State->DirectionError;
-            LastTotals_ = State->Total;
-            LastDirectionFaults_ = State->DirectionFault;
-
-            if (ctx.traffic)
-            {
-                ctx.traffic->Report(ctx.identity, State->Total[0], State->Total[1]);
-            }
-            if (State->TimedOut.load(std::memory_order_acquire))
-            {
-                co_return Preview::Fault::Code::Timeout;
-            }
-            for (const auto &Ec : State->DirectionFault)
-            {
-                if (Ec)
-                {
-                    co_return Preview::Fault::ToCode(Ec);
-                }
-            }
-            if (State->DirectionError)
-            {
-                co_return Preview::Fault::Code::IoError;
-            }
-            co_return Preview::Fault::Code::Success;
-        }
-
     private:
-        Preview::SharedTransmission Outbound_; ///< 上游传输
-        std::chrono::milliseconds IdleTimeout_;       ///< 空闲超时
-        std::exception_ptr LastDirectionError_{};    ///< 最近一次方向协程异常（诊断用）
-        std::array<std::size_t, 2> LastTotals_{};
-        std::array<std::error_code, 2> LastDirectionFaults_{};
+        Preview::SharedTransmission Outbound_;
+        std::chrono::milliseconds IdleTimeout_;
+        Preview::Network::Relay::Result Last_;
     };
-
-} // namespace Preview::Middleware::Builtin
+}

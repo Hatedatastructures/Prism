@@ -1,0 +1,276 @@
+/**
+ * @file ConnTransport.hpp
+ * @brief SOCKS5 流连接的底层传输 owner
+ * @details 拥有上游传输、握手超读缓冲以及精确读写循环。
+ *          本头不参与 SOCKS5 方法协商、认证或请求语义。
+ */
+
+#pragma once
+
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <span>
+#include <system_error>
+#include <utility>
+
+#include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Memory/Container.hpp>
+#include <Preview/Foundation/Memory/Pointer.hpp>
+#include <Preview/Protocols/Common/ExactIo.hpp>
+#include <Preview/Transport/Detail/IoCompletion.hpp>
+#include <Preview/Transport/Transmission.hpp>
+
+namespace Preview::Socks5
+{
+
+    namespace Net = boost::asio;
+
+    /**
+     * @class ConnTransport
+     * @brief SOCKS5 Conn 的传输和缓冲 owner
+     * @tparam Memory 会话内存策略
+ * @details 所有权从构造函数移交；握手期间底层一次读取的超读字节
+ *          留在本对象，后续 ReadSome 优先消费这些字节。
+     */
+    template <Preview::Memory::Restrict Memory>
+    class ConnTransport final
+    {
+    public:
+        using Completion = Preview::Transport::Detail::IoCompletion;
+
+        explicit ConnTransport(SharedTransmission Upstream, Memory &MemoryValue)
+            : NextLayer_(std::move(Upstream)), Buf_(MemoryValue.Arena())
+        {
+        }
+
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor
+        {
+            if (!NextLayer_)
+            {
+                return {};
+            }
+            return NextLayer_->Executor();
+        }
+
+        /** @brief 预读缓冲优先的部分读取；借用与完成沿正式前门传递。 */
+        [[nodiscard]] auto ReadSome(std::span<std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            if (Used_ > 0)
+            {
+                co_return TakePending(Buffer);
+            }
+            if (!NextLayer_)
+            {
+                co_return Preview::IoResult{0, {Preview::Fault::Code::IoError}};
+            }
+            co_return co_await NextLayer_->ReadSome(Buffer);
+        }
+
+        /** @brief token 形式；命中预读缓冲或上游已释放时异步交付一次结果，否则直接透传底层。 */
+        auto ReadSome(std::span<std::byte> Buffer, Completion Handler) -> void
+        {
+            if (Used_ > 0 || !NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), TakePending(Buffer));
+                return;
+            }
+            NextLayer_->ReadSome(Buffer, std::move(Handler));
+        }
+
+        /** @brief 底层透传写入。 */
+        [[nodiscard]] auto WriteSome(std::span<const std::byte> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            if (!NextLayer_)
+            {
+                co_return Preview::IoResult{0, {Preview::Fault::Code::IoError}};
+            }
+            co_return co_await NextLayer_->WriteSome(Buffer);
+        }
+
+        /** @brief token 形式直接透传底层，不复制 buffer 或吞掉用户取消。 */
+        auto WriteSome(std::span<const std::byte> Buffer, Completion Handler) -> void
+        {
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
+            }
+            NextLayer_->WriteSome(Buffer, std::move(Handler));
+        }
+
+        /** @brief 真实写半关闭沿正式前门转交底层；上游已释放时异步交付失败。 */
+        auto WriteShutdown(Completion Handler) -> void
+        {
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
+            }
+            NextLayer_->WriteShutdown(std::move(Handler));
+        }
+
+        /** @brief 精确读取指定字节数，保留同一次底层读取的超读。 */
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)
+            -> Net::awaitable<Preview::IoResult>
+        {
+            std::size_t Done = 0;
+            while (Done < Buffer.size())
+            {
+                if (Used_ > 0)
+                {
+                    const auto N = std::min(Buffer.size() - Done, Used_);
+                    std::memcpy(Buffer.data() + Done, Buf_.data(), N);
+                    if (N < Used_)
+                    {
+                        std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
+                        Used_ -= N;
+                    }
+                    else
+                    {
+                        Buf_.clear();
+                        Used_ = 0;
+                    }
+                    Done += N;
+                    continue;
+                }
+                if (!NextLayer_)
+                {
+                    co_return Preview::IoResult{
+                        Done, {Preview::Fault::Code::IoError}};
+                }
+                std::array<std::uint8_t, 512> Chunk{};
+                const auto Part = co_await NextLayer_->ReadSome(
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()));
+                if (Part.Bytes > Chunk.size())
+                {
+                    co_return Preview::IoResult{
+                        Done, {Preview::Fault::Code::InvalidArgument, Part.Failure.Native}};
+                }
+                if (Part.Bytes != 0U)
+                {
+                    Buf_.insert(Buf_.end(), Chunk.begin(),
+                                Chunk.begin() + static_cast<std::ptrdiff_t>(Part.Bytes));
+                    Used_ += Part.Bytes;
+                }
+                if (Part.Failure.Failed())
+                {
+                    if (Used_ != 0U)
+                    {
+                        const auto Count = std::min(Buffer.size() - Done, Used_);
+                        std::memcpy(Buffer.data() + Done, Buf_.data(), Count);
+                        Done += Count;
+                        if (Count < Used_)
+                        {
+                            std::memmove(Buf_.data(), Buf_.data() + Count, Used_ - Count);
+                            Used_ -= Count;
+                        }
+                        else
+                        {
+                            Buf_.clear();
+                            Used_ = 0;
+                        }
+                    }
+                    co_return Preview::IoResult{Done, Part.Failure};
+                }
+                if (Part.Bytes == 0U)
+                {
+                    co_return Preview::IoResult{Done,
+                        {Done == 0U ? Preview::Fault::Code::Eof
+                                    : Preview::Fault::Code::BadMessage}};
+                }
+            }
+            co_return Preview::IoResult{Done, {}};
+        }
+
+        /** @brief 循环短写直至全部字节发出。 */
+        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
+            -> Net::awaitable<Preview::IoResult>
+        {
+            co_return co_await Preview::Protocol::Common::WriteAllIo(NextLayer_, Data);
+        }
+
+        [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
+        {
+            return NextLayer_;
+        }
+
+        [[nodiscard]] auto Underlying() const noexcept -> SharedTransmission
+        {
+            return NextLayer_;
+        }
+
+        [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission *
+        {
+            return NextLayer_.get();
+        }
+
+        [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission *
+        {
+            return NextLayer_.get();
+        }
+
+        [[nodiscard]] auto Release() -> SharedTransmission
+        {
+            return std::move(NextLayer_);
+        }
+
+        [[nodiscard]] auto HasUpstream() const noexcept -> bool
+        {
+            return NextLayer_ != nullptr;
+        }
+
+        [[nodiscard]] auto Close() -> Preview::Transmission::ControlResult
+        {
+            if (NextLayer_)
+            {
+                return NextLayer_->Close();
+            }
+            return {};
+        }
+
+        [[nodiscard]] auto Cancel() -> Preview::Transmission::ControlResult
+        {
+            if (NextLayer_)
+            {
+                return NextLayer_->Cancel();
+            }
+            return {};
+        }
+
+    private:
+        /** @brief 消费握手超读缓冲；无缓冲或上游已释放时返回 0 字节与确定的领域失败码。 */
+        [[nodiscard]] auto TakePending(std::span<std::byte> Buffer) -> Preview::IoResult
+        {
+            if (Used_ == 0)
+            {
+                return {0, {Preview::Fault::Code::IoError}};
+            }
+            const auto N = std::min(Buffer.size(), Used_);
+            std::memcpy(Buffer.data(), Buf_.data(), N);
+            if (N < Used_)
+            {
+                std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
+            }
+            else
+            {
+                Buf_.clear();
+            }
+            Used_ -= N;
+            return {N, {}};
+        }
+
+        SharedTransmission NextLayer_;
+        typename Memory::template Buffer<std::uint8_t> Buf_;
+        std::size_t Used_{0};
+    };
+
+} // namespace Preview::Socks5

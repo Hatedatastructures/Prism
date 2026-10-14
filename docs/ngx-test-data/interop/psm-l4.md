@@ -1,5 +1,7 @@
 # L4 生产对拍记录：preview client ↔ 生产 Prism server
 
+> 文档状态说明（2026-10-05）：本文保留原版本的规范、测试数据或对拍记录。路径、完成标记和数字按原记录日期与源码解释；当前 Preview 生产合同、已执行范围和剩余责任见[当前执行状态](../../preview-refactor/2026-10-03-preview-no-compat-status.md)，原结果不作为今日源码全量或互操作通过证明。
+
 > 更新日期：2026-08-20
 > 工具：`tests/preview/integration/InteropPrismL4.cpp`（独立可执行，非 gtest，已注册 `InteropPrismL4` target）
 > 服务端：生产 `build/src/Prism.exe` + 临时配置（监听 127.0.0.1:18081，关闭 hysteria2/tuic 规避 PE 重定位溢出）。该配置含本机测试凭据，每次对拍临时生成、测完即删，不入库。

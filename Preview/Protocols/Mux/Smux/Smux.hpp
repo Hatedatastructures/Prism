@@ -14,12 +14,12 @@
 #include <utility>
 
 // clang-format off
-#include <Preview/Protocols/Mux/Smux/Codec.hpp>
+#include <Preview/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
 #include <Preview/Protocols/Mux/Smux/Client.hpp>
 #include <Preview/Protocols/Mux/Smux/Server.hpp>
 #include <Preview/Protocols/Mux/Smux/Session.hpp>
 #include <Preview/Protocols/Mux/Stream.hpp>
-#include <Preview/Protocols/Mux/Smux/Types.hpp>
+#include <Preview/Protocols/Mux/Smux/Detail/Wire/Types.hpp>
 // clang-format on
 
 namespace Preview::Mux::Smux
@@ -39,9 +39,9 @@ namespace Preview::Mux::Smux
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
     [[nodiscard]] inline auto Connect(
         SharedTransmission Upstream,
-        const SessionOptions &Options = {}) -> Mux::Client<Codec, Memory>
+        const SessionOptions &Options = {}) -> Mux::Client<Detail::Codec, Memory>
     {
-        return Mux::Connect<Codec, Memory>(std::move(Upstream), Options);
+        return Mux::Connect<Detail::Codec, Memory>(std::move(Upstream), Options);
     }
 
     /**
@@ -54,9 +54,9 @@ namespace Preview::Mux::Smux
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
     [[nodiscard]] inline auto Accept(
         SharedTransmission Upstream,
-        const SessionOptions &Options = {}) -> Mux::Server<Codec, Memory>
+        const SessionOptions &Options = {}) -> Mux::Server<Detail::Codec, Memory>
     {
-        return Mux::Accept<Codec, Memory>(std::move(Upstream), Options);
+        return Mux::Accept<Detail::Codec, Memory>(std::move(Upstream), Options);
     }
 
 } // namespace Preview::Mux::Smux

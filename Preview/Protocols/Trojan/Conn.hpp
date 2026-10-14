@@ -13,7 +13,6 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -22,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <span>
@@ -31,10 +31,12 @@
 #include <utility>
 #include <vector>
 
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Account/Authenticator.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Protocols/Common/Address.hpp>
+#include <Preview/Protocols/Common/ExactIo.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Trojan/Codec.hpp>
 #include <Preview/Protocols/Trojan/Types.hpp>
@@ -53,27 +55,22 @@ namespace Preview::Trojan
      * 由工厂（Connect / Accept）创建，调用方以 shared_ptr 持有。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Conn : public Preview::Transmission, public std::enable_shared_from_this<Conn<Memory>>
+    class Conn : public Preview::Transmission
     {
     public:
         /**
          * @brief 构造函数（工厂调用）
          * @param Upstream 上游传输（所有权移交）
          * @param Password 协议密码（派生 SHA224 hex 凭据）
-         * @param Auth 认证器（旧兼容裸指针；nullptr = 静态比对 password）
-         * @param AuthOwner 认证器共享所有权（可选）
+         * @param AuthOwner 认证器共享所有权
          */
         explicit Conn(
             SharedTransmission Upstream,
             std::string Password,
-            const Preview::Authenticator *Auth = nullptr,
             Preview::SharedAuthenticator AuthOwner = {})
-            : NextLayer_(std::move(Upstream)), AuthOwner_(std::move(AuthOwner)), Auth_(Auth)
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Upstream)), AuthOwner_(std::move(AuthOwner))
         {
-            if (AuthOwner_)
-            {
-                Auth_ = AuthOwner_.get();
-            }
             Cred_ = Credential(Password);
         }
 
@@ -84,147 +81,91 @@ namespace Preview::Trojan
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
 
         /**
-         * @brief 异步读取（预读缓冲优先）
-         * @param Buffer 接收缓冲区
-         * @param ErrorCode 错误码输出参数
-         * @return 实际读取字节数
+         * @brief 预读缓冲优先的部分读；结果与借用沿正式前门交付一次
+         * @param Buffer 接收缓冲区（借用到 completion 返回）
+         * @param Handler 正式完成；命中预读缓冲或上游已释放时异步交付
          * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
-            if (Used_ > 0)
+            if (Used_ > 0 || !NextLayer_)
             {
-                const auto N = std::min(Buffer.size(), Used_);
-                std::memcpy(Buffer.data(), Buf_.data(), N);
-                if (N < Used_)
-                {
-                    std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
-                }
-                else
-                {
-                    Buf_.clear();
-                }
-                Used_ -= N;
-                co_return N;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), TakePending(Buffer));
+                return;
             }
+            const auto Limit = Buffer.size();
+            NextLayer_->ReadSome(
+                Buffer,
+                [Limit, Handler = std::move(Handler)](Preview::IoResult Result) mutable
+                {
+                    if (Result.Bytes > Limit)
+                    {
+                        Result = {0, Preview::Fault::FromNative(
+                                        Preview::make_error_code(Error::BrokenPipe))};
+                    }
+                    Handler(std::move(Result));
+                });
+        }
+
+        /**
+         * @brief 底层透传写入，保持短写语义
+         */
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        {
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            const auto Limit = Buffer.size();
+            NextLayer_->WriteSome(
+                Buffer,
+                [Limit, Handler = std::move(Handler)](Preview::IoResult Result) mutable
+                {
+                    if (Result.Bytes > Limit)
+                    {
+                        Result = {0, Preview::Fault::FromNative(
+                                        Preview::make_error_code(Error::BrokenPipe))};
+                    }
+                    Handler(std::move(Result));
+                });
         }
 
-        /**
-         * @brief 异步写入（静态分派透传）
-         */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        /** @brief 真实写半关闭转交底层载体；读取方向保持可用。 */
+        auto StartWriteShutdown(Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            NextLayer_->WriteShutdown(std::move(Handler));
         }
 
-        /**
-         * @brief 异步读取直至缓冲区读满（组合操作）
-         * @param Buffer 接收缓冲区
-         * @param ErrorCode 错误码输出参数
-         * @return 实际读取字节数（满 = Buffer.size()；EOF 提前返回）
-         */
-        [[nodiscard]] auto AsyncRead(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
-        {
-            std::size_t Done = 0;
-            while (Done < Buffer.size())
-            {
-                const auto N = co_await async_read_some(Buffer.subspan(Done), ErrorCode);
-                if (ErrorCode)
-                {
-                    co_return Done;
-                }
-                if (N == 0)
-                {
-                    co_return Done;
-                }
-                if (N > Buffer.size() - Done)
-                {
-                    ErrorCode = make_error_code(Error::BrokenPipe);
-                    co_return Done;
-                }
-                Done += N;
-            }
-            co_return Done;
-        }
-
-        /**
-         * @brief 异步写入直至缓冲区写满（组合操作）
-         * @param Buffer 发送缓冲区
-         * @param ErrorCode 错误码输出参数
-         * @return 实际写入字节数（满 = Buffer.size()）
-         */
-        [[nodiscard]] auto AsyncWrite(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
-        {
-            std::size_t Done = 0;
-            while (Done < Buffer.size())
-            {
-                const auto N = co_await async_write_some(Buffer.subspan(Done), ErrorCode);
-                if (ErrorCode)
-                {
-                    co_return Done;
-                }
-                if (N == 0)
-                {
-                    ErrorCode = make_error_code(Error::BrokenPipe);
-                    co_return Done;
-                }
-                if (N > Buffer.size() - Done)
-                {
-                    ErrorCode = make_error_code(Error::BrokenPipe);
-                    co_return Done;
-                }
-                Done += N;
-            }
-            co_return Done;
-        }
-
-        /**
-         * @brief 关闭传输层（静态分派）
-         */
-        auto Close() -> void override
+        /** @brief 封止并交付底层关闭；实际退出由 Activity()->Drain() 另行等待。 */
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Close();
+                return NextLayer_->Close();
             }
+            return {};
         }
 
-        /**
-         * @brief 取消挂起操作（静态分派）
-         */
-        auto Cancel() -> void override
+        /** @brief 可重复取消底层 I/O；成功不表示连接已关闭。 */
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Cancel();
+                return NextLayer_->Cancel();
             }
+            return {};
         }
 
         /**
@@ -291,24 +232,24 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto WriteHandshake(
             const Address &Target,
-            Command Cmd = Command::Connect) -> Net::awaitable<Error>
+            Command Cmd = Command::Connect) -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (Cmd != Command::Connect && Cmd != Command::UdpAssociate && Cmd != Command::Mux)
             {
-                co_return Error::BadMessage;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::BadMessage));
             }
             const auto Wire = BuildRequest(Cred_, Cmd, Target);
             if (Wire.empty())
             {
-                co_return Error::BadAddress;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::BadAddress));
             }
-            const bool Failed = co_await SendBytes(Wire); // true = 发送失败
-            Handshaken_ = !Failed;
-            if (Failed)
+            const auto Written = co_await Preview::Protocol::Common::WriteAllIo(NextLayer_, Wire);
+            if (Written.Failure.Failed())
             {
-                co_return Error::IoError;
+                co_return std::unexpected(Preview::Protocol::Common::FailureFromIo(Written));
             }
-            co_return Error::None;
+            Handshaken_ = true;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
         /**
@@ -322,69 +263,73 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto ReadHandshake(bool EnableTcp = true, bool EnableUdp = false,
                                          bool EnableMux = true)
-            -> Net::awaitable<std::pair<Error, RequestHeader>>
+            -> Net::awaitable<std::expected<RequestHeader, Preview::Fault::Failure>>
         {
             Parser RequestParser("");
-            RequestParser.SetCredential(Cred_, Auth_ == nullptr);
+            RequestParser.SetCredential(Cred_, !AuthOwner_);
             std::error_code ParseError;
             const auto NeedMore = make_error_code(Error::NeedMore);
             while (!RequestParser.IsDone())
             {
                 std::array<std::uint8_t, 1> Byte{};
-                if (co_await ReadExactImpl(std::span<std::uint8_t>(Byte)))
+                const auto Read = co_await Preview::Protocol::Common::ReadExactIo(NextLayer_, Byte);
+                if (Read.Failure.Failed())
                 {
-                    co_return std::pair{Error::IoError, RequestHeader{}};
+                    co_return std::unexpected(Preview::Protocol::Common::FailureFromIo(Read));
                 }
                 ParseError.clear();
                 RequestParser.Put(Net::const_buffer(Byte.data(), Byte.size()), ParseError);
                 if (ParseError && ParseError != NeedMore)
                 {
                     const auto ParserError = static_cast<Error>(ParseError.value());
-                    co_return std::pair{
-                        ParserError == Error::AuthFailed ? Error::BadAuth : ParserError,
-                        RequestHeader{}};
+                    co_return std::unexpected(
+                        Preview::Protocol::Common::FailureFromProtocolError(ParserError));
                 }
             }
 
             const auto Parsed = RequestParser.Get();
-            const auto Cmd = Parsed.cmd;
+            const auto Cmd = Parsed.Cmd;
             if (Cmd == Command::Mux && !EnableMux)
             {
-                co_return std::pair{Error::NotSupported, RequestHeader{}};
+                co_return std::unexpected(
+                    Preview::Protocol::Common::FailureFromProtocolError(Error::Unsupported));
             }
             if (Cmd == Command::Connect && !EnableTcp)
             {
-                co_return std::pair{Error::NotSupported, RequestHeader{}};
+                co_return std::unexpected(
+                    Preview::Protocol::Common::FailureFromProtocolError(Error::Unsupported));
             }
             if (Cmd == Command::UdpAssociate && !EnableUdp)
             {
-                co_return std::pair{Error::NotSupported, RequestHeader{}};
+                co_return std::unexpected(
+                    Preview::Protocol::Common::FailureFromProtocolError(Error::Unsupported));
             }
 
-            if (Auth_)
+            if (const auto *Authenticator = AuthOwner_.get())
             {
                 const auto CredentialValue = RequestParser.CredentialValue();
-                auto AuthenticationResult = Auth_->Authenticate(Preview::AuthenticationRequest{
+                auto AuthenticationResult = Authenticator->Authenticate(Preview::AuthenticationRequest{
                     .AccountId = {},
                     .Identity = {},
                     .Credential = Preview::Account::CredentialView::Token(CredentialValue),
                     .Rate = {}});
-                if (!AuthenticationResult.Accepted)
+                if (!AuthenticationResult)
                 {
-                    co_return std::pair{Error::BadAuth, RequestHeader{}};
+                    co_return std::unexpected(
+                        Preview::Protocol::Common::FailureFromProtocolError(Error::BadAuth));
                 }
-                AuthLease_ = std::move(AuthenticationResult.Lease);
-                AccountId_ = AuthenticationResult.AccountId;
-                Identity_ = std::move(AuthenticationResult.Identity);
+                AuthLease_ = std::move(*AuthenticationResult);
+                AccountId_ = AuthLease_.AccountId();
+                Identity_ = std::string(AuthLease_.Identity());
             }
 
             RequestHeader RequestValue;
             RequestValue.Cmd = Cmd;
-            RequestValue.Target = Parsed.dst;
+            RequestValue.Target = Parsed.Target;
 
             Request_ = RequestValue;
             Handshaken_ = true;
-            co_return std::pair{Error::None, std::move(RequestValue)};
+            co_return RequestValue;
         }
 
         /**
@@ -417,18 +362,52 @@ namespace Preview::Trojan
             return Identity_;
         }
 
-        /**
-         * @brief 精确分段读取（供包连接复用预读缓冲）
-         * @param Buffer 目标缓冲区
-         * @return true = 失败（EOF / 底层错误）
-         */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)
-            -> Net::awaitable<bool>
+    private:
+        /** @brief 预读缓冲优先的真实部分读；内部精确读与协议前门共用同一实现。 */
+        [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer) -> Net::awaitable<Preview::IoResult>
         {
-            return ReadExactImpl(Buffer);
+            if (Used_ > 0)
+            {
+                co_return TakePending(Buffer);
+            }
+            if (!NextLayer_)
+            {
+                co_return Preview::IoResult{0, {Preview::Fault::Code::IoError}};
+            }
+            co_return co_await NextLayer_->ReadSome(Buffer);
         }
 
-    private:
+        /** @brief 底层透传的真实部分写；失败与短写语义由底层定义。 */
+        [[nodiscard]] auto WritePartial(std::span<const std::byte> Buffer) -> Net::awaitable<Preview::IoResult>
+        {
+            if (!NextLayer_)
+            {
+                co_return Preview::IoResult{0, {Preview::Fault::Code::IoError}};
+            }
+            co_return co_await NextLayer_->WriteSome(Buffer);
+        }
+
+        /** @brief 消费预读缓冲；无缓冲或上游已释放时返回 0 字节与确定的领域失败码。 */
+        [[nodiscard]] auto TakePending(std::span<std::byte> Buffer) -> Preview::IoResult
+        {
+            if (Used_ == 0)
+            {
+                return {0, {Preview::Fault::Code::IoError}};
+            }
+            const auto N = std::min(Buffer.size(), Used_);
+            std::memcpy(Buffer.data(), Buf_.data(), N);
+            if (N < Used_)
+            {
+                std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
+            }
+            else
+            {
+                Buf_.clear();
+            }
+            Used_ -= N;
+            return {N, {}};
+        }
+
         /**
          * @brief 读取地址体（ATYP 已由调用方解析）
          * @param Output 输出地址
@@ -437,7 +416,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto ReadAddressBody(Address &Output) -> Net::awaitable<Error>
         {
-            return Preview::Protocol::Common::ReadAddressBody(
+            return Preview::Trojan::ReadAddressBody(
                 Output,
                 [this](std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
                 {
@@ -479,19 +458,18 @@ namespace Preview::Trojan
                     co_return true;
                 }
                 std::array<std::uint8_t, 512> Chunk{};
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()), ErrorCode);
-                if (ErrorCode || N == 0)
+                const auto Part = co_await NextLayer_->ReadSome(
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()));
+                if (Part.Failure.Failed() || Part.Bytes == 0)
                 {
                     co_return true;
                 }
-                if (N > Chunk.size())
+                if (Part.Bytes > Chunk.size())
                 {
                     co_return true;
                 }
-                Buf_.insert(Buf_.end(), Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(N));
-                Used_ += N;
+                Buf_.insert(Buf_.end(), Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(Part.Bytes));
+                Used_ += Part.Bytes;
             }
             co_return false;
         }
@@ -511,25 +489,22 @@ namespace Preview::Trojan
                 {
                     co_return true;
                 }
-                std::error_code ErrorCode;
-                ErrorCode.clear();
-                const auto N = co_await NextLayer_->async_write_some(
+                const auto Part = co_await NextLayer_->WriteSome(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data() + Done),
-                                               Data.size() - Done),
-                    ErrorCode);
-                if (ErrorCode)
+                                               Data.size() - Done));
+                if (Part.Failure.Failed())
                 {
                     co_return true;
                 }
-                if (N == 0)
+                if (Part.Bytes == 0)
                 {
                     co_return true; // 底层零字节写入，防死循环
                 }
-                if (N > Data.size() - Done)
+                if (Part.Bytes > Data.size() - Done)
                 {
                     co_return true;
                 }
-                Done += N;
+                Done += Part.Bytes;
             }
             co_return false;
         }
@@ -537,7 +512,6 @@ namespace Preview::Trojan
         SharedTransmission NextLayer_;              ///< 上游传输（基类传参，运行时多态）
         std::string Cred_;                            ///< 预计算凭据（SHA224 hex）
         Preview::SharedAuthenticator AuthOwner_{}; ///< 认证器共享所有权
-        const Preview::Authenticator *Auth_{nullptr}; ///< 认证器（兼容裸指针）
         Preview::Account::AccountLease AuthLease_{}; ///< 协议认证租约
         Preview::AccountId AccountId_{};              ///< typed 账户身份
         std::string Identity_{};                      ///< 非敏感身份文本

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Preview::Diagnose
@@ -52,6 +53,9 @@ namespace Preview::Diagnose
          */
         void Record(std::uint64_t Value)
         {
+            auto Previous = ObservedMaximum_.load(std::memory_order_relaxed);
+            while (Value > Previous && !ObservedMaximum_.compare_exchange_weak(Previous, Value,
+                       std::memory_order_relaxed, std::memory_order_relaxed)) {}
             Buckets_[BucketOf(Value)].fetch_add(1, std::memory_order_relaxed);
         }
 
@@ -70,14 +74,24 @@ namespace Preview::Diagnose
             return Total;
         }
 
+        /** @brief 仅在 owner 确认没有并发 Record 后清空本代分布。 */
+        auto Reset() noexcept -> void
+        {
+            for (std::size_t I = 0; I < BucketCount_; ++I)
+            {
+                Buckets_[I].store(0U, std::memory_order_relaxed);
+            }
+            ObservedMaximum_.store(0U, std::memory_order_relaxed);
+        }
+
         /**
          * @brief 查询指定百分位所在桶的代表值。
          * @param Percent 百分位，范围为 (0, 100]；范围外的值返回 0。
-         * @return 对应桶的代表值；没有记录时返回 0。请求 100 百分位时返回配置上限。
+         * @return nearest-rank所在桶的下边界（近似），P100返回真实观察最大值；无记录返回0。
          */
         [[nodiscard]] auto Percentile(double Percent) const -> std::uint64_t
         {
-            if (Percent <= 0 || Percent > 100)
+            if (!std::isfinite(Percent) || Percent <= 0 || Percent > 100)
             {
                 return 0;
             }
@@ -86,17 +100,22 @@ namespace Preview::Diagnose
             {
                 return 0;
             }
-            const auto Target = static_cast<std::uint64_t>(static_cast<double>(Total) * Percent / 100.0);
+            if (Percent == 100) return ObservedMaximum_.load(std::memory_order_relaxed);
+            const auto Rank = std::ceil(static_cast<long double>(Total) *
+                                       static_cast<long double>(Percent) / 100.0L);
+            auto Target = Total;
+            if (Rank < static_cast<long double>(Total)) Target = static_cast<std::uint64_t>(Rank);
+            if (Target == 0) Target = 1;
             std::uint64_t Cumulative = 0;
             for (std::size_t I = 0; I < BucketCount_; ++I)
             {
                 Cumulative += Buckets_[I].load(std::memory_order_relaxed);
-                if (Cumulative > Target)
+                if (Cumulative >= Target)
                 {
                     return BucketValue(I);
                 }
             }
-            return MaxValue_;
+            return ObservedMaximum_.load(std::memory_order_relaxed);
         }
 
         /**
@@ -147,8 +166,9 @@ namespace Preview::Diagnose
             return (std::uint64_t{1} << (Index - 1));
         }
 
-        std::uint64_t MaxValue_{1};                             ///< 封顶值
-        std::size_t BucketCount_{0};                            ///< 桶数
+        std::uint64_t MaxValue_{1}; ///< 封顶值
+        std::atomic<std::uint64_t> ObservedMaximum_{0}; ///< 真实观察最大值，不以配置上限替代样本。
+        std::size_t BucketCount_{0}; ///< 桶数
         std::unique_ptr<std::atomic<std::uint64_t>[]> Buckets_; ///< 原子桶
     };
 
@@ -204,7 +224,7 @@ namespace Preview::Diagnose
                 if (Last == Uninit)
                 {
                     if (LastRead_.compare_exchange_weak(Last, Now, std::memory_order_acq_rel,
-                                                        std::memory_order_acquire))
+                            std::memory_order_acquire))
                     {
                         Release();
                         return 0.0;
@@ -219,7 +239,7 @@ namespace Preview::Diagnose
                 }
                 const auto Previous = Last;
                 if (!LastRead_.compare_exchange_weak(Last, Now, std::memory_order_acq_rel,
-                                                     std::memory_order_acquire))
+                        std::memory_order_acquire))
                 {
                     continue;
                 }
@@ -242,10 +262,10 @@ namespace Preview::Diagnose
         }
 
     private:
-        std::uint64_t WindowMs_{1000};                         ///< 窗口（毫秒）
-        mutable std::atomic<std::uint64_t> Sum_{0};            ///< 上次读取后的增量计数
-        mutable std::atomic<std::uint64_t> LastRead_;          ///< 上次读取时间
-        mutable std::atomic<double> Rate_{0.0};                ///< 当前 EWMA 速率
+        std::uint64_t WindowMs_{1000}; ///< 窗口（毫秒）
+        mutable std::atomic<std::uint64_t> Sum_{0}; ///< 上次读取后的增量计数
+        mutable std::atomic<std::uint64_t> LastRead_; ///< 上次读取时间
+        mutable std::atomic<double> Rate_{0.0}; ///< 当前 EWMA 速率
         mutable std::atomic_flag Updating_ = ATOMIC_FLAG_INIT; ///< 读取更新标志
     };
 
@@ -256,6 +276,12 @@ namespace Preview::Diagnose
      */
     class SampleTracer
     {
+        struct SampleSlot final
+        {
+            std::atomic_flag Editing = ATOMIC_FLAG_INIT;
+            std::atomic<std::uint64_t> Sequence{0};
+            std::atomic<std::uint64_t> Value{0};
+        };
     public:
         static constexpr std::size_t MaxRingSize = 1U << 16; ///< 采样环允许的最大容量。
 
@@ -289,8 +315,15 @@ namespace Preview::Diagnose
             {
                 return;
             }
-            const auto Slot = WriteIdx_.fetch_add(1, std::memory_order_relaxed) & (RingSize_ - 1);
-            Ring_[Slot].store(Value, std::memory_order_relaxed);
+            const auto Ticket = ReserveTicket();
+            if (!Ticket) { Dropped_.fetch_add(1, std::memory_order_relaxed); return; }
+            auto& Slot = Ring_[*Ticket & (RingSize_ - 1)];
+            if (Slot.Editing.test_and_set(std::memory_order_acquire))
+            { Dropped_.fetch_add(1, std::memory_order_relaxed); return; }
+            Slot.Sequence.store(0, std::memory_order_release);
+            Slot.Value.store(Value, std::memory_order_release);
+            Slot.Sequence.store(*Ticket + 1, std::memory_order_release);
+            Slot.Editing.clear(std::memory_order_release);
             Sampled_.fetch_add(1, std::memory_order_relaxed);
         }
 
@@ -331,26 +364,60 @@ namespace Preview::Diagnose
         }
 
         /**
-         * @brief 按从新到旧的顺序复制最多 8 个环槽位。
+         * @brief 按从新到旧的顺序复制最多8个实际已发布样本。
          * @param Output 接收样本值的固定长度数组。
-         * @return 写入 Output 的槽位数，即 min(8, Capacity())；该值不表示有效样本数。
-         * @note 尚未写入过的槽位值为 0。需要判断有效样本数量时，结合 SampledCount() 计算。
+         * @return 实际写入数量；未发布或被并发改写的槽跳过，不用默认零值虚构样本。
+         * @note 并发读取是有界近似快照；合法零样本仍有非零发布序号。
          */
-        [[nodiscard]] auto Drain(std::array<std::uint64_t, 8> &Output) const -> std::size_t
+        [[nodiscard]] auto Drain(std::array<std::uint64_t, 8>& Output) const -> std::size_t
         {
             const auto Written = WriteIdx_.load(std::memory_order_relaxed);
             std::size_t N = 0;
-            for (std::size_t I = 0; I < 8 && I < RingSize_; ++I)
+            for (std::size_t I = 0; N < Output.size() && I < RingSize_ && I < Written; ++I)
             {
-                const auto Index = (Written + RingSize_ - 1 - I) & (RingSize_ - 1);
-                Output[N] = Ring_[Index].load(std::memory_order_relaxed);
+                const auto Expected = Written - I;
+                const auto& Slot = Ring_[(Expected - 1) & (RingSize_ - 1)];
+                const auto Before = Slot.Sequence.load(std::memory_order_acquire);
+                if (Before != Expected) continue;
+                const auto Value = Slot.Value.load(std::memory_order_acquire);
+                if (Slot.Sequence.load(std::memory_order_acquire) != Before) continue;
+                Output[N] = Value;
                 ++N;
             }
             return N;
         }
 
+        /** @brief 仅在所属聚合 executor 没有并发 Sample/Drain 时重置代次样本环。 */
+        auto Reset() noexcept -> void
+        {
+            Counter_.store(0U, std::memory_order_relaxed);
+            Sampled_.store(0U, std::memory_order_relaxed);
+            WriteIdx_.store(0U, std::memory_order_relaxed);
+            Dropped_.store(0U, std::memory_order_relaxed);
+            for (std::size_t Index = 0; Index < RingSize_; ++Index)
+            {
+                Ring_[Index].Sequence.store(0U, std::memory_order_relaxed);
+                Ring_[Index].Value.store(0U, std::memory_order_relaxed);
+                Ring_[Index].Editing.clear(std::memory_order_release);
+            }
+        }
+
+        /** @brief 原子门闩竞争或序号耗尽导致的真实观察丢弃，与业务错误分离。 */
+        [[nodiscard]] auto DroppedCount() const noexcept -> std::uint64_t
+        { return Dropped_.load(std::memory_order_relaxed); }
+
     private:
         static constexpr std::size_t DefaultRingSize = 256; ///< 容量参数无效时采用的默认槽位数。
+
+        /** @brief 有限CAS预约单调采样序号；耗尽不回绕，竞争不足直接计观察丢弃。 */
+        [[nodiscard]] auto ReserveTicket() noexcept -> std::optional<std::uint64_t>
+        {
+            auto Current = WriteIdx_.load(std::memory_order_relaxed);
+            for (unsigned Attempt = 0; Attempt < 4 && Current != UINT64_MAX; ++Attempt)
+                if (WriteIdx_.compare_exchange_strong(Current, Current + 1, std::memory_order_relaxed))
+                    return Current;
+            return std::nullopt;
+        }
 
         /**
          * @brief 将请求的容量规范化为支持按位取模的 2 的幂。
@@ -366,12 +433,13 @@ namespace Preview::Diagnose
             return (std::min)(Size, MaxRingSize);
         }
 
-        std::uint64_t Ratio_{1};                       ///< 采样分母
-        std::size_t RingSize_{DefaultRingSize};        ///< 环容量
-        std::vector<std::atomic<std::uint64_t>> Ring_; ///< 样本环
-        std::atomic<std::uint64_t> Counter_{0};        ///< 观测计数
-        std::atomic<std::uint64_t> WriteIdx_{0};       ///< 写索引
-        std::atomic<std::uint64_t> Sampled_{0};        ///< 已采样数
+        std::uint64_t Ratio_{1}; ///< 采样分母
+        std::size_t RingSize_{DefaultRingSize}; ///< 环容量
+        std::vector<SampleSlot> Ring_; ///< 带发布序号的有界样本环。
+        std::atomic<std::uint64_t> Counter_{0}; ///< 观测计数
+        std::atomic<std::uint64_t> WriteIdx_{0}; ///< 写索引
+        std::atomic<std::uint64_t> Sampled_{0}; ///< 已采样数
+        std::atomic<std::uint64_t> Dropped_{0}; ///< 未形成真实样本的观察失败。
     };
 
 } // namespace Preview::Diagnose

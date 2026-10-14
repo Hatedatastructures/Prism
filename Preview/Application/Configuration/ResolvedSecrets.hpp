@@ -48,6 +48,7 @@ namespace Preview::Application::Configuration
 
     private:
         friend class GenerationBuilder;
+        friend class SecretResolutionTransaction;
 
         auto Add(std::string Reference, Preview::Account::SecureBytes Value) -> void
         {

@@ -37,14 +37,8 @@ namespace Preview
         BadMagic,
         /// 认证失败（口令 / UUID / 握手校验）
         BadAuth,
-        /// 认证失败（BeastTest 兼容别名）
-        AuthFailed,
-        /// 版本不匹配（BeastTest 兼容别名）
-        VersionMismatch,
-        /// 不支持的特性（BeastTest 兼容别名）
-        NotSupported,
         /// 消息语义非法（枚举值越界 / 标志位冲突）
-        BadMessage,
+        BadMessage = 9,
         /// 目标地址非法（地址族 / 解析失败）
         BadAddress,
         /// 流未打开即执行读写
@@ -88,9 +82,6 @@ namespace Preview
                 case Error::BadLength: return "bad Message length";
                 case Error::BadMagic: return "bad magic or version";
                 case Error::BadAuth: return "authentication Failed";
-                case Error::AuthFailed: return "authentication Failed";
-                case Error::VersionMismatch: return "version mismatch";
-                case Error::NotSupported: return "not supported";
                 case Error::BadMessage: return "malformed Message";
                 case Error::BadAddress: return "invalid Target Address";
                 case Error::NotOpen: return "Stream not Open";

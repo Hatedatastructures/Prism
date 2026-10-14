@@ -3,7 +3,7 @@
  * @brief VMess 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
- *   Accept / AcceptPacket（服务端）——握手在工厂内部完成
+ *   AcceptSession（服务端唯一握手入口）——握手在工厂内部完成
  * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
  * - 连接：Conn（流，Conn.hpp，chunk 加解密数据面）、
  *   Dgram（包，Dgram.hpp，chunk 即包）
@@ -11,18 +11,22 @@
  */
 
 #pragma once
-
 #include <boost/asio/awaitable.hpp>
 
 #include <array>
 #include <cstddef>
+#include <exception>
+#include <expected>
 #include <memory>
-#include <tuple>
 #include <utility>
+#include <variant>
 
 #include <Preview/Foundation/Error.hpp>
-#include <Preview/Foundation/Authenticator.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Contract/Ingress/InboundAdmission.hpp>
+#include <Preview/Account/Authenticator.hpp>
 #include <Preview/Transport/Transmission.hpp>
+#include <Preview/Protocols/Common/ExactIo.hpp>
 #include <Preview/Protocols/Vmess/Codec.hpp>
 #include <Preview/Protocols/Vmess/Conn.hpp>
 #include <Preview/Protocols/Vmess/Dgram.hpp>
@@ -32,6 +36,23 @@ namespace Preview::Vmess
 {
 
     namespace Net = boost::asio;
+
+    /** @brief 服务端认证后唯一拥有请求与流连接的结果。 */
+    struct AcceptedConnection final
+    {
+        Message Request;
+        SharedConn Connection;
+    };
+
+    /** @brief 服务端 UDP command 接受结果。 */
+    struct AcceptedDatagram final
+    {
+        Message Request;
+        SharedDgram Connection;
+    };
+
+    /** @brief 一次 VMess server handshake 的唯一有线会话结果。 */
+    using AcceptedSession = std::variant<AcceptedConnection, AcceptedDatagram>;
 
     // =========================================================================
     // 配置（客户端与服务端字段分开定义）
@@ -57,8 +78,6 @@ namespace Preview::Vmess
     {
         /// 客户端 UUID（16 字节，握手校验用）
         std::array<std::uint8_t, 16> uuid{};
-        /// 认证器（旧 codec 入口仍可使用；运行时握手调用 typed Authenticate）
-        const Preview::Authenticator *Authenticator{nullptr};
         /// 认证器共享所有权
         Preview::SharedAuthenticator AuthenticatorOwner{};
         /// 是否允许 UDP command（false 时在发送握手响应前拒绝）
@@ -66,15 +85,6 @@ namespace Preview::Vmess
         /// 是否允许 MUX command
         bool EnableMux = true;
 
-        [[nodiscard]] auto ResolveAuthenticator() const noexcept
-            -> const Preview::Authenticator *
-        {
-            if (AuthenticatorOwner)
-            {
-                return AuthenticatorOwner.get();
-            }
-            return Authenticator;
-        }
     };
 
     /**
@@ -87,7 +97,7 @@ namespace Preview::Vmess
         SharedTransmission Upstream;
         const ClientConfig &Config;
         const Address &Target;
-        std::uint8_t Cmd{static_cast<std::uint8_t>(Command::Tcp)};
+        Command Cmd{Command::Tcp};
     };
 
     // =========================================================================
@@ -97,38 +107,62 @@ namespace Preview::Vmess
     /**
      * @brief 创建客户端流连接并完成 AEAD 握手
      * @param Params 客户端连接装配参数
-     * @return 错误码与协议连接（失败时连接为空）
+     * @return 成功时返回协议连接；失败时返回保留首个原生原因的 Failure
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> Net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::expected<SharedConn, Preview::Fault::Failure>>
     {
-        auto C = std::make_shared<Conn<>>(Params.Config.uuid);
-        const auto Err = co_await C->WriteHandshake(std::move(Params.Upstream), Params.Target, Params.Cmd);
-        SharedConn Conn;
-        if (Err == Error::None)
+        if (!Params.Upstream)
         {
-            Conn = SharedConn(std::move(C));
+            co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::NotOpen));
         }
-        else
+        /** @brief 预预约进入协议工厂的 carrier 失败退休，不替代 listener 入口准入。 */
+        auto Prepared = co_await Preview::Contract::InboundAdmission::Prepare(Params.Upstream);
+        if (!Prepared)
         {
-            Conn = SharedConn{};
+            co_return std::unexpected(Prepared.error());
         }
-        co_return std::pair{Err, std::move(Conn)};
-    }
-
-    /**
-     * @brief 使用默认 TCP 命令创建客户端流连接
-     * @param Upstream 上游传输（所有权移交）
-     * @param Config 客户端配置（借用）
-     * @param Target 目标地址（借用）
-     * @return 错误码与协议连接
-     */
-    [[nodiscard]] inline auto Connect(SharedTransmission Upstream, const ClientConfig &Config,
-                                       const Address &Target)
-        -> Net::awaitable<std::pair<Error, SharedConn>>
-    {
-        auto Result = co_await Connect(ConnectParameters{std::move(Upstream), Config, Target});
-        co_return Result;
+        auto Admission = std::move(*Prepared);
+        std::shared_ptr<Conn<>> C;
+        auto Construction = std::expected<void, Preview::Fault::Failure>{};
+        try
+        {
+            C = std::make_shared<Conn<>>(ConnOptions{
+                .Executor = Params.Upstream->Executor(), .Uuid = Params.Config.uuid});
+        }
+        catch (...)
+        {
+            Construction = std::unexpected(Preview::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception()));
+        }
+        if (!Construction)
+        {
+            const auto Failure = Construction.error();
+            co_return std::unexpected(co_await Admission.Retire(Failure));
+        }
+        if (const auto Tracked = Admission.Track(C); !Tracked)
+        {
+            const auto Failure = Tracked.error();
+            co_return std::unexpected(co_await Admission.Retire(Failure));
+        }
+        auto Handshake = std::expected<void, Preview::Fault::Failure>{};
+        try
+        {
+            Handshake = co_await C->WriteHandshake(
+                std::move(Params.Upstream), Params.Target, Params.Cmd);
+        }
+        catch (...)
+        {
+            Handshake = std::unexpected(Preview::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception()));
+        }
+        if (!Handshake)
+        {
+            const auto Failure = Handshake.error();
+            co_return std::unexpected(co_await Admission.Retire(Failure));
+        }
+        Admission.Release();
+        co_return SharedConn(std::move(C));
     }
 
     /**
@@ -136,63 +170,52 @@ namespace Preview::Vmess
      * @param upstream 上游传输（所有权移交）
      * @param cfg 客户端配置
      * @param Target 目标地址
-     * @return 错误码与包连接（失败时连接为空）
+     * @return 成功时返回包连接；失败时返回保留首个原生原因的 Failure
      */
     [[nodiscard]] inline auto ConnectPacket(SharedTransmission upstream, const ClientConfig &cfg,
                                              const Address &Target)
-        -> Net::awaitable<std::pair<Error, SharedDgram>>
+        -> Net::awaitable<std::expected<SharedDgram, Preview::Fault::Failure>>
     {
-        auto [Err, Conn] = co_await Connect(ConnectParameters{
-            std::move(upstream), cfg, Target, static_cast<std::uint8_t>(Command::Udp)});
-        if (Err != Error::None)
+        auto Result = co_await Connect(ConnectParameters{
+            std::move(upstream), cfg, Target, Command::Udp});
+        if (!Result)
         {
-            co_return std::pair{Err, SharedDgram{}};
+            co_return std::unexpected(Result.error());
         }
-        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::make_shared<Dgram<>>(std::move(*Result));
     }
 
     /**
-     * @brief 接收服务端流连接并完成 AEAD 握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
-     * @return 错误码、解析的请求与协议连接（失败时连接为空）
+     * @brief 接收 VMess 服务端会话并完成一次 AEAD 握手。
+     * @param upstream 上游传输（所有权移交）；连接与数据报活动均沿该 owner 关闭和 drain。
+     * @param cfg 服务端 UUID、认证 owner 与协议命令策略；只在握手期间借用。
+     * @return 一个带请求的 stream 或 datagram owner；失败时保留完整领域/native 原因。
+     * @details 本函数是唯一服务端握手入口。UDP command 返回 AcceptedDatagram，TCP/MUX
+     *          返回 AcceptedConnection；调用者不得再按另一个 Accept/AcceptPacket 入口重做握手。
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> Net::awaitable<std::tuple<Error, Message, SharedConn>>
+    [[nodiscard]] inline auto AcceptSession(SharedTransmission upstream, const ServerConfig &cfg)
+        -> Net::awaitable<std::expected<AcceptedSession, Preview::Fault::Failure>>
     {
-        auto C = std::make_shared<Conn<>>(cfg.uuid,
-                                          RandomSource{},
-                                          cfg.ResolveAuthenticator(),
-                                          cfg.AuthenticatorOwner);
-        auto [Err, req] = co_await C->ReadHandshake(
+        if (!upstream)
+        {
+            co_return std::unexpected(Preview::Protocol::Common::FailureFromProtocolError(Error::NotOpen));
+        }
+        auto C = std::make_shared<Conn<>>(ConnOptions{
+            .Executor = upstream->Executor(), .Uuid = cfg.uuid, .AuthenticatorOwner = cfg.AuthenticatorOwner});
+        auto Handshake = co_await C->ReadHandshake(
             std::move(upstream), cfg.EnableUdp, cfg.EnableMux);
-        SharedConn Conn;
-        if (Err == Error::None)
+        if (!Handshake)
         {
-            Conn = SharedConn(std::move(C));
+            co_return std::unexpected(Handshake.error());
         }
-        else
+        if (Handshake->Cmd == CmdUdp)
         {
-            Conn = SharedConn{};
+            auto Datagram = std::make_shared<Dgram<>>(SharedConn(C));
+            co_return AcceptedSession{AcceptedDatagram{
+                std::move(*Handshake), std::move(Datagram)}};
         }
-        co_return std::tuple{Err, std::move(req), std::move(Conn)};
-    }
-
-    /**
-     * @brief 接收服务端 UDP 包连接（udp 命令）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
-     * @return 错误码、解析的请求与包连接（失败时连接为空）
-     */
-    [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
-        -> Net::awaitable<std::tuple<Error, Message, SharedDgram>>
-    {
-        auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (Err != Error::None)
-        {
-            co_return std::tuple{Err, std::move(req), SharedDgram{}};
-        }
-        co_return std::tuple{Error::None, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return AcceptedSession{AcceptedConnection{
+            std::move(*Handshake), SharedConn(std::move(C))}};
     }
 
 } // namespace Preview::Vmess

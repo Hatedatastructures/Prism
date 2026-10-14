@@ -1,7 +1,7 @@
 /**
  * @file RuntimeTestHelpers.hpp
  * @brief runtime E2E 测试公共样板（RunCoro / echo 上游 / 链路状态等）
- * @details 收敛 tests/Preview/core/runtime 下 19 个测试文件的逐字重复样板。
+ * @details 为当前 Runtime 和协议集成测试共享真实 echo 与拥有型链路状态。
  *          仅测试代码使用，不属于生产库；Runtime fixtures 位于 Preview::Testing，
  *          与 Psm::Testing::ProductionMockTransport 明确分属两套类型体系。
  * @note AcceptEchoUpstream 的 acceptor 以 shared_ptr 捕获进 detached 协程——
@@ -11,6 +11,7 @@
 #pragma once
 
 #include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/write.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
@@ -34,6 +35,7 @@
 #include <utility>
 
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Net/Dialer/Dialer.hpp>
 #include <Preview/Net/Target.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -44,41 +46,45 @@ namespace Preview::Testing
     namespace net = boost::asio;
 
     /**
-     * @brief 驱动协程直至完成（异常暂存，ioc.run() 返回后透传）
-     * @param ioc 驱动用的 io_context
-     * @param coro 待驱动的协程
-     * @note 异常不得在完成回调内重抛——会冲出 ioc.run() 导致 std::terminate。
+     * @brief 驱动协程直至完成（异常暂存，Ioc.run() 返回后透传）
+     * @param Ioc 驱动用的 io_context
+     * @param Coro 待驱动的协程
+     * @note 异常不得在完成回调内重抛——会冲出 Ioc.run() 导致 std::terminate。
      */
-    inline auto RunCoro(net::io_context &ioc, auto coro) -> void
+    inline auto RunCoro(net::io_context &Ioc, auto Coro) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        net::co_spawn(Ioc, std::move(Coro), [&](std::exception_ptr Error) { Exception = Error; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     /**
      * @brief TCP echo 服务器：读到的数据原样写回（循环直至 EOF/错误）
-     * @param sock 已接受的连接（所有权移交）
+     * @param Sock 已接受的连接（所有权移交）
      */
     inline auto TcpEchoServer(net::ip::tcp::socket Sock) -> net::awaitable<void>
     {
-        std::array<std::byte, 4096> buf{};
-        boost::system::error_code ec;
+        std::array<std::byte, 4096> Buffer{};
+        boost::system::error_code ErrorCode;
         while (true)
         {
             const auto N = co_await Sock.async_read_some(
-                net::buffer(buf), net::redirect_error(net::use_awaitable, ec));
-            if (ec || N == 0)
+                net::buffer(Buffer), net::redirect_error(net::use_awaitable, ErrorCode));
+            if (N != 0)
             {
-                break;
+                boost::system::error_code WriteError;
+                co_await net::async_write(Sock, net::buffer(Buffer, N),
+                    net::redirect_error(net::use_awaitable, WriteError));
+                if (WriteError)
+                {
+                    break;
+                }
             }
-            co_await Sock.async_write_some(net::buffer(buf, N),
-                                           net::redirect_error(net::use_awaitable, ec));
-            if (ec)
+            if (ErrorCode || N == 0)
             {
                 break;
             }
@@ -87,24 +93,24 @@ namespace Preview::Testing
 
     /**
      * @brief UDP echo 服务器：收到的数据报原样回发来源端点
-     * @param sock 已绑定的 UDP socket（所有权移交）
+     * @param Sock 已绑定的 UDP socket（所有权移交）
      */
     inline auto UdpEchoServer(net::ip::udp::socket Sock) -> net::awaitable<void>
     {
-        std::array<std::byte, 65535> buf{};
-        boost::system::error_code ec;
+        std::array<std::byte, 65535> Buffer{};
+        boost::system::error_code ErrorCode;
         while (true)
         {
-            net::ip::udp::endpoint src;
+            net::ip::udp::endpoint Source;
             const auto N = co_await Sock.async_receive_from(
-                net::buffer(buf), src, net::redirect_error(net::use_awaitable, ec));
-            if (ec)
+                net::buffer(Buffer), Source, net::redirect_error(net::use_awaitable, ErrorCode));
+            if (ErrorCode)
             {
                 break;
             }
-            co_await Sock.async_send_to(net::buffer(buf, N), src,
-                                        net::redirect_error(net::use_awaitable, ec));
-            if (ec)
+            co_await Sock.async_send_to(net::buffer(Buffer, N), Source,
+                                        net::redirect_error(net::use_awaitable, ErrorCode));
+            if (ErrorCode)
             {
                 break;
             }
@@ -112,52 +118,55 @@ namespace Preview::Testing
     }
 
     /**
-     * @brief 启动回环 echo 上游（accept 循环，每连接一个 echo 协程）
-     * @param ioc 驱动 io_context
-     * @return 监听端口
-     * @note acceptor 以 shared_ptr 按值捕获进 detached 协程，协程存活期间
-     *       对象不析构——禁止改回局部变量 + 引用捕获（use-after-scope）。
+     * @brief 运行共享 acceptor 的 TCP echo 接受循环
+     * @param Acc 由协程持有的监听器
+     * @details 每条连接派发一个独立 echo 协程；共享所有权覆盖 detached 循环的生命周期。
      */
-    [[nodiscard]] inline auto StartTcpEchoUpstream(net::io_context &ioc) -> std::uint16_t
+    inline auto TcpEchoAcceptLoop(std::shared_ptr<net::ip::tcp::acceptor> Acc)
+        -> net::awaitable<void>
+    {
+        while (true)
+        {
+            boost::system::error_code ErrorCode;
+            auto Sock = co_await Acc->async_accept(
+                net::redirect_error(net::use_awaitable, ErrorCode));
+            if (ErrorCode)
+            {
+                co_return;
+            }
+            net::co_spawn(Acc->get_executor(), TcpEchoServer(std::move(Sock)), net::detached);
+        }
+    }
+
+    /**
+     * @brief 启动回环 echo 上游（accept 循环，每连接一个 echo 协程）
+     * @param Ioc 驱动 io_context
+     * @return 监听端口
+     * @note acceptor 由 detached 接受协程按值持有，避免函数返回后监听器悬垂。
+     */
+    [[nodiscard]] inline auto StartTcpEchoUpstream(net::io_context &Ioc) -> std::uint16_t
     {
         auto Acc = std::make_shared<net::ip::tcp::acceptor>(
-            ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+            Ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto Port = Acc->local_endpoint().port();
-        net::co_spawn(
-            Acc->get_executor(),
-            [Acc]() -> net::awaitable<void>
-            {
-                while (true)
-                {
-                    boost::system::error_code ec;
-                    auto Sock = co_await Acc->async_accept(
-                        net::redirect_error(net::use_awaitable, ec));
-                    if (ec)
-                    {
-                        co_return;
-                    }
-                    net::co_spawn(Acc->get_executor(), TcpEchoServer(std::move(Sock)),
-                                  net::detached);
-                }
-            },
-            net::detached);
+        net::co_spawn(Acc->get_executor(), TcpEchoAcceptLoop(Acc), net::detached);
         return Port;
     }
 
     /**
      * @brief 回环上游 accept 循环（调用方持有 acceptor；每连接一个 echo 协程）
-     * @param acceptor 调用方创建并持有的监听器（生命周期覆盖整个协程）
-     * @note detached 派发时必须保证 acceptor 存活至 ioc.run() 结束
+     * @param Acceptor 调用方创建并持有的监听器（生命周期覆盖整个协程）
+     * @note detached 派发时必须保证 acceptor 存活至 Ioc.run() 结束
      *       （TEST 函数体局部声明即可）；或改用 StartTcpEchoUpstream。
      */
-    inline auto AcceptEchoLoop(net::ip::tcp::acceptor &acceptor) -> net::awaitable<void>
+    inline auto AcceptEchoLoop(net::ip::tcp::acceptor &Acceptor) -> net::awaitable<void>
     {
         while (true)
         {
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             auto Sock =
-                co_await acceptor.async_accept(net::redirect_error(net::use_awaitable, ec));
-            if (ec)
+                co_await Acceptor.async_accept(net::redirect_error(net::use_awaitable, ErrorCode));
+            if (ErrorCode)
             {
                 co_return;
             }
@@ -167,16 +176,16 @@ namespace Preview::Testing
 
     /**
      * @brief 上游：接受后立即关闭（模拟上游中断）
-     * @param acceptor 调用方持有监听器
+     * @param Acceptor 调用方持有监听器
      */
-    inline auto AcceptAndClose(net::ip::tcp::acceptor &acceptor) -> net::awaitable<void>
+    inline auto AcceptAndClose(net::ip::tcp::acceptor &Acceptor) -> net::awaitable<void>
     {
         while (true)
         {
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             auto Sock =
-                co_await acceptor.async_accept(net::redirect_error(net::use_awaitable, ec));
-            if (ec)
+                co_await Acceptor.async_accept(net::redirect_error(net::use_awaitable, ErrorCode));
+            if (ErrorCode)
             {
                 co_return;
             }
@@ -186,27 +195,29 @@ namespace Preview::Testing
 
     /**
      * @brief 半关闭尾部读取：与看门狗竞速，超时兜底关闭避免挂死
-     * @param sock 数据面传输
-     * @param buf 读取缓冲
-     * @param ec 错误码输出（超时为 timed_out）
+     * @param Sock 数据面传输
+     * @param Buffer 读取缓冲
+     * @param ErrorCode 错误码输出（超时为 timed_out）
      * @return 实际读取字节数（超时为 0）
      */
     inline auto TailReadGuarded(const Preview::SharedTransmission &Sock,
-                                  std::span<std::byte> buf, std::error_code &ec)
+                                  std::span<std::byte> Buffer, std::error_code &ErrorCode)
         -> net::awaitable<std::size_t>
     {
         using boost::asio::experimental::awaitable_operators::operator||;
-        net::steady_timer wd(Sock->Executor());
-        wd.expires_after(std::chrono::milliseconds(500));
+        net::steady_timer Watchdog(Sock->Executor());
+        Watchdog.expires_after(std::chrono::milliseconds(500));
         auto Result =
-            co_await (Sock->async_read_some(buf, ec) || wd.async_wait(net::use_awaitable));
+            co_await (Sock->ReadSome(Buffer) || Watchdog.async_wait(net::use_awaitable));
         if (Result.index() == 1)
         {
-            Sock->Close();
-            ec = std::make_error_code(std::errc::timed_out);
+            (void)Sock->Close();
+            ErrorCode = std::make_error_code(std::errc::timed_out);
             co_return 0;
         }
-        co_return std::get<0>(std::move(Result));
+        const auto Read = std::get<0>(std::move(Result));
+        ErrorCode = Preview::Fault::ToNative(Read.Failure);
+        co_return Read.Bytes;
     }
 
     /**
@@ -215,7 +226,7 @@ namespace Preview::Testing
      */
     struct ChainState
     {
-        net::any_io_executor executor;      ///< 拨号执行器
+        net::any_io_executor Executor;      ///< 拨号执行器
         std::uint16_t EchoPort{0};         ///< 回环上游端口
         std::string RequestedHost;         ///< 客户端请求的目标 host
         std::string RequestedPort;         ///< 客户端请求的目标 port
@@ -225,37 +236,43 @@ namespace Preview::Testing
 
     /**
      * @brief 连接纵向链路测试的回环上游（记录请求目标后拨 127.0.0.1:EchoPort）
-     * @param state 共享状态（请求目标写入 Requested_*）
-     * @param target 客户端请求的目标
+     * @param State 共享状态（请求目标写入 Requested_*）
+     * @param Target 客户端请求的目标
      * @return 拨号结果（失败为 unreachable）
      */
-    [[nodiscard]] inline auto DialUpstream(const ChainStatePtr &state,
-                                            const Preview::Network::Target &target)
-        -> net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
+    [[nodiscard]] inline auto DialUpstream(const ChainStatePtr &State,
+                                            const Preview::Network::Target &Target)
+        -> net::awaitable<std::expected<Preview::SharedTransmission, Preview::Fault::Failure>>
     {
-        state->RequestedHost = target.Host;
-        state->RequestedPort = target.Port;
-        std::error_code ec;
-        Preview::Network::Dialer::Dialer Dialer(state->executor);
-        auto Upstream = co_await Dialer.Connect("127.0.0.1", state->EchoPort, ec);
-        if (ec || !Upstream)
-        {
-            co_return std::pair{Preview::Fault::Code::HostNoreply,
-                                Preview::SharedTransmission{}};
-        }
-        co_return std::pair{Preview::Fault::Code::Success, std::move(Upstream)};
+        const auto Text = Preview::Network::ToText(Target.Host);
+        State->RequestedHost = Text.View();
+        State->RequestedPort = std::to_string(Target.Port);
+        Preview::Network::Dialer::Dialer Dialer(State->Executor);
+        co_return co_await Dialer.Connect(
+            {*Preview::Network::ParseHost("127.0.0.1"), State->EchoPort});
+    }
+
+    /**
+     * @brief 在测试正式协议边界把协议错误转换为领域失败。
+     * @param Value 协议私有错误码；本函数同步读取，不保留输入。
+     * @return 只保留映射后的 Fault 分类；协议解析错误没有伪造原生 cause。
+     */
+    [[nodiscard]] inline auto FailureFromProtocolError(const Preview::Error Value) noexcept
+        -> Preview::Fault::Failure
+    {
+        return {Preview::Fault::ToCode(Preview::make_error_code(Value)), {}};
     }
 
     /**
      * @struct ConnectResult
-     * @brief 纵向链路运行结果（错误码 + 回显数据 + 上游记录的请求目标）
+     * @brief 纵向链路运行结果（唯一 typed 失败 + 回显数据 + 上游记录的请求目标）
      */
     struct ConnectResult
     {
-        Preview::Error Err{Preview::Error::None}; ///< 握手/数据面错误码
-        std::string Echo;                         ///< 回显数据
-        std::string Host;                         ///< 上游记录的请求 host
-        std::string Port;                         ///< 上游记录的请求 port
+        Preview::Fault::Failure Failure{}; ///< 唯一业务失败值；成功要求 Code::Success 且无 Native。
+        std::string Echo;                  ///< 回显数据
+        std::string Host;                  ///< 上游记录的请求 host
+        std::string Port;                  ///< 上游记录的请求 port
     };
 
     /**
@@ -264,17 +281,31 @@ namespace Preview::Testing
      */
     struct TrafficRecorder : Preview::Foundation::TrafficSink
     {
-        std::string Identity; ///< 最近一次上报的身份
+        Preview::Foundation::TrafficEvent LastEvent{}; ///< 最近一次上报的数值事件
         std::size_t Up{0};    ///< 累计上行字节
         std::size_t Down{0};  ///< 累计下行字节
-        int Calls{0};         ///< 上报次数
+        int Calls{0};         ///< Completed 终结上报次数
+        int ByteCalls{0};     ///< Bytes 增量上报次数
+        int RetirementCalls{0}; ///< 动态统计 owner 退休回执次数
+        Preview::Foundation::TrafficRetirement LastRetirement{
+            Preview::Foundation::SessionTrafficOwner{}};
 
-        void Report(std::string_view id, std::size_t u, std::size_t d) override
+        auto Report(Preview::Foundation::TrafficEvent Event) noexcept -> void override
         {
-            Identity = std::string(id);
-            Up += u;
-            Down += d;
-            ++Calls;
+            LastEvent = Event;
+            Up += Event.Up;
+            Down += Event.Down;
+            if (Event.Kind == Preview::Foundation::TrafficEventKind::Completed) ++Calls;
+            else ++ByteCalls;
+        }
+
+        /** @brief 桩显式记录已接管的退休输入；不承担生产计数器的聚合或资源关闭。 */
+        auto Retire(Preview::Foundation::TrafficRetirement Owner)
+            -> net::awaitable<std::expected<void, Preview::Fault::Failure>> override
+        {
+            LastRetirement = std::move(Owner);
+            ++RetirementCalls;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
     };
 
@@ -286,29 +317,29 @@ namespace Preview::Testing
      */
     [[nodiscard]] inline auto MakeUuid() -> std::array<std::uint8_t, UuidLen>
     {
-        std::array<std::uint8_t, UuidLen> u{};
-        for (std::size_t I = 0; I < u.size(); ++I)
+        std::array<std::uint8_t, UuidLen> Value{};
+        for (std::size_t I = 0; I < Value.size(); ++I)
         {
-            u[I] = static_cast<std::uint8_t>(I + 1);
+            Value[I] = static_cast<std::uint8_t>(I + 1);
         }
-        return u;
+        return Value;
     }
 
     /**
      * @brief 字节数组转十六进制字符串（VMess/VLESS 认证身份格式）
-     * @param bytes 输入字节
+     * @param Bytes 输入字节
      * @return 小写十六进制串（长度 ×2）
      */
-    [[nodiscard]] inline auto ToHex(const std::array<std::uint8_t, UuidLen> &bytes)
+    [[nodiscard]] inline auto ToHex(const std::array<std::uint8_t, UuidLen> &Bytes)
         -> std::string
     {
-        static constexpr char digits[] = "0123456789abcdef";
-        std::string out(bytes.size() * 2, '0');
-        for (std::size_t I = 0; I < bytes.size(); ++I)
+        static constexpr char Digits[] = "0123456789abcdef";
+        std::string Output(Bytes.size() * 2, '0');
+        for (std::size_t I = 0; I < Bytes.size(); ++I)
         {
-            out[I * 2] = digits[bytes[I] >> 4];
-            out[I * 2 + 1] = digits[bytes[I] & 0x0f];
+            Output[I * 2] = Digits[Bytes[I] >> 4];
+            Output[I * 2 + 1] = Digits[Bytes[I] & 0x0f];
         }
-        return out;
+        return Output;
     }
 } // namespace Preview::Testing

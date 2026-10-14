@@ -1,2 +1,0 @@
-AddPreviewTest(Task9BuiltinTest.cpp)
-target_link_libraries(Task9BuiltinTest PRIVATE PreviewComposition)

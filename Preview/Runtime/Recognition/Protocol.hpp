@@ -1,11 +1,13 @@
 /**
  * @file Protocol.hpp
  * @brief 协议类型枚举与首字节识别
- * @details 定义 Preview 统一协议类型（对照主项目 Connect::ProtocolType），
+ * @details 定义 Preview 统一协议类型（对照主项目 Connect::Preview::Contract::ProtocolType），
  *          提供首包字节检测（Probe 基础）：按特征字节映射到协议类型。
  */
 
 #pragma once
+
+#include <Preview/Contract/Ingress/Protocol.hpp>
 
 #include <array>
 #include <cstdint>
@@ -16,60 +18,6 @@ namespace Preview::Recognition
 {
 
     /**
-     * @enum ProtocolType
-     * @brief 协议类型
-     */
-    enum class ProtocolType : std::uint8_t
-    {
-        Unknown,     ///< 未知
-        Http,        ///< HTTP（含 CONNECT）
-        Socks5,      ///< SOCKS5（0x05）
-        Trojan,      ///< Trojan（hex 0x0D 0x0A 0x0D 0x0A）
-        Vless,       ///< VLESS（0x56 0x4C 0x45 0x53 0x53）
-        Shadowsocks, ///< Shadowsocks（2022 系）
-        Vmess,       ///< VMess（0x01 0x00 0x00 ...）
-        Hysteria2,   ///< Hysteria2（QUIC，不适用 TCP 探测）
-        Tuic,        ///< TUIC（QUIC，不适用 TCP 探测）
-        Tls,         ///< TLS（0x16 0x03）
-        AnyTls,      ///< AnyTLS
-        TrustTunnel, ///< TrustTunnel
-    };
-
-    /**
-     * @brief 协议类型转字符串
-     * @param Type 协议类型
-     * @return 字符串表示
-     */
-    [[nodiscard]] inline auto ToStringView(ProtocolType Type) noexcept -> std::string_view
-    {
-        switch (Type)
-        {
-        case ProtocolType::Unknown: return "unknown";
-        case ProtocolType::Http: return "http";
-        case ProtocolType::Socks5: return "socks5";
-        case ProtocolType::Trojan: return "trojan";
-        case ProtocolType::Vless: return "vless";
-        case ProtocolType::Shadowsocks: return "shadowsocks";
-        case ProtocolType::Vmess: return "vmess";
-        case ProtocolType::Hysteria2: return "hysteria2";
-        case ProtocolType::Tuic: return "tuic";
-        case ProtocolType::Tls: return "tls";
-        case ProtocolType::AnyTls: return "anytls";
-        case ProtocolType::TrustTunnel: return "trusttunnel";
-        default: return "unknown";
-        }
-    }
-
-    /// VMess 兼容常量；仅供协议候选使用，legacy 探测不得据此判定
-    inline constexpr std::uint8_t VmessMagic = 0x01;
-
-    /// Trojan 兼容常量；真实凭据首包无稳定魔数，legacy 探测不使用
-    inline constexpr std::array<std::uint8_t, 4> TrojanMagic = {0x0D, 0x0A, 0x0D, 0x0A};
-
-    /// VLESS 兼容常量；标准首包为二进制版本/UUID，legacy 探测不使用
-    inline constexpr std::array<std::uint8_t, 5> VlessMagic = {0x56, 0x4C, 0x45, 0x53, 0x53};
-
-    /**
      * @brief 按首包字节检测协议类型
      * @param Data 首包字节（≥1 字节）
      * @return 检测到的协议类型
@@ -77,16 +25,16 @@ namespace Preview::Recognition
      *          - 0x05 → socks5
      *          - 0x16 0x03 → tls
      *          - 结构化特征（version 0x00 + 合法 cmd/atyp，预读窗口内）→ vless
-     *          - 0x0D 0x0A 0x0D 0x0A → trojan
-     *          - VMess 首包认证字段随机，legacy 探测不猜测，交给配置候选认证
+     *          - Trojan/VMess 首包交给已配置候选认证，不按假魔数猜测
      *          - "GET/POST/CONNECT " 前缀 → http
      *          - 其余 → unknown（ss2022 需 salt 分析，此处保守 unknown）
      */
-    [[nodiscard]] inline auto Detect(std::span<const std::uint8_t> Data) noexcept -> ProtocolType
+    [[nodiscard]] inline auto Detect(std::span<const std::uint8_t> Data) noexcept
+        -> Preview::Contract::ProtocolType
     {
         if (Data.empty())
         {
-            return ProtocolType::Unknown;
+            return Preview::Contract::ProtocolType::Unknown;
         }
         switch (Data[0])
         {
@@ -95,20 +43,21 @@ namespace Preview::Recognition
             // 避免随机 SS2022 salt 仅因首字节为 0x05 被误判。
             if (Data.size() < 2)
             {
-                return ProtocolType::Unknown;
+                return Preview::Contract::ProtocolType::Unknown;
             }
             if (Data[1] >= 1 && Data[1] <= 16)
             {
-                return ProtocolType::Socks5;
+                return Preview::Contract::ProtocolType::Socks5;
             }
-            return ProtocolType::Unknown;
+            return Preview::Contract::ProtocolType::Unknown;
         case 0x16:
             if (Data.size() >= 2 && Data[1] == 0x03)
             {
-                return ProtocolType::Tls;
+                return Preview::Contract::ProtocolType::Tls;
             }
-            return ProtocolType::Unknown;
-        default: break;
+            return Preview::Contract::ProtocolType::Unknown;
+        default:
+            break;
         }
         // VLESS 结构化识别（Xray 首字节为 version 0x00）：仅在预读窗口内有效——
         // Probe 最多预读 24 字节（见 Probe.hpp MaxProbeSize），头部固定部分
@@ -122,10 +71,9 @@ namespace Preview::Recognition
             {
                 const auto Cmd = Data[18 + Addnl];
                 const auto Atyp = Data[21 + Addnl];
-                if ((Cmd == 0x01 || Cmd == 0x02) &&
-                    (Atyp == 0x01 || Atyp == 0x02 || Atyp == 0x03))
+                if ((Cmd == 0x01 || Cmd == 0x02) && (Atyp == 0x01 || Atyp == 0x02 || Atyp == 0x03))
                 {
-                    return ProtocolType::Vless;
+                    return Preview::Contract::ProtocolType::Vless;
                 }
             }
         }
@@ -133,17 +81,17 @@ namespace Preview::Recognition
         // VMess AuthID 首字节没有稳定魔数；任意 0x01 都可能是随机流量，
         // 不在无配置的 legacy 探测路径中误判，MixedTrial 由候选认证确认。
         // HTTP 方法前缀；保持与生产 analyzer 的方法集合一致。
-        constexpr std::string_view Methods[] = {"GET ", "POST ", "CONNECT ", "PUT ", "DELETE ",
-                                                "HEAD ", "OPTIONS ", "TRACE ", "PATCH "};
-        for (const auto &Method : Methods)
+        constexpr std::string_view Methods[] = {"GET ", "POST ", "CONNECT ", "PUT ", "DELETE ", "HEAD ",
+            "OPTIONS ", "TRACE ", "PATCH "};
+        for (const auto& Method : Methods)
         {
             if (Data.size() >= Method.size() &&
-                std::string_view(reinterpret_cast<const char *>(Data.data()), Method.size()) == Method)
+                std::string_view(reinterpret_cast<const char*>(Data.data()), Method.size()) == Method)
             {
-                return ProtocolType::Http;
+                return Preview::Contract::ProtocolType::Http;
             }
         }
-        return ProtocolType::Unknown;
+        return Preview::Contract::ProtocolType::Unknown;
     }
 
 } // namespace Preview::Recognition

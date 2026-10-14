@@ -15,11 +15,14 @@
 
 #include <openssl/evp.h>
 
+#include <openssl/mem.h>
+
 #include <Preview/Foundation/Fault/Code.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <span>
 
@@ -81,6 +84,8 @@ namespace Preview::Crypto
      * @details 管理 BoringSSL EVP_AEAD_CTX 的生命周期和 Nonce 状态。
      * 每次 Seal/Open 成功后 Nonce 自动递增（小端序）。
      * 显式 Nonce 重载不修改内部 Nonce 状态，适用于 UDP 逐包加密。
+     * 本地参数检查失败不触碰输出；BoringSSL 操作失败会清零整个输出容量；
+     * 成功长度不符合 wire 长度时也会清零输出并返回 CryptoError。
      * 不可拷贝，可移动。
      */
     class AeadContext
@@ -134,8 +139,9 @@ namespace Preview::Crypto
         /**
          * @brief AEAD 加密（自动递增 Nonce）
          * @details 使用内部 Nonce 加密明文，成功后 Nonce 按小端序递增。
-         * 输出缓冲区大小必须为 plaintext.size() + TagLength()。
-         * @param out 输出缓冲区（密文 + tag），大小 = plaintext.size() + TagLength()
+         * 输出容量至少为 plaintext.size() + TagLength()；实际 wire 输出长度为该值。
+         * 仅在 BoringSSL 成功且返回长度符合 wire 长度后递增 Nonce。
+         * @param out 输出缓冲区（密文 + tag），容量至少为 plaintext.size() + TagLength()
          * @param plaintext 明文
          * @param ad 附加数据（可选）
          * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
@@ -146,8 +152,9 @@ namespace Preview::Crypto
         /**
          * @brief AEAD 解密（自动递增 Nonce）
          * @details 使用内部 Nonce 解密密文，成功后 Nonce 按小端序递增。
-         * 输出缓冲区大小必须为 ciphertext.size() - TagLength()。
-         * @param out 输出缓冲区（明文），大小 = ciphertext.size() - TagLength()
+         * 输出容量至少为 ciphertext.size() - TagLength()。
+         * ciphertext 短于 tag 时在本地拒绝，且不触碰输出。
+         * @param out 输出缓冲区（明文），容量至少为 ciphertext.size() - TagLength()
          * @param ciphertext 密文 + tag
          * @param ad 附加数据（可选）
          * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
@@ -206,12 +213,18 @@ namespace Preview::Crypto
 
         /**
          * @brief 计算 Seal 输出缓冲区所需大小
-         * @details 明文加密后输出长度 = 明文长度 + tag 长度。
+         * @details 明文加密后输出长度 = 明文长度 + tag 长度。若加法溢出，饱和返回
+         * std::numeric_limits<std::size_t>::max()；调用方仍须处理无法容纳该长度的情况。
          * @param PlaintextLen 明文长度
          * @return std::size_t 输出缓冲区所需大小
          */
         [[nodiscard]] static constexpr auto SealSize(std::size_t PlaintextLen) noexcept -> std::size_t
         {
+            constexpr auto MaxSize = std::numeric_limits<std::size_t>::max();
+            if (PlaintextLen > MaxSize - TagLength())
+            {
+                return MaxSize;
+            }
             return PlaintextLen + TagLength();
         }
 
@@ -231,6 +244,18 @@ namespace Preview::Crypto
         }
 
     private:
+        /**
+         * @brief 安全清除输出缓冲区
+         * @param Out 待清除的输出
+         */
+        static auto ClearOutput(std::span<std::uint8_t> Out) noexcept -> void
+        {
+            if (!Out.empty())
+            {
+                OPENSSL_cleanse(Out.data(), Out.size());
+            }
+        }
+
         /**
          * @brief 递增 Nonce
          * @details 按 SS2022 规范要求，以小端序递增 Nonce 值。
@@ -332,12 +357,14 @@ namespace Preview::Crypto
                                   std::span<const std::uint8_t> Plaintext,
                                   const std::span<const std::uint8_t> AdditionalData) -> Fault::Code
     {
-        if (!Ctx_)
+        constexpr auto MaxSize = std::numeric_limits<std::size_t>::max();
+        if (!Ctx_ || IsNonceExhausted() || Plaintext.size() > MaxSize - TagLength())
         {
             return Fault::Code::CryptoError;
         }
 
-        if (IsNonceExhausted())
+        const auto RequiredSize = SealSize(Plaintext.size());
+        if (Out.size() < RequiredSize)
         {
             return Fault::Code::CryptoError;
         }
@@ -352,6 +379,12 @@ namespace Preview::Crypto
             return Fault::Code::CryptoError;
         }
 
+        if (OutLen != RequiredSize)
+        {
+            ClearOutput(Out);
+            return Fault::Code::CryptoError;
+        }
+
         IncrementNonce();
         return Fault::Code::Success;
     }
@@ -360,23 +393,36 @@ namespace Preview::Crypto
                                   std::span<const std::uint8_t> Ciphertext,
                                   const std::span<const std::uint8_t> AdditionalData) -> Fault::Code
     {
-        if (!Ctx_)
+        if (!Ctx_ || IsNonceExhausted() || Ciphertext.size() < TagLength())
         {
             return Fault::Code::CryptoError;
         }
 
-        if (IsNonceExhausted())
+        const auto RequiredSize = OpenSize(Ciphertext.size());
+        if (Out.size() < RequiredSize)
         {
             return Fault::Code::CryptoError;
         }
 
+        std::uint8_t EmptyOutput = 0;
+        auto *OutputData = Out.data();
+        if (Out.empty())
+        {
+            OutputData = &EmptyOutput;
+        }
         std::size_t OutLen = 0;
         const auto Result =
-            EVP_AEAD_CTX_open(Ctx_.get(), Out.data(), &OutLen, Out.size(), Nonce_.data(), NonceLen_,
+            EVP_AEAD_CTX_open(Ctx_.get(), OutputData, &OutLen, Out.size(), Nonce_.data(), NonceLen_,
                               Ciphertext.data(), Ciphertext.size(), AdditionalData.data(), AdditionalData.size());
 
         if (!Result)
         {
+            return Fault::Code::CryptoError;
+        }
+
+        if (OutLen != RequiredSize)
+        {
+            ClearOutput(Out);
             return Fault::Code::CryptoError;
         }
 
@@ -386,7 +432,14 @@ namespace Preview::Crypto
 
     inline auto AeadContext::Seal(SealInput Input) -> Fault::Code
     {
-        if (!Ctx_)
+        constexpr auto MaxSize = std::numeric_limits<std::size_t>::max();
+        if (!Ctx_ || Input.Nonce.size() != NonceLen_ || Input.Plaintext.size() > MaxSize - TagLength())
+        {
+            return Fault::Code::CryptoError;
+        }
+
+        const auto RequiredSize = SealSize(Input.Plaintext.size());
+        if (Input.Out.size() < RequiredSize)
         {
             return Fault::Code::CryptoError;
         }
@@ -402,24 +455,48 @@ namespace Preview::Crypto
             return Fault::Code::CryptoError;
         }
 
+        if (OutLen != RequiredSize)
+        {
+            ClearOutput(Input.Out);
+            return Fault::Code::CryptoError;
+        }
+
         return Fault::Code::Success;
     }
 
     inline auto AeadContext::Open(OpenInput Input) -> Fault::Code
     {
-        if (!Ctx_)
+        if (!Ctx_ || Input.Nonce.size() != NonceLen_ || Input.Ciphertext.size() < TagLength())
         {
             return Fault::Code::CryptoError;
         }
 
+        const auto RequiredSize = OpenSize(Input.Ciphertext.size());
+        if (Input.Out.size() < RequiredSize)
+        {
+            return Fault::Code::CryptoError;
+        }
+
+        std::uint8_t EmptyOutput = 0;
+        auto *OutputData = Input.Out.data();
+        if (Input.Out.empty())
+        {
+            OutputData = &EmptyOutput;
+        }
         std::size_t OutLen = 0;
-        const auto Result = EVP_AEAD_CTX_open(Ctx_.get(), Input.Out.data(), &OutLen, Input.Out.size(),
+        const auto Result = EVP_AEAD_CTX_open(Ctx_.get(), OutputData, &OutLen, Input.Out.size(),
                                               Input.Nonce.data(), Input.Nonce.size(), Input.Ciphertext.data(),
                                               Input.Ciphertext.size(), Input.AdditionalData.data(),
                                               Input.AdditionalData.size());
 
         if (!Result)
         {
+            return Fault::Code::CryptoError;
+        }
+
+        if (OutLen != RequiredSize)
+        {
+            ClearOutput(Input.Out);
             return Fault::Code::CryptoError;
         }
 

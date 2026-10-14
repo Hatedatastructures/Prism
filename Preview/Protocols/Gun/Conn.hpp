@@ -10,11 +10,12 @@
  */
 
 #pragma once
-
 #include <Preview/Foundation/ByteSpan.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
+#include <Preview/Transport/Detail/IoCompletion.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Gun/Codec.hpp>
 #include <Preview/Protocols/Gun/Types.hpp>
@@ -26,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <memory>
 #include <span>
 #include <utility>
@@ -41,7 +43,7 @@ namespace Preview::Gun
      * @tparam Memory 会话内存策略（默认 8KB Arena；可注入自定义策略）
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Conn : public Preview::Transmission, public std::enable_shared_from_this<Conn<Memory>>
+    class Conn : public Preview::Transmission
     {
     public:
         /// 内存策略类型（对外暴露，供嵌套层/测试使用）
@@ -52,7 +54,8 @@ namespace Preview::Gun
          * @param Upstream 底层传输（所有权移交）
          */
         explicit Conn(SharedTransmission Upstream, Config ConfigValue = {})
-            : NextLayer_(std::move(Upstream)), Config_(std::move(ConfigValue))
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Upstream)), Config_(std::move(ConfigValue))
         {
         }
 
@@ -63,160 +66,166 @@ namespace Preview::Gun
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
 
-        /**
-         * @brief 客户端握手：发送 CONNECT 帧（简化）
-         * @param Host 目标主机
-         * @return 错误码
-         */
-        [[nodiscard]] auto WriteHandshake(std::string_view Host) -> Net::awaitable<Error>
+        /** @brief 客户端握手：发送 CONNECT 请求并保留传输的 typed 失败。 */
+        [[nodiscard]] auto WriteHandshake(std::string_view Host)
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (!NextLayer_)
-            {
-                co_return Error::NotOpen;
-            }
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
             Handshaken_ = false;
             PendingWire_.clear();
             PendingOffset_ = 0;
             std::string Header = "CONNECT " + std::string(Host) + " HTTP/2\r\n";
-            if (!Config_.Path.empty())
-            {
-                Header += ":path: " + Config_.Path + "\r\n";
-            }
-            if (!Config_.ServiceName.empty())
-            {
-                Header += ":service: " + Config_.ServiceName + "\r\n";
-            }
+            if (!Config_.Path.empty()) Header += ":path: " + Config_.Path + "\r\n";
+            if (!Config_.ServiceName.empty()) Header += ":service: " + Config_.ServiceName + "\r\n";
             Header += "\r\n";
-            if (co_await SendBytes(AsU8Span(Header)))
-                co_return Error::IoError;
+            const auto Sent = co_await SendBytes(AsU8Span(Header));
+            if (!Sent) co_return std::unexpected(Sent.error());
             Handshaken_ = true;
-            co_return Error::None;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
-        /**
-         * @brief 服务端握手：解析 CONNECT 帧（简化）
-         * @param Host 输出目标主机
-         * @return 错误码；bad_magic = 非 CONNECT 帧
-         */
-        [[nodiscard]] auto ReadHandshake(std::string &Host) -> Net::awaitable<Error>
+        /** @brief 服务端握手：解析 CONNECT 帧并保留 EOF、取消与原生 I/O cause。 */
+        [[nodiscard]] auto ReadHandshake(std::string &Host)
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (!NextLayer_)
-            {
-                co_return Error::NotOpen;
-            }
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
             Handshaken_ = false;
             PendingWire_.clear();
             PendingOffset_ = 0;
             std::array<std::uint8_t, 256> Chunk{};
             std::string Header;
-            for (int I = 0; I < 16; ++I)
+            Preview::Fault::Failure ReadFailure;
+            for (int Index = 0; Index < 16; ++Index)
             {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(Chunk)),
-                    ErrorCode);
-                if (ErrorCode || N == 0)
+                const auto Part = co_await NextLayer_->ReadSome(AsBytes(std::span<std::uint8_t>(Chunk)));
+                if (Part.Bytes > Chunk.size())
+                    co_return std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+                if (Part.Bytes != 0)
+                    Header.append(reinterpret_cast<const char *>(Chunk.data()), Part.Bytes);
+                if (Header.find("\r\n\r\n") != std::string::npos) break;
+                if (Part.Failure.Failed())
+                {
+                    ReadFailure = Part.Failure;
                     break;
-                if (N > Chunk.size())
-                    co_return Error::BadLength;
-                Header.append(reinterpret_cast<const char *>(Chunk.data()), N);
-                if (Header.find("\r\n\r\n") != std::string::npos)
+                }
+                if (Part.Bytes == 0)
+                {
+                    ReadFailure = {Preview::Fault::Code::Eof};
                     break;
+                }
             }
             const auto HeaderEnd = Header.find("\r\n\r\n");
-            if (HeaderEnd == std::string::npos || Header.find("CONNECT ") != 0)
-                co_return Error::BadMagic;
+            if (HeaderEnd == std::string::npos)
+            {
+                if (ReadFailure.Failed()) co_return std::unexpected(ReadFailure);
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::BadMessage});
+            }
+            if (Header.find("CONNECT ") != 0)
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::BadMessage});
             const auto FirstLineEnd = Header.find("\r\n");
             if (FirstLineEnd == std::string::npos || FirstLineEnd > HeaderEnd)
-                co_return Error::BadMagic;
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::BadMessage});
             const auto HostEnd = Header.find(' ', 8);
             if (HostEnd == std::string::npos || HostEnd > FirstLineEnd || HostEnd == 8)
-                co_return Error::BadMagic;
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::BadMessage});
             Host = Header.substr(8, HostEnd - 8);
             if ((!Config_.Path.empty() && HeaderValue(Header, ":path") != Config_.Path) ||
-                (!Config_.ServiceName.empty() &&
-                 HeaderValue(Header, ":service") != Config_.ServiceName))
-            {
-                co_return Error::BadMagic;
-            }
+                (!Config_.ServiceName.empty() && HeaderValue(Header, ":service") != Config_.ServiceName))
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::BadMessage});
             PreserveHandshakeTail(Header, HeaderEnd + 4);
             Handshaken_ = true;
-            co_return Error::None;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
         /**
-         * @brief 透传读取（数据面原样）
+         * @brief 预读缓冲优先的部分读取
+         * @details 命中握手超读缓冲、缓冲区为空或底层不可用时，结果异步交付一次；
+         *          否则 token 直通底层，保留底层短读与 EOF 事实。
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
             if (!NextLayer_ || !Handshaken_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
-            ErrorCode.clear();
-            if (Buffer.empty())
+            if (Buffer.empty() || PendingOffset_ < PendingWire_.size())
             {
-                co_return 0;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), TakePending(Buffer));
+                return;
             }
-            if (PendingOffset_ < PendingWire_.size())
-            {
-                const auto Count = (std::min)(Buffer.size(), PendingWire_.size() - PendingOffset_);
-                std::memcpy(Buffer.data(), PendingWire_.data() + PendingOffset_, Count);
-                PendingOffset_ += Count;
-                if (PendingOffset_ == PendingWire_.size())
-                {
-                    PendingWire_.clear();
-                    PendingOffset_ = 0;
-                }
-                co_return Count;
-            }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            NextLayer_->ReadSome(Buffer, std::move(Handler));
         }
 
         /**
          * @brief 透传写入（数据面原样）
+         * @details 未握手或底层已释放时异步交付一次 NotOpen；否则 token 直通底层。
          */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
             if (!NextLayer_ || !Handshaken_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            NextLayer_->WriteSome(Buffer, std::move(Handler));
         }
 
         /**
-         * @brief 关闭底层传输
+         * @brief 真实写半关闭转交底层载体；反向读取仍然可用。
          */
-        auto Close() -> void override
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
+            }
+            NextLayer_->WriteShutdown(std::move(Handler));
+        }
+
+        /**
+         * @brief 清除握手状态并交付底层关闭
+         * @return 命令接管成功；实际退出由 Activity()->Drain() 另行等待。
+         */
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
             Handshaken_ = false;
-            if (NextLayer_)
+            if (!NextLayer_)
             {
-                NextLayer_->Close();
+                return {};
             }
+            return NextLayer_->Close();
         }
 
         /**
-         * @brief 取消挂起操作
+         * @brief 可重复取消底层挂起操作
+         * @return 命令接管成功只表示取消请求已排入原 executor，不宣称已经关闭。
          */
-        auto Cancel() -> void override
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
-            if (NextLayer_)
+            if (!NextLayer_)
             {
-                NextLayer_->Cancel();
+                return {};
             }
+            return NextLayer_->Cancel();
         }
 
         /**
@@ -245,32 +254,43 @@ namespace Preview::Gun
         }
 
     private:
-        /**
-         * @brief 发送全部字节
-         * @param Data 数据
-         * @return true = 失败
-         */
+        /** @brief 写完握手载荷并保留原始部分写失败。 */
         [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
-            -> Net::awaitable<bool>
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (!NextLayer_)
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+            std::size_t Offset = 0;
+            while (Offset < Data.size())
             {
-                co_return true;
+                const auto Part = co_await NextLayer_->WriteSome(AsBytes(Data.subspan(Offset)));
+                if (Part.Failure.Failed()) co_return std::unexpected(Part.Failure);
+                const auto Remaining = Data.size() - Offset;
+                if (Part.Bytes == 0)
+                    co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::WouldBlock});
+                if (Part.Bytes > Remaining)
+                    co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+                Offset += Part.Bytes;
             }
-            std::size_t Done = 0;
-            while (Done < Data.size())
+            co_return std::expected<void, Preview::Fault::Failure>{};
+        }
+
+        /** @brief 消费握手超读缓冲；空缓冲或已消费完返回 0 字节成功。 */
+        [[nodiscard]] auto TakePending(std::span<std::byte> Buffer) -> Preview::IoResult
+        {
+            if (Buffer.empty() || PendingOffset_ >= PendingWire_.size())
             {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_write_some(
-                    AsBytes(Data.subspan(Done)),
-                    ErrorCode);
-                if (ErrorCode)
-                    co_return true;
-                if (N == 0 || N > Data.size() - Done)
-                    co_return true;
-                Done += N;
+                return {0, {}};
             }
-            co_return false;
+            const auto Count = (std::min)(Buffer.size(), PendingWire_.size() - PendingOffset_);
+            std::memcpy(Buffer.data(), PendingWire_.data() + PendingOffset_, Count);
+            PendingOffset_ += Count;
+            if (PendingOffset_ == PendingWire_.size())
+            {
+                PendingWire_.clear();
+                PendingOffset_ = 0;
+            }
+            return {Count, {}};
         }
 
         auto PreserveHandshakeTail(const std::string &Data, std::size_t Offset) -> void

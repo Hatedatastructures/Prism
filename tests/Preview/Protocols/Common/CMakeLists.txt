@@ -1,0 +1,9 @@
+# Preview Common Address/Framing/Read 契约测试
+AddPreviewTest(PreviewProtocolTest.cpp)
+target_link_libraries(PreviewProtocolTest PRIVATE PreviewFoundation PreviewProtocolsCommon PreviewTestSupport)
+AddPreviewTest(CommonAddressTest.cpp)
+target_link_libraries(CommonAddressTest PRIVATE PreviewFoundation PreviewProtocolsCommon PreviewTestSupport)
+target_compile_options(CommonAddressTest PRIVATE -O0 -fno-inline)
+AddPreviewTest(CommonReadTest.cpp)
+target_link_libraries(CommonReadTest PRIVATE PreviewFoundation PreviewProtocolsCommon PreviewTestSupport)
+target_compile_options(CommonReadTest PRIVATE -O0 -fno-inline)

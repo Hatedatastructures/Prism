@@ -1,267 +1,39 @@
-/**
- * @file PreviewMockTransport.hpp
- * @brief Preview 可编程传输桩
- * @details 供各协议 Dgram / Conn 错误路径测试复用，可编程行为：
- * - 注入读取字节流（ToRead，按需消费）
- * - 按调用次数注入读取错误（FailNextRead / ReadFailAt）
- * - 按调用次数注入写入错误（FailNextWrite / WriteFailAt）
- * - 可注入读写 over-reporting，验证协议层不会推进越过目标窗口
- * - 限制单次写入返回长度（MaxWrite，模拟半包写）
- * - 捕获全部写入数据（Written）
- * - 空读通过外部执行器上的事件通知等待，不使用定时器轮询
- * - EofOnDrain 可将有限注入流显式标记为耗尽即 EOF
- * - Close()/Shutdown() 后读返回 0，写仅在 Close() 后失败
- * @note 仅测试代码使用，禁止被生产代码引用。
- */
-
+/** @file PreviewMockTransport.hpp @brief 保留原注入行为、真实值 I/O 与 peer EOF 的传输 fixture。 */
 #pragma once
-
-#include <boost/asio/any_io_executor.hpp>
-#include <boost/asio/awaitable.hpp>
+#include <Preview/Foundation/Error.hpp>
+#include <Preview/Protocols/Quic/DatagramAdapter.hpp>
+#include <Preview/Transport/Transmission.hpp>
 #include <boost/asio/experimental/channel.hpp>
-#include <boost/system/error_code.hpp>
-
+#include <boost/asio/as_tuple.hpp>
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <deque>
 #include <limits>
 #include <optional>
-#include <span>
 #include <vector>
-
-#include <Preview/Foundation/Error.hpp>
-#include <Preview/Protocols/Quic/DatagramAdapter.hpp>
-#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview
 {
-
     namespace net = boost::asio;
-
-    /**
-     * @class PreviewMockTransport
-     * @brief Preview 传输接口的可编程测试桩
-     * @details 行为完全由测试方编排：读取从注入队列顺序消费，
-     * 队列为空时默认等待下一次事件通知；设置 EofOnDrain 后，有限注入
-     * 流耗尽立即返回 EOF。关闭或半关闭始终返回 EOF。
-     * 读取/写入错误可指定在第 N 次调用
-     * 触发（ReadFailAt / WriteFailAt，1 起）或单次触发
-     * （FailNextRead / FailNextWrite）；MaxWrite 限制单次
-     * 写入返回字节数以模拟半包写；OverreportRead/Write 模拟违反
-     * 传输契约的返回值。Close() 后读返回 EOF、写失败。
-     */
+    /** @brief 仅测试编排使用；状态在原 executor，正式基类预约保活到 completion 返回。 */
     class PreviewMockTransport final : public Transmission
     {
     public:
-        /**
-         * @brief 构造桩
-         * @param ex 执行器（通常来自 io_context）
-         */
-        explicit PreviewMockTransport(net::any_io_executor ex)
-            : Ex_(std::move(ex)), Events_(Ex_, 1)
-        {
-        }
-
-        /** @brief 获取执行器 */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
-        {
-            return Ex_;
-        }
-
-        /** @brief 检查桩是否仍可读写 */
-        [[nodiscard]] auto IsOpen() const noexcept -> bool override
-        {
-            return !Closed_;
-        }
-
-        /**
-         * @brief 获取桩配置的传输类型
-         * @return 当前传输类型（默认 Tcp）
-         * @details Dgram 错误矩阵可将桩标记为 Udp，从而覆盖真实
-         *          数据报路径；默认值保持流式测试语义不变。
-         */
-        [[nodiscard]] auto TransportType() const noexcept -> Type override
-        {
-            return TransportKind;
-        }
-
-        /**
-         * @brief 读取：注入队列顺序消费，空队列事件驱动等待
-         * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
-         * @return 实际读取字节数
-         */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
-        {
-            ec.clear();
-            ++ReadsDone;
-            for (;;)
-            {
-                if (FailNextRead || ReadsDone == ReadFailAt)
-                {
-                    FailNextRead = false;
-                    ec = make_error_code(Error::IoError);
-                    co_return 0;
-                }
-                if (Closed_)
-                {
-                    co_return 0;
-                }
-                if (Cancelled_)
-                {
-                    Cancelled_ = false;
-                    ec = make_error_code(Error::Canceled);
-                    co_return 0;
-                }
-                if (ReadError_.has_value())
-                {
-                    const auto Count = (std::min)(ReadErrorBytes, Buffer.size());
-                    if (Count > 0 && ReadPos_ < ToRead.size())
-                    {
-                        const auto Available = (std::min)(Count, ToRead.size() - ReadPos_);
-                        std::memcpy(Buffer.data(), ToRead.data() + ReadPos_, Available);
-                        ReadPos_ += Available;
-                        ec = ReadError_.value();
-                        ReadError_.reset();
-                        co_return Available;
-                    }
-                    ec = ReadError_.value();
-                    ReadError_.reset();
-                    co_return 0;
-                }
-                if (Shutdown_)
-                {
-                    co_return 0;
-                }
-                if (OverreportRead)
-                {
-                    co_return Buffer.size() + 1;
-                }
-                if (ReadPos_ < ToRead.size())
-                {
-                    const auto N = std::min(Buffer.size(), ToRead.size() - ReadPos_);
-                    std::memcpy(Buffer.data(), ToRead.data() + ReadPos_, N);
-                    ReadPos_ += N;
-                    co_return N;
-                }
-
-                if (EofOnDrain)
-                {
-                    co_return 0;
-                }
-
-                // 空读在事件通道上挂起，InjectRead/Close/Cancel/Shutdown 会唤醒它。
-                co_await Events_.async_receive(net::use_awaitable);
-            }
-        }
-
-        /**
-         * @brief 写入：捕获数据，可注入错误与半包写
-         * @param Buffer 发送缓冲区
-         * @param ec 错误码输出参数
-         * @return 实际写入字节数（MaxWrite 限制时为半包）
-         */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
-        {
-            ec.clear();
-            if (WriteError_.has_value())
-            {
-                const auto Count = (std::min)(WriteErrorBytes, Buffer.size());
-                const auto *Source = reinterpret_cast<const std::uint8_t *>(Buffer.data());
-                Written.insert(Written.end(), Source, Source + Count);
-                ec = WriteError_.value();
-                WriteError_.reset();
-                co_return Count;
-            }
-            ++WritesDone;
-            if (FailNextWrite || WritesDone == WriteFailAt || Closed_)
-            {
-                FailNextWrite = false;
-                ec = make_error_code(Error::IoError);
-                co_return 0;
-            }
-            if (OverreportWrite)
-            {
-                co_return Buffer.size() + 1;
-            }
-            if (ZeroWrite)
-            {
-                co_return 0;
-            }
-            std::size_t Limit = MaxWrite;
-            if (!WriteLimitSequence.empty())
-            {
-                Limit = WriteLimitSequence[(WritesDone - 1) % WriteLimitSequence.size()];
-            }
-            std::size_t Cap;
-            if (Limit == 0)
-            {
-                Cap = Buffer.size();
-            }
-            else
-            {
-                Cap = std::min(Buffer.size(), Limit);
-            }
-            const auto *src = reinterpret_cast<const std::uint8_t *>(Buffer.data());
-            Written.insert(Written.end(), src, src + Cap);
-            co_return Cap;
-        }
-
-        /** @brief 关闭桩并唤醒挂起操作 */
-        void Close() override
-        {
-            Closed_ = true;
-            Notify();
-        }
-
-        /** @brief 取消下一次挂起读并唤醒它 */
-        void Cancel() override
-        {
-            Cancelled_ = true;
-            Notify();
-        }
-
-        /** @brief 半关闭读方向，保留写能力 */
-        void Shutdown() override
-        {
-            Shutdown_ = true;
-            Notify();
-        }
-
-        /**
-         * @brief 注入一段可读取数据
-         * @param Data 待追加的字节
-         * @note 调用方应在构造时绑定的执行器上操作桩状态。
-         */
-        void InjectRead(std::vector<std::uint8_t> Data)
-        {
-            ToRead.insert(ToRead.end(), Data.begin(), Data.end());
-            Notify();
-        }
-
-        /**
-         * @brief 注入下一次读取错误并唤醒挂起读
-         * @param Error 读取错误码
-         */
-        void SetReadError(std::error_code Error)
-        {
-            ReadError_ = Error;
-            Notify();
-        }
-
-        /**
-         * @brief 注入下一次写入错误并可同时报告有效字节
-         * @param Error 写入错误码
-         */
-        void SetWriteError(std::error_code Error)
-        {
-            WriteError_ = Error;
-        }
-
+        explicit PreviewMockTransport(net::any_io_executor Executor)
+            : Transmission(Executor), Ex_(std::move(Executor)), Events_(Ex_, 1) {}
+        [[nodiscard]] auto Executor() const -> net::any_io_executor override { return Ex_; }
+        [[nodiscard]] auto IsOpen() const noexcept -> bool override { return !Closed_; }
+        [[nodiscard]] auto TransportType() const noexcept -> Type override { return TransportKind; }
+        /** @brief 注入 peer 写半关闭，保留本端发送；与正式 WriteShutdown 的方向不同。 */
+        auto InjectPeerEof() -> void { PeerEof_ = true; Notify(); }
+        [[nodiscard]] auto PeerEof() const noexcept -> bool { return PeerEof_; }
+        auto InjectRead(std::vector<std::uint8_t> Data) -> void
+        { ToRead.insert(ToRead.end(), Data.begin(), Data.end()); Notify(); }
+        /** @brief 精确保存外部注入的 category/value，包括同次 partial 字节。 */
+        auto SetReadError(std::error_code Error) -> void { ReadError_ = Error; Notify(); }
+        auto SetWriteError(std::error_code Error) -> void { WriteError_ = Error; }
+        [[nodiscard]] auto IsClosed() const noexcept -> bool { return Closed_; }
+        [[nodiscard]] auto IsCancelled() const noexcept -> bool { return Cancelled_; }
         /// 读取字节流（由测试初始化；耗尽后等待事件）
         std::vector<std::uint8_t> ToRead;
         /// 捕获的全部写入数据
@@ -297,39 +69,97 @@ namespace Preview
         /// 已执行写入次数
         std::size_t WritesDone{0};
 
-        /** @brief 检查是否已关闭 */
-        [[nodiscard]] auto IsClosed() const noexcept -> bool
-        {
-            return Closed_;
-        }
 
-        /** @brief 检查是否已半关闭读方向 */
-        [[nodiscard]] auto IsShutdown() const noexcept -> bool
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            return Shutdown_;
+            net::async_initiate<Completion, void(IoResult)>(
+                net::co_composed<void(IoResult)>(ReadOperation{}, Ex_), Handler,
+                ReadInput{std::static_pointer_cast<PreviewMockTransport>(weak_from_this().lock()), Buffer});
         }
-
-        /** @brief 检查是否存在待消费的取消请求 */
-        [[nodiscard]] auto IsCancelled() const noexcept -> bool
-        {
-            return Cancelled_;
-        }
-
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        { Transport::Detail::PostResult(Ex_, std::move(Handler), Write(Buffer)); }
+        auto StartWriteShutdown(Completion Handler) -> void override
+        { WriteClosed_ = true; Transport::Detail::PostResult(Ex_, std::move(Handler), {}); }
+        [[nodiscard]] auto OnClose() -> ControlResult override { Closed_ = true; Notify(); return {}; }
+        [[nodiscard]] auto OnCancel() -> ControlResult override { Cancelled_ = true; Notify(); return {}; }
     private:
-        /** @brief 发送合并唤醒事件 */
-        void Notify()
+        struct ReadInput final { std::shared_ptr<PreviewMockTransport> Owner; std::span<std::byte> Buffer; };
+        struct ReadOperation final
         {
-            (void)Events_.try_send(boost::system::error_code{});
+            template<class State>
+            auto operator()(State Operation, ReadInput Input) const -> void
+            {
+                Transport::Detail::ConfigureIo(Operation);
+                ++Input.Owner->ReadsDone;
+                for (;;)
+                {
+                    if (!!Operation.cancelled()) co_return std::tuple{IoResult{0, {Fault::Code::Canceled}}};
+                    if (auto Result = Input.Owner->TryRead(Input.Buffer)) co_return std::tuple{*Result};
+                    const auto [Error] = co_await Input.Owner->Events_.async_receive(net::as_tuple(net::deferred));
+                    if (Error) co_return std::tuple{IoResult{0, Fault::FromNative(static_cast<std::error_code>(Error))}};
+                }
+            }
+        };
+        [[nodiscard]] auto TryRead(std::span<std::byte> Buffer) -> std::optional<IoResult>
+        {
+            if (FailNextRead || ReadsDone == ReadFailAt)
+            { FailNextRead = false; return IoResult{0, {Fault::Code::IoError}}; }
+            if (Closed_) return IoResult{0, {Fault::Code::Eof}};
+            if (Cancelled_)
+            { Cancelled_ = false; return IoResult{0, {Fault::Code::Canceled}}; }
+            if (ReadError_)
+            {
+                const auto Count = (std::min)(ReadErrorBytes, Buffer.size());
+                const auto Available = (std::min)(Count, ToRead.size() - ReadPos_);
+                if (Available != 0) std::memcpy(Buffer.data(), ToRead.data() + ReadPos_, Available);
+                ReadPos_ += Available;
+                const auto Failure = Fault::FromNative(*ReadError_);
+                ReadError_.reset();
+                return IoResult{Available, Failure};
+            }
+            if (PeerEof_) return IoResult{0, {Fault::Code::Eof}};
+            if (OverreportRead) return IoResult{Buffer.size() + 1, {}};
+            if (ReadPos_ < ToRead.size())
+            {
+                const auto Count = (std::min)(Buffer.size(), ToRead.size() - ReadPos_);
+                if (Count != 0) std::memcpy(Buffer.data(), ToRead.data() + ReadPos_, Count);
+                ReadPos_ += Count;
+                return IoResult{Count, {}};
+            }
+            if (EofOnDrain) return IoResult{0, {Fault::Code::Eof}};
+            return std::nullopt;
         }
-
+        [[nodiscard]] auto Write(std::span<const std::byte> Buffer) -> IoResult
+        {
+            if (WriteError_)
+            {
+                const auto Count = (std::min)(WriteErrorBytes, Buffer.size());
+                const auto* Source = reinterpret_cast<const std::uint8_t*>(Buffer.data());
+                Written.insert(Written.end(), Source, Source + Count);
+                const auto Failure = Fault::FromNative(*WriteError_);
+                WriteError_.reset();
+                return {Count, Failure};
+            }
+            ++WritesDone;
+            if (FailNextWrite || WritesDone == WriteFailAt || Closed_ || WriteClosed_)
+            { FailNextWrite = false; return {0, {Fault::Code::IoError}}; }
+            if (OverreportWrite) return {Buffer.size() + 1, {}};
+            if (ZeroWrite) return {};
+            auto Limit = MaxWrite;
+            if (!WriteLimitSequence.empty()) Limit = WriteLimitSequence[(WritesDone - 1) % WriteLimitSequence.size()];
+            auto Count = Buffer.size();
+            if (Limit != 0) Count = (std::min)(Buffer.size(), Limit);
+            const auto* Source = reinterpret_cast<const std::uint8_t*>(Buffer.data());
+            Written.insert(Written.end(), Source, Source + Count);
+            return {Count, {}};
+        }
+        auto Notify() -> void { (void)Events_.try_send(boost::system::error_code{}); }
         net::any_io_executor Ex_;
         net::experimental::channel<void(boost::system::error_code)> Events_;
         std::size_t ReadPos_{0};
-        bool Closed_{false};
-        bool Shutdown_{false};
-        bool Cancelled_{false};
-        std::optional<std::error_code> ReadError_;
-        std::optional<std::error_code> WriteError_;
+        bool Closed_{false}, PeerEof_{false}, WriteClosed_{false}, Cancelled_{false};
+        std::optional<std::error_code> ReadError_, WriteError_;
     };
 
     namespace Testing

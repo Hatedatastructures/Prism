@@ -1,568 +1,185 @@
 /**
  * @file NativeServer.hpp
- * @brief HTTP/3 nghttp3 与异步 QUIC provider 的单执行器会话适配
- * @details 负责控制流/QPACK 流生命周期、incoming stream 事件串行化、
- *          nghttp3 输出短写确认以及认证后的裸双向流回调。
- *          所有 nghttp3 调用都在创建会话时提供的执行器上顺序执行。
+ * @brief 原生 QUIC streams 上的 HTTP/3 服务端会话能力。
+ * @details 公开 typed request/data/raw-stream events 和会话生命周期；nghttp3、driver 和事件队列由 Detail owner 持有。
  */
-
 #pragma once
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/experimental/channel.hpp>
-#include <boost/asio/redirect_error.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <boost/asio/use_awaitable.hpp>
-
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <chrono>
+#include <expected>
 #include <functional>
 #include <memory>
-#include <span>
-#include <system_error>
-#include <tuple>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include <optional>
+#include <string_view>
 
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Protocols/Http3/Server.hpp>
+#include <Preview/Protocols/Http3/ServerFactory.hpp>
 #include <Preview/Protocols/Quic/StreamAdapter.hpp>
+#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Http3
 {
-
     namespace Net = boost::asio;
 
-    /**
-     * @struct NativeServerRawData
-     * @brief 认证后双向 QUIC 流的上层响应动作
-     */
-    struct NativeServerRawData
+    enum class NativeServerSessionStage : std::uint8_t
     {
-        std::vector<std::byte> Data;
-        bool Fin{false};
-        bool Stop{false};
-        std::chrono::milliseconds GracefulClose{0};
+        RunStarted, OpenHttp3Streams, InitializeHttp3, NewStream, DataEvent,
+        RequestEvent, SubmitResponse, DrainOutput, Error, RunFinished,
     };
 
-    /**
-     * @struct NativeServerSessionOptions
-     * @brief HTTP/3 会话与异步 QUIC provider 工厂
-     */
-    struct NativeServerSessionOptions
+    struct NativeServerSessionEvent final
+    {
+        NativeServerSessionStage Stage{NativeServerSessionStage::RunStarted};
+        Preview::Fault::Code Status{Preview::Fault::Code::Success};
+        std::int64_t StreamId{-1};
+    };
+
+    using NativeServerSessionObserver = std::function<void(NativeServerSessionEvent)>;
+
+    [[nodiscard]] constexpr auto NativeServerSessionStageName(
+        const NativeServerSessionStage Stage) noexcept -> std::string_view
+    {
+        switch (Stage)
+        {
+        case NativeServerSessionStage::RunStarted: return "RunStarted";
+        case NativeServerSessionStage::OpenHttp3Streams: return "OpenHttp3Streams";
+        case NativeServerSessionStage::InitializeHttp3: return "InitializeHttp3";
+        case NativeServerSessionStage::NewStream: return "NewStream";
+        case NativeServerSessionStage::DataEvent: return "DataEvent";
+        case NativeServerSessionStage::RequestEvent: return "RequestEvent";
+        case NativeServerSessionStage::SubmitResponse: return "SubmitResponse";
+        case NativeServerSessionStage::DrainOutput: return "DrainOutput";
+        case NativeServerSessionStage::Error: return "Error";
+        case NativeServerSessionStage::RunFinished: return "RunFinished";
+        }
+        return "Unknown";
+    }
+
+    /** @brief 单个 QUIC owner 的 HTTP/3 流准入、事件处理与生命周期观察配置。 */
+    struct NativeServerSessionOptions final
     {
         Net::any_io_executor Executor{};
         ServerOptions Http{};
-        std::function<Net::awaitable<Preview::Quic::SharedStreamProvider>()>
+        /** @brief 在 Executor 上创建单向控制流，返回拥有型 provider 或完整失败原因。 */
+        std::function<Net::awaitable<std::expected<Preview::Quic::SharedStreamProvider,
+                                                   Preview::Fault::Failure>>()>
             OpenUnidirectional;
-        std::function<Net::awaitable<Preview::Quic::SharedStreamProvider>()>
+        /** @brief 在 Executor 上接收 peer 单向流，成功时将 provider 所有权交给 session。 */
+        std::function<Net::awaitable<std::expected<Preview::Quic::SharedStreamProvider,
+                                                   Preview::Fault::Failure>>()>
             AcceptUnidirectional;
-        std::function<Net::awaitable<Preview::Quic::SharedStreamProvider>()>
+        /** @brief 在 Executor 上接收 peer 双向流；对端 FIN 只关闭该流接收方向。 */
+        std::function<Net::awaitable<std::expected<Preview::Quic::SharedStreamProvider,
+                                                   Preview::Fault::Failure>>()>
             AcceptBidirectional;
-        std::function<Net::awaitable<void>(Preview::Quic::SharedStreamProvider)>
-            OnRawStream;
-        std::function<NativeServerRawData(std::int64_t, std::span<const std::byte>, bool)> OnRawData;
-        std::function<void()> OnAuthenticated;
+        EventHandler OnEvent{};
+        NativeServerSessionObserver Observer{};
+        std::size_t MaxConcurrentStreams{64};
+        std::shared_ptr<ServerFactory> Factory{std::make_shared<ServerFactory>()};
     };
 
-    /**
-     * @class NativeServerSession
-     * @brief 将 Preview QUIC provider 接入 HTTP/3 服务端会话
-     * @details
-     * 1. 异步创建 HTTP/3 控制流和两个 QPACK 单向流；
-     * 2. 将所有 incoming 流转为事件，在一个 executor 上调用 nghttp3；
-     * 3. 每次 QUIC 短写后调用 AddWriteOffset，FIN 只在全部字节写完后提交；
-     * 4. 认证完成后把新的双向流交给 OnRawData（Hysteria2 TCP 数据面）。
-     */
-    class NativeServerSession final : public std::enable_shared_from_this<NativeServerSession>
+    namespace Detail
+    {
+        class NativeServerSessionOwner;
+    }
+
+    /** @brief 拥有单个 HTTP/3 会话的 QUIC 流收发与类型化事件分发。 */
+    class NativeServerSession final
     {
     public:
-        explicit NativeServerSession(NativeServerSessionOptions Options)
-            : Options_(std::move(Options)),
-              Server_(MakeServer(Options_.Http)),
-              Events_(Options_.Executor, 256)
-        {
-        }
-
+        explicit NativeServerSession(NativeServerSessionOptions Options);
+        ~NativeServerSession() noexcept;
         NativeServerSession(const NativeServerSession &) = delete;
         auto operator=(const NativeServerSession &) -> NativeServerSession & = delete;
+        NativeServerSession(NativeServerSession &&) = delete;
+        auto operator=(NativeServerSession &&) -> NativeServerSession & = delete;
 
         /**
-         * @brief 启动会话并运行到连接关闭或上层请求停止
-         * @return 会话最终错误语义
+         * @brief 在 options executor 上处理 HTTP/3 控制、请求和 stream 事件。
+         * @return 首个协议、原生 I/O、控制或 callback 异常原因，含 Native。
+         * @note 取消/异常会请求本 session 关闭；远端单流 FIN 只结束该流读取，
+         *       Close 与 Drain 负责连接及所有 stream 的最终关闭和物理退休。
          */
-        [[nodiscard]] auto Run() -> Net::awaitable<Fault::Code>
-        {
-            co_await Net::dispatch(Options_.Executor, Net::use_awaitable);
-            if (!Server_ || !Options_.OpenUnidirectional || !Options_.AcceptUnidirectional ||
-                !Options_.AcceptBidirectional)
-            {
-                co_return Fault::Code::NotSupported;
-            }
-            if (!co_await OpenHttp3Streams() || !InitializeHttp3())
-            {
-                Close();
-                co_return Fault::Code::ProtocolError;
-            }
+        [[nodiscard]] auto Run()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>;
 
-            auto Self = shared_from_this();
-            Net::co_spawn(Options_.Executor,
-                          [Self]() -> Net::awaitable<void> { co_await Self->AcceptLoop(true); },
-                          Net::detached);
-            Net::co_spawn(Options_.Executor,
-                          [Self]() -> Net::awaitable<void> { co_await Self->AcceptLoop(false); },
-                          Net::detached);
-            auto InitCode = co_await DrainOutput();
-            if (InitCode != Fault::Code::Success)
-            {
-                Close();
-                co_return InitCode;
-            }
+        /** @brief 请求在所属 executor 上关闭全部流与连接；成功仅表示关闭命令已接管。 */
+        [[nodiscard]] auto Close() -> Preview::Transmission::ControlResult;
 
-            while (!Closed_)
-            {
-                boost::system::error_code ReceiveError;
-                const auto EventValue =
-                    co_await Events_.async_receive(Net::redirect_error(Net::use_awaitable, ReceiveError));
-                if (ReceiveError || !EventValue)
-                {
-                    break;
-                }
-                const auto Code = co_await HandleEvent(*EventValue);
-                if (Code != Fault::Code::Success)
-                {
-                    TerminalCode_ = Code;
-                    Close();
-                    break;
-                }
-            }
-            const auto Result = TerminalCode_;
-            Close();
-            co_return Result;
-        }
+        /** @brief 等待 Run、stream 活动和底层 QUIC 实际退栈；保留首个完整失败。 */
+        [[nodiscard]] auto Drain()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>;
+        [[nodiscard]] auto ProtocolReady() const noexcept -> bool;
 
-        /**
-         * @brief 关闭会话及所有 provider
-         */
-        auto Close() -> void
-        {
-            auto Self = shared_from_this();
-            Net::dispatch(Options_.Executor, [Self = std::move(Self)]() mutable
-                          { Self->CloseOnExecutor(); });
-        }
-
-        /**
-         * @brief 查询认证是否已完成
-         */
-        [[nodiscard]] auto Authenticated() const noexcept -> bool
-        {
-            return Authenticated_;
-        }
-
-        /** @brief HTTP/3 认证协议是否已完成 */
-        [[nodiscard]] auto ProtocolReady() const noexcept -> bool
-        {
-            return Authenticated_;
-        }
-
-        /**
-         * @brief 获取 HTTP/3 服务端门面
-         */
-        [[nodiscard]] auto Http() const noexcept -> const Server &
-        {
-            return *Server_;
-        }
+        /** @brief 仅当 engine、所有受管 stream 和后台任务都已物理释放时返回 true。 */
+        [[nodiscard]] auto IsRetired() const noexcept -> bool;
 
     private:
-        auto CloseOnExecutor() -> void
-        {
-            if (Closed_)
-            {
-                return;
-            }
-            Closed_ = true;
-            Events_.close();
-            for (auto &[StreamId, Provider] : Streams_)
-            {
-                (void)StreamId;
-                if (Provider)
-                {
-                    Provider->Close();
-                }
-            }
-            Streams_.clear();
-            if (Server_)
-            {
-                Server_->Close();
-            }
-            if (TerminalCode_ == Fault::Code::Success && Authenticated_)
-            {
-                return;
-            }
-            if (TerminalCode_ == Fault::Code::Canceled)
-            {
-                TerminalCode_ = Fault::Code::Canceled;
-            }
-        }
-
-        enum class EventType : std::uint8_t
-        {
-            NewStream,
-            Data,
-            Error,
-        };
-
-        struct Event
-        {
-            EventType Type{EventType::Error};
-            bool Unidirectional{false};
-            bool Fin{false};
-            std::error_code Error{};
-            Preview::Quic::SharedStreamProvider Provider{};
-            std::vector<std::byte> Data;
-        };
-
-        using EventChannel =
-            Net::experimental::channel<void(boost::system::error_code, std::shared_ptr<Event>)>;
-
-        [[nodiscard]] auto OpenHttp3Streams() -> Net::awaitable<bool>
-        {
-            for (auto &Provider : Http3Streams_)
-            {
-                Provider = co_await Options_.OpenUnidirectional();
-                if (!Provider || Provider->StreamId() < 0)
-                {
-                    co_return false;
-                }
-                Streams_[Provider->StreamId()] = Provider;
-            }
-            co_return true;
-        }
-
-        [[nodiscard]] auto InitializeHttp3() -> bool
-        {
-            std::size_t Index = 0;
-            return Server_->Init([this, Index]() mutable -> std::int64_t
-                                 {
-                                     if (Index >= Http3Streams_.size() || !Http3Streams_[Index])
-                                     {
-                                         return -1;
-                                     }
-                                     return Http3Streams_[Index++]->StreamId();
-                                 });
-        }
-
-        [[nodiscard]] auto AcceptLoop(const bool Unidirectional) -> Net::awaitable<void>
-        {
-            const auto *Accept = &Options_.AcceptBidirectional;
-            if (Unidirectional)
-            {
-                Accept = &Options_.AcceptUnidirectional;
-            }
-            while (!Closed_)
-            {
-                auto Provider = co_await (*Accept)();
-                if (!Provider || Closed_)
-                {
-                    co_return;
-                }
-                auto EventValue = std::make_shared<Event>();
-                EventValue->Type = EventType::NewStream;
-                EventValue->Unidirectional = Unidirectional;
-                EventValue->Provider = std::move(Provider);
-                if (!Publish(std::move(EventValue)))
-                {
-                    co_return;
-                }
-            }
-        }
-
-        [[nodiscard]] auto ReadLoop(const Preview::Quic::SharedStreamProvider &Provider,
-                                    const bool Unidirectional) -> Net::awaitable<void>
-        {
-            std::array<std::byte, 16384> Buffer{};
-            while (!Closed_ && Provider)
-            {
-                std::error_code Error;
-                const auto Count = co_await Provider->Read(Buffer, Error);
-                if (Error)
-                {
-                    auto EventValue = std::make_shared<Event>();
-                    EventValue->Type = EventType::Error;
-                    EventValue->Error = Error;
-                    EventValue->Provider = Provider;
-                    (void)Publish(std::move(EventValue));
-                    co_return;
-                }
-                auto EventValue = std::make_shared<Event>();
-                EventValue->Type = EventType::Data;
-                EventValue->Unidirectional = Unidirectional;
-                EventValue->Provider = Provider;
-                EventValue->Fin = Count == 0;
-                EventValue->Data.assign(Buffer.begin(), Buffer.begin() + static_cast<std::ptrdiff_t>(Count));
-                if (!Publish(std::move(EventValue)) || Count == 0)
-                {
-                    co_return;
-                }
-            }
-        }
-
-        [[nodiscard]] auto Publish(std::shared_ptr<Event> EventValue) -> bool
-        {
-            if (Closed_ || !EventValue)
-            {
-                return false;
-            }
-            return Events_.try_send(boost::system::error_code{}, std::move(EventValue));
-        }
-
-        [[nodiscard]] auto HandleEvent(const Event &EventValue) -> Net::awaitable<Fault::Code>
-        {
-            if (EventValue.Type == EventType::NewStream)
-            {
-                co_return co_await HandleNewStream(EventValue);
-            }
-            if (EventValue.Type == EventType::Error)
-            {
-                co_return Fault::Code::IoError;
-            }
-            co_return co_await HandleData(EventValue);
-        }
-
-        [[nodiscard]] auto HandleNewStream(const Event &EventValue) -> Net::awaitable<Fault::Code>
-        {
-            if (!EventValue.Provider ||
-                Streams_.contains(EventValue.Provider->StreamId()))
-            {
-                co_return Fault::Code::ProtocolError;
-            }
-            const auto StreamId = EventValue.Provider->StreamId();
-            Streams_[StreamId] = EventValue.Provider;
-            if (Authenticated_ && !EventValue.Unidirectional && Options_.OnRawStream)
-            {
-                StartRawStream(EventValue.Provider);
-                co_return Fault::Code::Success;
-            }
-            if (!Authenticated_ && !EventValue.Unidirectional && Options_.OnRawStream)
-            {
-                if (AuthCandidate_ < 0 && StreamId == 0)
-                {
-                    AuthCandidate_ = StreamId;
-                }
-                if (StreamId != AuthCandidate_)
-                {
-                    PendingRawStreams_.push_back(EventValue.Provider);
-                    co_return Fault::Code::Success;
-                }
-            }
-            auto Self = shared_from_this();
-            const auto Provider = EventValue.Provider;
-            const auto Unidirectional = EventValue.Unidirectional;
-            Net::co_spawn(
-                Options_.Executor,
-                [Self, Provider, Unidirectional]() -> Net::awaitable<void>
-                {
-                    co_await Self->ReadLoop(Provider, Unidirectional);
-                },
-                Net::detached);
-            co_return Fault::Code::Success;
-        }
-
-        [[nodiscard]] auto HandleData(const Event &EventValue) -> Net::awaitable<Fault::Code>
-        {
-            if (!EventValue.Provider)
-            {
-                co_return Fault::Code::ProtocolError;
-            }
-            if (Authenticated_ && EventValue.Provider->StreamId() == AuthStream_)
-            {
-                co_return Fault::Code::Success;
-            }
-            if (Authenticated_ && EventValue.Unidirectional)
-            {
-                co_return Fault::Code::Success;
-            }
-            if (!Authenticated_ || EventValue.Unidirectional)
-            {
-                const auto Code = Server_->Feed(EventValue.Provider->StreamId(), EventValue.Data, EventValue.Fin);
-                if (Code != Fault::Code::Success)
-                {
-                    co_return Code;
-                }
-                if (!Authenticated_ && EventValue.Fin && Server_->AuthHeadersComplete() &&
-                    EventValue.Provider->StreamId() == Server_->AuthStreamId())
-                {
-                    if (!Server_->CheckAuth())
-                    {
-                        co_return Fault::Code::AuthFailed;
-                    }
-                    if (Server_->SubmitAuthResponse() != Fault::Code::Success)
-                    {
-                        co_return Fault::Code::ProtocolError;
-                    }
-                    Authenticated_ = true;
-                    AuthStream_ = Server_->AuthStreamId();
-                    for (const auto &Provider : PendingRawStreams_)
-                    {
-                        StartRawStream(Provider);
-                    }
-                    PendingRawStreams_.clear();
-                    if (Options_.OnAuthenticated)
-                    {
-                        Options_.OnAuthenticated();
-                    }
-                }
-                co_return co_await DrainOutput();
-            }
-
-            if (!Options_.OnRawData)
-            {
-                co_return Fault::Code::Success;
-            }
-            auto Action = Options_.OnRawData(EventValue.Provider->StreamId(), EventValue.Data, EventValue.Fin);
-            const auto Code = co_await WriteRaw(EventValue.Provider, Action.Data, Action.Fin);
-            if (Code != Fault::Code::Success)
-            {
-                co_return Code;
-            }
-            if (Action.Stop)
-            {
-                TerminalCode_ = Fault::Code::Success;
-                StopStream_ = EventValue.Provider->StreamId();
-                if (Action.GracefulClose.count() > 0)
-                {
-                    Net::steady_timer Timer(Options_.Executor);
-                    Timer.expires_after(Action.GracefulClose);
-                    boost::system::error_code TimerError;
-                    co_await Timer.async_wait(Net::redirect_error(Net::use_awaitable, TimerError));
-                }
-                Close();
-            }
-            if (EventValue.Fin && StopStream_ == EventValue.Provider->StreamId())
-            {
-                Close();
-            }
-            co_return Fault::Code::Success;
-        }
-
-        auto StartRawStream(const Preview::Quic::SharedStreamProvider &Provider) -> void
-        {
-            if (!Provider || !Options_.OnRawStream)
-            {
-                return;
-            }
-            const auto Handler = Options_.OnRawStream;
-            Net::co_spawn(
-                Options_.Executor,
-                [Provider, Handler]() mutable -> Net::awaitable<void>
-                {
-                    co_await Handler(Provider);
-                    if (Provider)
-                    {
-                        Provider->Close();
-                    }
-                },
-                Net::detached);
-        }
-
-        [[nodiscard]] auto DrainOutput() -> Net::awaitable<Fault::Code>
-        {
-            while (!Closed_)
-            {
-                std::vector<OutPacket> Packets;
-                if (!Server_->PumpOutput(Packets))
-                {
-                    co_return Fault::Code::ProtocolError;
-                }
-                if (Packets.empty())
-                {
-                    co_return Fault::Code::Success;
-                }
-                for (const auto &Packet : Packets)
-                {
-                    const auto StreamIterator = Streams_.find(Packet.StreamId);
-                    if (StreamIterator == Streams_.end() || !StreamIterator->second)
-                    {
-                        co_return Fault::Code::ProtocolError;
-                    }
-                    const auto Code = co_await WritePacket(Packet, StreamIterator->second);
-                    if (Code != Fault::Code::Success)
-                    {
-                        co_return Code;
-                    }
-                }
-            }
-            co_return Fault::Code::Canceled;
-        }
-
-        [[nodiscard]] auto WritePacket(
-            const OutPacket &Packet,
-            const Preview::Quic::SharedStreamProvider &Provider) -> Net::awaitable<Fault::Code>
-        {
-            std::size_t Offset = 0;
-            while (Offset < Packet.Data.size())
-            {
-                std::error_code Error;
-                const auto Written = co_await Provider->Write(
-                    std::span<const std::byte>(Packet.Data).subspan(Offset), Error);
-                if (Error || Written == 0 || Written > Packet.Data.size() - Offset)
-                {
-                    co_return Fault::Code::IoError;
-                }
-                Offset += Written;
-                Server_->AddWriteOffset(Packet.StreamId, Written);
-            }
-            if (Packet.Data.empty())
-            {
-                Server_->AddWriteOffset(Packet.StreamId, 0);
-            }
-            if (Packet.Fin)
-            {
-                Provider->ShutdownWrite();
-            }
-            co_return Fault::Code::Success;
-        }
-
-        [[nodiscard]] auto WriteRaw(
-            const Preview::Quic::SharedStreamProvider &Provider,
-            std::span<const std::byte> Data,
-            const bool Fin) -> Net::awaitable<Fault::Code>
-        {
-            std::size_t Offset = 0;
-            while (Offset < Data.size())
-            {
-                std::error_code Error;
-                const auto Written = co_await Provider->Write(Data.subspan(Offset), Error);
-                if (Error || Written == 0 || Written > Data.size() - Offset)
-                {
-                    co_return Fault::Code::IoError;
-                }
-                Offset += Written;
-            }
-            if (Fin)
-            {
-                Provider->ShutdownWrite();
-            }
-            co_return Fault::Code::Success;
-        }
-
-        NativeServerSessionOptions Options_;
-        SharedServer Server_;
-        EventChannel Events_;
-        std::array<Preview::Quic::SharedStreamProvider, 3> Http3Streams_{};
-        std::unordered_map<std::int64_t, Preview::Quic::SharedStreamProvider> Streams_;
-        bool Closed_{false};
-        bool Authenticated_{false};
-        std::int64_t AuthCandidate_{-1};
-        std::int64_t AuthStream_{-1};
-        std::vector<Preview::Quic::SharedStreamProvider> PendingRawStreams_;
-        Fault::Code TerminalCode_{Fault::Code::Canceled};
-        std::int64_t StopStream_{-1};
+        std::shared_ptr<Detail::NativeServerSessionOwner> Owner_;
     };
+}
 
-} // namespace Preview::Http3
+#include <Preview/Protocols/Http3/Detail/NativeServer.hpp>
+
+namespace Preview::Http3
+{
+    inline NativeServerSession::NativeServerSession(NativeServerSessionOptions Options)
+        : Owner_(std::make_shared<Detail::NativeServerSessionOwner>(std::move(Options)))
+    {
+    }
+
+    inline NativeServerSession::~NativeServerSession() noexcept
+    {
+        if (Owner_)
+        {
+            (void)Owner_->Close();
+        }
+    }
+
+    inline auto NativeServerSession::Run()
+        -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+    {
+        const auto Owner = Owner_;
+        if (!Owner)
+        {
+            co_return std::unexpected(
+                Preview::Fault::Failure{Fault::Code::Canceled});
+        }
+        co_return co_await Owner->Run();
+    }
+
+    inline auto NativeServerSession::Close() -> Preview::Transmission::ControlResult
+    {
+        if (!Owner_)
+        {
+            return {};
+        }
+        return Owner_->Close();
+    }
+
+    inline auto NativeServerSession::Drain()
+        -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+    {
+        const auto Owner = Owner_;
+        if (!Owner)
+        {
+            co_return std::expected<void, Preview::Fault::Failure>{};
+        }
+        co_return co_await Owner->Drain();
+    }
+
+    inline auto NativeServerSession::ProtocolReady() const noexcept -> bool
+    {
+        return Owner_ && Owner_->ProtocolReady();
+    }
+
+    inline auto NativeServerSession::IsRetired() const noexcept -> bool
+    {
+        return !Owner_ || Owner_->IsRetired();
+    }
+}

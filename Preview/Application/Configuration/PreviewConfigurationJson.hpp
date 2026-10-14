@@ -33,28 +33,39 @@ struct glz::meta<Preview::Application::Configuration::ListenersConfiguration>
 };
 
 template <>
+struct glz::meta<Preview::Application::Configuration::NativeTlsConfiguration::EchServerConfiguration>
+{
+    using T = Preview::Application::Configuration::NativeTlsConfiguration::EchServerConfiguration;
+    static constexpr auto value = glz::object(
+        "Enabled", &T::Enabled,
+        "PrivateKeyFile", &T::PrivateKeyFile,
+        "EchConfigFile", &T::EchConfigFile);
+};
+
+template <>
 struct glz::meta<Preview::Application::Configuration::NativeTlsConfiguration>
 {
     using T = Preview::Application::Configuration::NativeTlsConfiguration;
     static constexpr auto value = glz::object(
         "Enabled", &T::Enabled,
         "CertificateFile", &T::CertificateFile,
-        "PrivateKeyFile", &T::PrivateKeyFile);
+        "PrivateKeyFile", &T::PrivateKeyFile,
+        "Ech", &T::Ech);
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::NativeTlsOptions>
+struct glz::meta<Preview::Contract::NativeTlsOptions>
 {
-    using T = Preview::Application::Configuration::NativeTlsOptions;
+    using T = Preview::Contract::NativeTlsOptions;
     static constexpr auto value = glz::object(
         "CertificateFile", &T::CertificateFile,
         "PrivateKeyFile", &T::PrivateKeyFile);
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::RealityOptions>
+struct glz::meta<Preview::Contract::RealityOptions>
 {
-    using T = Preview::Application::Configuration::RealityOptions;
+    using T = Preview::Contract::RealityOptions;
     static constexpr auto value = glz::object(
         "HandshakeTarget", &T::HandshakeTarget,
         "ServerNames", &T::ServerNames,
@@ -63,9 +74,9 @@ struct glz::meta<Preview::Application::Configuration::RealityOptions>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::ShadowTlsOptions>
+struct glz::meta<Preview::Contract::ShadowTlsOptions>
 {
-    using T = Preview::Application::Configuration::ShadowTlsOptions;
+    using T = Preview::Contract::ShadowTlsOptions;
     static constexpr auto value = glz::object(
         "Version", &T::Version,
         "PasswordSecretRef", &T::PasswordSecretRef,
@@ -76,9 +87,9 @@ struct glz::meta<Preview::Application::Configuration::ShadowTlsOptions>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::RestlsOptions>
+struct glz::meta<Preview::Contract::RestlsOptions>
 {
-    using T = Preview::Application::Configuration::RestlsOptions;
+    using T = Preview::Contract::RestlsOptions;
     static constexpr auto value = glz::object(
         "ServerNames", &T::ServerNames,
         "Host", &T::Host,
@@ -89,18 +100,18 @@ struct glz::meta<Preview::Application::Configuration::RestlsOptions>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::WebSocketOptions>
+struct glz::meta<Preview::Contract::WebSocketOptions>
 {
-    using T = Preview::Application::Configuration::WebSocketOptions;
+    using T = Preview::Contract::WebSocketOptions;
     static constexpr auto value = glz::object(
         "Path", &T::Path,
         "Host", &T::Host);
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::XhttpOptions>
+struct glz::meta<Preview::Contract::XhttpOptions>
 {
-    using T = Preview::Application::Configuration::XhttpOptions;
+    using T = Preview::Contract::XhttpOptions;
     static constexpr auto value = glz::object(
         "Path", &T::Path,
         "Host", &T::Host,
@@ -108,9 +119,9 @@ struct glz::meta<Preview::Application::Configuration::XhttpOptions>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::GunOptions>
+struct glz::meta<Preview::Contract::GunOptions>
 {
-    using T = Preview::Application::Configuration::GunOptions;
+    using T = Preview::Contract::GunOptions;
     static constexpr auto value = glz::object(
         "ServerNames", &T::ServerNames,
         "Mode", &T::Mode,
@@ -119,22 +130,7 @@ struct glz::meta<Preview::Application::Configuration::GunOptions>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::TrustTunnelOptions>
-{
-    using T = Preview::Application::Configuration::TrustTunnelOptions;
-    static constexpr auto value = glz::object(
-        "ServerNames", &T::ServerNames,
-        "CertificateFile", &T::CertificateFile,
-        "PrivateKeySecretRef", &T::PrivateKeySecretRef,
-        "PasswordSecretRef", &T::PasswordSecretRef,
-        "Network", &T::Network,
-        "Congestion", &T::Congestion,
-        "HandshakeTimeoutMs", &T::HandshakeTimeoutMs,
-        "IdleTimeoutMs", &T::IdleTimeoutMs);
-};
-
-template <>
-struct glz::meta<Preview::Application::Configuration::CarrierOptions>
+struct glz::meta<Preview::Contract::CarrierOptions>
 {
     static constexpr std::string_view tag = "Type";
     static constexpr auto ids = std::array{
@@ -144,14 +140,13 @@ struct glz::meta<Preview::Application::Configuration::CarrierOptions>
         "Restls",
         "WebSocket",
         "Xhttp",
-        "Gun",
-        "TrustTunnel"};
+        "Gun"};
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::CarrierMatchOptions>
+struct glz::meta<Preview::Contract::CarrierMatchOptions>
 {
-    using T = Preview::Application::Configuration::CarrierMatchOptions;
+    using T = Preview::Contract::CarrierMatchOptions;
     static constexpr auto value = glz::object(
         "ServerNames", &T::ServerNames,
         "Alpn", &T::Alpn,
@@ -182,9 +177,9 @@ struct glz::meta<Preview::Application::Configuration::BuiltinConfiguration>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::ProtocolConfiguration>
+struct glz::meta<Preview::Contract::ProtocolConfiguration>
 {
-    using T = Preview::Application::Configuration::ProtocolConfiguration;
+    using T = Preview::Contract::ProtocolConfiguration;
     static constexpr auto value = glz::object(
         "Id", &T::Id,
         "Name", &T::Name,
@@ -194,9 +189,9 @@ struct glz::meta<Preview::Application::Configuration::ProtocolConfiguration>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::ProtocolConfiguration::QuicOptions>
+struct glz::meta<Preview::Contract::ProtocolConfiguration::QuicOptions>
 {
-    using T = Preview::Application::Configuration::ProtocolConfiguration::QuicOptions;
+    using T = Preview::Contract::ProtocolConfiguration::QuicOptions;
     static constexpr auto value = glz::object(
         "Alpn", &T::Alpn,
         "ServerName", &T::ServerName,
@@ -207,19 +202,18 @@ struct glz::meta<Preview::Application::Configuration::ProtocolConfiguration::Qui
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::RecognitionRouteConfiguration>
+struct glz::meta<Preview::Contract::RecognitionRouteConfiguration>
 {
-    using T = Preview::Application::Configuration::RecognitionRouteConfiguration;
+    using T = Preview::Contract::RecognitionRouteConfiguration;
     static constexpr auto value = glz::object(
         "Pattern", &T::Pattern,
-        "Domain", &T::Domain,
         "Fallback", &T::Fallback);
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::ProtocolBindingConfiguration>
+struct glz::meta<Preview::Contract::ProtocolBindingConfiguration>
 {
-    using T = Preview::Application::Configuration::ProtocolBindingConfiguration;
+    using T = Preview::Contract::ProtocolBindingConfiguration;
     static constexpr auto value = glz::object(
         "Id", &T::Id,
         "ProtocolId", &T::ProtocolId,
@@ -241,9 +235,9 @@ struct glz::meta<Preview::Application::Configuration::RecognitionConfiguration>
 };
 
 template <>
-struct glz::meta<Preview::Application::Configuration::CarrierConfiguration>
+struct glz::meta<Preview::Contract::CarrierConfiguration>
 {
-    using T = Preview::Application::Configuration::CarrierConfiguration;
+    using T = Preview::Contract::CarrierConfiguration;
     static constexpr auto value = glz::object(
         "Id", &T::Id,
         "Name", &T::Name,
@@ -326,7 +320,8 @@ struct glz::meta<Preview::Application::Configuration::OperationsConfiguration>
     static constexpr auto value = glz::object(
         "Enabled", &T::Enabled,
         "Endpoint", &T::Endpoint,
-        "Timeout", &T::Timeout);
+        "Timeout", &T::Timeout,
+        "WebDirectory", &T::WebDirectory);
 };
 
 template <>

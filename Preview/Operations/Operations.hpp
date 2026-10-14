@@ -8,3 +8,4 @@
 #include <Preview/Operations/Models.hpp>
 #include <Preview/Operations/Redaction.hpp>
 #include <Preview/Operations/Router.hpp>
+#include <Preview/Operations/Controller.hpp>

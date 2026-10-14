@@ -113,43 +113,49 @@ namespace Preview::Protocol::Common
      * 使用 inet_ntop 进行格式化，域名直接返回原始内容。支持
      * 自定义内存分配器，适用于日志记录和调试输出场景。
      */
+    /** @brief 按实际地址类型同步格式化，返回 caller 内存资源上的文本。 */
+    template <typename A>
+    [[nodiscard]] inline auto FormatAddressText(const A &Argument,
+        Preview::Memory::ResourcePointer MemoryResource) -> Preview::Memory::String
+    {
+        using Type = std::decay_t<A>;
+        if constexpr (std::is_same_v<Type, Ipv4Address>)
+        {
+            std::array<char, INET_ADDRSTRLEN> Buffer;
+            const char *Result = inet_ntop(AF_INET, Argument.Bytes.data(), Buffer.data(), Buffer.size());
+            if (Result == nullptr)
+            {
+                return Preview::Memory::String(MemoryResource);
+            }
+            return Preview::Memory::String(Buffer.data(), MemoryResource);
+        }
+        else if constexpr (std::is_same_v<Type, Ipv6Address>)
+        {
+            std::array<char, INET6_ADDRSTRLEN> Buffer;
+            const char *Result = inet_ntop(AF_INET6, Argument.Bytes.data(), Buffer.data(), Buffer.size());
+            if (Result == nullptr)
+            {
+                return Preview::Memory::String(MemoryResource);
+            }
+            return Preview::Memory::String(Buffer.data(), MemoryResource);
+        }
+        else if constexpr (std::is_same_v<Type, DomainAddress>)
+        {
+            return Argument.ToString(MemoryResource);
+        }
+        else
+        {
+            return {};
+        }
+    }
+
     [[nodiscard]] inline auto AddrToStr(
         const Address &AddressValue,
         Preview::Memory::ResourcePointer MemoryResource = Preview::Memory::CurrentResource())
         -> Preview::Memory::String
     {
-        auto Translate = [MemoryResource]<typename A>(const A &Argument) -> Preview::Memory::String
-        {
-            using Type = std::decay_t<A>;
-            if constexpr (std::is_same_v<Type, Ipv4Address>)
-            {
-                std::array<char, INET_ADDRSTRLEN> Buffer;
-                const char *Result = inet_ntop(AF_INET, Argument.Bytes.data(), Buffer.data(), Buffer.size());
-                if (Result == nullptr)
-                {
-                    return Preview::Memory::String(MemoryResource);
-                }
-                return Preview::Memory::String(Buffer.data(), MemoryResource);
-            }
-            else if constexpr (std::is_same_v<Type, Ipv6Address>)
-            {
-                std::array<char, INET6_ADDRSTRLEN> Buffer;
-                const char *Result = inet_ntop(AF_INET6, Argument.Bytes.data(), Buffer.data(), Buffer.size());
-                if (Result == nullptr)
-                {
-                    return Preview::Memory::String(MemoryResource);
-                }
-                return Preview::Memory::String(Buffer.data(), MemoryResource);
-            }
-            else if constexpr (std::is_same_v<Type, DomainAddress>)
-            {
-                return Argument.ToString(MemoryResource);
-            }
-            else
-            {
-                return {};
-            }
-        };
+        auto Translate = [MemoryResource](const auto &Argument)
+        { return FormatAddressText(Argument, MemoryResource); };
         return std::visit(Translate, AddressValue);
     }
 
@@ -315,7 +321,7 @@ namespace Preview::Protocol::Common
             {
                 co_return Preview::Error::IoError;
             }
-            AddressValue.Host.assign(reinterpret_cast<const char *>(Ipv6Bytes.data()), Ipv6Bytes.size());
+            AddressValue.Host = Net::ip::make_address_v6(Ipv6Bytes).to_string();
         }
         else if (AddressValue.Type == EnumT::Domain)
         {

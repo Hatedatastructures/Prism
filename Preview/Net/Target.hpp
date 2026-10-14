@@ -1,37 +1,30 @@
-/**
- * @file Target.hpp
- * @brief 连接目标地址信息
- * @details 封装目标主机、端口以及正向代理标志。原位于
- *          Protocol/common/Target.hpp，下沉到 net/ 以解除 net → proto 的
- *          循环依赖。
- */
+/** @file Target.hpp @brief 唯一正式网络目标：拥有型主机、数值端口及路由意图。 */
 #pragma once
-
-#include <Preview/Foundation/Memory/Container.hpp>
-
+#include <Preview/Net/HostText.hpp>
 namespace Preview::Network
 {
-
+    enum class RouteKind { Reverse, Forward };
     /**
- * @struct Target
- * @brief 目标地址信息
- * @details 封装了解析出的目标主机、端口以及是否需要正向代理。
- */
-    struct Target
-    {
-        /**
-     * @brief 构造目标对象
-     * @param mr 内存资源指针
+     * @brief 完整拥有地址，无 allocator、executor、取消或关闭责任。
+     * @details 默认空主机和零端口用于无目标 root；实际 TCP/UDP 出站入口验证非空和非零。
      */
-        explicit Target(Preview::Memory::ResourcePointer Resource = Preview::Memory::CurrentResource())
-            : Host(Resource), Port(Resource)
-        {
-            Port.assign("80");
-        }
-
-        Preview::Memory::String Host;
-        Preview::Memory::String Port;
-        bool Positive{false};
+    struct Target final
+    {
+        Preview::Network::Host Host;
+        std::uint16_t Port{0};
+        RouteKind Route{RouteKind::Reverse};
+        auto operator==(const Target&) const -> bool = default;
     };
-
-} // namespace Preview::Network
+    /** @brief 冷配置端口只转换一次；空、零、溢出及尾随字符返回领域失败。 */
+    [[nodiscard]] inline auto ParsePort(std::string_view Text) noexcept
+        -> std::expected<std::uint16_t, Preview::Fault::Failure>
+    {
+        if (Text.empty())
+            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument, {}});
+        std::uint32_t Port = 0;
+        const auto [End, Error] = std::from_chars(Text.data(), Text.data() + Text.size(), Port);
+        if (Error != std::errc{} || End != Text.data() + Text.size() || Port == 0 || Port > 65535)
+            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument, {}});
+        return static_cast<std::uint16_t>(Port);
+    }
+}

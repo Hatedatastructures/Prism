@@ -10,6 +10,8 @@
 #include <Preview/Foundation/Identifier/Id.hpp>
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <cstdint>
 #include <vector>
 
@@ -18,7 +20,8 @@ namespace Preview::Statistics
 
     struct TrafficDeltaEntry final
     {
-        CounterKey Key{};
+        Scope ScopeValue{Scope::Account};
+        NumericId Id{0};
         std::uint64_t UpBytes{0};
         std::uint64_t DownBytes{0};
     };
@@ -33,65 +36,45 @@ namespace Preview::Statistics
             return Worker_;
         }
 
-        template <typename Id>
-        auto Add(const Scope ScopeValue, const Id IdValue, const std::uint64_t UpBytes,
-                 const std::uint64_t DownBytes) -> void
+        /** @brief 按值拥有最多 64 个范围的字节增量；先检查溢出和容量，拒绝不改变已有 batch。 */
+        [[nodiscard]] auto Add(TrafficDeltaEntry Entry) noexcept -> bool
         {
-            Add(ScopeValue, IdValue.Value(), UpBytes, DownBytes);
-        }
-
-        template <typename Id>
-        auto Add(const Id IdValue, const std::uint64_t UpBytes, const std::uint64_t DownBytes) -> void
-        {
-            Add(Scope::Account, IdValue, UpBytes, DownBytes);
-        }
-
-        auto Add(const NumericId IdValue, const std::uint64_t UpBytes,
-                 const std::uint64_t DownBytes) -> void
-        {
-            Add(Scope::Account, IdValue, UpBytes, DownBytes);
-        }
-
-        auto Add(const Scope ScopeValue, const NumericId IdValue, const std::uint64_t UpBytes,
-                 const std::uint64_t DownBytes) -> void
-        {
-            auto It = Find(ScopeValue, IdValue);
-            if (It == Entries_.end())
+            if (Flushed_) return false;
+            auto It = Find(Entry.ScopeValue, Entry.Id);
+            if (It == Entries_.begin() + Size_)
             {
-                Entries_.push_back(TrafficDeltaEntry{
-                    CounterKey{ScopeValue, IdValue, Metric::UpBytes}, UpBytes, DownBytes});
-                return;
+                if (Size_ == Entries_.size()) return false;
+                Entries_[Size_++] = Entry;
+                return true;
             }
-            It->UpBytes += UpBytes;
-            It->DownBytes += DownBytes;
+            if (Entry.UpBytes > std::numeric_limits<std::uint64_t>::max() - It->UpBytes ||
+                Entry.DownBytes > std::numeric_limits<std::uint64_t>::max() - It->DownBytes) return false;
+            It->UpBytes += Entry.UpBytes;
+            It->DownBytes += Entry.DownBytes;
+            return true;
         }
 
         [[nodiscard]] auto Flush(SparseCounters &Counters) noexcept -> bool
         {
-            if (Flushed_)
-            {
-                return false;
-            }
-            for (const auto &Entry : Entries_)
-            {
-                if (Entry.UpBytes != 0)
-                {
-                    (void)Counters.Add(Entry.Key, Entry.UpBytes);
-                }
-                if (Entry.DownBytes != 0)
-                {
-                    (void)Counters.Add(
-                        CounterKey{Entry.Key.ScopeValue, Entry.Key.Id, Metric::DownBytes},
-                        Entry.DownBytes);
-                }
-            }
+            if (Flushed_) return false;
             Flushed_ = true;
+            std::array<CounterKey, 128> Keys;
+            std::array<std::uint64_t, 128> Deltas;
+            std::size_t Count = 0;
+            for (std::size_t Index = 0; Index < Size_; ++Index)
+            {
+                const auto& Entry = Entries_[Index];
+                if (Entry.UpBytes != 0U)
+                { Keys[Count] = {Entry.ScopeValue, Entry.Id, Metric::UpBytes}; Deltas[Count++] = Entry.UpBytes; }
+                if (Entry.DownBytes != 0U)
+                { Keys[Count] = {Entry.ScopeValue, Entry.Id, Metric::DownBytes}; Deltas[Count++] = Entry.DownBytes; }
+            }
+            if (!Counters.Prepare(std::span(Keys).first(Count))) return false;
+            for (std::size_t Index = 0; Index < Count; ++Index)
+                if (!Counters.CanAdd(Keys[Index], Deltas[Index])) return false;
+            for (std::size_t Index = 0; Index < Count; ++Index)
+                if (!Counters.Add(Keys[Index], Deltas[Index])) return false;
             return true;
-        }
-
-        [[nodiscard]] auto FlushInto(SparseCounters &Counters) noexcept -> bool
-        {
-            return Flush(Counters);
         }
 
         [[nodiscard]] auto IsFlushed() const noexcept -> bool
@@ -101,22 +84,23 @@ namespace Preview::Statistics
 
         [[nodiscard]] auto Entries() const -> std::vector<TrafficDeltaEntry>
         {
-            return Entries_;
+            return {Entries_.begin(), Entries_.begin() + Size_};
         }
 
     private:
         [[nodiscard]] auto Find(const Scope ScopeValue, const NumericId IdValue)
-            -> std::vector<TrafficDeltaEntry>::iterator
+            -> std::array<TrafficDeltaEntry, 64>::iterator
         {
-            return std::find_if(Entries_.begin(), Entries_.end(),
+            return std::find_if(Entries_.begin(), Entries_.begin() + Size_,
                                 [ScopeValue, IdValue](const TrafficDeltaEntry &Entry)
                                 {
-                                    return Entry.Key.ScopeValue == ScopeValue && Entry.Key.Id == IdValue;
+                                    return Entry.ScopeValue == ScopeValue && Entry.Id == IdValue;
                                 });
         }
 
         Preview::WorkerId Worker_{};
-        std::vector<TrafficDeltaEntry> Entries_;
+        std::array<TrafficDeltaEntry, 64> Entries_{};
+        std::size_t Size_{0};
         bool Flushed_{false};
     };
 

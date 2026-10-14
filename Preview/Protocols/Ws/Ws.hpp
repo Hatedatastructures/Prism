@@ -1,111 +1,208 @@
 /**
  * @file Ws.hpp
- * @brief WebSocket 协议入口（聚合头 + 工厂函数）
- * @details 协议族统一入口：
- * - 工厂函数（本文件）：Connect / Accept ——HTTP 升级握手在工厂内部完成
- * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
- * - 连接：Conn（流，Conn.hpp，Upgrade 握手 + RFC 6455 数据帧）
- * - 编解码：Codec.hpp（Accept 计算 + 帧头解析/编码/掩码）
+ * @brief WebSocket 的类型化建连与接收入口。
+ * @details 工厂接管流传输和字节池；失败时通过 admission 在原 executor 取消、关闭并排空，
+ *          成功时把唯一 StreamTransport owner 交给调用者。
  */
-
 #pragma once
 
 #include <boost/asio/awaitable.hpp>
 
-#include <cstddef>
+#include <expected>
 #include <memory>
 #include <string>
-#include <tuple>
 #include <utility>
 
-#include <Preview/Foundation/Error.hpp>
+#include <Preview/Contract/Ingress/InboundAdmission.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Foundation/Memory/BytePool.hpp>
+#include <Preview/Protocols/Ws/Detail/StreamOwner.hpp>
 #include <Preview/Transport/Transmission.hpp>
-#include <Preview/Protocols/Ws/Codec.hpp>
-#include <Preview/Protocols/Ws/Conn.hpp>
-#include <Preview/Protocols/Ws/Types.hpp>
 
 namespace Preview::Ws
 {
-
     namespace Net = boost::asio;
 
-    // =========================================================================
-    // 配置（客户端与服务端字段分开定义）
-    // =========================================================================
-
-    /**
-     * @struct ClientConfig
-     * @brief WebSocket 客户端配置
-     * @details 控制客户端的行为：目标主机。构造后只读。
-     */
-    struct ClientConfig
+    struct ClientOptions final
     {
-        /// 目标主机（Host 头）
-        std::string host;
-        /// Sec-WebSocket-Key（base64 24 字符）
-        std::string key{"dGhlIHNhbXBsZSBub25jZQ=="};
+        std::string Host;
+        std::string Key{"dGhlIHNhbXBsZSBub25jZQ=="};
     };
 
-    /**
-     * @struct ServerConfig
-     * @brief WebSocket 服务端配置
-     * @details 控制服务端的行为。构造后只读。
-     */
-    struct ServerConfig
+    struct ServerOptions final
     {
         std::string Path{"/"};
         std::string Host;
     };
 
-    // =========================================================================
-    // 工厂（自由函数，握手在内部完成）
-    // =========================================================================
-
-    /**
-     * @brief 创建客户端流连接并完成 Upgrade 握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 客户端配置
-     * @return 错误码与协议连接（失败时连接为空）
-     */
-    [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg)
-        -> Net::awaitable<std::pair<Error, SharedConn>>
+    struct ConnectOptions final
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), true);
-        const auto Err = co_await C->WriteHandshake(cfg.key, cfg.host);
-        SharedConn Conn;
-        if (Err == Error::None)
-        {
-            Conn = SharedConn(std::move(C));
-        }
-        else
-        {
-            Conn = SharedConn{};
-        }
-        co_return std::pair{Err, std::move(Conn)};
+        SharedTransmission Transport;
+        std::shared_ptr<Preview::Memory::BytePool> Bytes;
+        ClientOptions Client;
+    };
+
+    struct AcceptOptions final
+    {
+        SharedTransmission Transport;
+        std::shared_ptr<Preview::Memory::BytePool> Bytes;
+        ServerOptions Server;
+    };
+
+    namespace Detail
+    {
+        struct Factory;
     }
 
     /**
-     * @brief 接收服务端流连接并完成 Upgrade 握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
-     * @return 错误码、客户端 Key 与协议连接（失败时连接为空）
+     * @class StreamTransport
+     * @brief 已完成 Upgrade 的 WebSocket 流传输 owner。
+     * @details 仅暴露 Transmission 数据面和生命周期；握手、帧 wire、Codec 与连接状态由 Detail 所有。
+     *          Activity 同时聚合本层操作与成功接管的底层传输 owner；IsRetired 是独立物理回执，
+     *          不从 Drain 的历史错误推导。调用者负责停止发起、半关闭、Close、Drain 并核对 IsRetired。
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> Net::awaitable<std::tuple<Error, std::string, SharedConn>>
+    class StreamTransport final : public Detail::StreamOwner<>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), false);
-        std::string key;
-        const auto Err = co_await C->ReadHandshake(key, cfg.Path, cfg.Host);
-        SharedConn Conn;
-        if (Err == Error::None)
+    private:
+        explicit StreamTransport(
+            SharedTransmission Transport,
+            std::shared_ptr<Preview::Memory::BytePool> Bytes,
+            bool Client)
+            : Detail::StreamOwner<>(std::move(Transport), std::move(Bytes), Client)
         {
-            Conn = SharedConn(std::move(C));
         }
-        else
+
+        using Detail::StreamOwner<>::Accept;
+        using Detail::StreamOwner<>::ReadHandshake;
+        using Detail::StreamOwner<>::WriteHandshake;
+        using Detail::StreamOwner<>::MaxFramePayload;
+        using Detail::StreamOwner<>::MemoryType;
+
+        friend struct Detail::Factory;
+    };
+
+    struct ConnectResult final
+    {
+        std::string Accept;
+        std::shared_ptr<StreamTransport> Connection;
+    };
+
+    struct AcceptResult final
+    {
+        std::string Key;
+        std::shared_ptr<StreamTransport> Connection;
+    };
+
+    namespace Detail
+    {
+        struct Factory final
         {
-            Conn = SharedConn{};
-        }
-        co_return std::tuple{Err, std::move(key), std::move(Conn)};
+            [[nodiscard]] static auto Connect(ConnectOptions Input)
+                -> Net::awaitable<std::expected<ConnectResult, Preview::Fault::Failure>>
+            {
+                if (!Input.Transport)
+                {
+                    co_return std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::IoError});
+                }
+
+                auto TicketResult = co_await Preview::Contract::InboundAdmission::Prepare(
+                    Input.Transport);
+                if (!TicketResult)
+                {
+                    co_return std::unexpected(TicketResult.error());
+                }
+                auto Ticket = std::move(*TicketResult);
+
+                if (!Input.Bytes)
+                {
+                    const auto Failure = co_await Ticket.Retire(
+                        Preview::Fault::Failure{Preview::Fault::Code::IoError});
+                    co_return std::unexpected(Failure);
+                }
+
+                auto Connection = std::shared_ptr<StreamTransport>(new StreamTransport(
+                    Input.Transport, std::move(Input.Bytes), true));
+                const auto Tracked = Ticket.Track(Connection);
+                if (!Tracked)
+                {
+                    const auto Failure = co_await Ticket.Retire(Tracked.error());
+                    co_return std::unexpected(Failure);
+                }
+
+                const auto Handshake = co_await Connection->WriteHandshake(
+                    Input.Client.Key, Input.Client.Host);
+                if (!Handshake)
+                {
+                    const auto Failure = co_await Ticket.Retire(Handshake.error());
+                    co_return std::unexpected(Failure);
+                }
+
+                ConnectResult Result;
+                Result.Accept = Connection->Accept();
+                Result.Connection = std::move(Connection);
+                Ticket.Release();
+                co_return Result;
+            }
+
+            [[nodiscard]] static auto Accept(AcceptOptions Input)
+                -> Net::awaitable<std::expected<AcceptResult, Preview::Fault::Failure>>
+            {
+                if (!Input.Transport)
+                {
+                    co_return std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::IoError});
+                }
+
+                auto TicketResult = co_await Preview::Contract::InboundAdmission::Prepare(
+                    Input.Transport);
+                if (!TicketResult)
+                {
+                    co_return std::unexpected(TicketResult.error());
+                }
+                auto Ticket = std::move(*TicketResult);
+
+                if (!Input.Bytes)
+                {
+                    const auto Failure = co_await Ticket.Retire(
+                        Preview::Fault::Failure{Preview::Fault::Code::IoError});
+                    co_return std::unexpected(Failure);
+                }
+
+                auto Connection = std::shared_ptr<StreamTransport>(new StreamTransport(
+                    Input.Transport, std::move(Input.Bytes), false));
+                const auto Tracked = Ticket.Track(Connection);
+                if (!Tracked)
+                {
+                    const auto Failure = co_await Ticket.Retire(Tracked.error());
+                    co_return std::unexpected(Failure);
+                }
+
+                AcceptResult Result;
+                const auto Handshake = co_await Connection->ReadHandshake(
+                    Result.Key, Input.Server.Path, Input.Server.Host);
+                if (!Handshake)
+                {
+                    const auto Failure = co_await Ticket.Retire(Handshake.error());
+                    co_return std::unexpected(Failure);
+                }
+
+                Result.Connection = std::move(Connection);
+                Ticket.Release();
+                co_return Result;
+            }
+        };
     }
 
+    [[nodiscard]] inline auto Connect(ConnectOptions Options)
+        -> Net::awaitable<std::expected<ConnectResult, Preview::Fault::Failure>>
+    {
+        return Detail::Factory::Connect(std::move(Options));
+    }
+
+    [[nodiscard]] inline auto Accept(AcceptOptions Options)
+        -> Net::awaitable<std::expected<AcceptResult, Preview::Fault::Failure>>
+    {
+        return Detail::Factory::Accept(std::move(Options));
+    }
 } // namespace Preview::Ws

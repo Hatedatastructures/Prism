@@ -4,6 +4,11 @@
  */
 #pragma once
 
+#include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
+#include <Preview/Foundation/Utility/Text/Redaction.hpp>
+#include <Preview/Foundation/Utility/Text/View.hpp>
+#include <Preview/Foundation/Utility/Text/Truncate.hpp>
+
 #include <concepts>
 #include <cstdint>
 #include <string>
@@ -11,33 +16,33 @@
 #include <type_traits>
 #include <utility>
 
-#include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
-#include <Preview/Statistics/Redaction.hpp>
-
 namespace Preview::Diagnose
 {
 
     /**
      * @brief 编译期判断 key 与值类型是否符合字段定义。
-     * @details 文本字段接受可转换为 std::string_view 的值；其他字段要求去除 cv/ref 后的值类型
+     * @details 文本字段只接受无分配、无用户转换的正式 Text::ViewInput；其他字段要求去除 cv/ref 后的值类型
      * 与字段定义中的 ValueType 完全相同。
      * @tparam Key 待检查的类型化字段 key。
      * @tparam Value 待写入字段的值类型。
      */
     template <typename Key, typename Value>
-    inline constexpr bool FieldValueCompatibleValue = []
+    [[nodiscard]] constexpr auto ComputeFieldValueCompatibility() noexcept -> bool
     {
         using KeyType = std::remove_cvref_t<Key>;
         using Definition = typename KeyType::DefinitionType;
         if constexpr (IsTextFieldKind(Definition::Kind))
         {
-            return std::convertible_to<Value, std::string_view>;
+            return Text::ViewInput<Value>;
         }
         else
         {
             return std::same_as<std::remove_cvref_t<Value>, typename Definition::ValueType>;
         }
-    }();
+    }
+
+    template <typename Key, typename Value>
+    inline constexpr bool FieldValueCompatibleValue = ComputeFieldValueCompatibility<Key, Value>();
 
     /**
      * @brief 约束字段 key 与提交值之间的类型兼容性。
@@ -47,7 +52,7 @@ namespace Preview::Diagnose
      */
     template <typename Key, typename Value>
     concept FieldValueCompatible = requires { typename std::remove_cvref_t<Key>::DefinitionType; } &&
-                                   FieldValueCompatibleValue<Key, Value>;
+        FieldValueCompatibleValue<Key, Value>;
 
     /**
      * @brief 可安全跨越异步提交边界的自有字段值。
@@ -55,26 +60,16 @@ namespace Preview::Diagnose
      */
     struct EncodedFieldValue final
     {
-        FieldId Id{};                                  ///< 被编码字段的稳定 ID。
+        FieldId Id{}; ///< 被编码字段的稳定 ID。
         FieldValueKind Kind{FieldValueKind::Unsigned}; ///< 编码后的值类型。
-        std::uint64_t Unsigned{0U};                    ///< 数值、枚举和强类型 ID 的编码结果。
-        bool Boolean{false};                           ///< 布尔字段值。
-        std::string Text{};                            ///< 已拥有、已限长并按策略脱敏的 UTF-8 文本。
-        bool Truncated{false};                         ///< 文本是否因最大长度约束被截断。
+        std::uint64_t Unsigned{0U}; ///< 数值、枚举和强类型 ID 的编码结果。
+        bool Boolean{false}; ///< 布尔字段值。
+        std::string Text{}; ///< 已拥有、已限长并按策略脱敏的 UTF-8 文本。
+        bool Truncated{false}; ///< 文本是否因最大长度约束被截断。
     };
 
     namespace Detail
     {
-
-        /**
-         * @brief 判断字节是否属于 UTF-8 多字节字符的后续字节。
-         * @param Value 待检查的字节。
-         * @return 字节的高两位为 10 时返回 true。
-         */
-        [[nodiscard]] inline auto IsUtf8Continuation(const unsigned char Value) noexcept -> bool
-        {
-            return (Value & 0xC0U) == 0x80U;
-        }
 
         /**
          * @brief 将 UTF-8 文本限制在指定字节数内。
@@ -87,24 +82,13 @@ namespace Preview::Diagnose
         [[nodiscard]] inline auto TruncateUtf8(const std::string_view Input, const std::size_t Maximum)
             -> std::pair<std::string, bool>
         {
-            constexpr std::string_view Marker{"...[truncated]"};
             if (Input.size() <= Maximum)
             {
                 return {std::string(Input), false};
             }
-            if (Maximum <= Marker.size())
-            {
-                return {std::string(Marker.substr(0U, Maximum)), true};
-            }
-
-            auto PrefixSize = Maximum - Marker.size();
-            while (PrefixSize > 0U && PrefixSize < Input.size() &&
-                   IsUtf8Continuation(static_cast<unsigned char>(Input[PrefixSize])))
-            {
-                --PrefixSize;
-            }
-            std::string Result(Input.substr(0U, PrefixSize));
-            Result.append(Marker);
+            std::string Result(Input.substr(0U, Maximum));
+            const auto Size = Text::FinishTruncatedUtf8(std::span(Result.data(), Result.size()));
+            Result.resize(Size);
             return {std::move(Result), true};
         }
 
@@ -115,8 +99,7 @@ namespace Preview::Diagnose
          * @return 枚举底层值、ID 的 Value() 结果或整数输入对应的 uint64_t 值。
          */
         template <typename Value>
-        [[nodiscard]] auto ToUnsigned(const Value &Input) noexcept
-            -> std::uint64_t
+        [[nodiscard]] auto ToUnsigned(const Value& Input) noexcept -> std::uint64_t
         {
             if constexpr (std::is_enum_v<Value>)
             {
@@ -146,18 +129,17 @@ namespace Preview::Diagnose
      */
     template <typename Definition, typename Value>
         requires FieldValueCompatible<FieldKey<Definition>, Value>
-    [[nodiscard]] auto EncodeFieldValue(const FieldKey<Definition> Key, Value &&Input)
-        -> EncodedFieldValue
+    [[nodiscard]] auto EncodeFieldValue(const FieldKey<Definition> Key, Value&& Input) -> EncodedFieldValue
     {
         EncodedFieldValue Result;
         Result.Id = Key.Id;
         Result.Kind = Definition::Kind;
         if constexpr (IsTextFieldKind(Definition::Kind))
         {
-            auto Text = std::string(std::string_view(std::forward<Value>(Input)));
+            auto Text = std::string(Preview::Text::BorrowView(Input));
             if constexpr (Definition::Sensitive)
             {
-                Text = Preview::Statistics::RedactSensitiveText(Text);
+                Text = Preview::Text::RedactSensitiveText(Text);
             }
             auto [Bounded, WasTruncated] = Detail::TruncateUtf8(Text, Definition::MaxLength);
             Result.Text = std::move(Bounded);

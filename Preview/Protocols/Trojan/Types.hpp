@@ -48,7 +48,7 @@ namespace Preview::Trojan
     {
         /// 地址类型
         AddressType Type{AddressType::Domain};
-        /// 主机（域名或 IP 字符串）
+        /// 主机：IPv4 为点分文本，IPv6 为 16 个网络序字节，域名为原始字节。
         std::string Host;
         /// 端口
         std::uint16_t Port{0};

@@ -1,407 +1,192 @@
-/**
- * @file Encrypted.hpp
- * @brief 加密传输层实现
- * @details 将 ssl::Stream 适配为 Transmission 接口，供协议装饰器使用。
- * 该适配器允许 Trojan::Stream 等协议层装饰 TLS 加密流，
- * 实现协议处理与传输层的解耦。
- */
-
+/** @file Encrypted.hpp @brief TLS读和有界完整writer，共享唯一engine与真实完成源。 */
 #pragma once
-
-#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
-#include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Foundation/Fault/Handling.hpp>
-#include <Preview/Statistics/Redaction.hpp>
-#include <Preview/Transport/Connector.hpp>
-#include <Preview/Transport/Transmission.hpp>
-
-#include <boost/asio.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
-#include <boost/asio/ssl.hpp>
-#include <boost/system/error_code.hpp>
+#include <Preview/Transport/Writer.hpp>
+#include <Preview/Transport/Detail/TlsWriteDriver.hpp>
+#include <Preview/Transport/Detail/ActivityGroup.hpp>
+#include <boost/asio/experimental/parallel_group.hpp>
+#include <boost/asio/ssl/error.hpp>
 #include <openssl/ssl.h>
-
-#include <array>
-#include <chrono>
-#include <memory>
-#include <span>
+#include <cstdint>
 #include <string>
-#include <system_error>
-#include <tuple>
-
-namespace Preview::Transport {
-
-
-    namespace Net = boost::asio;
-    namespace Ssl = Net::ssl;
-
+namespace Preview::Transport
+{
     /**
-     * @class Encrypted
-     * @brief 加密传输层实现
-     * @details 将 boost::asio::ssl::stream<Connector> 适配为 Transmission 接口，
-     * 使协议装饰器（如 Trojan::Stream）能够装饰 TLS 加密流。
-     * 该类持有 ssl::Stream 的共享所有权，确保在协议处理期间流对象有效。
-     * 核心职责包括传输抽象，继承 Transmission 接口实现 TLS 传输层；
-     * 协程设计，所有异步操作返回 net::awaitable 简化调用；
-     * 错误码映射，自动映射 Boost.System 错误码到项目错误码。
-     * @note 该类用于 TLS 加密场景，所有基于 TLS 的协议都应使用此类。
-     * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
-     * @throws std::bad_alloc 如果内存分配失败
+     * @brief 拥有 TLS engine 视图与有界完整 writer 的传输装饰层，读直连 engine、写经唯一 writer 串行。
+     * @details 输入所有权：构造移交 SharedStream 的共享所有权并把 BytePool 移交给内部 Writer；
+     *          读 span 借用到 completion 由 engine 直接消费，写 span 借用到 Writer 的 completion（其间
+     *          Writer 只额外拥有自己的 64KiB 块）。ReleaseStream() 成功后本层不再拥有任何实物。
+     *          HandshakeRequest 中 Inbound 与 Bytes 为移交所有权，Context 只是引用包装——调用方必须
+     *          保活 ssl::context 到握手返回，engine 不拥有 SSL_CTX；Deadline 是绝对期限而非新的完整超时。
+     *          输出与错误：SslHandshake 返回 HandshakeResult，成功只填 Stream 与 Bytes，失败填 Failure 并
+     *          按情况交回 Recovered 或 Stream；TLS 类别折叠为 TlsHsfail、证书校验失败为 Verifyfail、
+     *          deadline 到期为 Timeout（保留 native）、其余底层错误由 FromNative 保留 Native，取消仍由
+     *          前门以 Canceled 交付，EOF 与底层错误四类互不折叠。
+     *          取消：OnCancel 转交 Writer 的取消，封止整个写序列并只取消当前 active 原生写，pending 请求
+     *          各自完成一次；重复 Cancel 由 Writer/Transmission 的命令预约保证不产生第二份完成。
+     *          半关闭：StartWriteShutdown 经 Writer 排在所有先前 ticket 之后，只发送本端 close_notify 并
+     *          保留反向读取能力，不下发裸 TCP FIN，也不等待对端 shutdown。
+     *          最终关闭者：OnClose 返回 Writer::Close()，Writer 在全部 native 写回调真正退出后才向 driver
+     *          下发 Close，driver 再转交底层 Transmission；裸描述符的最终关闭者始终是 leaf 载体，本层 Close
+     *          成功只证明命令已被接管，实际退出须等待 Activity()->Drain()（先本层，再 Writer 与 engine）。
+     *          executor：冷构造固定 Stream->get_executor() 为原域；engine（stream_core）状态只在 TlsStream
+     *          自身 strand 上变更，Writer 的 ticket 序列在其上另建的 strand 上执行，两者同属一个 io_context
+     *          但为不同 strand 对象，要求单一执行域装配；握手协程在调用方 executor 上恢复。
+     * @note 未定义：超时并不证明原生操作已消失，Blocked 时 HandshakeResult 仍保留实物；严格墙钟关闭上限
+     *       与跨 strand 并发排他性均无可指出的证明，留待 M13 之后的构建与运行验收决定。
      */
     class Encrypted final : public Transmission
     {
     public:
-        using ConnectorType = ::Preview::Transport::Connector;
-        using StreamType = Net::ssl::stream<ConnectorType>;
+        using StreamType = Detail::TlsStream;
         using SharedStream = std::shared_ptr<StreamType>;
-        static constexpr auto DefaultHandshakeTimeout = std::chrono::seconds{30};
-
+        static constexpr auto DefaultHandshakeTimeout = std::chrono::seconds(30);
+        struct NegotiatedTlsInfo final
+        {
+            std::string ServerName;
+            std::string Alpn;
+            std::string Version;
+            bool EchAccepted{false};
+        };
+        enum class HandshakeRole : std::uint8_t
+        {
+            Server,
+            Client,
+        };
         struct HandshakeResult final
         {
-            Fault::Code Code{Fault::Code::Success};
-            SharedStream Stream{};
-            SharedTransmission Recovered{};
-            boost::system::error_code NativeError{};
+            Fault::Failure Failure;
+            SharedStream Stream;
+            SharedTransmission Recovered;
+            std::shared_ptr<Memory::BytePool> Bytes;
+            NegotiatedTlsInfo Negotiated;
         };
-
         struct HandshakeRequest final
         {
-            SharedTransmission Inbound{};
-            std::shared_ptr<Ssl::context> Context{};
-            std::chrono::steady_clock::duration Timeout{DefaultHandshakeTimeout};
+            SharedTransmission Inbound;
+            std::reference_wrapper<Net::ssl::context> Context;
+            std::chrono::steady_clock::time_point Deadline{std::chrono::steady_clock::now() + DefaultHandshakeTimeout};
+            std::shared_ptr<Memory::BytePool> Bytes;
+            HandshakeRole Role{HandshakeRole::Server};
+            std::string ServerName;
         };
-
-        /**
-         * @brief 构造加密传输层
-         * @details 使用已建立的 TLS 流创建加密传输层。
-         * TLS 流必须已完成握手。
-         * @param SslStream TLS 流的共享指针
-         */
-        explicit Encrypted(SharedStream Stream) : SslStream_(std::move(Stream))
+        /** @brief 冷构造显式使用worker真实池；不建每连接4MiB池或隐式全局回退。 */
+        Encrypted(SharedStream Stream, std::shared_ptr<Memory::BytePool> Bytes)
+            : Transmission(Stream->get_executor()), Stream_(std::move(Stream)),
+              Writer_(std::make_shared<Writer>(std::move(Bytes), std::make_shared<Detail::TlsWriteDriver>(Stream_))),
+              Activity_(std::make_shared<Detail::ActivityGroup>(Transmission::Activity(),
+                  std::vector<std::shared_ptr<Contract::CarrierActivity>>{Writer_->Activity(), Stream_->Activity()})) {}
+        [[nodiscard]] auto Activity() const noexcept -> std::shared_ptr<Contract::CarrierActivity> override { if (Activity_) return Activity_; return Transmission::Activity(); }
+        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { if (!Stream_) return nullptr; return Stream_->next_layer().NextLayer(); }
+        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission* override { if (!Stream_) return nullptr; return Stream_->next_layer().NextLayer(); }
+        [[nodiscard]] auto Stream() noexcept -> StreamType& { return *Stream_; }
+        [[nodiscard]] auto Stream() const noexcept -> const StreamType& { return *Stream_; }
+        /** @brief 原域停止全部发起者后的排他冷移交；任何真实预约未退出时拒绝且保留实物。 */
+        [[nodiscard]] auto ReleaseStream() -> std::expected<SharedStream, Fault::Failure>
         {
+            if (!Stream_) return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument});
+            if (!IoIdle() || !Writer_->IsIdle() || !Stream_->IsIdle())
+                return std::unexpected(Fault::Failure{Fault::Code::WouldBlock});
+            auto Result = std::move(Stream_);
+            Writer_.reset(); Activity_.reset();
+            return Result;
         }
-
-        /**
-         * @brief 获取传输层类型
-         * @return Type::Tcp TLS 始终基于 TCP
-         */
-        [[nodiscard]] auto TransportType() const noexcept -> Type override
-        {
-            return Type::Tcp;
-        }
-
-        /**
-         * @brief 获取内层传输
-         * @return 底层传输（穿透 ssl::Stream → Connector 链）
-         */
-        [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
-        {
-            return SslStream_->next_layer().NextLayer();
-        }
-
-        /**
-         * @brief 获取内层传输（const 版本）
-         * @return 底层传输（穿透 ssl::Stream → Connector 链）
-         */
-        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
-        {
-            return SslStream_->next_layer().NextLayer();
-        }
-
-        /**
-         * @brief 获取关联的执行器
-         * @details 返回底层 TLS 流关联的执行器，用于调度异步操作。
-         * @return 底层 TLS 流的执行器
-         */
-        [[nodiscard]] auto Executor() const -> ExecutorType override
-        {
-            return const_cast<StreamType &>(*SslStream_).get_executor();
-        }
-
-        /**
-         * @brief 异步读取数据
-         * @details 调用底层 TLS 流的 async_read_some 实现异步读取。
-         * 返回实际读取的字节数，错误通过 ec 返回。
-         * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
-         * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
-         */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override
-        {
-            boost::system::error_code SysEc;
-            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
-            const auto N =
-                co_await SslStream_->async_read_some(Net::buffer(Buffer.data(), Buffer.size()), Token);
-            const bool ReceivedCloseNotify =
-                SslStream_->native_handle() != nullptr &&
-                (SSL_get_shutdown(SslStream_->native_handle()) & SSL_RECEIVED_SHUTDOWN) != 0;
-            ErrorCode = ReceivedCloseNotify
-                            ? ::Preview::Fault::make_error_code(::Preview::Fault::Code::Eof)
-                            : ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return N;
-        }
-
-        /**
-         * @brief 异步写入数据
-         * @details 调用底层 TLS 流的 async_write_some 实现异步写入。
-         * 返回实际写入的字节数，错误通过 ec 返回。
-         * @param Buffer 发送缓冲区
-         * @param ec 错误码输出参数
-         * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
-         */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
-                                            std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override
-        {
-            boost::system::error_code SysEc;
-            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
-            const auto N =
-                co_await SslStream_->async_write_some(Net::buffer(Buffer.data(), Buffer.size()), Token);
-            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return N;
-        }
-
-        /**
-         * @brief 关闭传输层
-         * @details 先发起 SSL_shutdown 优雅关闭 TLS 会话，
-         * 然后关闭底层 socket，忽略所有错误。
-         */
-        void Close() override
-        {
-            auto *SslHandle = SslStream_->native_handle();
-            if (SslHandle)
-            {
-                SSL_set_quiet_shutdown(SslHandle, 1);
-                SSL_shutdown(SslHandle);
-            }
-            SslStream_->next_layer().NextLayer()->Close();
-        }
-
-        /**
-         * @brief 取消所有未完成的异步操作
-         * @details 取消底层传输层当前所有挂起的异步读写操作。
-         * 被取消的操作将返回 operation_canceled 错误。
-         */
-        void Cancel() override
-        {
-            SslStream_->next_layer().NextLayer()->Cancel();
-        }
-
-        /**
-         * @brief 获取底层 TLS 流引用
-         * @details 返回内部 TLS 流的引用，用于直接操作 TLS 层。
-         * @return StreamType& TLS 流引用
-         */
-        [[nodiscard]] auto Stream() noexcept -> StreamType &
-        {
-            return *SslStream_;
-        }
-
-        /**
-         * @brief 获取底层 TLS 流常量引用
-         * @details 返回内部 TLS 流的常量引用，用于只读访问。
-         * @return const StreamType& TLS 流常量引用
-         */
-        [[nodiscard]] auto Stream() const noexcept -> const StreamType &
-        {
-            return *SslStream_;
-        }
-
-        /**
-         * @brief 释放 TLS 流所有权
-         * @details 将内部持有的 TLS 流共享指针移动返回，调用后对象不再持有流。
-         * @note 与基类 virtual Release()（返回 SharedTransmission）签名冲突，
-         * 故命名为 ReleaseStream()。
-         * @return SharedStream TLS 流共享指针
-         */
-        [[nodiscard]] auto ReleaseStream() -> SharedStream
-        {
-            return std::move(SslStream_);
-        }
-
-        /**
-         * @brief 执行 TLS 服务端握手（静态工厂）
-         * @param Inbound 入站传输层（所有权被转移）
-         * @param SslCtx SSL 上下文
-         * @return 协程对象，完成后返回：错误码、TLS 流（成功时）、
-         * 失败时从 Connector 恢复的传输层（成功时为 nullptr）
-         * @details 将入站传输层包装为 Connector，执行 TLS 服务端握手。
-         * 握手失败时从 Connector 释放传输层所有权，避免 transport 丢失。
-         * @note 调用方应确保入站传输已包装 Preview（如有预读数据）。
-         */
-        [[nodiscard]] static auto SslHandshake(SharedTransmission Inbound, Ssl::context &SslCtx)
-            -> Net::awaitable<std::tuple<Fault::Code, SharedStream, SharedTransmission>>;
-
-        [[nodiscard]] static auto SslHandshakeDetailed(SharedTransmission Inbound,
-                                                       Ssl::context &SslCtx)
-            -> Net::awaitable<HandshakeResult>;
-
-        [[nodiscard]] static auto SslHandshakeDetailed(HandshakeRequest Request)
-            -> Net::awaitable<HandshakeResult>;
-
+        [[nodiscard]] static auto SslHandshake(HandshakeRequest Request) -> Net::awaitable<HandshakeResult>;
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
+        { if (!Stream_) { Detail::PostResult(Executor(), std::move(Handler), {0, {Fault::Code::InvalidArgument}}); return; }
+          Stream_->ReadSome(Buffer, std::move(Handler)); }
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        { if (!Stream_) { Detail::PostResult(Executor(), std::move(Handler), {0, {Fault::Code::InvalidArgument}}); return; }
+          Writer_->Write(Buffer, std::move(Handler)); }
+        auto StartWriteShutdown(Completion Handler) -> void override
+        { if (!Stream_) { Detail::PostResult(Executor(), std::move(Handler), {0, {Fault::Code::InvalidArgument}}); return; }
+          Writer_->WriteShutdown(std::move(Handler)); }
+        [[nodiscard]] auto OnClose() -> ControlResult override { if (!Stream_) return {}; return Writer_->Close(); }
+        [[nodiscard]] auto OnCancel() -> ControlResult override { if (!Stream_) return {}; return Writer_->Cancel(); }
     private:
-        [[nodiscard]] static auto SslHandshakeDetailed(
-            SharedTransmission Inbound,
-            Ssl::context &SslCtx,
-            std::chrono::steady_clock::duration Timeout) -> Net::awaitable<HandshakeResult>;
-
-        [[nodiscard]] static auto MapHandshakeFailure(
-            const boost::system::error_code &NativeError) -> Fault::Code
+        [[nodiscard]] static auto HandshakeFailure(const SharedStream& Stream, boost::system::error_code Error) -> Fault::Failure
         {
-            if (&NativeError.category() != &Net::error::get_ssl_category() &&
-                &NativeError.category() != &Net::ssl::error::get_stream_category())
+            auto Failure = Fault::FromNative(static_cast<std::error_code>(Error));
+            if (Error.category() == Net::error::get_ssl_category() || Error.category() == Net::ssl::error::get_stream_category())
             {
-                return Fault::ToCode(NativeError);
+                Failure.Code = Fault::Code::TlsHsfail;
+                if (SSL_get_verify_result(Stream->native_handle()) != X509_V_OK) Failure.Code = Fault::Code::Verifyfail;
             }
-
-            const auto Message = NativeError.message();
-            if (Message.find("certificate") != std::string::npos ||
-                Message.find("Certificate") != std::string::npos ||
-                Message.find("CERTIFICATE") != std::string::npos ||
-                Message.find("unknown ca") != std::string::npos ||
-                Message.find("UNKNOWN_CA") != std::string::npos)
-            {
-                return Fault::Code::Verifyfail;
-            }
-            return Fault::Code::TlsHsfail;
+            return Failure;
         }
-
-        SharedStream SslStream_; // TLS 流的共享指针，持有流的所有权
+        [[nodiscard]] static auto ReadNegotiatedTlsInfo(const SharedStream& Stream)
+            -> NegotiatedTlsInfo
+        {
+            NegotiatedTlsInfo Result;
+            const auto* Tls = Stream->native_handle();
+            if (const auto* ServerName = SSL_get_servername(Tls, TLSEXT_NAMETYPE_host_name))
+            {
+                Result.ServerName = ServerName;
+            }
+            const std::uint8_t* Alpn = nullptr;
+            unsigned AlpnLength = 0;
+            SSL_get0_alpn_selected(Tls, &Alpn, &AlpnLength);
+            if (Alpn && AlpnLength != 0)
+            {
+                Result.Alpn.assign(reinterpret_cast<const char*>(Alpn), AlpnLength);
+            }
+            if (const auto* Version = SSL_get_version(Tls))
+            {
+                Result.Version = Version;
+            }
+            Result.EchAccepted = SSL_ech_accepted(Tls) == 1;
+            return Result;
+        }
+        SharedStream Stream_;
+        std::shared_ptr<Writer> Writer_;
+        std::shared_ptr<Detail::ActivityGroup> Activity_;
     };
-
-    /**
-     * @brief 创建加密传输层
-     * @details 使用已建立的 TLS 流创建加密传输层实例。
-     * TLS 流必须已完成握手。
-     * @param SslStream TLS 流的共享指针
-     * @return SharedTransmission 传输层指针
-     */
-    [[nodiscard]] inline auto MakeEncrypted(Encrypted::SharedStream SslStream) -> SharedTransmission
+    [[nodiscard]] inline auto MakeEncrypted(Encrypted::SharedStream Stream, std::shared_ptr<Memory::BytePool> Bytes) -> SharedTransmission
+    { return std::make_shared<Encrypted>(std::move(Stream), std::move(Bytes)); }
+    inline auto Encrypted::SslHandshake(HandshakeRequest Request) -> Net::awaitable<HandshakeResult>
     {
-        return std::make_shared<Encrypted>(std::move(SslStream));
-    }
-
-
-
-    inline auto Encrypted::SslHandshake(SharedTransmission Inbound, Ssl::context &SslCtx)
-        -> Net::awaitable<std::tuple<Fault::Code, Encrypted::SharedStream, SharedTransmission>>
-    {
-        auto Result = co_await SslHandshakeDetailed(std::move(Inbound), SslCtx);
-        co_return std::make_tuple(
-            Result.Code, std::move(Result.Stream), std::move(Result.Recovered));
-    }
-
-    inline auto Encrypted::SslHandshakeDetailed(HandshakeRequest Request)
-        -> Net::awaitable<Encrypted::HandshakeResult>
-    {
+        co_await Net::this_coro::throw_if_cancelled(false);
         HandshakeResult Result;
-        if (!Request.Inbound)
+        Result.Bytes = std::move(Request.Bytes);
+        if (!Request.Inbound || !Result.Bytes)
+        { Result.Failure = {Fault::Code::InvalidArgument}; Result.Recovered = std::move(Request.Inbound); co_return Result; }
+        if (Request.Deadline <= std::chrono::steady_clock::now())
+        { Result.Failure = {Fault::Code::Timeout}; Result.Recovered = std::move(Request.Inbound); co_return Result; }
+        auto Stream = std::make_shared<StreamType>(Connector(std::move(Request.Inbound)), Request.Context.get());
+        if (Request.Role == HandshakeRole::Client && !Request.ServerName.empty() &&
+            SSL_set_tlsext_host_name(Stream->native_handle(), Request.ServerName.c_str()) != 1)
         {
-            (void)Diagnose::Warn("TlsHandshakeUnavailable Reason=NoInboundTransmission");
-            Result.Code = Fault::Code::IoError;
+            Result.Failure = {Fault::Code::InvalidArgument};
+            Result.Recovered = Stream->next_layer().Release();
             co_return Result;
         }
-        if (Request.Timeout <= std::chrono::steady_clock::duration::zero())
+        if (Request.Role == HandshakeRole::Server && !Request.ServerName.empty())
         {
-            Result.Code = Fault::Code::Timeout;
-            Result.Recovered = std::move(Request.Inbound);
+            Result.Failure = {Fault::Code::InvalidArgument};
+            Result.Recovered = Stream->next_layer().Release();
             co_return Result;
         }
-        if (!Request.Context)
-        {
-            Result.Code = Fault::Code::IoError;
-            Result.Recovered = std::move(Request.Inbound);
-            co_return Result;
-        }
-        co_return co_await SslHandshakeDetailed(
-            std::move(Request.Inbound), *Request.Context, Request.Timeout);
-    }
-
-    inline auto Encrypted::SslHandshakeDetailed(SharedTransmission Inbound, Ssl::context &SslCtx)
-        -> Net::awaitable<Encrypted::HandshakeResult>
-    {
-        return SslHandshakeDetailed(std::move(Inbound), SslCtx, DefaultHandshakeTimeout);
-    }
-
-    inline auto Encrypted::SslHandshakeDetailed(
-        SharedTransmission Inbound,
-        Ssl::context &SslCtx,
-        std::chrono::steady_clock::duration Timeout) -> Net::awaitable<Encrypted::HandshakeResult>
-    {
-        HandshakeResult Result;
-        if (!Inbound)
-        {
-            (void)Diagnose::Warn("TlsHandshakeUnavailable Reason=NoInboundTransmission");
-            Result.Code = Fault::Code::IoError;
-            co_return Result;
-        }
-        if (Timeout <= std::chrono::steady_clock::duration::zero())
-        {
-            Result.Code = Fault::Code::Timeout;
-            Result.Recovered = std::move(Inbound);
-            co_return Result;
-        }
-
-        ConnectorType Connector(std::move(Inbound), {});
-        auto Stream = std::make_shared<StreamType>(std::move(Connector), SslCtx);
-
-        // 超时时主动取消底层读，再由并行组合等待握手协程完成。
-        using boost::asio::experimental::awaitable_operators::operator||;
         Net::steady_timer Deadline(Stream->get_executor());
-        Deadline.expires_after(Timeout);
-        auto DoHandshake = [&Stream]() -> Net::awaitable<boost::system::error_code>
+        Deadline.expires_at(Request.Deadline);
+        const auto HandshakeType = Request.Role == HandshakeRole::Server
+                                       ? Net::ssl::stream_base::server
+                                       : Net::ssl::stream_base::client;
+        auto [Order, Error, TimerError] = co_await Net::experimental::make_parallel_group(
+            Stream->async_handshake(HandshakeType, Net::deferred), Deadline.async_wait(Net::deferred))
+            .async_wait(Net::experimental::wait_for_one(), Net::use_awaitable);
+        if (Error) Result.Failure = HandshakeFailure(Stream, Error);
+        if (Order[0] == 1 && !TimerError) Result.Failure.Code = Fault::Code::Timeout;
+        if (Result.Failure.Succeeded())
         {
-            boost::system::error_code HEc;
-            co_await Stream->async_handshake(boost::asio::ssl::stream_base::server,
-                                             Net::redirect_error(Net::use_awaitable, HEc));
-            co_return HEc;
-        };
-        auto DoTimeout = [&Stream, &Deadline]() -> Net::awaitable<bool>
-        {
-            boost::system::error_code TimerError;
-            co_await Deadline.async_wait(Net::redirect_error(Net::use_awaitable, TimerError));
-            if (TimerError)
-            {
-                co_return false;
-            }
-            if (auto *Transport = Stream->next_layer().NextLayer())
-            {
-                Transport->Cancel();
-            }
-            co_return true;
-        };
-        const auto Outcome = co_await (DoHandshake() || DoTimeout());
-        if (Outcome.index() == 1)
-        {
-            Result.Code = std::get<1>(Outcome) ? Fault::Code::Timeout : Fault::Code::Canceled;
-            if (Result.Code == Fault::Code::Timeout)
-            {
-                (void)Diagnose::Trace("TlsHandshakeTimeout");
-            }
-            Result.Recovered = Stream->next_layer().Release();
+            Result.Negotiated = ReadNegotiatedTlsInfo(Stream);
+            Result.Stream = std::move(Stream);
             co_return Result;
         }
-        const auto HEc = std::get<0>(Outcome);
-        if (HEc)
-        {
-            try
-            {
-                const auto ErrorText = Preview::Statistics::RedactSensitiveText(HEc.message());
-                (void)Diagnose::Trace("TlsHandshakeFailed Error={}", ErrorText);
-            }
-            catch (...)
-            {
-            }
-            Result.Code = Encrypted::MapHandshakeFailure(HEc);
-            Result.Recovered = Stream->next_layer().Release();
-            Result.NativeError = HEc;
-            co_return Result;
-        }
-
-        Result.Stream = std::move(Stream);
+        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+        const auto Drained = co_await Stream->Activity()->Drain();
+        if (!Drained)
+        { Result.Failure = Drained.error(); Result.Stream = std::move(Stream); co_return Result; }
+        Result.Recovered = Stream->next_layer().Release();
         co_return Result;
     }
-
-
-} // namespace Preview::Transport
+}

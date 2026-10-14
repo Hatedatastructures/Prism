@@ -1,5 +1,0 @@
-AddPreviewTest(SmuxFrameError.cpp)
-target_link_libraries(SmuxFrameError PRIVATE PreviewProtocolMux PreviewTestSupport)
-
-AddProductionTest(SmuxCraftDeep2.cpp)
-target_link_libraries(SmuxCraftDeep2 PRIVATE ProductionTestSupport)

@@ -1,15 +1,15 @@
 /**
  * @file ProcessResources.hpp
  * @brief Preview 进程级资源句柄
- * @details 进程资源只保存稳定身份、代际和非拥有内存句柄。真正的
- *          Process owner 持有本类型，子级资源通过值复制身份，避免
- *          在资源层引入共享 owner 或隐式 psm 依赖。
+ * @details Process 拥有稳定身份和控制数据面共用的有界块池。
+ *          协议视图保活同一个池；不在每个连接中创建最大预算存储。
  */
 
 #pragma once
 
 #include <Preview/Foundation/Identifier/Id.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
+#include <Preview/Foundation/Memory/BytePool.hpp>
 
 #include <atomic>
 
@@ -26,14 +26,15 @@ namespace Preview::Resource
                 Preview::Memory::CurrentResource()};
         };
 
-        ProcessResources() noexcept : ProcessResources(Options{}) {}
+        ProcessResources() : ProcessResources(Options{}) {}
 
-        explicit ProcessResources(Options Value) noexcept
+        explicit ProcessResources(Options Value)
             : Id(Value.Id),
               Generation(Value.Generation),
-              MemoryResource(Value.MemoryResource ? Value.MemoryResource
-                                                   : Preview::Memory::CurrentResource())
+              MemoryResource(Value.MemoryResource),
+              Bytes(std::make_shared<Preview::Memory::BytePool>())
         {
+            if (!MemoryResource) MemoryResource = Preview::Memory::CurrentResource();
         }
 
         ProcessResources(const ProcessResources &) = delete;
@@ -56,6 +57,8 @@ namespace Preview::Resource
         Preview::Memory::ResourcePointer MemoryResource{
             Preview::Memory::CurrentResource()};
         std::atomic<bool> Stopping{false};
+        /** @brief 控制 executor 上的 carrier/DNS/relay 共享总容量；租约保活真实存储。 */
+        std::shared_ptr<Preview::Memory::BytePool> Bytes;
     };
 
 } // namespace Preview::Resource

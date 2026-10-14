@@ -7,13 +7,15 @@
  */
 
 #pragma once
+#include <Preview/Contract/Ingress/StreamFactory.hpp>
+#include <Preview/Contract/Ingress/InboundAdmission.hpp>
 
 #include <boost/asio/awaitable.hpp>
 
 #include <memory>
 #include <utility>
 
-#include <Preview/Composition/Recognition/CandidateFactory.hpp>
+#include <Preview/Composition/Recognition/CandidateModel.hpp>
 #include <Preview/Composition/Recognition/TlsCandidateFactory.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Runtime/Recognition/ProbeBuffer.hpp>
@@ -35,21 +37,46 @@ namespace Preview::Composition::Recognition
      *          Inspect/Prepare 试探，选中后再从 ProbeBuffer 回放原始字节给
      *          原有 handler，避免失败候选消费连接状态。
      */
-    [[nodiscard]] inline auto MakeInnerProtocolDispatch(
-        std::vector<std::shared_ptr<const CandidateInnerBinding>> Candidates)
-        -> Runtime::SessionOptions::ProtocolAcceptFn
+    class InnerProtocolFactory final : public Preview::Contract::StreamFactory
     {
-        return [Candidates = std::move(Candidates)](
-                   Preview::SharedTransmission &Inbound,
-                   Preview::Middleware::Context &Context) -> Net::awaitable<Preview::Fault::Code>
+    public:
+        explicit InnerProtocolFactory(std::vector<std::shared_ptr<const CandidateInnerBinding>> Candidates)
+            : Candidates_(std::move(Candidates)) {}
+
+        auto Accept(Preview::Contract::StreamAcceptInput Input)
+            -> Net::awaitable<Preview::Contract::AcceptOutcome> override
         {
-            if (!Inbound || Candidates.empty())
+            auto PreparedAdmission =
+                co_await Preview::Contract::InboundAdmission::Prepare(Input.Inbound);
+            if (!PreparedAdmission)
             {
-                co_return Preview::Fault::Code::ProtocolError;
+                co_return std::unexpected(PreparedAdmission.error());
+            }
+            co_return co_await AcceptPrepared(
+                std::move(Input), std::move(*PreparedAdmission));
+        }
+
+
+
+        auto AcceptPrepared(
+            Preview::Contract::StreamAcceptInput Input,
+            Preview::Contract::InboundAdmission Admission)
+            -> Net::awaitable<Preview::Contract::AcceptOutcome>
+        {
+            if (!Input.Inbound || !Input.Bytes || Candidates_.empty())
+            {
+                co_return co_await Admission.Reject(
+                    Preview::Fault::Failure{Preview::Fault::Code::ProtocolError});
             }
 
             Preview::Recognition::ProbeBuffer Buffer(
-                Preview::Recognition::ProbeBuffer::MaxSupportedBytes);
+                Preview::Recognition::ProbeBuffer::MaxSupportedBytes,
+                Input.Bytes);
+            if (!Buffer.Bytes())
+            {
+                co_return co_await Admission.Reject(
+                    Preview::Fault::Failure{Preview::Fault::Code::IoError});
+            }
             constexpr std::size_t ReadWindow = 4096U;
             for (;;)
             {
@@ -58,7 +85,7 @@ namespace Preview::Composition::Recognition
                 bool NeedMore = false;
                 bool Structural = false;
 
-                for (const auto &Candidate : Candidates)
+                for (const auto &Candidate : Candidates_)
                 {
                     if (!Candidate || !Candidate->Spec.Inspect)
                     {
@@ -107,32 +134,65 @@ namespace Preview::Composition::Recognition
                         { return Candidate->Spec.Priority == BestPriority; }));
                     if (BestCount != 1U)
                     {
-                        co_return Preview::Fault::Code::ProtocolError;
+                        co_return co_await Admission.Reject(
+                            Preview::Fault::Failure{Preview::Fault::Code::ProtocolError});
                     }
                     const auto *Winner = *Best;
-                    Context.detected = static_cast<std::uint16_t>(Winner->Spec.Protocol);
-                    Inbound = Buffer.Replay(std::move(Inbound));
+                    Input.Inbound = Buffer.Replay(std::move(Input.Inbound));
+                    if (!Input.Inbound)
+                    {
+                        co_return co_await Admission.Reject(
+                            Preview::Fault::Failure{Preview::Fault::Code::IoError});
+                    }
+                    if (const auto Tracked = Admission.Track(Input.Inbound); !Tracked)
+                    {
+                        co_return co_await Admission.Reject(Tracked.error());
+                    }
                     if (!Winner->Accept)
                     {
-                        co_return Preview::Fault::Code::ProtocolError;
+                        co_return co_await Admission.Reject(
+                            Preview::Fault::Failure{Preview::Fault::Code::ProtocolError});
                     }
-                    co_return co_await Winner->Accept(Inbound, Context);
+                    auto AcceptedPlane = co_await Winner->Accept->Accept(
+                        Preview::Contract::StreamAcceptInput{
+                            std::move(Input.Inbound), std::move(Input.Metadata), std::move(Input.Bytes)});
+                    if (!AcceptedPlane)
+                    {
+                        co_return co_await Admission.Reject(AcceptedPlane.error());
+                    }
+                    AcceptedPlane->Protocol = Winner->Spec.Protocol;
+                    co_return co_await Admission.Admit(std::move(*AcceptedPlane));
                 }
                 if (!NeedMore && !Structural)
                 {
-                    co_return Preview::Fault::Code::ProtocolError;
+                    co_return co_await Admission.Reject(
+                        Preview::Fault::Failure{Preview::Fault::Code::ProtocolError});
                 }
                 if (Buffer.Size() >= Preview::Recognition::ProbeBuffer::MaxSupportedBytes)
                 {
-                    co_return Preview::Fault::Code::ProtocolError;
+                    co_return co_await Admission.Reject(
+                        Preview::Fault::Failure{Preview::Fault::Code::ProtocolError});
                 }
-                const auto Fill = co_await Buffer.ReadSome(*Inbound, ReadWindow);
+                const auto Fill = co_await Buffer.ReadSome(*Input.Inbound, ReadWindow);
                 if (Fill.Added == 0U)
                 {
-                    co_return Preview::Fault::Code::IoError;
+                    co_return co_await Admission.Reject(
+                        Preview::Fault::Failure{Preview::Fault::Code::IoError});
                 }
             }
-        };
+        }
+    public:
+        [[nodiscard]] auto Name() const -> std::string_view override { return "tls-inner"; }
+
+
+        std::vector<std::shared_ptr<const CandidateInnerBinding>> Candidates_;
+    };
+
+    [[nodiscard]] inline auto MakeInnerProtocolDispatch(
+        std::vector<std::shared_ptr<const CandidateInnerBinding>> Candidates)
+        -> std::shared_ptr<Preview::Contract::StreamFactory>
+    {
+        return std::make_shared<InnerProtocolFactory>(std::move(Candidates));
     }
 
     /**
@@ -160,16 +220,7 @@ namespace Preview::Composition::Recognition
             Result.Spec.Kind = Core::CandidateKind::TlsCarrier;
             Result.Inner = std::make_shared<const CandidateInnerBinding>(
                 CandidateInnerBinding{Inner.Spec, Inner.Accept});
-            Result.Accept = [Accept = std::move(Inner.Accept)](
-                                Preview::SharedTransmission &Inbound,
-                                Preview::Middleware::Context &Context) -> Net::awaitable<Preview::Fault::Code>
-            {
-                if (!Accept)
-                {
-                    co_return Preview::Fault::Code::ProtocolError;
-                }
-                co_return co_await Accept(Inbound, Context);
-            };
+            Result.Accept = std::move(Inner.Accept);
             return Result;
         }
 
@@ -185,16 +236,7 @@ namespace Preview::Composition::Recognition
             Result.Spec.Kind = Core::CandidateKind::TlsCarrier;
             Result.Inner = std::make_shared<const CandidateInnerBinding>(
                 CandidateInnerBinding{Inner.Spec, Inner.Accept});
-            Result.Accept = [Accept = std::move(Inner.Accept)](
-                                Preview::SharedTransmission &Inbound,
-                                Preview::Middleware::Context &Context) -> Net::awaitable<Preview::Fault::Code>
-            {
-                if (!Accept)
-                {
-                    co_return Preview::Fault::Code::ProtocolError;
-                }
-                co_return co_await Accept(Inbound, Context);
-            };
+            Result.Accept = std::move(Inner.Accept);
             return Result;
         }
     };

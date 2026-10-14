@@ -10,7 +10,7 @@
 #pragma once
 
 #include <Preview/Protocols/Mux/Server.hpp>
-#include <Preview/Protocols/Mux/Yamux/Codec.hpp>
+#include <Preview/Protocols/Mux/Yamux/Detail/Wire/Codec.hpp>
 
 namespace Preview::Mux::Yamux
 {
@@ -20,6 +20,6 @@ namespace Preview::Mux::Yamux
      * @tparam Memory 会话内存策略（默认 8KB Arena）
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    using Server = Mux::Server<Codec, Memory>;
+    using Server = Mux::Server<Detail::Codec, Memory>;
 
 } // namespace Preview::Mux::Yamux

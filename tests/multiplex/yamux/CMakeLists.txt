@@ -1,3 +1,5 @@
 AddProductionTest(YamuxCraftPure.cpp)
+AddProductionTest(YamuxCraftDeep.cpp)
+AddProductionTest(YamuxCraftDeep2.cpp)
 AddProductionTest(YamuxFrameError.cpp)
 AddProductionTest(YamuxWindow.cpp)

@@ -1,48 +1,63 @@
 /**
  * @file UdpTunnel.hpp
- * @brief VLESS UDP 命令服务端数据面（UDP over 流，对齐生产 FrameLoop 模型）
- * @details TCP 流上承载 UDP 帧：[ATYP 1B][ADDR var][PORT 2B BE][payload]
- *          - 帧循环：读流一帧 → 解析目标 → 真实 UDP socket 转发 →
- *            收上游回包 → 封帧写回流
- *          - 空闲超时（IdleTimeout）关闭隧道
- *          - 流 EOF/错误（客户端断开）同步终止
- * @note 对齐生产端 Protocol::common::FrameLoop（Trojan/VLESS 共用）；
- *       帧无长度字段，单帧单次读约定（一次 Write 一帧）。
+ * @brief VLESS 普通 UDP 的固定目标与独立流入/UDP 回包 pump。
+ * @details 流和 UDP socket 只承载 [uint16BE payload length][payload]；
+ *          目标由握手固定，发送不等待对应回包，单一 reply loop 接收所有回包。
  */
-
 #pragma once
+
+#include <Preview/Protocols/Vless/Detail/Target.hpp>
+#include <Preview/Contract/Ingress/DatagramSession.hpp>
+#include <Preview/Foundation/Fault/FailureState.hpp>
+#include <Preview/Foundation/Utility/TrafficSink.hpp>
+#include <Preview/Lifecycle/TaskState.hpp>
+#include <Preview/Protocols/Common/DatagramObservation.hpp>
+#include <Preview/Protocols/Common/ProtocolActivity.hpp>
+#include <Preview/Protocols/Common/DatagramBinding.hpp>
+#include <Preview/Protocols/Vless/Types.hpp>
+#include <Preview/Protocols/Vless/UdpCodec.hpp>
+#include <Preview/Protocols/Vless/UdpTunnelFrames.hpp>
+#include <Preview/Transport/Transmission.hpp>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/dispatch.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/ip/udp.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/system/system_error.hpp>
 
+#include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
+#include <expected>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <optional>
-#include <string>
+#include <span>
+#include <stdexcept>
 #include <system_error>
+#include <utility>
 #include <vector>
-
-#include <Preview/Foundation/Error.hpp>
-#include <Preview/Foundation/Utility/TrafficSink.hpp>
-#include <Preview/Protocols/Vless/Codec.hpp>
-#include <Preview/Protocols/Vless/Conn.hpp>
-#include <Preview/Protocols/Vless/Types.hpp>
 
 namespace Preview::Vless
 {
-
     namespace Net = boost::asio;
+    using Udp = Net::ip::udp;
+    using Failure = Preview::Fault::Failure;
+    using TunnelResult = std::expected<void, Failure>;
 
     struct UdpTunnelSummary final
     {
@@ -51,349 +66,534 @@ namespace Preview::Vless
         std::uint64_t DownBytes{0};
     };
 
-    /**
-     * @struct UdpTunnelOptions
-     * @brief UDP 隧道选项
-     */
-    struct UdpTunnelOptions
+    /** @brief VLESS 普通 UDP 的握手固定目标与会话服务。 */
+    struct UdpTunnelOptions final
     {
-        /// 空闲超时（0 = 禁用回收）
-        std::chrono::milliseconds IdleTimeout{std::chrono::seconds(60)};
-        /// 目标解析回调：vless 地址 → UDP 端点（nullptr = 按 IP/域名直解）
-        std::function<Net::awaitable<std::pair<Error, Net::ip::udp::endpoint>>(
-            const Address &)>
-            resolve{};
-        /// 流量统计 sink（数据面退出时上报；nullptr = 不统计）
-        Preview::Foundation::TrafficSink *traffic{nullptr};
-        /// 统计身份（与 traffic 配套；对齐 relay 上报口径）
-        std::string identity{};
-        /// 首个有效数据报的实际目标。
-        std::function<void(const Address &)> OnFirstTarget{};
-        /// 会话结束时的包数和上下行字节摘要。
-        std::function<void(const UdpTunnelSummary &)> OnSessionEnd{};
+        Preview::Contract::DatagramServices Services;
+        Address Target;
+        Preview::Lifecycle::TaskIdentity TaskIdentity{};
+        Preview::AccountId AccountId{};
+        std::function<void(const Address&)> OnFirstTarget{};
+        std::function<void(const UdpTunnelSummary&)> OnSessionEnd{};
+    };
+
+    /** @brief 一次 Run 的双泵协调状态；每个长度帧和回包只由一个协程拥有。 */
+    struct UdpTunnelRunState final
+    {
+        using Signal = Net::experimental::concurrent_channel<void(boost::system::error_code)>;
+
+        explicit UdpTunnelRunState(Net::any_io_executor Executor)
+            : FirstSend(Executor, 1), InputEnd(Executor, 1), ReplyIdle(std::move(Executor)) {}
+
+        Signal FirstSend;
+        Signal InputEnd;
+        Net::steady_timer ReplyIdle;
+        Net::cancellation_signal ReaderCancellation;
+        Net::cancellation_signal ReplyCancellation;
+        bool HasSent{false};
+        bool InputEnded{false};
     };
 
     /**
-     * @class UdpTunnel
-     * @brief VLESS UDP 命令数据面（服务端）
-     * @details 持有已握手的流连接；帧循环在流上读取 UDP 帧并
-     *          经真实 UDP socket 转发到目标，回包封帧写回流。
-     *          空闲超时与流 EOF 双重守护，任一触发即关闭全部资源。
+     * @brief 运行固定目标普通 VLESS UDP 隧道。
+     * @details 一个 reader 持有所有入站流帧，一个 reply writer 持有所有 UDP 回包写入；
+     *          两者并行，故上游静默或多回包不会把发送路径变成一问一答。
      */
-    class UdpTunnel : public std::enable_shared_from_this<UdpTunnel>
+    class UdpTunnel final : public Preview::Contract::DatagramSession,
+                            public Preview::Contract::CarrierActivity,
+                            public std::enable_shared_from_this<UdpTunnel>
     {
     public:
-        /**
-         * @brief 构造
-         * @param Stream 已握手的 VLESS 流连接（所有权移交）
-         * @param Options 隧道选项
-         */
         explicit UdpTunnel(std::shared_ptr<Conn<>> Stream, UdpTunnelOptions Options)
-            : Stream_(std::move(Stream)), Opts_(std::move(Options)),
-              Egress_(ExecutorFor(Stream_))
+            : Stream_(std::move(Stream)), Options_(std::move(Options)),
+              Executor_(Net::make_strand(RequireStreamExecutor(Stream_))),
+              Frames_(Stream_, Options_.Services.IdleTimeout), Egress_(Executor_),
+              Activity_(std::make_shared<Preview::Protocols::ProtocolActivity>(Executor_))
         {
+            Observation_.Sink = Options_.Services.Traffic;
+            Observation_.Owner = Preview::Foundation::TrafficEvent{
+                .Generation = Options_.TaskIdentity.Generation,
+                .Worker = Options_.TaskIdentity.WorkerId,
+                .Session = Options_.TaskIdentity.SessionId,
+                .Stream = Options_.TaskIdentity.StreamId,
+                .Task = Options_.TaskIdentity.TaskId,
+                .Account = Options_.AccountId};
         }
 
-        /**
-         * @brief 运行数据面（帧循环直至空闲超时或流 EOF）
-         * @return 无（结束后所有资源已关闭）
-         * @details 协程内自捕获 shared_from_this 保持对象存活，
-         *          允许 detached 派发；任一退出路径统一走 Close() 收口。
-         */
-        [[nodiscard]] auto Run() -> Net::awaitable<void>
+        [[nodiscard]] auto Run()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>> override
         {
-            auto Self = shared_from_this();
-            if (!Stream_)
+            co_await Net::dispatch(Executor_, Net::use_awaitable);
+            if (Started_)
             {
-                Close();
-                co_return;
+                co_return std::unexpected(
+                    Failure{Preview::Fault::Code::InvalidArgument});
             }
-            Net::steady_timer IdleTimer(Stream_->Executor());
-            std::vector<std::byte> UpstreamBuffer(65535);
-            // 流量口径对齐 relay：upstream = 客户端→上游载荷，downstream = 上游→客户端载荷
-            std::size_t SentBytes = 0;
-            std::size_t RecvBytes = 0;
-            std::uint64_t DatagramCount = 0;
-            bool FirstTargetReported = false;
-            while (true)
+            Started_ = true;
+            auto Admission = Activity_->TryBegin();
+            if (!Admission)
             {
-                std::vector<std::byte> Rx;
-                if (!co_await ReadFrame(Rx, IdleTimer))
+                RecordFailure(Admission.error());
+                CloseResources();
+                Report();
+                co_return std::unexpected(Admission.error());
+            }
+            auto Reservation = std::move(*Admission);
+            if (Closed_ || !Stream_)
+            {
+                RecordFailure({Preview::Fault::Code::Canceled});
+                Report();
+                Reservation.Complete();
+                co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+            }
+
+            TunnelResult Result;
+            try
+            {
+                auto Self = shared_from_this();
+                Result = co_await Net::co_spawn(
+                    Executor_, Self->Execute(),
+                    Net::bind_cancellation_slot(Cancellation_.slot(), Net::use_awaitable));
+            }
+            catch (const boost::system::system_error& ErrorValue)
+            {
+                Result = std::unexpected(Preview::Fault::FromNative(
+                    static_cast<std::error_code>(ErrorValue.code())));
+            }
+            catch (const std::system_error& ErrorValue)
+            {
+                Result = std::unexpected(Preview::Fault::FromNative(ErrorValue.code()));
+            }
+            catch (...)
+            {
+                Result = std::unexpected(Failure{Preview::Fault::Code::IoError});
+            }
+            if (!Result) RecordFailure(Result.error());
+
+            Drained_ = true;
+            CloseResources();
+            Report();
+            Reservation.Complete();
+            const auto First = RunFailure_.Load();
+            if (First.Failed()) co_return std::unexpected(First);
+            if (!Result) co_return std::unexpected(Result.error());
+            co_return std::expected<void, Preview::Fault::Failure>{};
+        }
+
+        [[nodiscard]] auto Activity() const
+            -> std::shared_ptr<Preview::Contract::CarrierActivity> override
+        {
+            return std::const_pointer_cast<UdpTunnel>(weak_from_this().lock());
+        }
+
+        auto Seal() noexcept -> void override { Activity_->Seal(); }
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override { return Executor_; }
+
+        [[nodiscard]] auto IsRetired() const noexcept -> bool override
+        {
+            const auto Carrier = Stream_ ? Stream_->Activity() : nullptr;
+            return CloseResourcesCompleted_.load(std::memory_order_acquire) &&
+                Activity_->IsRetired() && Carrier && Carrier->IsRetired();
+        }
+
+        [[nodiscard]] auto Drain()
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>> override
+        {
+            const auto Drained = co_await Activity_->Drain();
+            if (!Drained) RecordFailure(Drained.error());
+            const auto Carrier = Stream_ ? Stream_->Activity() : nullptr;
+            if (!Carrier)
+            {
+                RecordFailure({Preview::Fault::Code::Blocked});
+            }
+            else
+            {
+                const auto CarrierDrained = co_await Carrier->Drain();
+                if (!CarrierDrained) RecordFailure(CarrierDrained.error());
+            }
+            if (!IsRetired()) RecordFailure({Preview::Fault::Code::Blocked});
+            const auto First = RunFailure_.Load();
+            if (First.Failed()) co_return std::unexpected(First);
+            co_return std::expected<void, Preview::Fault::Failure>{};
+        }
+
+        auto Cancel() noexcept -> void override
+        {
+            try
+            {
+                auto Self = shared_from_this();
+                Net::dispatch(Executor_, [Self] { Self->CancelOnExecutor(); });
+            }
+            catch (...)
+            {
+                RecordFailure({Preview::Fault::Code::Blocked});
+                Activity_->Block();
+            }
+        }
+
+        auto Close() noexcept -> void override
+        {
+            try
+            {
+                auto Self = shared_from_this();
+                Net::dispatch(Executor_, [Self] { Self->CloseOnExecutor(); });
+            }
+            catch (...)
+            {
+                RecordFailure({Preview::Fault::Code::Blocked});
+                Activity_->Block();
+            }
+        }
+
+    private:
+        [[nodiscard]] static auto RequireStreamExecutor(const std::shared_ptr<Conn<>>& Stream)
+            -> Net::any_io_executor
+        {
+            if (!Stream || !Stream->Executor())
+                throw std::invalid_argument("VLESS UDP requires a stream executor");
+            return Stream->Executor();
+        }
+
+        auto CancelOnExecutor() noexcept -> void
+        {
+            if (Cancelled_) return;
+            Cancelled_ = true;
+            RecordFailure({Preview::Fault::Code::Canceled});
+            Activity_->Seal();
+            Cancellation_.emit(Net::cancellation_type::all);
+            if (RunState_)
+            {
+                RunState_->ReaderCancellation.emit(Net::cancellation_type::all);
+                RunState_->ReplyCancellation.emit(Net::cancellation_type::all);
+                (void)RunState_->InputEnd.try_send(boost::system::error_code{});
+            }
+            CloseResources();
+        }
+
+        auto CloseOnExecutor() noexcept -> void
+        {
+            if (Started_ && !Drained_ && !Cancelled_)
+            {
+                CancelOnExecutor();
+                return;
+            }
+            CloseResources();
+        }
+
+        auto Execute() -> Net::awaitable<TunnelResult>
+        {
+            co_return co_await RunCore();
+        }
+
+        auto RunCore() -> Net::awaitable<TunnelResult>
+        {
+            const auto Target = co_await ResolveTarget();
+            if (!Target)
+            {
+                RecordFailure(Target.error());
+                co_return std::unexpected(Target.error());
+            }
+
+            RunState_ = std::make_shared<UdpTunnelRunState>(Executor_);
+            auto State = RunState_;
+            using boost::asio::experimental::awaitable_operators::operator&&;
+            auto Reader = Net::co_spawn(
+                Executor_, ReceiveFrames(State, *Target),
+                Net::bind_cancellation_slot(State->ReaderCancellation.slot(), Net::use_awaitable));
+            auto Replies = Net::co_spawn(
+                Executor_, SendReplies(State, *Target),
+                Net::bind_cancellation_slot(State->ReplyCancellation.slot(), Net::use_awaitable));
+            auto [ReadResult, ReplyResult] = co_await (std::move(Reader) && std::move(Replies));
+            if (!ReadResult) RecordFailure(ReadResult.error());
+            if (!ReplyResult) RecordFailure(ReplyResult.error());
+
+            const auto First = RunFailure_.Load();
+            if (First.Failed()) co_return std::unexpected(First);
+            co_return TunnelResult{};
+        }
+
+        [[nodiscard]] auto ResolveTarget() -> Net::awaitable<std::expected<Udp::endpoint, Failure>>
+        {
+            const auto Target = Preview::Vless::Detail::ToNetworkTarget(Options_.Target);
+            if (!Target)
+                co_return std::unexpected(Failure{Preview::Fault::Code::BadMessage});
+
+            using boost::asio::experimental::awaitable_operators::operator||;
+            if (Options_.Services.IdleTimeout.count() <= 0)
+                co_return co_await Preview::Protocols::ResolveDatagram(
+                    Options_.Services, std::move(*Target));
+
+            Net::steady_timer Timer(Executor_);
+            Timer.expires_after(Options_.Services.IdleTimeout);
+            boost::system::error_code TimerError;
+            auto Resolve = Preview::Protocols::ResolveDatagram(
+                Options_.Services, *Target);
+            auto Timeout = Timer.async_wait(
+                Net::redirect_error(Net::use_awaitable, TimerError));
+            const auto Result = co_await (std::move(Resolve) || std::move(Timeout));
+            if (Result.index() == 1U)
+                co_return std::unexpected(Failure{Preview::Fault::Code::Timeout});
+            Timer.cancel();
+            const auto Resolved = std::get<0>(std::move(Result));
+            if (!Resolved) co_return std::unexpected(Resolved.error());
+            if (Resolved->port() == 0U)
+                co_return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            co_return *Resolved;
+        }
+
+        auto ReceiveFrames(const std::shared_ptr<UdpTunnelRunState>& State,
+                           const Udp::endpoint Target) -> Net::awaitable<TunnelResult>
+        {
+            while (!Closed_ && !Cancelled_)
+            {
+                const auto Frame = co_await Frames_.Read();
+                if (!Frame)
                 {
-                    break;
+                    const auto Cause = Frame.error().Cause;
+                    State->InputEnded = true;
+                    (void)State->InputEnd.try_send(boost::system::error_code{});
+                    if (Cause.Code != Preview::Fault::Code::Eof)
+                    {
+                        RecordFailure(Cause);
+                        State->ReplyCancellation.emit(Net::cancellation_type::all);
+                    }
+                    if (Cause.Code == Preview::Fault::Code::Eof)
+                        co_return TunnelResult{};
+                    co_return std::unexpected(Cause);
                 }
 
-                // Mihomo VLESS UDP over TCP 使用 [长度 2B BE][地址+载荷] 帧。
-                Address Target;
                 std::span<const std::uint8_t> Payload;
-                const auto PErr = ParseUdpPkt(
-                    std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(Rx.data()), Rx.size()),
-                    Target,
-                    Payload);
-                if (PErr != Error::None)
+                const auto Parsed = ParseUdpPkt(
+                    std::span<const std::uint8_t>(Frame->data(), Frame->size()), Payload);
+                if (!Parsed)
                 {
-                    continue; // 非法帧丢弃（对齐生产端语义）
-                }
-                ++DatagramCount;
-                if (!FirstTargetReported && Opts_.OnFirstTarget &&
-                    !Target.Host.empty() && Target.Port != 0U)
-                {
-                    FirstTargetReported = true;
-                    try
-                    {
-                        Opts_.OnFirstTarget(Target);
-                    }
-                    catch (...)
-                    {
-                    }
+                    RecordFailure(Parsed.error().Cause);
+                    State->InputEnded = true;
+                    (void)State->InputEnd.try_send(boost::system::error_code{});
+                    State->ReplyCancellation.emit(Net::cancellation_type::all);
+                    co_return std::unexpected(Parsed.error().Cause);
                 }
 
-                // 目标解析 → 转发载荷
-                auto TargetEndpoint = co_await ResolveTarget(Target);
-                if (TargetEndpoint.first != Error::None)
+                boost::system::error_code ErrorCode;
+                if (!Egress_.is_open()) Egress_.open(Target.protocol(), ErrorCode);
+                if (ErrorCode)
                 {
-                    // 目标解析失败后继续等待下一帧会把已经失效的会话
-                    // 留到 IdleTimeout；与其他 UDP service 保持一致，立即收口。
-                    break;
+                    const auto Cause = Preview::Fault::FromNative(
+                        static_cast<std::error_code>(ErrorCode));
+                    RecordFailure(Cause);
+                    State->ReplyCancellation.emit(Net::cancellation_type::all);
+                    co_return std::unexpected(Cause);
                 }
-                boost::system::error_code WriteError;
-                if (!Egress_.is_open())
+                ErrorCode.clear();
+                const auto Sent = co_await Egress_.async_send_to(
+                    Net::buffer(Payload.data(), Payload.size()), Target,
+                    Net::redirect_error(Net::use_awaitable, ErrorCode));
+                if (ErrorCode)
                 {
-                    Egress_.open(TargetEndpoint.second.protocol(), WriteError);
+                    const auto Cause = Preview::Fault::FromNative(
+                        static_cast<std::error_code>(ErrorCode));
+                    RecordFailure(Cause);
+                    State->ReplyCancellation.emit(Net::cancellation_type::all);
+                    co_return std::unexpected(Cause);
                 }
-                if (WriteError)
-                {
-                    break;
-                }
-                co_await Egress_.async_send_to(
-                    Net::buffer(Payload.data(), Payload.size()),
-                    TargetEndpoint.second,
-                    Net::redirect_error(Net::use_awaitable, WriteError));
-                if (WriteError)
-                {
-                    break;
-                }
-                SentBytes += Payload.size();
 
-                // 上游回包 → 封帧 → 写回流（静默上游受空闲超时保护，不会挂住隧道）
-                Net::ip::udp::endpoint SourceEndpoint;
-                boost::system::error_code UpstreamError;
-                const auto UpstreamSize = co_await RecvUpstream(
-                    UpstreamBuffer,
-                    SourceEndpoint,
-                    UpstreamError);
-                if (!UpstreamSize || UpstreamError)
+                ++DatagramCount_;
+                SentBytes_ += Sent;
+                Observation_.Transfer(
+                    Sent, Preview::Foundation::TrafficObservation::Direction::Upload);
+                if (DatagramCount_ == 1U && Options_.OnFirstTarget)
                 {
-                    break;
+                    try { Options_.OnFirstTarget(Options_.Target); } catch (...) {}
                 }
-                const auto SourceAddress = EndpointToAddress(SourceEndpoint);
-                std::vector<std::uint8_t> TxWire;
-                BuildUdpPkt(
-                    SourceAddress,
-                    std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(UpstreamBuffer.data()),
-                        *UpstreamSize),
-                    TxWire);
-                if (TxWire.empty() || TxWire.size() > std::numeric_limits<std::uint16_t>::max())
-                {
-                    break;
-                }
-                std::vector<std::byte> Response(TxWire.size() + 2U);
-                Response[0] = static_cast<std::byte>((TxWire.size() >> 8U) & 0xFFU);
-                Response[1] = static_cast<std::byte>(TxWire.size() & 0xFFU);
-                std::memcpy(Response.data() + 2, TxWire.data(), TxWire.size());
-                std::error_code SendError;
-                const auto Written = co_await Stream_->AsyncWrite(
-                    std::span<const std::byte>(Response), SendError);
-                if (SendError || Written != Response.size())
-                {
-                    break;
-                }
-                // 回包按载荷字节数计（对齐 relay：失败不计入，不含帧头）
-                RecvBytes += *UpstreamSize;
+                State->HasSent = true;
+                if (Options_.Services.IdleTimeout.count() > 0)
+                    State->ReplyIdle.expires_after(Options_.Services.IdleTimeout);
+                (void)State->FirstSend.try_send(boost::system::error_code{});
             }
-            Close();
-            if (Opts_.traffic != nullptr)
+            const Failure Cause{Preview::Fault::Code::Canceled};
+            RecordFailure(Cause);
+            State->InputEnded = true;
+            (void)State->InputEnd.try_send(boost::system::error_code{});
+            co_return std::unexpected(Cause);
+        }
+
+        auto SendReplies(const std::shared_ptr<UdpTunnelRunState>& State,
+                         const Udp::endpoint Target)
+            -> Net::awaitable<TunnelResult>
+        {
+            boost::system::error_code FirstError;
+            boost::system::error_code EndError;
+            auto FirstSend = State->FirstSend.async_receive(
+                Net::redirect_error(Net::use_awaitable, FirstError));
+            auto InputEnd = State->InputEnd.async_receive(
+                Net::redirect_error(Net::use_awaitable, EndError));
+            using boost::asio::experimental::awaitable_operators::operator||;
+            (void)co_await (std::move(FirstSend) || std::move(InputEnd));
+            if (!State->HasSent)
             {
-                Opts_.traffic->Report(Opts_.identity, SentBytes, RecvBytes);
+                const auto Cause = RunFailure_.Load();
+                if (Cause.Failed()) co_return std::unexpected(Cause);
+                co_return TunnelResult{};
             }
-            if (Opts_.OnSessionEnd)
+
+            std::array<std::byte, 65535> Buffer{};
+            while (!Closed_ && !Cancelled_)
+            {
+                Udp::endpoint Source;
+                boost::system::error_code ReceiveError;
+                std::size_t Size = 0;
+                if (Options_.Services.IdleTimeout.count() <= 0)
+                {
+                    Size = co_await Egress_.async_receive_from(
+                        Net::buffer(Buffer), Source,
+                        Net::redirect_error(Net::use_awaitable, ReceiveError));
+                }
+                else
+                {
+                    boost::system::error_code TimerError;
+                    auto Receive = Egress_.async_receive_from(
+                        Net::buffer(Buffer), Source,
+                        Net::redirect_error(Net::use_awaitable, ReceiveError));
+                    auto Timeout = State->ReplyIdle.async_wait(
+                        Net::redirect_error(Net::use_awaitable, TimerError));
+                    const auto Ready = co_await (std::move(Receive) || std::move(Timeout));
+                    if (Ready.index() == 1U)
+                    {
+                        if (TimerError == Net::error::operation_aborted) continue;
+                        if (State->InputEnded && !RunFailure_.Load().Failed())
+                            co_return TunnelResult{};
+                        const Failure Cause{Preview::Fault::Code::Timeout};
+                        RecordFailure(Cause);
+                        State->ReaderCancellation.emit(Net::cancellation_type::all);
+                        co_return std::unexpected(Cause);
+                    }
+                    Size = std::get<0>(std::move(Ready));
+                }
+                if (ReceiveError)
+                {
+                    const auto Cause = Preview::Fault::FromNative(
+                        static_cast<std::error_code>(ReceiveError));
+                    RecordFailure(Cause);
+                    State->ReaderCancellation.emit(Net::cancellation_type::all);
+                    co_return std::unexpected(Cause);
+                }
+
+                if (Source != Target) continue;
+
+                if (Options_.Services.IdleTimeout.count() > 0)
+                    State->ReplyIdle.expires_after(Options_.Services.IdleTimeout);
+                const auto Payload = std::span<const std::uint8_t>(
+                    reinterpret_cast<const std::uint8_t*>(Buffer.data()), Size);
+                const auto Encoded = BuildUdpPkt(Payload, TxFrame_);
+                if (!Encoded)
+                {
+                    RecordFailure(Encoded.error().Cause);
+                    State->ReaderCancellation.emit(Net::cancellation_type::all);
+                    co_return std::unexpected(Encoded.error().Cause);
+                }
+
+                const auto Written = co_await Frames_.Write(TxFrame_);
+                if (!Written)
+                {
+                    RecordFailure(Written.error());
+                    State->ReaderCancellation.emit(Net::cancellation_type::all);
+                    co_return std::unexpected(Written.error());
+                }
+                RecvBytes_ += Size;
+                Observation_.Transfer(
+                    Size, Preview::Foundation::TrafficObservation::Direction::Download);
+            }
+
+            const Failure Cause{Preview::Fault::Code::Canceled};
+            RecordFailure(Cause);
+            co_return std::unexpected(Cause);
+        }
+
+        auto RecordFailure(const Failure Value) noexcept -> void
+        {
+            (void)RunFailure_.TrySet(Value);
+        }
+
+        auto Report() noexcept -> void
+        {
+            if (Reported_) return;
+            Observation_.Complete();
+            if (Options_.OnSessionEnd)
             {
                 try
                 {
-                    Opts_.OnSessionEnd(UdpTunnelSummary{
-                        DatagramCount, SentBytes, RecvBytes});
+                    Options_.OnSessionEnd(UdpTunnelSummary{
+                        DatagramCount_, SentBytes_, RecvBytes_});
                 }
                 catch (...)
                 {
                 }
             }
-            co_return;
+            Reported_ = true;
         }
 
-        /**
-         * @brief 关闭（幂等）：UDP socket + 流连接
-         */
-        auto Close() -> void
+        auto CloseResources() noexcept -> void
         {
+            if (Closed_ && CloseResourcesCompleted_.load(std::memory_order_acquire)) return;
+            if (!Closed_)
+            {
+                Activity_->Seal();
+                Closed_ = true;
+                if (RunState_)
+                {
+                    RunState_->ReaderCancellation.emit(Net::cancellation_type::all);
+                    RunState_->ReplyCancellation.emit(Net::cancellation_type::all);
+                    (void)RunState_->InputEnd.try_send(boost::system::error_code{});
+                    RunState_->FirstSend.close();
+                    RunState_->InputEnd.close();
+                }
+            }
+
             boost::system::error_code ErrorCode;
-            Egress_.close(ErrorCode);
+            if (Egress_.is_open())
+            {
+                Egress_.cancel(ErrorCode);
+                if (ErrorCode) RecordFailure(Preview::Fault::FromNative(
+                    static_cast<std::error_code>(ErrorCode)));
+                ErrorCode.clear();
+                Egress_.close(ErrorCode);
+                if (ErrorCode) RecordFailure(Preview::Fault::FromNative(
+                    static_cast<std::error_code>(ErrorCode)));
+            }
+            bool CarrierClosed = false;
             if (Stream_)
             {
-                Stream_->Close();
+                try
+                {
+                    const auto Canceled = Stream_->Cancel();
+                    if (!Canceled) RecordFailure(Canceled.error());
+                    const auto Closed = Stream_->Close();
+                    if (!Closed) RecordFailure(Closed.error());
+                    CarrierClosed = Closed.has_value();
+                }
+                catch (...)
+                {
+                    RecordFailure({Preview::Fault::Code::IoError});
+                }
             }
+            CloseResourcesCompleted_.store(
+                CarrierClosed && !Egress_.is_open(), std::memory_order_release);
         }
 
-    private:
-        /**
-         * @brief 按长度读取一条 Mihomo VLESS UDP frame。
-         * @param Frame 输出的无长度前缀 frame 内容
-         * @param Timer 调用方复用的空闲计时器
-         * @return 是否读取到完整 frame
-         */
-        [[nodiscard]] auto ReadFrame(
-            std::vector<std::byte> &Frame,
-            Net::steady_timer &Timer) -> Net::awaitable<bool>
-        {
-            std::array<std::byte, 2> LengthBytes{};
-            if (!co_await ReadExactWithTimeout(std::span<std::byte>(LengthBytes), Timer))
-            {
-                co_return false;
-            }
-            const auto Length =
-                (static_cast<std::size_t>(std::to_integer<std::uint8_t>(LengthBytes[0])) << 8U) |
-                static_cast<std::size_t>(std::to_integer<std::uint8_t>(LengthBytes[1]));
-            if (Length == 0 || Length > std::numeric_limits<std::uint16_t>::max())
-            {
-                co_return false;
-            }
-            Frame.resize(Length);
-            co_return co_await ReadExactWithTimeout(std::span<std::byte>(Frame), Timer);
-        }
-
-        [[nodiscard]] auto ReadExactWithTimeout(
-            std::span<std::byte> Buffer,
-            Net::steady_timer &Timer) -> Net::awaitable<bool>
-        {
-            std::error_code ReadError;
-            if (Opts_.IdleTimeout.count() <= 0)
-            {
-                const auto Read = co_await Stream_->AsyncRead(Buffer, ReadError);
-                co_return !ReadError && Read == Buffer.size();
-            }
-
-            using boost::asio::experimental::awaitable_operators::operator||;
-            boost::system::error_code TimerError;
-            Timer.expires_after(Opts_.IdleTimeout);
-            auto Read = Stream_->AsyncRead(Buffer, ReadError);
-            auto Wait = Timer.async_wait(
-                Net::redirect_error(Net::use_awaitable, TimerError));
-            const auto Outcome = co_await (std::move(Read) || std::move(Wait));
-            if (Outcome.index() == 1)
-            {
-                co_return false;
-            }
-            Timer.cancel();
-            const auto ReadCount = std::get<0>(std::move(Outcome));
-            co_return !ReadError && ReadCount == Buffer.size();
-        }
-
-        [[nodiscard]] static auto ExecutorFor(const std::shared_ptr<Conn<>> &Stream)
-            -> Net::any_io_executor
-        {
-            if (Stream)
-            {
-                return Stream->Executor();
-            }
-            return {};
-        }
-
-        /**
-         * @brief 上游回包接收（与空闲定时器竞速）
-         * @param Buffer 接收缓冲
-         * @param Endpoint 源端点输出
-         * @param ErrorCode 错误码输出
-         * @return 字节数；nullopt = 空闲超时（上游静默）
-         * @note IdleTimeout 为 0 时禁用超时，直接阻塞等待接收。
-         */
-        [[nodiscard]] auto RecvUpstream(
-            std::span<std::byte> Buffer,
-            Net::ip::udp::endpoint &Endpoint,
-            boost::system::error_code &ErrorCode)
-            -> Net::awaitable<std::optional<std::size_t>>
-        {
-            using boost::asio::experimental::awaitable_operators::operator||;
-            if (Opts_.IdleTimeout.count() <= 0)
-            {
-                co_return co_await Egress_.async_receive_from(
-                    Net::buffer(Buffer),
-                    Endpoint,
-                    Net::redirect_error(Net::use_awaitable, ErrorCode));
-            }
-            Net::steady_timer Watchdog(Stream_->Executor());
-            Watchdog.expires_after(Opts_.IdleTimeout);
-            auto Recv = Egress_.async_receive_from(
-                Net::buffer(Buffer),
-                Endpoint,
-                Net::redirect_error(Net::use_awaitable, ErrorCode));
-            auto Result = co_await (
-                std::move(Recv) || Watchdog.async_wait(Net::use_awaitable));
-            if (Result.index() == 1)
-            {
-                co_return std::nullopt; // 上游静默
-            }
-            co_return std::get<0>(std::move(Result));
-        }
-
-        /**
-         * @brief 解析目标地址为 UDP 端点
-         * @param Target 帧内目标地址
-         * @return 错误码与端点
-         */
-        [[nodiscard]] auto ResolveTarget(const Address &Target)
-            -> Net::awaitable<std::pair<Error, Net::ip::udp::endpoint>>
-        {
-            if (Opts_.resolve)
-            {
-                co_return co_await Opts_.resolve(Target);
-            }
-            // 默认仅支持 IP 直解；域名由调用方通过 resolve 回调解析。
-            boost::system::error_code ErrorCode;
-            const auto Ip = Net::ip::make_address(Target.Host, ErrorCode);
-            if (ErrorCode)
-            {
-                co_return std::pair{Error::BadAddress, Net::ip::udp::endpoint{}};
-            }
-            co_return std::pair{Error::None,
-                                Net::ip::udp::endpoint(Ip, Target.Port)};
-        }
-
-        /**
-         * @brief UDP 端点转 vless 地址（回包源地址封帧用）
-         * @param Endpoint 端点
-         * @return vless 地址
-         */
-        [[nodiscard]] static auto EndpointToAddress(const Net::ip::udp::endpoint &Endpoint)
-            -> Address
-        {
-            Address Output;
-            if (Endpoint.address().is_v4())
-            {
-                Output.Type = AddressType::Ipv4;
-            }
-            else
-            {
-                Output.Type = AddressType::Ipv6;
-            }
-            Output.Host = Endpoint.address().to_string();
-            Output.Port = Endpoint.port();
-            return Output;
-        }
-
-        std::shared_ptr<Conn<>> Stream_; ///< VLESS 流连接（已握手）
-        UdpTunnelOptions Opts_;        ///< 隧道选项
-        Net::ip::udp::socket Egress_;    ///< 出站 UDP socket（上游）
+        std::shared_ptr<Conn<>> Stream_;
+        UdpTunnelOptions Options_;
+        Net::strand<Net::any_io_executor> Executor_;
+        UdpTunnelFrames Frames_;
+        Udp::socket Egress_;
+        std::shared_ptr<Preview::Protocols::ProtocolActivity> Activity_;
+        std::shared_ptr<UdpTunnelRunState> RunState_;
+        Preview::Fault::FailureState RunFailure_;
+        Preview::Foundation::TrafficObservation Observation_;
+        Net::cancellation_signal Cancellation_;
+        std::vector<std::uint8_t> TxFrame_;
+        std::atomic<bool> CloseResourcesCompleted_{false};
+        std::uint64_t DatagramCount_{0};
+        std::uint64_t SentBytes_{0}, RecvBytes_{0};
+        bool Started_{false}, Drained_{false}, Closed_{false}, Cancelled_{false}, Reported_{false};
     };
-
 } // namespace Preview::Vless

@@ -46,6 +46,7 @@ namespace Preview::Statistics
         Scope ScopeValue{Scope::Process};
         NumericId Id{0}; ///< 归属 ID；Worker 范围使用 Preview::WorkerId::Value()。
         Metric MetricValue{Metric::Events};
+        Preview::SessionId ParentSession{}; ///< Stream 的 wire ID 只在父 session 内唯一；其余范围为空。
 
         friend constexpr auto operator==(const CounterKey &, const CounterKey &) noexcept -> bool = default;
     };
@@ -90,6 +91,9 @@ namespace Preview::Statistics
         TaskCanceled,
         WorkerDrained,
         GenerationReloaded,
+        OperationAccepted,
+        OperationCompleted,
+        OperationFailed,
     };
 
     enum class EventSeverity : std::uint8_t
@@ -120,7 +124,10 @@ namespace Preview::Statistics
         EventKind Kind{EventKind::Data};
         EventSeverity Severity{EventSeverity::Info};
         bool Terminal{false};
+        bool Truncated{false}; ///< 正文在拥有入口有界截断，原 UTF-8 边界和 marker 保留。
         std::string Detail{};
+        Preview::TaskId ParentTask{}; ///< Stream/Task 的父任务身份；其他事件保持零值。
+        NumericId Operation{0}; ///< 管理操作 ID；非 operation 事件保持零值。
     };
 
     using EventRecord = DetailedEvent;

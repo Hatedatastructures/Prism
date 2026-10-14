@@ -26,9 +26,7 @@ namespace Preview::Recognition
     enum class RecognitionMode : std::uint8_t
     {
         Configured,
-        DeterministicRoute,
-        /// 确定性方案的 canonical 名称；与旧 DeterministicRoute 值兼容
-        Deterministic = DeterministicRoute,
+        Deterministic,
         MixedTrial,
     };
 
@@ -36,15 +34,14 @@ namespace Preview::Recognition
      * @brief 返回识别模式的 canonical 名称
      * @param Mode 识别模式
      * @return 配置、诊断和性能结果使用的稳定名称
-     * @details `DeterministicRoute` 与 `Deterministic` 是同一个兼容值，统一输出
-     *          新的 canonical 名称 `Deterministic`。
+     * @details 确定性模式只使用正式名称 `Deterministic`。
      */
     [[nodiscard]] inline auto ToStringView(RecognitionMode Mode) noexcept -> std::string_view
     {
         switch (Mode)
         {
         case RecognitionMode::Configured: return "Configured";
-        case RecognitionMode::DeterministicRoute: return "Deterministic";
+        case RecognitionMode::Deterministic: return "Deterministic";
         case RecognitionMode::MixedTrial: return "MixedTrial";
         }
         return "Unknown";
@@ -156,12 +153,6 @@ namespace Preview::Recognition
                 return false;
             }
             return (Words[Index / 64] & (std::uint64_t{1} << (Index % 64))) != 0;
-        }
-
-        /// Test 的语义别名，便于索引调用方表达候选包含关系
-        [[nodiscard]] auto Contains(CandidateId Id) const noexcept -> bool
-        {
-            return Test(Id);
         }
 
         /// 清空全部候选位

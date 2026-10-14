@@ -10,11 +10,12 @@
  */
 
 #pragma once
-
 #include <Preview/Foundation/ByteSpan.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
+#include <Preview/Transport/Detail/IoCompletion.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Anytls/Codec.hpp>
 #include <Preview/Protocols/Anytls/Types.hpp>
@@ -25,7 +26,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <expected>
 #include <memory>
+#include <new>
 #include <span>
 #include <string>
 #include <system_error>
@@ -44,7 +48,7 @@ namespace Preview::Anytls
      * @tparam Memory 会话内存策略（默认 8KB Arena；可注入自定义策略）
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Conn : public Preview::Transmission, public std::enable_shared_from_this<Conn<Memory>>
+    class Conn : public Preview::Transmission
     {
     public:
         /// 内存策略类型（对外暴露，供嵌套层/测试使用）
@@ -56,7 +60,8 @@ namespace Preview::Anytls
          * @param Password 认证密码
          */
         explicit Conn(SharedTransmission Upstream, std::string Password)
-            : NextLayer_(std::move(Upstream)), Password_(std::move(Password))
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Upstream)), Password_(std::move(Password))
         {
         }
 
@@ -67,7 +72,7 @@ namespace Preview::Anytls
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
@@ -75,120 +80,159 @@ namespace Preview::Anytls
         /**
          * @brief 客户端握手：发送认证帧
          * @param PadLen Padding 长度（默认 16）
-         * @return 错误码
+         * @return 失败类别与原生 I/O cause；成功表示完整认证帧已写出
+         * @details Password 与帧只在本次协程内借用；partial write 按实际字节推进，失败时
+         *          保留首个 Fault::Failure。取消仍由底层 Transmission 交付，最终关闭由工厂 owner 负责。
          */
         [[nodiscard]] auto WriteHandshake(std::uint16_t PadLen = 16)
-            -> Net::awaitable<Error>
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (!NextLayer_)
             {
-                co_return Error::NotOpen;
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError});
             }
             Handshaken_ = false;
             std::string Frame;
-            auto Err = BuildAuthFrame(Password_, PadLen, Frame);
-            if (Err != Error::None)
+            try
             {
-                co_return Err;
+                const auto Err = BuildAuthFrame(Password_, PadLen, Frame);
+                if (Err != Error::None)
+                {
+                    co_return std::unexpected(ProtocolFailure(Err));
+                }
             }
-            if (co_await SendBytes(AsU8Span(Frame)))
+            catch (const std::bad_alloc &)
             {
-                co_return Error::IoError;
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
             }
+            const auto Sent = co_await SendBytes(AsU8Span(Frame));
+            if (!Sent) co_return std::unexpected(Sent.error());
             Handshaken_ = true;
-            co_return Error::None;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
         /**
          * @brief 服务端握手：读取并校验认证帧
-         * @return 错误码；bad_auth = 密码哈希不匹配
+         * @return 失败类别与原生 I/O cause；成功表示密码哈希通过
+         * @details 每次 partial read 按实际字节推进；EOF、取消和底层原生错误保持独立。
+         *          失败帧由外层工厂的唯一 retirement owner 取消、关闭并等待真实 Activity 退栈。
          */
         [[nodiscard]] auto ReadHandshake()
-            -> Net::awaitable<Error>
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (!NextLayer_)
             {
-                co_return Error::NotOpen;
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError});
             }
             Handshaken_ = false;
             // 头：Hash(32) + PadLen(2 BE)
             std::array<std::uint8_t, AuthFrameHdrlen> Header{};
-            if (co_await ReadExact(std::span<std::uint8_t>(Header)))
-            {
-                co_return Error::UnexpectedEof;
-            }
+            const auto HeaderRead = co_await ReadExact(std::span<std::uint8_t>(Header));
+            if (!HeaderRead) co_return std::unexpected(HeaderRead.error());
             std::array<std::uint8_t, PasswordHashLen> Hash{};
             std::memcpy(Hash.data(), Header.data(), PasswordHashLen);
             const auto PadLen = static_cast<std::uint16_t>(Header[PasswordHashLen]) << 8 |
                                  Header[PasswordHashLen + 1];
             if (PadLen > 0)
             {
-                std::vector<std::uint8_t> Padding(PadLen);
-                if (co_await ReadExact(Padding))
+                try
                 {
-                    co_return Error::UnexpectedEof;
+                    std::vector<std::uint8_t> Padding(PadLen);
+                    const auto PaddingRead = co_await ReadExact(Padding);
+                    if (!PaddingRead) co_return std::unexpected(PaddingRead.error());
+                }
+                catch (const std::bad_alloc &)
+                {
+                    co_return std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
                 }
             }
             if (!VerifyAuth(Password_, Hash))
             {
-                co_return Error::BadAuth;
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::AuthFailed});
             }
             Handshaken_ = true;
-            co_return Error::None;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
         /**
          * @brief 透传读取（数据面原样）
+         * @details 未握手或底层已释放时异步交付一次 NotOpen；否则 token 直通底层，
+         *          保留底层短读与 EOF 事实，不复制 buffer。
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_ || !Handshaken_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            NextLayer_->ReadSome(Buffer, std::move(Handler));
         }
 
         /**
          * @brief 透传写入（数据面原样）
+         * @details 未握手或底层已释放时异步交付一次 NotOpen；否则 token 直通底层，
+         *          保留底层短写事实。
          */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_ || !Handshaken_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            NextLayer_->WriteSome(Buffer, std::move(Handler));
         }
 
         /**
-         * @brief 关闭底层传输
+         * @brief 真实写半关闭转交底层载体；反向读取仍然可用。
          */
-        auto Close() -> void override
+        auto StartWriteShutdown(Completion Handler) -> void override
         {
-            if (NextLayer_)
+            if (!NextLayer_)
             {
-                NextLayer_->Close();
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
+            NextLayer_->WriteShutdown(std::move(Handler));
         }
 
         /**
-         * @brief 取消挂起操作
+         * @brief 封止并交付底层关闭
+         * @return 命令接管成功；实际退出由 Activity()->Drain() 另行等待。
          */
-        auto Cancel() -> void override
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
-            if (NextLayer_)
+            if (!NextLayer_)
             {
-                NextLayer_->Cancel();
+                return {};
             }
+            return NextLayer_->Close();
+        }
+
+        /**
+         * @brief 可重复取消底层挂起操作
+         * @return 命令接管成功只表示取消请求已排入原 executor，不宣称已经关闭。
+         */
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            if (!NextLayer_)
+            {
+                return {};
+            }
+            return NextLayer_->Cancel();
         }
 
         /**
@@ -216,64 +260,78 @@ namespace Preview::Anytls
         }
 
     private:
-        /**
-         * @brief 精确读取指定字节数
-         * @param Buffer 目标缓冲区
-         * @return true = 失败（EOF / 底层错误）
-         */
+        /** @brief 按实际字节推进精确读取，失败保留 typed/native cause。 */
         [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)
-            -> Net::awaitable<bool>
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (!NextLayer_)
             {
-                co_return true;
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError});
             }
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(Buffer.subspan(Done)),
-                    ErrorCode);
-                if (ErrorCode || N == 0)
-                {
-                    co_return true;
-                }
+                const auto Part = co_await NextLayer_->ReadSome(
+                    AsBytes(Buffer.subspan(Done)));
+                const auto N = Part.Bytes;
                 if (N > Buffer.size() - Done)
                 {
-                    co_return true;
+                    co_return std::unexpected(Preview::Fault::Failure{
+                        Preview::Fault::Code::InvalidArgument, Part.Failure.Native});
                 }
                 Done += N;
+                if (Part.Failure.Failed())
+                {
+                    co_return std::unexpected(Part.Failure);
+                }
+                if (N == 0)
+                {
+                    co_return std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::WouldBlock});
+                }
             }
-            co_return false;
+            co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
-        /**
-         * @brief 发送全部字节
-         * @param Data 数据
-         * @return true = 失败
-         */
+        /** @brief 按实际字节推进完整发送，partial write 失败保留 typed/native cause。 */
         [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
-            -> Net::awaitable<bool>
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             if (!NextLayer_)
             {
-                co_return true;
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError});
             }
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                std::error_code ErrorCode;
-                const auto N = co_await NextLayer_->async_write_some(
-                    AsBytes(Data.subspan(Done)),
-                    ErrorCode);
-                if (ErrorCode || N == 0 || N > Data.size() - Done)
+                const auto Part = co_await NextLayer_->WriteSome(
+                    AsBytes(Data.subspan(Done)));
+                const auto N = Part.Bytes;
+                if (N > Data.size() - Done)
                 {
-                    co_return true;
+                    co_return std::unexpected(Preview::Fault::Failure{
+                        Preview::Fault::Code::InvalidArgument, Part.Failure.Native});
                 }
                 Done += N;
+                if (Part.Failure.Failed())
+                {
+                    co_return std::unexpected(Part.Failure);
+                }
+                if (N == 0)
+                {
+                    co_return std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::WouldBlock});
+                }
             }
-            co_return false;
+            co_return std::expected<void, Preview::Fault::Failure>{};
+        }
+
+        /** @brief 把旧 codec 错误在唯一 AnyTLS 握手边界投影到正式 Fault 值。 */
+        [[nodiscard]] static auto ProtocolFailure(const Error Value) noexcept
+            -> Preview::Fault::Failure
+        {
+            const auto Native = static_cast<std::error_code>(Preview::make_error_code(Value));
+            return {Preview::Fault::ToCode(Native), {}};
         }
 
         SharedTransmission NextLayer_;  ///< 底层传输（独占所有权）

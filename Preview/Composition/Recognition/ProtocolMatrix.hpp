@@ -24,7 +24,7 @@ namespace Preview::Composition::Recognition
     enum class OperationScope : std::uint8_t
     {
         TcpRecognition,
-        UdpAssociation,
+        DatagramAssociation,
         QuicBinding,
         DnsResolve,
         RouteLookup,
@@ -34,19 +34,19 @@ namespace Preview::Composition::Recognition
     struct TcpRecognitionBinding
     {
         std::string_view Name;
-        Preview::Recognition::ProtocolType Protocol;
+        Preview::Contract::ProtocolType Protocol;
     };
 
-    struct UdpAssociationBinding
+    struct DatagramAssociationBinding
     {
         std::string_view Name;
-        Preview::Recognition::ProtocolType Protocol;
+        Preview::Contract::ProtocolType Protocol;
     };
 
     struct QuicAlpnBinding
     {
         std::string_view Alpn;
-        Preview::Recognition::ProtocolType Protocol;
+        Preview::Contract::ProtocolType Protocol;
     };
 
     struct CarrierBinding
@@ -64,8 +64,8 @@ namespace Preview::Composition::Recognition
             return TcpBindings_;
         }
 
-        [[nodiscard]] static auto UdpAssociations() noexcept
-            -> std::span<const UdpAssociationBinding>
+        [[nodiscard]] static auto DatagramAssociations() noexcept
+            -> std::span<const DatagramAssociationBinding>
         {
             return UdpBindings_;
         }
@@ -89,7 +89,7 @@ namespace Preview::Composition::Recognition
 
         [[nodiscard]] static auto FindQuic(
             std::string_view Alpn,
-            Preview::Recognition::ProtocolType Protocol) noexcept
+            Preview::Contract::ProtocolType Protocol) noexcept
             -> std::optional<QuicAlpnBinding>
         {
             for (const auto &Binding : QuicBindings_)
@@ -103,10 +103,10 @@ namespace Preview::Composition::Recognition
         }
 
         [[nodiscard]] static auto ScopeFor(
-            Preview::Recognition::ProtocolType Protocol) noexcept -> OperationScope
+            Preview::Contract::ProtocolType Protocol) noexcept -> OperationScope
         {
-            if (Protocol == Preview::Recognition::ProtocolType::Hysteria2 ||
-                Protocol == Preview::Recognition::ProtocolType::Tuic)
+            if (Protocol == Preview::Contract::ProtocolType::Hysteria2 ||
+                Protocol == Preview::Contract::ProtocolType::Tuic)
             {
                 return OperationScope::QuicBinding;
             }
@@ -140,29 +140,29 @@ namespace Preview::Composition::Recognition
         }
 
         inline static constexpr std::array<TcpRecognitionBinding, 8> TcpBindings_{
-            TcpRecognitionBinding{"http", Preview::Recognition::ProtocolType::Http},
-            TcpRecognitionBinding{"socks5", Preview::Recognition::ProtocolType::Socks5},
-            TcpRecognitionBinding{"vless", Preview::Recognition::ProtocolType::Vless},
-            TcpRecognitionBinding{"trojan", Preview::Recognition::ProtocolType::Trojan},
-            TcpRecognitionBinding{"vmess", Preview::Recognition::ProtocolType::Vmess},
-            TcpRecognitionBinding{"ss2022", Preview::Recognition::ProtocolType::Shadowsocks},
-            TcpRecognitionBinding{"anytls", Preview::Recognition::ProtocolType::AnyTls},
-            TcpRecognitionBinding{"trusttunnel", Preview::Recognition::ProtocolType::TrustTunnel},
+            TcpRecognitionBinding{"http", Preview::Contract::ProtocolType::Http},
+            TcpRecognitionBinding{"socks5", Preview::Contract::ProtocolType::Socks5},
+            TcpRecognitionBinding{"vless", Preview::Contract::ProtocolType::Vless},
+            TcpRecognitionBinding{"trojan", Preview::Contract::ProtocolType::Trojan},
+            TcpRecognitionBinding{"vmess", Preview::Contract::ProtocolType::Vmess},
+            TcpRecognitionBinding{"ss2022", Preview::Contract::ProtocolType::Shadowsocks},
+            TcpRecognitionBinding{"anytls", Preview::Contract::ProtocolType::AnyTls},
+            TcpRecognitionBinding{"trusttunnel", Preview::Contract::ProtocolType::TrustTunnel},
         };
 
-        inline static constexpr std::array<UdpAssociationBinding, 7> UdpBindings_{
-            UdpAssociationBinding{"socks5", Preview::Recognition::ProtocolType::Socks5},
-            UdpAssociationBinding{"vless", Preview::Recognition::ProtocolType::Vless},
-            UdpAssociationBinding{"trojan", Preview::Recognition::ProtocolType::Trojan},
-            UdpAssociationBinding{"vmess", Preview::Recognition::ProtocolType::Vmess},
-            UdpAssociationBinding{"ss2022", Preview::Recognition::ProtocolType::Shadowsocks},
-            UdpAssociationBinding{"hysteria2", Preview::Recognition::ProtocolType::Hysteria2},
-            UdpAssociationBinding{"tuic", Preview::Recognition::ProtocolType::Tuic},
+        inline static constexpr std::array<DatagramAssociationBinding, 7> UdpBindings_{
+            DatagramAssociationBinding{"socks5", Preview::Contract::ProtocolType::Socks5},
+            DatagramAssociationBinding{"vless", Preview::Contract::ProtocolType::Vless},
+            DatagramAssociationBinding{"trojan", Preview::Contract::ProtocolType::Trojan},
+            DatagramAssociationBinding{"vmess", Preview::Contract::ProtocolType::Vmess},
+            DatagramAssociationBinding{"ss2022", Preview::Contract::ProtocolType::Shadowsocks},
+            DatagramAssociationBinding{"hysteria2", Preview::Contract::ProtocolType::Hysteria2},
+            DatagramAssociationBinding{"tuic", Preview::Contract::ProtocolType::Tuic},
         };
 
         inline static constexpr std::array<QuicAlpnBinding, 2> QuicBindings_{
-            QuicAlpnBinding{"h3", Preview::Recognition::ProtocolType::Hysteria2},
-            QuicAlpnBinding{"h3", Preview::Recognition::ProtocolType::Tuic},
+            QuicAlpnBinding{"h3", Preview::Contract::ProtocolType::Hysteria2},
+            QuicAlpnBinding{"h3", Preview::Contract::ProtocolType::Tuic},
         };
 
         inline static constexpr std::array<CarrierBinding, 9> CarrierBindings_{

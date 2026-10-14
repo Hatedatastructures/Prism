@@ -53,8 +53,10 @@ function(AddTestExecutable source_file test_mode support_target main_source)
         set_target_properties(${test_name} PROPERTIES
             ENABLE_EXPORTS OFF
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-        # Deep 测试 #include 源文件，与静态库产生重复符号；允许第一个定义胜出
-        target_link_options(${test_name} PRIVATE -Wl,--allow-multiple-definition)
+        # 旧版 Deep 测试仍包含生产 CPP；Preview 的模块共享封装必须通过真实 ODR 链接。
+        if(NOT "${test_mode}" STREQUAL "Preview")
+            target_link_options(${test_name} PRIVATE -Wl,--allow-multiple-definition)
+        endif()
     endif()
     # gtest_discover_tests 在构建后扫描可执行文件注册 GTest 用例，
     # 使用 PRE_TEST 模式延迟发现，避免 configure 阶段运行未构建的二进制
@@ -62,7 +64,10 @@ function(AddTestExecutable source_file test_mode support_target main_source)
     # 不得硬编码开发者本机 MSYS2 路径（CI 的 MinGW 位于 C:/mingw64/bin，
     # 硬编码会使测试进程 PATH 无法解析 DLL → 0xc0000135），
     # 从编译器位置推导运行时 DLL 目录
-    if("${test_name}" STREQUAL "SessionLifecycleTest")
+    if("${test_name}" STREQUAL "SessionLifecycleTest" OR
+       "${test_name}" STREQUAL "SessionServicesTest" OR
+       "${test_name}" STREQUAL "SessionControlLifecycleTest" OR
+       "${test_name}" STREQUAL "SessionDeliveryLifecycleTest")
         set(_test_prefix TEST_PREFIX "SessionLifecycleTest.")
     else()
         set(_test_prefix)
@@ -246,22 +251,17 @@ function(AssertProductionDnsConcurrentBoundaries)
     message(STATUS "AssertProductionDnsConcurrentBoundaries passed: concurrent DNS inputs are value-owned")
 endfunction()
 
-function(AssertPreviewIdentityTrafficBoundaries)
+function(AssertPreviewTrafficBoundaries)
     file(READ "${CMAKE_SOURCE_DIR}/Preview/Runtime/Statistics.hpp" _statistics_source)
-    string(FIND "${_statistics_source}" "class IdentityTraffic" _identity_start)
-    string(FIND "${_statistics_source}" "class TrafficCounter" _identity_end)
-    if(_identity_start LESS 0 OR _identity_end LESS 0 OR _identity_end LESS _identity_start)
-        message(FATAL_ERROR "Cannot locate IdentityTraffic section in Preview/Runtime/Statistics.hpp")
+    if(_statistics_source MATCHES "class (IdentityTraffic|PerWorkerTraffic)|unordered_map<.*string|std::mutex|lock_guard|scoped_lock|unique_lock")
+        message(FATAL_ERROR "Preview traffic must use one numeric owner without string COW counters or blocking locks")
     endif()
-    math(EXPR _identity_length "${_identity_end} - ${_identity_start}")
-    string(SUBSTRING "${_statistics_source}" ${_identity_start} ${_identity_length}
-           _identity_section)
-    if(_identity_section MATCHES "std::mutex|lock_guard|scoped_lock|unique_lock")
-        message(FATAL_ERROR
-            "IdentityTraffic must use atomic COW snapshots without blocking locks: "
-            "Preview/Runtime/Statistics.hpp")
+    if(NOT _statistics_source MATCHES "boost::lockfree::queue" OR
+       NOT _statistics_source MATCHES "bounded_push" OR
+       NOT _statistics_source MATCHES "capacity<1024>")
+        message(FATAL_ERROR "Preview traffic report must retain its preallocated bounded queue")
     endif()
-    message(STATUS "AssertPreviewIdentityTrafficBoundaries passed: IdentityTraffic is lock-free COW")
+    message(STATUS "AssertPreviewTrafficBoundaries passed: one numeric owner and bounded observation queues")
 endfunction()
 
 function(AssertMuxAsyncDriverBoundaries)
@@ -275,7 +275,7 @@ function(AssertMuxAsyncDriverBoundaries)
 endfunction()
 
 function(AssertStealthExecutorAsyncBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/tests/Preview/protocols/stealth/executor/StealthExecutorDeep3.cpp"
+    file(READ "${CMAKE_SOURCE_DIR}/tests/handshake/executor/StealthExecutorDeep3.cpp"
          _stealth_executor_source)
     if(_stealth_executor_source MATCHES "\\[&\\][ \\t]*\\([ \\t]*\\)[ \\t]*->[ \\t]*net::awaitable")
         message(FATAL_ERROR
@@ -294,7 +294,7 @@ function(AssertContractAsyncBoundaries)
 endfunction()
 
 function(AssertMuxWriteAsyncBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/tests/Preview/protocols/mux/core/MuxWriteContract.cpp"
+    file(READ "${CMAKE_SOURCE_DIR}/tests/Preview/Protocols/Mux/MuxWriteContract.cpp"
          _mux_write_source)
     if(_mux_write_source MATCHES "\\[[^]]*\\][ \\t]*\\([^)]*\\)[ \\t]*->[ \\t]*net::awaitable")
         message(FATAL_ERROR
@@ -318,6 +318,7 @@ add_subdirectory(runtime)
 add_subdirectory(settings)
 add_subdirectory(infrastructure)
 add_subdirectory(Preview)
+add_subdirectory(Experiments)
 add_subdirectory(integration)
 add_subdirectory(concurrency)
 add_subdirectory(stress)
@@ -329,7 +330,7 @@ AssertProductionFoundationBoundaries()
 AssertPreviewProductionBoundaries()
 AssertPreviewDnsResolverBoundaries()
 AssertProductionDnsConcurrentBoundaries()
-AssertPreviewIdentityTrafficBoundaries()
+AssertPreviewTrafficBoundaries()
 AssertMuxAsyncDriverBoundaries()
 AssertStealthExecutorAsyncBoundaries()
 AssertContractAsyncBoundaries()
@@ -402,7 +403,7 @@ if(GO_EXECUTABLE AND MINGW)
     # 不允许依赖开发机绝对路径，依赖获取失败应让构建明确失败。
     if(EXISTS ${_GoSrcDir}/go.mod)
         add_custom_target(GoTestVmess ALL
-            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vmess_client.exe ./vmess_client
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vmess_client.exe ./VmessClient
             WORKING_DIRECTORY ${_GoSrcDir}
             COMMENT "Building Go vmess compatibility test"
             VERBATIM)
@@ -417,7 +418,7 @@ if(GO_EXECUTABLE AND MINGW)
         VERBATIM)
     list(APPEND _GoTestTargets GoTestSingVmess)
     add_custom_target(GoTestVmessServer ALL
-        COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vmess_server.exe ./vmess_server
+        COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vmess_server.exe ./VmessServer
         WORKING_DIRECTORY ${_GoSrcDir}
         COMMENT "Building Go VMess reference server"
         VERBATIM)
@@ -431,25 +432,25 @@ if(GO_EXECUTABLE AND MINGW)
 
     # Trojan reference harness is a standalone nested Go module with no
     # external dependencies; build it from its own module directory.
-    if(EXISTS ${_GoSrcDir}/trojan/go.mod)
+    if(EXISTS ${_GoSrcDir}/Trojan/go.mod)
         add_custom_target(GoTestTrojan ALL
             COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/trojan.exe .
-            WORKING_DIRECTORY ${_GoSrcDir}/trojan
+            WORKING_DIRECTORY ${_GoSrcDir}/Trojan
             COMMENT "Building Go Trojan compatibility harness"
             VERBATIM)
         list(APPEND _GoTestTargets GoTestTrojan)
     else()
-        message(FATAL_ERROR "Go Trojan reference harness requires tests/go/trojan/go.mod")
+        message(FATAL_ERROR "Go Trojan reference harness requires tests/go/Trojan/go.mod")
     endif()
-    if(EXISTS ${_GoSrcDir}/vless/main.go)
+    if(EXISTS ${_GoSrcDir}/Vless/main.go)
         add_custom_target(GoTestVless ALL
-            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vless.exe ./vless
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vless.exe ./Vless
             WORKING_DIRECTORY ${_GoSrcDir}
             COMMENT "Building Go VLESS compatibility harness"
             VERBATIM)
         list(APPEND _GoTestTargets GoTestVless)
     else()
-        message(FATAL_ERROR "Go VLESS reference harness requires tests/go/vless/main.go")
+        message(FATAL_ERROR "Go VLESS reference harness requires tests/go/Vless/main.go")
     endif()
     if(EXISTS ${_GoSrcDir}/socks5/main.go)
         add_custom_target(GoTestSocks5 ALL

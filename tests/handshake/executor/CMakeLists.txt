@@ -1,3 +1,5 @@
 AddProductionTest(StealthExecutorPure2.cpp)
+AddProductionTest(StealthExecutorDeep2.cpp)
+AddProductionTest(StealthExecutorDeep3.cpp)
 AddProductionTest(StealthExecutorDeep.cpp)
 AddProductionTest(StealthFacadeSchemes.cpp)

@@ -8,15 +8,15 @@
 
 #pragma once
 
+#include <Preview/Runtime/Recognition/MixedTrialMode.hpp>
+
 #include <boost/asio/awaitable.hpp>
 
 #include <memory>
 #include <utility>
 
-#include <Preview/Runtime/Recognition/MixedTrialMode.hpp>
-
-    namespace Preview::Recognition
-    {
+namespace Preview::Recognition
+{
 
     namespace Net = boost::asio;
 
@@ -27,22 +27,20 @@
     class DeterministicMode
     {
     public:
-        explicit DeterministicMode(SharedProfile Profile) : Profile_(std::move(Profile)), Coordinator_(Profile_) {}
-
-        [[nodiscard]] auto Recognize(SharedTransmission Inbound, ProbeBuffer &Buffer,
-                                     RecognitionControl Control = {}) -> Net::awaitable<RecognizeResult>
+        explicit DeterministicMode(SharedProfile Profile,
+            Preview::Diagnose::ContextState Trace = Preview::Diagnose::CaptureCurrentContext())
+            : Profile_(std::move(Profile)), Coordinator_(Profile_, std::move(Trace))
         {
-            if (!Profile_ || Profile_->Mode() != RecognitionMode::DeterministicRoute)
+        }
+
+        [[nodiscard]] auto Recognize(SharedTransmission Inbound, ProbeBuffer& Buffer,
+            RecognitionControl Control = {}) -> Net::awaitable<RecognizeResult>
+        {
+            if (!Profile_ || Profile_->Mode() != RecognitionMode::Deterministic)
             {
                 co_return RecognizeResult{};
             }
             co_return co_await Coordinator_.Recognize(std::move(Inbound), Buffer, std::move(Control));
-        }
-
-        [[nodiscard]] auto Recognize(ProbeBuffer &Buffer, SharedTransmission Inbound,
-                                     RecognitionControl Control = {}) -> Net::awaitable<RecognizeResult>
-        {
-            co_return co_await Recognize(std::move(Inbound), Buffer, std::move(Control));
         }
 
     private:

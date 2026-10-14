@@ -49,7 +49,9 @@ BraceWrapping:
 # ═══════════════════════════════════════════════════════════════
 AlignAfterOpenBracket: DontAlign
 AlignOperands: DontAlign
-AlignTrailingComments: false
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 0
 AlignConsecutiveAssignments: None
 AlignConsecutiveDeclarations: None
 AlignEscapedNewlines: Right
@@ -134,7 +136,7 @@ IncludeCategories:
 # ═══════════════════════════════════════════════════════════════
 KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 1
-Standard: c++23
+Standard: Latest
 InsertBraces: false
 EmptyLineAfterAccessModifier: Never
 EmptyLineBeforeAccessModifier: LogicalBlock

@@ -1,0 +1,2 @@
+AddPreviewTest(YamuxCodecError.cpp)
+target_link_libraries(YamuxCodecError PRIVATE PreviewProtocolMux PreviewTestSupport)

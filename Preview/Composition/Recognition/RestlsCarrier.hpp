@@ -22,6 +22,8 @@
 namespace Preview::Composition::Recognition
 {
 
+    namespace Core = Preview::Recognition;
+
     enum class RestlsCarrierBuildError : std::uint8_t
     {
         MissingPassword,
@@ -45,6 +47,69 @@ namespace Preview::Composition::Recognition
         {
             std::string Host;
             std::uint16_t Port{0};
+        };
+
+        struct RestlsDialTarget final
+        {
+            Preview::Middleware::Builtin::DialMiddleware::DialFn Dial;
+            Preview::Network::Target Target;
+
+            struct Request final
+            {
+                Preview::Middleware::Builtin::DialMiddleware::DialFn Dial;
+                Preview::Network::Target Target;
+            };
+
+            [[nodiscard]] static auto Run(Request Value)
+                -> boost::asio::awaitable<std::expected<Preview::SharedTransmission,
+                                                        Preview::Fault::Failure>>
+            {
+                co_return co_await Value.Dial(Value.Target);
+            }
+
+            [[nodiscard]] auto operator()(std::span<const std::uint8_t>) const
+                -> boost::asio::awaitable<std::expected<Preview::SharedTransmission,
+                                                        Preview::Fault::Failure>>
+            {
+                return Run(Request{Dial, Target});
+            }
+        };
+
+        struct RestlsServerAccept final
+        {
+            std::shared_ptr<Preview::Restls::ServerSession> Session;
+            Preview::Restls::ServerConfig Config;
+
+            struct Request final
+            {
+                std::shared_ptr<Preview::Restls::ServerSession> Session;
+                Preview::Restls::ServerConfig Config;
+                Preview::SharedTransmission Inbound;
+            };
+
+            [[nodiscard]] static auto Run(Request Value)
+                -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
+            {
+                auto ServerResult = co_await Value.Session->Run(
+                    std::move(Value.Inbound), Value.Config);
+                Preview::Recognition::CarrierAcceptResult Result;
+                Result.Metadata.Carrier = "restls";
+                if (!ServerResult)
+                {
+                    const auto Failure = Preview::Restls::ToFaultFailure(ServerResult.error());
+                    Result.Code = Failure.Code;
+                    Result.NativeError = ServerResult.error().Native;
+                    co_return Result;
+                }
+                Result.Transport = std::move(*ServerResult);
+                co_return Result;
+            }
+
+            [[nodiscard]] auto operator()(Core::CarrierAcceptInput Input) const
+                -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
+            {
+                return Run(Request{Session, Config, std::move(Input.Inbound)});
+            }
         };
 
         [[nodiscard]] inline auto ParseRestlsPort(std::string_view Value)
@@ -126,19 +191,12 @@ namespace Preview::Composition::Recognition
         }
 
         auto Dial = std::move(Options.Dial);
-        auto Host = Destination->Host;
-        const auto Port = Destination->Port;
+        auto Host = Preview::Network::ParseHost(Destination->Host);
+        if (!Host) return std::unexpected(RestlsCarrierBuildError::InvalidDestination);
+        Preview::Network::Target Target{std::move(*Host), Destination->Port};
         Preview::Restls::ServerOptions ServerOptions;
-        ServerOptions.DialTarget = [Dial = std::move(Dial), Host = std::move(Host), Port](
-                                       std::span<const std::uint8_t>)
-            -> boost::asio::awaitable<std::pair<Preview::Fault::Code,
-                                                Preview::SharedTransmission>>
-        {
-            Preview::Network::Target Target;
-            Target.Host = Host;
-            Target.Port = std::to_string(Port);
-            co_return co_await Dial(Target);
-        };
+        ServerOptions.DialTarget = Detail::RestlsDialTarget{
+            std::move(Dial), std::move(Target)};
 
         auto Session = std::make_shared<Preview::Restls::ServerSession>(
             std::move(ServerOptions));
@@ -146,25 +204,7 @@ namespace Preview::Composition::Recognition
         Config.password = std::move(Options.Password);
         Config.Tls13 = Options.Tls13;
         return CarrierAcceptFn(
-            [Session, Config = std::move(Config)](Preview::SharedTransmission Inbound)
-                -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
-            {
-                auto ServerResult = co_await Session->Run(std::move(Inbound), Config);
-                Preview::Recognition::CarrierAcceptResult Result;
-                Result.Metadata.Carrier = "restls";
-                if (ServerResult.Status != Preview::Error::None || !ServerResult.Connection)
-                {
-                    Result.Code = ServerResult.FaultCode != Preview::Fault::Code::Success
-                                      ? ServerResult.FaultCode
-                                      : ServerResult.Status == Preview::Error::None
-                                            ? Preview::Fault::Code::ProtocolError
-                                            : Preview::Fault::ToCode(
-                                                  Preview::make_error_code(ServerResult.Status));
-                    co_return Result;
-                }
-                Result.Transport = std::move(ServerResult.Connection);
-                co_return Result;
-            });
+            Detail::RestlsServerAccept{std::move(Session), std::move(Config)});
     }
 
 } // namespace Preview::Composition::Recognition

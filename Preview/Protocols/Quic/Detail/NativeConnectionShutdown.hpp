@@ -1,0 +1,577 @@
+/**
+ * @file NativeConnectionShutdown.hpp
+ * @brief 原生 QUIC 流 FIN、typed 关闭结果和首个发送错误 owner。
+ */
+
+#pragma once
+
+#include <Preview/Protocols/Quic/Detail/NativeConnection.hpp>
+
+namespace Preview::Quic::Detail
+{
+    /** @brief 保留 ngtcp2 原始整数值的稳定错误类别。 */
+    class NgTcp2ErrorCategory final : public std::error_category
+    {
+    public:
+        [[nodiscard]] auto name() const noexcept -> const char * override
+        {
+            return "ngtcp2";
+        }
+
+        [[nodiscard]] auto message(const int Value) const -> std::string override
+        {
+            const auto *Message = ngtcp2_strerror(Value);
+            return Message ? Message : "unknown ngtcp2 error";
+        }
+    };
+
+    /** @brief category 身份在进程生命周期内稳定，错误路径不预先格式化文本。 */
+    [[nodiscard]] inline auto NgTcp2Category() -> const NgTcp2ErrorCategory &
+    {
+        static const NgTcp2ErrorCategory Category;
+        return Category;
+    }
+
+    /** @brief 映射业务状态并完整保留 ngtcp2 错误 category/value。 */
+    [[nodiscard]] inline auto NgTcp2Failure(const ngtcp2_ssize Value)
+        -> Preview::Fault::Failure
+    {
+        return {Preview::Fault::Code::IoError,
+                std::error_code(static_cast<int>(Value), NgTcp2Category())};
+    }
+
+    [[nodiscard]] inline auto PeerStreamFailure(const StreamState &State)
+        -> Preview::Fault::Failure
+    {
+        return Preview::Fault::FromNative(
+            State.PeerFailure ? State.PeerFailure
+                              : std::make_error_code(std::errc::connection_reset));
+    }
+
+    inline auto NativeConnection::ShutdownStreamWrite(std::shared_ptr<StreamState> State)
+        -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+    {
+        const auto Self = shared_from_this();
+        (void)Self;
+        using ShutdownResult = std::expected<void, Preview::Fault::Failure>;
+        if (!State)
+        {
+            co_return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+        }
+        if (State->FinSenderDrained)
+        {
+            co_return ShutdownResult{};
+        }
+        if (State->PeerStopSending)
+        {
+            co_return std::unexpected(PeerStreamFailure(*State));
+        }
+        if (Closed_ || !Conn_ || State->Closed)
+        {
+            if (State->LocalWriteFailure.Failed())
+            {
+                co_return std::unexpected(State->LocalWriteFailure);
+            }
+            if (SendFailure_.Failed())
+            {
+                co_return std::unexpected(SendFailure_);
+            }
+            co_return std::unexpected(
+                Preview::Fault::FromNative(ToStdError(Preview::Error::BrokenPipe)));
+        }
+
+        boost::system::error_code PermitError;
+        co_await WritePermit_.async_receive(
+            Net::redirect_error(Net::use_awaitable, PermitError));
+        if (PermitError)
+        {
+            if (SendFailure_.Failed())
+            {
+                co_return std::unexpected(SendFailure_);
+            }
+            co_return std::unexpected(
+                Preview::Fault::FromNative(static_cast<std::error_code>(PermitError)));
+        }
+        WritePermitRelease Permit(WritePermit_);
+        if (Closed_ || !Conn_ || State->Closed)
+        {
+            if (State->LocalWriteFailure.Failed())
+            {
+                co_return std::unexpected(State->LocalWriteFailure);
+            }
+            if (SendFailure_.Failed())
+            {
+                co_return std::unexpected(SendFailure_);
+            }
+            co_return std::unexpected(
+                Preview::Fault::FromNative(ToStdError(Preview::Error::BrokenPipe)));
+        }
+        if (State->PeerStopSending)
+        {
+            co_return std::unexpected(PeerStreamFailure(*State));
+        }
+        if (State->FinSenderDrained)
+        {
+            co_return ShutdownResult{};
+        }
+        if (SendFailure_.Failed())
+        {
+            State->LocalWriteClosed = true;
+            State->LocalWriteFailure = SendFailure_;
+            co_return std::unexpected(SendFailure_);
+        }
+
+        State->LocalWriteClosed = true;
+        State->LocalWriteFailure = {};
+        try
+        {
+            co_return co_await QueueStreamFin(State);
+        }
+        catch (const std::system_error &Error)
+        {
+            State->LocalWriteFailure = SendFailure_.Failed()
+                ? SendFailure_
+                : Preview::Fault::FromNative(Error.code());
+        }
+        catch (const std::bad_alloc &)
+        {
+            State->LocalWriteFailure = SendFailure_.Failed()
+                ? SendFailure_
+                : Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable};
+        }
+        catch (...)
+        {
+            State->LocalWriteFailure = SendFailure_.Failed()
+                ? SendFailure_
+                : Preview::Fault::Failure{Preview::Fault::Code::IoError};
+        }
+        co_return std::unexpected(State->LocalWriteFailure);
+    }
+
+    inline auto NativeConnection::QueueStreamFin(std::shared_ptr<StreamState> State)
+        -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+    {
+        using ShutdownResult = std::expected<void, Preview::Fault::Failure>;
+        const auto StoreFailure = [&State](Preview::Fault::Failure Failure) -> ShutdownResult
+        {
+            State->LocalWriteFailure = Failure;
+            return std::unexpected(Failure);
+        };
+        try
+        {
+            if (State->FinSubmitted)
+            {
+                if (!State->FinOffsetKnown)
+                {
+                    co_return StoreFailure(
+                        Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+                }
+                if (!co_await WaitForSendDrain())
+                {
+                    const auto Failure = SendFailure_.Failed()
+                        ? SendFailure_
+                        : Preview::Fault::FromNative(ToStdError(Preview::Error::BrokenPipe));
+                    co_return StoreFailure(Failure);
+                }
+                if (State->PeerStopSending || State->Closed)
+                {
+                    const auto Failure = State->PeerStopSending
+                        ? PeerStreamFailure(*State)
+                        : Preview::Fault::FromNative(ToStdError(Preview::Error::BrokenPipe));
+                    co_return StoreFailure(Failure);
+                }
+                State->FinSenderDrained = true;
+                State->LocalWriteFailure = {};
+                co_return ShutdownResult{};
+            }
+
+            const auto Fin = co_await QueueFinUntilAccepted(State);
+            if (!Fin)
+            {
+                co_return StoreFailure(Fin.error());
+            }
+            if (!co_await WaitForSendDrain())
+            {
+                const auto Failure = SendFailure_.Failed()
+                    ? SendFailure_
+                    : Preview::Fault::FromNative(ToStdError(Preview::Error::BrokenPipe));
+                co_return StoreFailure(Failure);
+            }
+            if (State->PeerStopSending || State->Closed)
+            {
+                const auto Failure = State->PeerStopSending
+                    ? PeerStreamFailure(*State)
+                    : Preview::Fault::FromNative(ToStdError(Preview::Error::BrokenPipe));
+                co_return StoreFailure(Failure);
+            }
+            State->FinSenderDrained = true;
+            State->LocalWriteFailure = {};
+            co_return ShutdownResult{};
+        }
+        catch (const std::system_error &Error)
+        {
+            co_return StoreFailure(Preview::Fault::FromNative(Error.code()));
+        }
+        catch (const std::bad_alloc &)
+        {
+            co_return StoreFailure(
+                Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
+        }
+        catch (...)
+        {
+            co_return StoreFailure(
+                Preview::Fault::Failure{Preview::Fault::Code::IoError});
+        }
+    }
+
+    inline auto NativeConnection::TryQueueFinPacket(
+        const std::shared_ptr<StreamState> &State)
+        -> std::expected<FinPacketAttempt, Preview::Fault::Failure>
+    {
+        std::array<std::byte, 65536> Packet{};
+        ngtcp2_path_storage PathStorage{};
+        auto Local = Socket_->local_endpoint();
+        auto *Path = MakePath(PathStorage, Local, Peer_);
+        ngtcp2_pkt_info PacketInfo{};
+        ngtcp2_ssize Accepted = -1;
+        const auto PacketLength = ngtcp2_conn_writev_stream(
+            Conn_, Path, &PacketInfo,
+            reinterpret_cast<std::uint8_t *>(Packet.data()), Packet.size(), &Accepted,
+            NGTCP2_WRITE_STREAM_FLAG_FIN, State->Id, nullptr, 0, Now());
+        if (RandomFailed_)
+        {
+            CloseOnExecutor();
+            return std::unexpected(Preview::Fault::FromNative(
+                ToStdError(Preview::Error::IoError)));
+        }
+        if (PacketLength == NGTCP2_ERR_STREAM_DATA_BLOCKED)
+        {
+            return FinPacketAttempt::FlowBlocked;
+        }
+        if (PacketLength < 0)
+        {
+            return std::unexpected(NgTcp2Failure(PacketLength));
+        }
+        if (Accepted > 0)
+        {
+            return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::IoError});
+        }
+        if (PacketLength > 0)
+        {
+            QueuePacket(Packet.data(), static_cast<std::size_t>(PacketLength), Peer_);
+            ngtcp2_conn_update_pkt_tx_time(Conn_, Now());
+            if (Accepted == 0)
+            {
+                State->FinOffset = State->SentOffset;
+                State->FinOffsetKnown = true;
+                State->FinSubmitted = true;
+                return FinPacketAttempt::Submitted;
+            }
+        }
+        else
+        {
+            ngtcp2_conn_update_pkt_tx_time(Conn_, Now());
+        }
+        return FinPacketAttempt::Retry;
+    }
+
+    inline auto NativeConnection::QueueFinUntilAccepted(std::shared_ptr<StreamState> State)
+        -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+    {
+        using ShutdownResult = std::expected<void, Preview::Fault::Failure>;
+        if (Closed_ || !Conn_ || State->Closed || State->PeerStopSending)
+        {
+            if (State->PeerStopSending)
+            {
+                co_return std::unexpected(PeerStreamFailure(*State));
+            }
+            const auto Failure = SendFailure_.Failed()
+                ? SendFailure_
+                : Preview::Fault::FromNative(ToStdError(Preview::Error::BrokenPipe));
+            co_return std::unexpected(Failure);
+        }
+
+        Net::steady_timer RetryTimer(Executor_);
+        std::size_t RetryCount = 0;
+        bool FinQueued = false;
+        while (RetryCount < 1000 && !Closed_ && Conn_)
+        {
+            const auto Attempt = TryQueueFinPacket(State);
+            if (!Attempt)
+            {
+                co_return std::unexpected(Attempt.error());
+            }
+            if (*Attempt == FinPacketAttempt::Submitted)
+            {
+                FinQueued = true;
+                break;
+            }
+            if (*Attempt == FinPacketAttempt::FlowBlocked)
+            {
+                boost::system::error_code FlowError;
+                co_await FlowNotify_.async_receive(
+                    Net::redirect_error(Net::use_awaitable, FlowError));
+                if (FlowError || Closed_ || !Conn_ || State->Closed ||
+                    State->PeerStopSending)
+                {
+                    if (State->PeerStopSending)
+                    {
+                        co_return std::unexpected(PeerStreamFailure(*State));
+                    }
+                    const auto Failure = SendFailure_.Failed()
+                        ? SendFailure_
+                        : Preview::Fault::FromNative(
+                              ToStdError(Preview::Error::BrokenPipe));
+                    co_return std::unexpected(Failure);
+                }
+                continue;
+            }
+
+            RetryTimer.expires_after(std::chrono::milliseconds(1));
+            boost::system::error_code TimerError;
+            co_await RetryTimer.async_wait(
+                Net::redirect_error(Net::use_awaitable, TimerError));
+            if (TimerError || Closed_ || !Conn_ || State->Closed ||
+                State->PeerStopSending)
+            {
+                if (State->PeerStopSending)
+                {
+                    co_return std::unexpected(PeerStreamFailure(*State));
+                }
+                if (State->Closed)
+                {
+                    co_return std::unexpected(Preview::Fault::FromNative(
+                        ToStdError(Preview::Error::BrokenPipe)));
+                }
+                if (TimerError)
+                {
+                    const auto Failure = SendFailure_.Failed()
+                        ? SendFailure_
+                        : Preview::Fault::FromNative(
+                              static_cast<std::error_code>(TimerError));
+                    co_return std::unexpected(Failure);
+                }
+                break;
+            }
+            ++RetryCount;
+        }
+
+        if (Conn_)
+        {
+            ngtcp2_conn_update_pkt_tx_time(Conn_, Now());
+        }
+        if (!FinQueued)
+        {
+            const auto Failure = SendFailure_.Failed()
+                ? SendFailure_
+                : Preview::Fault::FromNative(ToStdError(
+                      Closed_ || !Conn_ ? Preview::Error::BrokenPipe
+                                        : Preview::Error::IoError));
+            co_return std::unexpected(Failure);
+        }
+        co_return ShutdownResult{};
+    }
+
+    inline auto NativeConnection::CloseStream(const std::shared_ptr<StreamState> &State) -> void
+    {
+        if (!State || Closed_)
+        {
+            return;
+        }
+        State->Closed = true;
+        State->LocalWriteClosed = true;
+        (void)State->Notify.try_send(boost::system::error_code{});
+        (void)State->FinAcknowledgedNotify.try_send(boost::system::error_code{});
+        (void)FlowNotify_.try_send(boost::system::error_code{});
+        if (Conn_)
+        {
+            const auto Result = ngtcp2_conn_shutdown_stream(Conn_, 0, State->Id, 0);
+            if (Result < 0)
+            {
+                if (!State->StreamCloseFailure.Failed())
+                {
+                    State->StreamCloseFailure = NgTcp2Failure(Result);
+                }
+                return;
+            }
+            State->StreamCloseFailure = {};
+            QueueFlush();
+        }
+    }
+
+    inline auto NativeConnection::OnStreamDataAcknowledged(
+        const std::int64_t StreamId,
+        const std::uint64_t Offset,
+        const std::uint64_t DataLength) -> void
+    {
+        const auto It = Streams_.find(StreamId);
+        if (It == Streams_.end() || !It->second)
+        {
+            return;
+        }
+        const auto State = It->second;
+        if (DataLength != 0)
+        {
+            if (DataLength > (std::numeric_limits<std::uint64_t>::max)() - Offset)
+            {
+                return;
+            }
+            const auto AcknowledgedEnd = Offset + DataLength;
+            for (const auto &Sent : State->SentBuffers)
+            {
+                const auto RangeBegin = (std::max)(Offset, Sent->BeginOffset);
+                const auto RangeEnd = (std::min)(AcknowledgedEnd, Sent->EndOffset);
+                if (RangeEnd > RangeBegin)
+                {
+                    Sent->AcknowledgedBytes += RangeEnd - RangeBegin;
+                }
+            }
+            std::erase_if(State->SentBuffers, [](const auto &Sent)
+            {
+                const auto SentLength = Sent->EndOffset - Sent->BeginOffset;
+                return Sent->SubmissionComplete && Sent->AcknowledgedBytes >= SentLength;
+            });
+            return;
+        }
+        if (!State->FinSubmitted || !State->FinOffsetKnown || State->FinOffset != Offset)
+        {
+            return;
+        }
+        State->FinAcknowledged = true;
+        (void)State->FinAcknowledgedNotify.try_send(boost::system::error_code{});
+    }
+
+    inline auto NativeConnection::OnStreamReset(
+        const std::int64_t StreamId,
+        const std::uint64_t FinalSize,
+        const std::uint64_t ApplicationErrorCode) -> void
+    {
+        const auto It = Streams_.find(StreamId);
+        if (It == Streams_.end() || !It->second || It->second->Closed)
+        {
+            return;
+        }
+        auto &State = *It->second;
+        State.PeerReset = true;
+        State.PeerFinalSize = FinalSize;
+        State.PeerApplicationErrorCode = ApplicationErrorCode;
+        State.PeerFailure = std::make_error_code(std::errc::connection_reset);
+        (void)State.Notify.try_send(boost::system::error_code{});
+    }
+
+    inline auto NativeConnection::OnPeerStopSending(
+        const std::int64_t StreamId, const std::uint64_t ApplicationErrorCode) -> void
+    {
+        const auto It = Streams_.find(StreamId);
+        if (It == Streams_.end() || !It->second || It->second->Closed)
+        {
+            return;
+        }
+        auto &State = *It->second;
+        State.PeerStopSending = true;
+        State.PeerApplicationErrorCode = ApplicationErrorCode;
+        State.PeerFailure = std::make_error_code(std::errc::broken_pipe);
+        State.LocalWriteClosed = true;
+        State.LocalWriteFailure = Preview::Fault::FromNative(State.PeerFailure);
+        (void)State.Notify.try_send(boost::system::error_code{});
+        (void)State.FinAcknowledgedNotify.try_send(boost::system::error_code{});
+        (void)FlowNotify_.try_send(boost::system::error_code{});
+        if (!Conn_)
+        {
+            return;
+        }
+        const auto Result = ngtcp2_conn_shutdown_stream_write(
+            Conn_, 0, StreamId, ApplicationErrorCode);
+        if (Result < 0)
+        {
+            if (!SendFailure_.Failed()) SendFailure_ = NgTcp2Failure(Result);
+            State.LocalWriteFailure = SendFailure_;
+            BoundedFailureAtomic_.store(true, std::memory_order_release);
+            return;
+        }
+        QueueFlush();
+    }
+
+    inline auto NativeStream::WaitForWriteAcknowledgement()
+        -> Net::awaitable<ShutdownResult>
+    {
+        const auto Provider = weak_from_this().lock();
+        if (!Provider || !Activity_)
+        {
+            return FailedShutdown(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+        }
+        auto Reservation = Activity_->BeginOperation(Provider);
+        if (!Reservation)
+        {
+            return FailedShutdown(Reservation.error());
+        }
+        return AcknowledgementOwned(Provider, std::move(*Reservation));
+    }
+
+    inline auto NativeStream::AcknowledgementOwned(
+        std::shared_ptr<NativeStream> Owner,
+        NativeStreamActivity::Operation ProviderReservation) -> Net::awaitable<ShutdownResult>
+    {
+        (void)ProviderReservation;
+        if (!Owner || !Owner->State_)
+        {
+            co_return std::unexpected(Preview::Fault::FromNative(
+                ToStdError(Preview::Error::BrokenPipe)));
+        }
+        const auto State = Owner->State_;
+        try
+        {
+            co_await Net::dispatch(State->Executor, Net::use_awaitable);
+            const auto Connection = Owner->Owner_.lock();
+            if (!Connection)
+            {
+                co_return std::unexpected(Preview::Fault::FromNative(
+                    ToStdError(Preview::Error::BrokenPipe)));
+            }
+            NativeConnection::OperationReservation NativeReservation{Connection};
+            if (!NativeReservation && !State->FinAcknowledged)
+            {
+                co_return std::unexpected(Preview::Fault::FromNative(
+                    ToStdError(Preview::Error::BrokenPipe)));
+            }
+            if (!State->FinSenderDrained)
+            {
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+            }
+            while (!State->FinAcknowledged)
+            {
+                if (State->PeerStopSending)
+                    co_return std::unexpected(PeerStreamFailure(*State));
+                if (State->LocalWriteFailure.Failed())
+                    co_return std::unexpected(State->LocalWriteFailure);
+                if (State->Closed || Connection->Health().Closed)
+                {
+                    co_return std::unexpected(Preview::Fault::FromNative(
+                        ToStdError(Preview::Error::BrokenPipe)));
+                }
+                State->FinAcknowledgedNotify.reset();
+                boost::system::error_code NotifyError;
+                co_await State->FinAcknowledgedNotify.async_receive(
+                    Net::redirect_error(Net::use_awaitable, NotifyError));
+                if (NotifyError && !State->FinAcknowledged)
+                {
+                    co_return std::unexpected(Preview::Fault::FromNative(
+                        static_cast<std::error_code>(NotifyError)));
+                }
+            }
+            co_return ShutdownResult{};
+        }
+        catch (const std::system_error &Error)
+        {
+            co_return std::unexpected(Preview::Fault::FromNative(Error.code()));
+        }
+        catch (...)
+        {
+            co_return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::IoError});
+        }
+    }
+} // namespace Preview::Quic::Detail

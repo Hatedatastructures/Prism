@@ -1,0 +1,31 @@
+AddPreviewTest(TaskRegistryTest.cpp)
+AddPreviewTest(TaskIdSetTest.cpp)
+target_link_libraries(TaskIdSetTest PRIVATE PreviewLifecycle)
+target_link_libraries(TaskRegistryTest PRIVATE PreviewLifecycle PreviewTestSupport)
+AddPreviewTest(TaskRegistryDanglingOwnerAuditTest.cpp)
+target_link_libraries(TaskRegistryDanglingOwnerAuditTest PRIVATE PreviewLifecycle PreviewTestSupport)
+AddPreviewTest(TaskRegistryCoreLifecycleTest.cpp)
+AddPreviewTest(TaskRegistryDrainLifecycleTest.cpp)
+AddPreviewTest(TaskOwnershipLifecycleTest.cpp)
+target_link_libraries(TaskRegistryCoreLifecycleTest PRIVATE PreviewLifecycle PreviewRuntime)
+target_sources(TaskRegistryCoreLifecycleTest PRIVATE TaskLifecycleTestSupport.hpp)
+target_link_libraries(TaskRegistryDrainLifecycleTest PRIVATE PreviewLifecycle PreviewRuntime)
+target_sources(TaskRegistryDrainLifecycleTest PRIVATE TaskLifecycleTestSupport.hpp)
+target_link_libraries(TaskOwnershipLifecycleTest PRIVATE PreviewLifecycle PreviewRuntime)
+target_sources(TaskOwnershipLifecycleTest PRIVATE TaskLifecycleTestSupport.hpp)
+
+
+# 同一实际owner的源文件，复用现有target。
+target_sources(TaskRegistryCoreLifecycleTest PRIVATE
+    TaskHandleTestAccess.hpp
+)
+
+# 同一实际owner的源文件，复用现有target。
+target_sources(TaskRegistryDrainLifecycleTest PRIVATE
+    TaskHandleTestAccess.hpp
+)
+
+# 同一实际owner的源文件，复用现有target。
+target_sources(TaskOwnershipLifecycleTest PRIVATE
+    TaskHandleTestAccess.hpp
+)

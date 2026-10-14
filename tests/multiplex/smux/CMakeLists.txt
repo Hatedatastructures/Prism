@@ -1,3 +1,5 @@
 AddProductionTest(SmuxCraftPure.cpp)
 AddProductionTest(SmuxCraftDeep.cpp)
+AddProductionTest(SmuxCraftDeep2.cpp)
+AddProductionTest(SmuxCraftErrorLifecycleTest.cpp)
 AddProductionTest(SmuxFrameDeep.cpp)

@@ -10,7 +10,7 @@
 #pragma once
 
 #include <Preview/Protocols/Mux/Client.hpp>
-#include <Preview/Protocols/Mux/Smux/Codec.hpp>
+#include <Preview/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
 
 namespace Preview::Mux::Smux
 {
@@ -20,6 +20,6 @@ namespace Preview::Mux::Smux
      * @tparam Memory 会话内存策略（默认 8KB Arena）
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    using Client = Mux::Client<Codec, Memory>;
+    using Client = Mux::Client<Detail::Codec, Memory>;
 
 } // namespace Preview::Mux::Smux

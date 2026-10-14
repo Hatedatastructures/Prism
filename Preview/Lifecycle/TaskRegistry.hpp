@@ -1,710 +1,393 @@
-/**
- * @file TaskRegistry.hpp
- * @brief Preview 任务注册表及其协程完成边界
- * @details Active map 只由绑定 executor 上的 command path 访问。外部线程只
- *          发布任务请求和原子生命周期标志，不能直接读写注册表容器。
- */
-
+/** @file TaskRegistry.hpp @brief 有界任务准入、单调身份及真实退栈排空。 */
 #pragma once
-
-#include <boost/asio/any_io_executor.hpp>
-#include <boost/asio/awaitable.hpp>
+#include <Preview/Lifecycle/TaskSubmission.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/strand.hpp>
-
-#include <atomic>
-#include <cstddef>
-#include <cstdint>
-#include <exception>
-#include <functional>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/system/system_error.hpp>
+#include <algorithm>
 #include <limits>
-#include <map>
-#include <memory>
+#include <expected>
+#include <new>
 #include <optional>
-#include <set>
-#include <type_traits>
-#include <utility>
+#include <system_error>
 #include <vector>
-
-#include <Preview/Lifecycle/DrainBarrier.hpp>
-#include <Preview/Lifecycle/FailureBoundary.hpp>
-#include <Preview/Lifecycle/TaskState.hpp>
 
 namespace Preview::Lifecycle
 {
-
     namespace Net = boost::asio;
 
-    struct TaskStats final
+    /** @brief worker root registry 下按完整 Session/Worker/Generation 父身份分页的查询。 */
+    struct TaskRegistryListRequest final
     {
-        std::size_t Active{0};
-        std::size_t Started{0};
-        std::size_t Completed{0};
-        std::size_t Cancelled{0};
-        std::size_t Failed{0};
-        std::size_t Quarantined{0};
-        bool DrainBlocked{false};
+        Preview::SessionId Session{};
+        Preview::WorkerId Worker{};
+        Preview::GenerationId Generation{};
+        std::uint64_t Cursor{0};
+        std::size_t Limit{50};
     };
 
+    struct TaskRegistryListPage final
+    {
+        std::vector<TaskObservation> Items;
+        std::uint64_t NextCursor{0};
+        bool HasMore{false};
+    };
+
+    /** @brief 注册表 owner；销毁只退休自身任务，完成 handler 保活实际任务至退栈。
+     * @details TaskHandle 不延长 slot 寿命。父子共享串行 executor，父不以子任务
+     * 身份等待自身。Drain 只等待本 scope，统计包含后代，最终关闭由资源 owner 完成。
+     */
     class TaskRegistry final
     {
-    private:
-        struct State final
+        using State = Detail::TaskRegistryState;
+        using TaskLookupResult =
+            std::expected<std::optional<TaskHandle>, Preview::Fault::Failure>;
+        inline static std::atomic<std::uint64_t> NextTaskId_{1};
+        [[nodiscard]] static auto AllocateId() noexcept -> std::expected<Preview::TaskId, Preview::Fault::Failure>
         {
-            State(Net::any_io_executor ExecutorValue,
-                  std::function<void(const TaskIdentity &, std::exception_ptr)> Failure)
-                : Executor(std::move(ExecutorValue)),
-                  CommandExecutor(Net::make_strand(Executor)),
-                  Reclaimer(std::make_shared<Preview::Resource::ExecutorReclaimer>(CommandExecutor)),
-                  Domain(std::make_shared<CancellationDomain>(CommandExecutor, Reclaimer)),
-                  Barrier(Reclaimer),
-                  Reservations(std::make_shared<const IdReservations>()),
-                  OnFailure(std::move(Failure))
+            auto Current = NextTaskId_.load();
+            while (Current != 0)
             {
+                std::uint64_t Next = 0;
+                if (Current != std::numeric_limits<std::uint64_t>::max()) Next = Current + 1;
+                if (NextTaskId_.compare_exchange_weak(Current, Next)) return Preview::TaskId{Current};
+            }
+            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
+        }
+        static auto CancelOnExecutor(const std::shared_ptr<State>& Value) -> void
+        {
+            (void)Value->Domain->Cancel();
+            for (const auto& Slot : Value->Pool->Slots)
+                if (Slot.Scope.load() == Value.get()) Detail::RequestTaskCancel(Value, Slot.Task);
+        }
+        [[nodiscard]] static auto BelongsToRootScope(
+            const State *Root, const State *Scope) noexcept -> bool
+        {
+            for (auto Current = Scope; Current; Current = Current->Parent.get())
+            {
+                if (Current == Root) return true;
+            }
+            return false;
+        }
+        [[nodiscard]] static auto FindTaskOnExecutor(
+            std::shared_ptr<State> Root,
+            const TaskIdentity Identity)
+            -> Net::awaitable<TaskLookupResult>
+        {
+            if (!Root || Root->Parent || !Identity.TaskId)
+            {
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+            }
+            if (!Root->Reclaimer->CanDispatch())
+            {
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            }
+            for (const auto &Slot : Root->Pool->Slots)
+            {
+                if (!Slot.Used.load(std::memory_order_acquire)) continue;
+                const auto *Scope = Slot.Scope.load(std::memory_order_acquire);
+                if (!Scope || !BelongsToRootScope(Root.get(), Scope)) continue;
+                const auto Task = Slot.Task;
+                if (Task && Task->Identity() == Identity)
+                {
+                    co_return std::optional<TaskHandle>{TaskHandle{Task}};
+                }
+            }
+            co_return std::optional<TaskHandle>{};
+        }
+        [[nodiscard]] static auto MatchesListScope(
+            const TaskObservation &Observation,
+            const TaskRegistryListRequest &Request) noexcept -> bool
+        {
+            const auto &Identity = Observation.Identity;
+            return Identity.SessionId == Request.Session &&
+                Identity.WorkerId == Request.Worker &&
+                Identity.Generation == Request.Generation &&
+                Identity.TaskId.Value() > Request.Cursor;
+        }
+        [[nodiscard]] static auto ListTasksOnExecutor(
+            std::shared_ptr<State> Root,
+            TaskRegistryListRequest Request)
+            -> Net::awaitable<std::expected<TaskRegistryListPage, Preview::Fault::Failure>>
+        {
+            using Failure = Preview::Fault::Failure;
+            if (!Root || Root->Parent || !Request.Session || !Request.Worker ||
+                !Request.Generation)
+            {
+                co_return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            }
+            if (!Root->Reclaimer->CanDispatch())
+            {
+                co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            }
+            constexpr std::size_t MaxPageSize{256U};
+            const auto Limit = (std::min)(Request.Limit, MaxPageSize);
+            std::vector<TaskObservation> Matches;
+            for (const auto &Slot : Root->Pool->Slots)
+            {
+                if (!Slot.Used.load(std::memory_order_acquire)) continue;
+                const auto *Scope = Slot.Scope.load(std::memory_order_acquire);
+                if (!Scope || !BelongsToRootScope(Root.get(), Scope)) continue;
+                const auto Task = Slot.Task;
+                if (!Task) continue;
+                auto Observation = Task->Observation();
+                if (MatchesListScope(Observation, Request))
+                    Matches.push_back(std::move(Observation));
+            }
+            std::sort(Matches.begin(), Matches.end(), [](const auto &Left, const auto &Right)
+            { return Left.Identity.TaskId.Value() < Right.Identity.TaskId.Value(); });
+            TaskRegistryListPage Result;
+            Result.NextCursor = Request.Cursor;
+            Result.HasMore = Matches.size() > Limit;
+            if (Matches.size() > Limit) Matches.resize(Limit);
+            if (!Matches.empty()) Result.NextCursor = Matches.back().Identity.TaskId.Value();
+            Result.Items = std::move(Matches);
+            co_return Result;
+        }
+        [[nodiscard]] static auto ListTasksOnOwner(
+            std::shared_ptr<State> Root,
+            TaskRegistryListRequest Request)
+            -> Net::awaitable<std::expected<TaskRegistryListPage, Preview::Fault::Failure>>
+        {
+            if (!Root || Root->Parent || !Root->Reclaimer->CanDispatch())
+            {
+                co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            }
+            try
+            {
+                co_return co_await Net::co_spawn(Root->CommandExecutor,
+                    ListTasksOnExecutor(Root, std::move(Request)), Net::use_awaitable);
+            }
+            catch (const std::bad_alloc &)
+            {
+                co_return std::unexpected(Preview::Fault::Failure{
+                    Preview::Fault::Code::ResourceUnavailable});
+            }
+            catch (const boost::system::system_error &Error)
+            {
+                co_return std::unexpected(Preview::Fault::FromNative(
+                    static_cast<std::error_code>(Error.code())));
+            }
+            catch (const std::system_error &Error)
+            {
+                co_return std::unexpected(Preview::Fault::FromNative(Error.code()));
+            }
+        }
+        [[nodiscard]] static auto FindTaskOnOwner(
+            std::shared_ptr<State> Root,
+            const TaskIdentity Identity) -> Net::awaitable<TaskLookupResult>
+        {
+            if (!Root || Root->Parent || !Identity.TaskId)
+            {
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+            }
+            if (!Root->Reclaimer->CanDispatch())
+            {
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            }
+            try
+            {
+                co_return co_await Net::co_spawn(
+                    Root->CommandExecutor,
+                    FindTaskOnExecutor(Root, Identity),
+                    Net::use_awaitable);
+            }
+            catch (const boost::system::system_error &Error)
+            {
+                co_return std::unexpected(Preview::Fault::FromNative(
+                    static_cast<std::error_code>(Error.code())));
+            }
+            catch (const std::system_error &Error)
+            {
+                co_return std::unexpected(Preview::Fault::FromNative(Error.code()));
+            }
+            catch (...)
+            {
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::IoError});
+            }
+        }
+        struct CancelCommand final
+        {
+            std::shared_ptr<State> Value;
+
+            auto operator()() const noexcept -> void
+            {
+                try { CancelOnExecutor(Value); }
+                catch (...) { if (Value) Detail::MarkTaskRegistryBlocked(Value); }
             }
 
-            State(Net::any_io_executor ExecutorValue,
-                  std::function<void(const TaskIdentity &, std::exception_ptr)> Failure,
-                  std::shared_ptr<CancellationDomain> ParentDomain)
-                : Executor(std::move(ExecutorValue)),
-                  CommandExecutor(Net::make_strand(Executor)),
-                  Reclaimer(std::make_shared<Preview::Resource::ExecutorReclaimer>(CommandExecutor)),
-                  Domain(ParentDomain ? ParentDomain->CreateChild()
-                                      : std::make_shared<CancellationDomain>(CommandExecutor, Reclaimer)),
-                  Barrier(Reclaimer),
-                  Reservations(std::make_shared<const IdReservations>()),
-                  OnFailure(std::move(Failure))
+            auto OnQuarantine() const noexcept -> void
             {
+                if (Value) Detail::MarkTaskRegistryBlocked(Value);
             }
-
-            using ActiveMap = std::map<Preview::TaskId, std::shared_ptr<TaskState>>;
-
-            struct IdReservations final
-            {
-                std::uint64_t Next{1};
-                std::set<std::uint64_t> Used;
-            };
-
-            struct GlobalIdReservations final
-            {
-                std::uint64_t Next{1};
-                std::set<std::uint64_t> Used;
-            };
-
-            Net::any_io_executor Executor;
-            Net::any_io_executor CommandExecutor;
-            std::shared_ptr<Preview::Resource::ExecutorReclaimer> Reclaimer;
-            std::shared_ptr<CancellationDomain> Domain;
-            DrainBarrier Barrier;
-            ActiveMap Active;
-            std::atomic<std::shared_ptr<const IdReservations>> Reservations;
-            std::atomic<std::size_t> Started{0};
-            std::atomic<std::size_t> Completed{0};
-            std::atomic<std::size_t> Cancelled{0};
-            std::atomic<std::size_t> Failed{0};
-            std::atomic<std::size_t> Quarantined{0};
-            std::atomic<bool> Accepting{true};
-            std::atomic<bool> CancelRequested{false};
-            std::atomic<bool> CommandCancelled{false};
-            std::atomic<bool> TearingDown{false};
-            std::atomic<bool> Blocked{false};
-            std::function<void(const TaskIdentity &, std::exception_ptr)> OnFailure;
         };
-
-        using IdReservations = State::IdReservations;
-        using GlobalIdReservations = State::GlobalIdReservations;
-
-        static auto AddStats(TaskStats &Result, const std::shared_ptr<State> &StateValue) noexcept
-            -> void
-        {
-            if (!StateValue)
-            {
-                return;
-            }
-            Result.Active += StateValue->Barrier.Active();
-            Result.Started += StateValue->Started.load(std::memory_order_acquire);
-            Result.Completed += StateValue->Completed.load(std::memory_order_acquire);
-            Result.Cancelled += StateValue->Cancelled.load(std::memory_order_acquire);
-            Result.Failed += StateValue->Failed.load(std::memory_order_acquire);
-            Result.Quarantined += StateValue->Quarantined.load(std::memory_order_acquire);
-            Result.DrainBlocked = Result.DrainBlocked ||
-                                  StateValue->Blocked.load(std::memory_order_acquire) ||
-                                  StateValue->Barrier.IsBlocked();
-        }
-
-        inline static std::atomic<std::shared_ptr<const GlobalIdReservations>>
-            GlobalTaskIds_{std::make_shared<const GlobalIdReservations>()};
-
-        [[nodiscard]] static auto ReserveGlobalTaskId(const Preview::TaskId Requested)
-            -> std::optional<Preview::TaskId>
-        {
-            for (;;)
-            {
-                auto Current = GlobalTaskIds_.load(std::memory_order_acquire);
-                std::uint64_t Candidate = Requested ? Requested.Value() : Current->Next;
-                if (Candidate == 0 || Current->Used.contains(Candidate))
-                {
-                    return {};
-                }
-                if (!Requested)
-                {
-                    while (Current->Used.contains(Candidate))
-                    {
-                        if (Candidate == std::numeric_limits<std::uint64_t>::max())
-                        {
-                            return {};
-                        }
-                        ++Candidate;
-                    }
-                }
-
-                auto Next = std::make_shared<GlobalIdReservations>(*Current);
-                Next->Used.insert(Candidate);
-                if (Candidate == std::numeric_limits<std::uint64_t>::max())
-                {
-                    Next->Next = 0;
-                }
-                else if (Next->Next == 0 || Next->Next <= Candidate)
-                {
-                    Next->Next = Candidate + 1U;
-                }
-                if (GlobalTaskIds_.compare_exchange_weak(
-                        Current,
-                        std::shared_ptr<const GlobalIdReservations>(std::move(Next)),
-                        std::memory_order_acq_rel,
-                        std::memory_order_acquire))
-                {
-                    return Preview::TaskId{Candidate};
-                }
-            }
-        }
-
-        static auto MarkBlocked(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            StateValue->Blocked.store(true, std::memory_order_release);
-            StateValue->Barrier.Block();
-        }
-
-        static auto SealState(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            if (!StateValue)
-            {
-                return;
-            }
-            StateValue->Accepting.store(false, std::memory_order_release);
-            StateValue->Barrier.Seal();
-        }
-
-        static auto PostCommand(const std::shared_ptr<State> &StateValue,
-                                Preview::Resource::ExecutorReclaimer::Action Command) noexcept -> bool
-        {
-            if (!StateValue->Reclaimer->Post(std::move(Command)))
-            {
-                MarkBlocked(StateValue);
-                return false;
-            }
-            return true;
-        }
-
-        [[nodiscard]] static auto ReserveTaskId(const std::shared_ptr<State> &StateValue,
-                                                 Preview::TaskId Requested)
-            -> std::optional<Preview::TaskId>
-        {
-            const auto GlobalTaskId = ReserveGlobalTaskId(Requested);
-            if (!GlobalTaskId)
-            {
-                return {};
-            }
-
-            const auto Candidate = GlobalTaskId->Value();
-            for (;;)
-            {
-                auto Current = StateValue->Reservations.load(std::memory_order_acquire);
-                if (Current->Used.contains(Candidate))
-                {
-                    return {};
-                }
-                auto Next = std::make_shared<IdReservations>(*Current);
-                Next->Used.insert(Candidate);
-                Next->Next = Candidate == std::numeric_limits<std::uint64_t>::max()
-                                 ? 0
-                                 : Candidate + 1;
-                if (StateValue->Reservations.compare_exchange_weak(
-                        Current,
-                        std::shared_ptr<const IdReservations>(std::move(Next)),
-                        std::memory_order_acq_rel,
-                        std::memory_order_acquire))
-                {
-                    return GlobalTaskId;
-                }
-            }
-        }
-
-        static auto ReleaseGlobalTaskIds(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            if (!StateValue)
-            {
-                return;
-            }
-            const auto Reservations = StateValue->Reservations.load(std::memory_order_acquire);
-            for (const auto Value : Reservations->Used)
-            {
-                for (;;)
-                {
-                    auto Current = GlobalTaskIds_.load(std::memory_order_acquire);
-                    if (!Current->Used.contains(Value))
-                    {
-                        break;
-                    }
-                    auto Next = std::make_shared<GlobalIdReservations>(*Current);
-                    Next->Used.erase(Value);
-                    if (Value == std::numeric_limits<std::uint64_t>::max() && Next->Next == 0)
-                    {
-                        Next->Next = 1;
-                    }
-                    if (GlobalTaskIds_.compare_exchange_weak(
-                            Current,
-                            std::shared_ptr<const GlobalIdReservations>(std::move(Next)),
-                            std::memory_order_acq_rel,
-                            std::memory_order_acquire))
-                    {
-                        break;
-                    }
-                }
-            }
-        }
-
-        template <typename Coro>
-        [[nodiscard]] static auto RunTracked(std::shared_ptr<TaskState> Task,
-                                              Coro Operation) -> Net::awaitable<void>
-        {
-            co_await FailureBoundary::Execute(
-                [Task](std::exception_ptr Failure) { (void)Task->Complete(std::move(Failure)); },
-                std::move(Operation));
-            (void)Task->Complete();
-        }
-
-        [[nodiscard]] static auto DrainState(const std::shared_ptr<State> &StateValue)
-            -> Net::awaitable<void>
-        {
-            StateValue->Accepting.store(false, std::memory_order_release);
-            StateValue->Barrier.Seal();
-            if (StateValue->Blocked.load(std::memory_order_acquire))
-            {
-                co_return;
-            }
-            co_await StateValue->Barrier.Drain();
-        }
-
-        static auto QuarantineActive(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            for (const auto &[TaskId, Task] : StateValue->Active)
-            {
-                (void)TaskId;
-                if (Task && Task->Quarantine())
-                {
-                    StateValue->Quarantined.fetch_add(1, std::memory_order_relaxed);
-                    StateValue->Barrier.Leave();
-                }
-            }
-            StateValue->Active.clear();
-        }
-
-        static auto FinishTeardown(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            QuarantineActive(StateValue);
-            ReleaseGlobalTaskIds(StateValue);
-            StateValue->Reclaimer->Quarantine();
-        }
-
-        static auto RequestTaskCancel(const std::shared_ptr<State> &StateValue,
-                                      const std::shared_ptr<TaskState> &Task) noexcept -> void
-        {
-            if (!Task)
-            {
-                return;
-            }
-            (void)Task->RequestCancel();
-            if (Task->IsCancelDispatchFailed())
-            {
-                MarkBlocked(StateValue);
-            }
-        }
-
-        static auto CancelOnExecutor(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            StateValue->CommandCancelled.store(true, std::memory_order_release);
-            (void)StateValue->Domain->Cancel();
-            if (StateValue->Domain->IsDispatchBlocked())
-            {
-                MarkBlocked(StateValue);
-            }
-            for (const auto &[TaskId, Task] : StateValue->Active)
-            {
-                (void)TaskId;
-                RequestTaskCancel(StateValue, Task);
-            }
-        }
-
-        static auto CancelState(const std::shared_ptr<State> &StateValue) noexcept -> bool
-        {
-            if (!StateValue ||
-                StateValue->CancelRequested.exchange(true, std::memory_order_acq_rel))
-            {
-                return false;
-            }
-            StateValue->Accepting.store(false, std::memory_order_release);
-            StateValue->Barrier.Seal();
-            StateValue->Domain->RequestCancellation();
-            const auto Posted =
-                PostCommand(StateValue, [StateValue] { CancelOnExecutor(StateValue); });
-            if (!Posted)
-            {
-                (void)StateValue->Domain->Cancel();
-                if (StateValue->Domain->IsDispatchBlocked())
-                {
-                    MarkBlocked(StateValue);
-                }
-            }
-            return true;
-        }
-
-        static auto BeginTeardown(const std::shared_ptr<State> &StateValue) noexcept -> void
-        {
-            for (const auto &[TaskId, Task] : StateValue->Active)
-            {
-                (void)TaskId;
-                RequestTaskCancel(StateValue, Task);
-            }
-            if (!PostCommand(StateValue, [StateValue] { FinishTeardown(StateValue); }))
-            {
-                QuarantineActive(StateValue);
-                MarkBlocked(StateValue);
-            }
-        }
-
-        static auto CompleteTask(const std::shared_ptr<State> &StateValue,
-                                 const std::shared_ptr<TaskState> &Task) noexcept -> void
-        {
-            if (!Task)
-            {
-                return;
-            }
-            const auto Identity = Task->Identity();
-            const auto It = StateValue->Active.find(Identity.TaskId);
-            if (It == StateValue->Active.end())
-            {
-                return;
-            }
-            if (It->second.get() != Task.get())
-            {
-                MarkBlocked(StateValue);
-                return;
-            }
-            StateValue->Active.erase(It);
-            StateValue->Completed.fetch_add(1, std::memory_order_relaxed);
-            switch (Task->Outcome())
-            {
-            case TaskOutcome::Cancelled:
-                StateValue->Cancelled.fetch_add(1, std::memory_order_relaxed);
-                break;
-            case TaskOutcome::Failed:
-                StateValue->Failed.fetch_add(1, std::memory_order_relaxed);
-                if (StateValue->OnFailure)
-                {
-                    try
-                    {
-                        StateValue->OnFailure(Identity, Task->Failure());
-                    }
-                    catch (...)
-                    {
-                    }
-                }
-                break;
-            case TaskOutcome::Quarantined:
-                StateValue->Quarantined.fetch_add(1, std::memory_order_relaxed);
-                break;
-            case TaskOutcome::Pending:
-            case TaskOutcome::Succeeded:
-                break;
-            }
-            StateValue->Barrier.Leave();
-        }
-
     public:
-        using FailureHandler = std::function<void(const TaskIdentity &, std::exception_ptr)>;
-
-        explicit TaskRegistry(Net::any_io_executor Executor, FailureHandler OnFailure = {})
-            : State_(std::make_shared<State>(std::move(Executor), std::move(OnFailure)))
-        {
-        }
-
-        /**
-         * @brief 创建由当前 registry owner 持有的子 registry。
-         * @details 子 registry 拥有独立的 active map、barrier 和 reclaimer，
-         *          但其 cancellation domain 挂在父 registry 下；子级 Cancel/
-         *          Seal/Drain 只作用于自身，父级 Cancel 可传播取消信号。
+        using FailureHandler = std::function<void(const TaskIdentity&, Preview::Fault::Failure)>;
+        explicit TaskRegistry(Net::any_io_executor Executor, FailureHandler Failure = {})
+            : State_(std::make_shared<State>(std::move(Executor), std::move(Failure))) {}
+        /** @brief 析构封止并在原 executor 退休自身 slot；独立后代 owner 继续运行。
+         * @details 子树取消只由显式 Cancel 发起；不可交付时仍保留实物并阻断。
          */
-        [[nodiscard]] auto CreateChild(FailureHandler OnFailure = {})
-            -> std::shared_ptr<TaskRegistry>
+        ~TaskRegistry()
         {
-            auto Child = std::shared_ptr<TaskRegistry>(
-                new TaskRegistry(State_->Executor, std::move(OnFailure), State_->Domain));
-            return Child;
-        }
-
-        ~TaskRegistry() noexcept
-        {
-            const auto StateValue = State_;
-            (void)CancelState(StateValue);
-            StateValue->TearingDown.store(true, std::memory_order_release);
-            StateValue->Barrier.Seal();
-            if (StateValue->Barrier.Active() == 0)
+            Seal();
+            State_->CancelRequested.store(true, std::memory_order_release);
+            State_->TearingDown.store(true, std::memory_order_release);
+            State_->RetainClosing();
+            const auto Self = State_;
+            if (!State_->Reclaimer->Post(Detail::TaskRegistryRetirementCommand(Self)))
             {
-                ReleaseGlobalTaskIds(StateValue);
-                StateValue->Reclaimer->Quarantine();
-                return;
-            }
-            (void)StateValue->Domain->Cancel();
-            if (StateValue->Domain->IsDispatchBlocked())
-            {
-                MarkBlocked(StateValue);
-            }
-            if (!PostCommand(StateValue, [StateValue] { BeginTeardown(StateValue); }))
-            {
-                StateValue->Reclaimer->Quarantine();
-                ReleaseGlobalTaskIds(StateValue);
+                State_->Blocked.store(true, std::memory_order_release);
+                State_->Barrier.Block();
+                State_->ClosingStorage->Retain(Self);
             }
         }
-
-        TaskRegistry(const TaskRegistry &) = delete;
-        auto operator=(const TaskRegistry &) -> TaskRegistry & = delete;
-        TaskRegistry(TaskRegistry &&) = delete;
-        auto operator=(TaskRegistry &&) -> TaskRegistry & = delete;
-
+        TaskRegistry(const TaskRegistry&) = delete;
+        auto operator=(const TaskRegistry&) -> TaskRegistry& = delete;
         /**
-         * @brief 提交一条受追踪协程请求
-         * @param Request 任务身份和取消 hook
-         * @param Operation 返回 awaitable<void> 的协程对象
-         * @return 已提交的 TaskState；registry 封止、ID 冲突或 executor 投递失败时为空
-         * @note Active map 的登记、取消、完成和删除均由同一个 executor command path 执行。
+         * @brief 冷路径给独立根 scope 绑定唯一统计 sink；必须先于任务准入。
+         * @details 只接受尚未准入任务的根 registry；子 scope 在创建时继承该强引用。
+         *          此绑定只提供数值观察服务，不拥有任务或网络资源。
+         * @param Sink 按值转移的统计服务 owner。
+         * @return 成功绑定或明确的 InvalidArgument/Blocked；失败时不发布新 sink。
          */
-        template <typename Coro>
-        [[nodiscard]] auto SpawnTracked(TaskRequest Request, Coro &&Operation)
-            -> std::shared_ptr<TaskState>
+        [[nodiscard]] auto BindTrafficSink(std::shared_ptr<Preview::Foundation::TrafficSink> Sink)
+            -> std::expected<void, Preview::Fault::Failure>
         {
-            const auto StateValue = State_;
-            if (!StateValue->Accepting.load(std::memory_order_acquire) ||
-                StateValue->Blocked.load(std::memory_order_acquire) ||
-                StateValue->Domain->IsCancellationRequested())
-            {
-                return {};
-            }
-            const auto TaskId = ReserveTaskId(StateValue, Request.Identity.TaskId);
-            if (!TaskId)
-            {
-                return {};
-            }
-            Request.Identity.TaskId = *TaskId;
-
-            if (!StateValue->Barrier.Enter())
-            {
-                return {};
-            }
-
-            auto Domain = StateValue->Domain->CreateChild();
-            const auto WeakState = std::weak_ptr<State>(StateValue);
-            auto Completion = [WeakState](const std::shared_ptr<TaskState> &Task) noexcept
-            {
-                if (const auto StateValue = WeakState.lock())
-                {
-                    (void)PostCommand(
-                        StateValue,
-                        [StateValue, Task] { CompleteTask(StateValue, Task); });
-                }
-            };
-
-            std::shared_ptr<TaskState> Task;
-            try
-            {
-                Task = std::make_shared<TaskState>(
-                    TaskState::Options{
-                        Request.Identity,
-                        std::move(Domain),
-                        StateValue->Reclaimer,
-                        std::move(Request.Cancel),
-                        Request.StartOnSubmit},
-                    std::move(Completion));
-            }
-            catch (...)
-            {
-                StateValue->Barrier.Leave();
-                throw;
-            }
-
-            using OperationType = std::decay_t<Coro>;
-            std::shared_ptr<OperationType> OperationValue;
-            try
-            {
-                OperationValue =
-                    std::make_shared<OperationType>(std::forward<Coro>(Operation));
-            }
-            catch (...)
-            {
-                StateValue->Barrier.Leave();
-                throw;
-            }
-            if (!PostCommand(
-                    StateValue,
-                    [StateValue, Task, OperationValue]() mutable
-                    {
-                        if (StateValue->Reclaimer->IsQuarantined() ||
-                            StateValue->Blocked.load(std::memory_order_acquire))
-                        {
-                            RequestTaskCancel(StateValue, Task);
-                            (void)Task->Complete();
-                            StateValue->Barrier.Leave();
-                            return;
-                        }
-                        try
-                        {
-                            const auto [It, Inserted] =
-                                StateValue->Active.emplace(Task->Identity().TaskId, Task);
-                            (void)It;
-                            if (!Inserted)
-                            {
-                                RequestTaskCancel(StateValue, Task);
-                                (void)Task->Complete();
-                                StateValue->Barrier.Leave();
-                                return;
-                            }
-                        }
-                        catch (...)
-                        {
-                            (void)Task->Complete(std::current_exception());
-                            StateValue->Barrier.Leave();
-                            return;
-                        }
-                        if (StateValue->TearingDown.load(std::memory_order_acquire) ||
-                            (!Task->StartOnSubmit() &&
-                             (StateValue->CommandCancelled.load(std::memory_order_acquire) ||
-                              StateValue->CancelRequested.load(std::memory_order_acquire))))
-                        {
-                            RequestTaskCancel(StateValue, Task);
-                            if (!StateValue->TearingDown.load(std::memory_order_acquire))
-                            {
-                                (void)Task->Complete();
-                            }
-                            return;
-                        }
-                        if (!Task->TryStart())
-                        {
-                            if (!Task->IsCompleted())
-                            {
-                                (void)Task->Complete();
-                            }
-                            const auto It =
-                                StateValue->Active.find(Task->Identity().TaskId);
-                            if (It != StateValue->Active.end() && It->second.get() == Task.get())
-                            {
-                                StateValue->Active.erase(It);
-                                StateValue->Barrier.Leave();
-                            }
-                            return;
-                        }
-                        StateValue->Started.fetch_add(1, std::memory_order_relaxed);
-                        try
-                        {
-                            auto CompletionHandler = [Task](std::exception_ptr Failure) noexcept
-                            { (void)Task->Complete(std::move(Failure)); };
-                            Net::co_spawn(
-                                StateValue->Executor,
-                                RunTracked(Task, std::move(*OperationValue)),
-                                std::move(CompletionHandler));
-                        }
-                        catch (...)
-                        {
-                            (void)Task->Complete(std::current_exception());
-                        }
-                    }))
-            {
-                StateValue->Barrier.Leave();
-                return {};
-            }
-            return Task;
+            using Failure = Preview::Fault::Failure;
+            if (!Sink || State_->Parent || !State_->Accepting.load(std::memory_order_acquire))
+                return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            if (State_->Traffic || State_->Barrier.Active() != 0U ||
+                State_->Descendants.Active.load(std::memory_order_acquire) != 0U)
+                return std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            State_->Traffic = std::move(Sink);
+            return {};
         }
-
+        /** @brief 冷装配子 scope；共享父串行域，取消传播但 drain 不等待父自身。 */
+        [[nodiscard]] auto CreateChild(FailureHandler Failure = {}) -> std::shared_ptr<TaskRegistry>
+        { return std::shared_ptr<TaskRegistry>(new TaskRegistry(State_, std::move(Failure))); }
+        /** @brief 按值接管上下文与协程；普通拒绝返回 Failure，成功保活至真实退栈。
+         * @details slot/取消节点/drain 同预约；ID 单调不复用、不接受外部指定。
+         */
+        template<class Coro>
+        [[nodiscard]] auto SpawnTracked(TaskRequest Request, Coro Operation)
+            -> std::expected<TaskHandle, Preview::Fault::Failure>
+        {
+            if (State_->Blocked.load() || !State_->Reclaimer->CanDispatch())
+                return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            if (!State_->Accepting.load() || State_->Domain->IsCancellationRequested())
+                return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Canceled});
+            auto Reservation = TaskReservation::Acquire(State_);
+            if (!Reservation) return std::unexpected(Reservation.error());
+            auto Id = AllocateId();
+            if (!Id) return std::unexpected(Id.error());
+            auto Domain = State_->Domain->CreateChild();
+            Reservation->Attach(Domain);
+            if (Domain->IsDispatchBlocked())
+                return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            const auto& Context = Request.Context;
+            TaskIdentity Identity{*Id, Context.SessionId, Context.StreamId, Context.WorkerId,
+                Context.Generation, Context.ParentTaskId};
+            auto Submission = std::make_shared<Detail::TaskSubmission<Coro>>(std::move(*Reservation), std::move(Operation));
+            Submission->Retain();
+            Detail::TaskSetup<Coro> Setup{Submission};
+            auto Retirement = std::make_shared<TaskRetirementReceipt>();
+            auto Task = std::make_shared<TaskState>(TaskState::Options{
+                Identity, std::move(Domain), {}, Request.StartOnSubmit, {}, std::move(Retirement)});
+            Submission->Attach(Task);
+            Task->Install(std::move(Request));
+            Submission->InstallQuarantine();
+            Task->Domain()->Observe(Task);
+            Setup.Ready = true;
+            auto Command = Detail::TaskDelivery<Coro>(Submission);
+            if (!Detail::PostTaskRegistryCommand(State_, std::move(Command)))
+                return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            return TaskHandle(std::move(Task));
+        }
+        /** @brief 在 root worker executor 的有界任务槽中按完整身份查找活动任务。 */
+        [[nodiscard]] auto FindTask(TaskIdentity Identity) const
+            -> Net::awaitable<std::expected<std::optional<TaskHandle>, Preview::Fault::Failure>>
+        {
+            const auto Root = State_;
+            return FindTaskOnOwner(Root, Identity);
+        }
+        /** @brief 按完整 session 父身份分页返回 root registry 的实际活动任务观察值。 */
+        [[nodiscard]] auto ListTasks(TaskRegistryListRequest Request) const
+            -> Net::awaitable<std::expected<TaskRegistryListPage, Preview::Fault::Failure>>
+        {
+            return ListTasksOnOwner(State_, std::move(Request));
+        }
         /**
-         * @brief 请求一次全注册表取消
-         * @return 首次请求返回 true；重复调用返回 false
+         * @brief 原子封止并请求在原 executor 取消本 scope 的活动任务。
+         * @details 返回 true 只表示首次取消请求已记录，不表示 hook 已执行、任务已退栈、
+         *          I/O 已半关闭或传输已最终关闭。交付失败通过 IsDrainBlocked/Drain 保留。
+         * @return 本次是否首次登记取消请求。
          */
-        [[nodiscard]] auto Cancel() noexcept -> bool
+        [[nodiscard]] auto Cancel() -> bool
         {
-            return CancelState(State_);
+            if (State_->CancelRequested.exchange(true)) return false;
+            Seal();
+            State_->Domain->RequestCancellation();
+            (void)Detail::PostTaskRegistryCommand(State_, CancelCommand{State_});
+            return true;
         }
-
-        /**
-         * @brief 封止新任务但不主动取消现有任务
-         */
-        auto Seal() noexcept -> void
+        auto Seal() noexcept -> void { Detail::SealTaskRegistryState(State_); }
+        /** @brief 调用方保持 owner，等待本 scope 真实退栈；Blocked/取消均返回失败。 */
+        [[nodiscard]] auto Drain() -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
-            SealState(State_);
+            auto Value = State_;
+            Detail::SealTaskRegistryState(Value);
+            if (Value->Blocked.load()) co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            co_return co_await Value->Barrier.Drain();
         }
-
-        /**
-         * @brief 等待所有已登记任务真实完成或被隔离
-         */
-        [[nodiscard]] auto Drain() -> Net::awaitable<void>
-        {
-            return DrainState(State_);
-        }
-
+        /** @brief 按值读取本 scope 及后代的累计统计；活动预约只统计未真实退栈任务。 */
         [[nodiscard]] auto Stats() const noexcept -> TaskStats
-        {
-            TaskStats Result;
-            AddStats(Result, State_);
-            return Result;
-        }
-
-        [[nodiscard]] auto IsDrainBlocked() const noexcept -> bool
-        {
-            return Stats().DrainBlocked;
-        }
-
+        { TaskStats Value; Detail::AddTaskStats(Value, State_); return Value; }
+        /** @brief 读取不能继续排空的事实；调用方必须保留资源并处理失败。 */
+        [[nodiscard]] auto IsDrainBlocked() const noexcept -> bool { return Stats().DrainBlocked; }
+        auto Block() noexcept -> void { Detail::MarkTaskRegistryBlocked(State_); }
         /**
-         * @brief 显式标记 executor 投递失败后的不完整收口
+         * @brief 借用本 registry 的取消域 shared owner。
+         * @details 返回的 shared_ptr 引用由 registry 持有；跨 await 使用时调用方须复制
+         *          owner。取消域只管理任务取消，不授予 socket 半关闭或最终关闭权。
          */
-        auto Block() noexcept -> void
-        {
-            MarkBlocked(State_);
-        }
-
-        [[nodiscard]] auto Domain() const noexcept -> const std::shared_ptr<CancellationDomain> &
-        {
-            return State_->Domain;
-        }
-
+        [[nodiscard]] auto Domain() const noexcept -> const std::shared_ptr<CancellationDomain>& { return State_->Domain; }
+        /** @brief 借用原 executor 的交付 owner；不转移 context 的最终释放责任。 */
+        /**
+         * @brief 共享本任务域的命令投递 owner。
+         * @details 返回独立 shared owner，可用于把协议子任务或 drain receipt 投递到
+         *          本 registry 的串行域。它不拥有 io_context，也不转移 socket 最终关闭权；
+         *          WorkerResources/进程 owner 必须保活执行器 context，直到全部 task 退栈。
+         * @return 可共享的 executor reclaimer owner。
+         */
         [[nodiscard]] auto Reclaimer() const noexcept
-            -> const std::shared_ptr<Preview::Resource::ExecutorReclaimer> &
+            -> std::shared_ptr<Preview::Executor::ExecutorReclaimer>
         {
             return State_->Reclaimer;
         }
 
+        /**
+         * @brief 返回本任务 scope 固定的命令执行域值。
+         * @details 协议 writer 和 teardown 在该域驱动本 registry 的任务与实际 drain；
+         *          返回值复制 Asio handle，不拥有 io_context，不授予 socket 关闭权。
+         *          调用者保留 registry 与 context owner 到自身任务和回执全部退栈；
+         *          查询没有取消或半关闭副作用，最终 scope drain 仍归 registry owner。
+         */
         [[nodiscard]] auto Executor() const -> Net::any_io_executor
         {
-            return State_->Executor;
+            return State_->CommandExecutor;
         }
 
     private:
-        TaskRegistry(Net::any_io_executor Executor,
-                     FailureHandler OnFailure,
-                     std::shared_ptr<CancellationDomain> ParentDomain)
-            : State_(std::make_shared<State>(
-                  std::move(Executor), std::move(OnFailure), std::move(ParentDomain)))
-        {
-        }
+        friend class TaskRegistryTestAccess;
 
+        TaskRegistry(std::shared_ptr<State> Parent, FailureHandler Failure)
+            : State_(std::make_shared<State>(Parent->Executor, std::move(Failure), Parent)) {}
         std::shared_ptr<State> State_;
     };
-
-} // namespace Preview::Lifecycle
+}

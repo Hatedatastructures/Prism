@@ -4,14 +4,14 @@
  */
 #pragma once
 
+#include <Preview/Foundation/Identifier/Id.hpp>
+
 #include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string_view>
-
-#include <Preview/Foundation/Identifier/Id.hpp>
 
 namespace Preview::Diagnose
 {
@@ -115,9 +115,9 @@ namespace Preview::Diagnose
             }
         }
 
-        std::array<char, 48> Buffer_{};             ///< 固定容量的 [W<id>][S<id>] 文本缓冲区。
-        std::size_t Size_{0U};                      ///< Buffer_ 中有效前缀的字节数。
-        std::optional<Preview::WorkerId> Worker_;   ///< 可选的 Worker 身份。
+        std::array<char, 48> Buffer_{}; ///< 固定容量的 [W<id>][S<id>] 文本缓冲区。
+        std::size_t Size_{0U}; ///< Buffer_ 中有效前缀的字节数。
+        std::optional<Preview::WorkerId> Worker_; ///< 可选的 Worker 身份。
         std::optional<Preview::SessionId> Session_; ///< 可选的 Session 身份。
     };
 

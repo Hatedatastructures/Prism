@@ -1,112 +1,55 @@
 <div align="center">
   <h1>Prism</h1>
-  <p>基于 C++23 的跨平台服务端代理。</p>
+  <p>基于 C++23 与 Boost.Asio 协程的多协议服务端代理。</p>
 </div>
 
-Prism 面向多协议接入、高并发转发和可组合传输场景，采用 Boost.Asio 协程处理网络 I/O，支持单端口统一接入与协议识别。
+当前开发、结构审查与验收主线是 **Preview**：源码位于 `Preview/`，可执行 target 为 `PrismPreview`，测试位于 `tests/Preview/`。Preview 的协议模块拥有 wire、认证与会话状态，Composition 在启动冷路径编译和绑定配置，Runtime 调度会话，Boundary 管理入口 socket，Application 管理启动、回滚与停机。
 
-## 功能特性
+Preview 正在进行[无兼容层重构](docs/preview-refactor/2026-10-03-preview-no-compat-execution.md)。[当前状态](docs/preview-refactor/2026-10-03-preview-no-compat-status.md)分别列出已签收范围、实施中的任务和验收缺口。旧版源码 `include/prism/`、`src/prism/`、程序 `Prism` 与 `src/configuration.json` 保留为历史实现，本文操作步骤使用 Preview。
 
-- **协议支持**：HTTP、SOCKS5、Trojan、VLESS、VMess、Shadowsocks 2022、AnyTLS、TrustTunnel、WebSocket、XHTTP、gRPC、Hysteria2 和 TUIC v5
-- **单端口接入**：在同一监听入口识别不同协议，并按配置进入对应的认证、拨号和转发流程
-- **传输能力**：支持 TCP、UDP，以及面向流和数据报的协议适配
-- **传输伪装**：支持 Reality、ShadowTLS、Restls、AnyTLS、WebSocket、XHTTP、gRPC、TrustTunnel 和 ECH
-- **多路复用**：支持 smux、yamux 和 h2mux，可配置流数量、窗口、缓冲区和保活策略
-- **异步 DNS**：支持规则匹配、地址重写、缓存、负缓存和可配置的 UDP/TCP/TLS/HTTPS 上游
-- **运行时模型**：基于 C++23 协程、Boost.Asio 和 PMR 内存资源，覆盖监听、worker、session、relay 和优雅停机
-- **跨平台**：支持 Windows 和 Linux
+## 构建与运行
 
-## 工作方式
+需要 C++23 编译器、CMake 3.23+ 和 Git，依赖由 CMake 获取。仓库统一使用现有 `build/`；Windows 的 MinGW 运行环境还需能找到其运行库，当前配置并非全部静态链接。
 
-```text
-listener
-  -> balancer
-  -> worker
-  -> session
-  -> protocol recognition
-  -> handshake / transport camouflage
-  -> protocol handler
-  -> outbound dial
-  -> bidirectional relay
+```powershell
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
+cmake --build build --config Release --target PrismPreview -j 16
 ```
 
-连接进入 listener 后由 balancer 分配到 worker。session 负责协议识别和生命周期管理，具体协议负责认证与数据格式，outbound 和 relay 负责建立上游连接并转发流量。
+上海时间 08:00–22:00 使用 `-j 16`，22:00–08:00 使用 `-j 1`。每次构建先检查时间。构建后的程序为 `build/src/PrismPreview.exe`（Linux 为 `build/src/PrismPreview`）。
 
-## 构建
+配置模板是 [PreviewConfiguration.json](Preview/Application/Configuration/PreviewConfiguration.json)，target 构建后复制到程序同目录。首次使用先按[配置说明](docs/tutorial/configuration.md)替换示例凭据，再启动：
 
-### 环境要求
-
-- C++23 编译器（GCC 13+，Windows 推荐 MinGW）
-- CMake 3.23+
-- Git
-
-### Release 构建
-
-```bash
-git clone https://github.com/Hatedatastructures/Prism.git
-cd Prism
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
-cmake --build build --config Release
+```powershell
+.\build\src\PrismPreview.exe
+# 也可以给出配置文件的第一个位置参数
+.\build\src\PrismPreview.exe 'C:\Prism\PreviewConfiguration.json'
 ```
 
-### 可选构建项
+默认模板在 `127.0.0.1:1080` 配置 SOCKS5，Operations 地址为 `127.0.0.1:9090`。启动输出中的 `PrismPreview READY` 表示入口已发布就绪状态；端口就绪后的代理请求、认证、字节和关闭验证见[快速开始](docs/tutorial/getting-started.md)。
 
-```text
-PRISM_ENABLE_BENCHMARK=ON  构建性能测试
-PRISM_ENABLE_STRESS=ON     构建压力测试
-PRISM_ENABLE_COVERAGE=ON   启用代码覆盖率
-PRISM_ENABLE_ASAN=ON       启用 AddressSanitizer
+## 功能与边界
+
+协议实现包括 HTTP、SOCKS5、Trojan、VLESS、VMess、Shadowsocks 2022、AnyTLS、TrustTunnel、Hysteria2 和 TUIC；承载实现包括 Native TLS、Reality、ShadowTLS、Restls、WebSocket、XHTTP 和 gRPC。配置编译会按实际能力校验协议与承载组合。
+
+Smux、Yamux、H2Mux、AnyTLS 和 XUDP 的运行态由 `Preview/Protocols/` 下的协议 owner 持有；旧 Composition runtime wrapper 已退役，冷装配仍由 Composition/provider 边界负责。目录或 capability 中出现的能力，以及旧版测试和性能数字，各有自己的适用范围；当前构建、focused tests、全量测试、真实请求、互操作和性能分别记录在执行状态与 dated 证据中。
+
+## 测试与文档
+
+先确认当前注册用例，再按真实 suite 名称执行：
+
+```powershell
+ctest --test-dir build -N -R '^(ConfiguredMuxSession|ProviderAcceptPath|BindingLifetime)\.'
+ctest --test-dir build --output-on-failure -j 1 --timeout 30 -R '^(ConfiguredMuxSession|ProviderAcceptPath|BindingLifetime)\.'
 ```
 
-## 配置
+CTest 只运行已有测试程序，修改源码后须先构建对应 target。最终全量命令及各层验收规则见 [AGENTS.md](AGENTS.md) 和[执行计划](docs/preview-refactor/2026-10-03-preview-no-compat-execution.md)。
 
-默认配置模板位于 `src/configuration.json`。配置至少包含监听地址、认证用户、证书或密钥、协议开关，以及可选的伪装、多路复用和 DNS 设置。
+- [文档索引](docs/index.md)
+- [Preview 开发入口](Preview/README.md)
+- [快速开始](docs/tutorial/getting-started.md)、[配置](docs/tutorial/configuration.md)、[部署](docs/tutorial/deployment.md)
+- [架构](docs/ARCHITECTURE.md)、[故障排查](docs/tutorial/troubleshooting.md)、[常见问题](docs/tutorial/faq.md)
+- [当前执行状态](docs/preview-refactor/2026-10-03-preview-no-compat-status.md)
 
-```bash
-cp src/configuration.json build/src/
-```
-
-程序默认读取可执行文件同目录下的 `configuration.json`，也可以通过命令行传入配置文件路径：
-
-```bash
-./build/src/Prism /path/to/configuration.json
-```
-
-启动前请替换示例中的密码、UUID、PSK、证书、私钥和本机路径。字段说明与完整示例见[配置说明](docs/tutorial/configuration.md)。
-
-## 运行
-
-```bash
-./build/src/Prism
-```
-
-默认监听端口由 `agent.addressable.port` 配置。生产部署时请限制配置文件权限，并按系统防火墙规则开放对应端口。
-
-## 测试
-
-运行默认功能测试：
-
-```bash
-ctest --test-dir build --output-on-failure -j1 --timeout 30
-```
-
-运行 Go 互操作测试（需要 Go 1.22+）：
-
-```bash
-ctest --test-dir build -R GoCompat --output-on-failure -j1
-```
-
-性能测试和压力测试需要在配置阶段显式开启对应选项，详细命令见[性能报告](docs/performance-report.md)。
-
-## 文档
-
-- [快速开始](docs/tutorial/getting-started.md)
-- [配置说明](docs/tutorial/configuration.md)
-- [部署指南](docs/tutorial/deployment.md)
-- [架构说明](docs/ARCHITECTURE.md)
-- [故障排查](docs/tutorial/troubleshooting.md)
-- [性能报告](docs/performance-report.md)
-
-## 许可证
-
-[MIT](LICENSE)
+许可证：[MIT](LICENSE)。

@@ -1,12 +1,14 @@
 /**
  * @file Doh.hpp
  * @brief DoH 传输（HTTP/1.1 承载 DNS，RFC 8484，可入池）
- * @details 复用 TlsTransport 建连与收发（组合而非继承），在其上实现
+ * @details 复用 TlsTransport 建连与字节流读写（组合而非继承），在其上实现
  *          HTTP 编解码；连接以 keep-alive 语义收发，配合 ConnPool 复用。
- *          响应解析加固：
- *          - 状态码必须为 200（HTTP/1.0 / 1.1）
- *          - 响应头累计上限 64KB，防恶意服务器撑爆内存
- *          - Content-Length 仅在头区内解析（防正文伪造头），体上限 64KB
+ *          每次收发的 deadline 由调用者传入的绝对 AttemptDeadline 决定，
+ *          与 UDP/TCP/DoT 消费同一预算，不逐段重置。
+ *          响应由 Foundation 的中立 framing owner 增量定界；DoH 启用有界正文捕获，
+ *          只接受单个 Content-Length 或单一 chunked coding，并拒绝同一输入中的消息残余。
+ *          状态行、头区、解码正文与 chunk/trailer overhead 使用独立上限。
+ * @note 解析失败后本连接不再入池；DoH 不实现 HTTP pipelining，也不把残余字节带入下一查询。
  * @note 服务器仍可能按自身策略关闭 keep-alive 连接：从池中复用的
  *       连接首次收发失败由上层做一次新建重试（见 Upstream）
  */
@@ -14,12 +16,15 @@
 #pragma once
 
 #include "Config.hpp"
+#include "Detail/TlsTransport.hpp"
 #include "Format.hpp"
 #include "Transport.hpp"
 
+#include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Utility/Http/ForwardResponseFraming.hpp>
+
 #include <boost/asio.hpp>
 
-#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -38,13 +43,12 @@ namespace Preview::Network::Dns
     /**
      * @struct DohOptions
      * @brief DoH 传输构造选项
-     * @details 将执行器、超时、TLS 上下文和 HTTP 参数收敛为
-     *          一个配置对象，避免构造函数参数过多。
+     * @details 将执行器、TLS 上下文和 HTTP 参数收敛为一个配置对象，
+     *          避免构造函数参数过多；超时由每次操作的绝对 deadline 决定。
      */
     struct DohOptions
     {
         Net::any_io_executor Executor;
-        std::chrono::milliseconds Timeout;
         std::shared_ptr<Ssl::context> Context;
         std::string HttpPath;
         std::string HostHeader;
@@ -59,22 +63,37 @@ namespace Preview::Network::Dns
     public:
         /**
          * @brief 构造 DoH 传输
-         * @param options 执行器、超时、TLS 上下文和 HTTP 参数
+         * @param Options 执行器、TLS 上下文和 HTTP 参数
          */
         explicit DohTransport(DohOptions Options)
-            : Tls_(std::move(Options.Executor), Options.Timeout, std::move(Options.Context)),
+            : Tls_(std::move(Options.Executor), std::move(Options.Context)),
               HttpPath_(std::move(Options.HttpPath)), HostHeader_(std::move(Options.HostHeader))
         {
         }
 
-        auto Connect(const Net::ip::tcp::endpoint &Endpoint, const Server &ServerConfig)
+        /**
+         * @brief 建立底层 TLS 连接
+         * @param Endpoint 上游端点
+         * @param ServerConfig SNI 与证书校验策略
+         * @param Deadline 本次尝试的绝对截止时刻
+         * @return 建连错误；deadline 到期返回 Timeout
+         */
+        [[nodiscard]] auto Connect(const Net::ip::tcp::endpoint &Endpoint, const Server &ServerConfig,
+                                   const Detail::AttemptDeadline Deadline)
             -> Net::awaitable<boost::system::error_code>
         {
-            co_return co_await Tls_.Connect(Endpoint, ServerConfig);
+            co_return co_await Tls_.Connect(Endpoint, ServerConfig, Deadline);
         }
 
-        /// 发送 HTTP/1.1 POST（头 + DNS 报文合并单次写：一个 TLS 记录）
-        auto Send(std::span<const std::uint8_t> Wire) -> Net::awaitable<boost::system::error_code>
+        /**
+         * @brief 发送 HTTP/1.1 POST（头 + DNS 报文合并单次写：一个 TLS 记录）
+         * @param Wire DNS 查询报文；只借用到发送完成
+         * @param Deadline 本次尝试的绝对截止时刻
+         * @return 发送错误；deadline 到期返回 Timeout
+         */
+        [[nodiscard]] auto Send(std::span<const std::uint8_t> Wire,
+                                const Detail::AttemptDeadline Deadline)
+            -> Net::awaitable<boost::system::error_code>
         {
             std::string Request;
             Request.reserve(224 + HttpPath_.size() + HostHeader_.size() + Wire.size());
@@ -88,140 +107,99 @@ namespace Preview::Network::Dns
             Request += "\r\nConnection: keep-alive\r\n\r\n";
             Request.append(reinterpret_cast<const char *>(Wire.data()), Wire.size());
 
-            boost::system::error_code ErrorCode;
-            Tls_.Arm();
-            co_await Net::async_write(Tls_.Stream(), Net::buffer(Request),
-                                      Net::redirect_error(Net::use_awaitable, ErrorCode));
-            Tls_.Disarm();
-            co_return ErrorCode;
+            const auto Bytes = std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t *>(Request.data()), Request.size());
+            co_return co_await Tls_.WriteAll(Bytes, Deadline);
         }
 
-        /// 读取并解析 HTTP 响应，剥离出 DNS 报文体的原始字节
-        auto Receive() -> Net::awaitable<EcResult<std::vector<std::uint8_t>>>
+        /**
+         * @brief 读取并解析 HTTP 响应，剥离出 DNS 报文体的原始字节
+         * @param Deadline 本次尝试的绝对截止时刻
+         * @return DNS 应答字节或 HTTP/传输错误；deadline 到期返回 Timeout
+         */
+        [[nodiscard]] auto Receive(const Detail::AttemptDeadline Deadline)
+            -> Net::awaitable<EcResult<std::vector<std::uint8_t>>>
         {
-            constexpr std::string_view Delim = "\r\n\r\n";
-            constexpr std::size_t MaxHeaderBytes = 65536;
-            constexpr std::size_t MaxBodyBytes = 65536;
-            const auto Bad = []()
-            {
-                return boost::system::errc::make_error_code(boost::system::errc::bad_message);
-            };
+            constexpr std::size_t MaxHeaderBytes = 65536U;
+            constexpr std::size_t MaxBodyBytes = 65536U;
+            constexpr std::size_t MaxFramingBytes = 65536U;
+            Preview::Http11::ForwardResponseFraming Framing({
+                .CaptureBody = true,
+                .MaxHeaderBytes = MaxHeaderBytes,
+                .MaxDecodedBodyBytes = MaxBodyBytes,
+                .MaxFramingBytes = MaxFramingBytes,
+            });
 
-            // ── 1. 读到头区结束（\r\n\r\n），累计上限 64KB ──
-            std::string Raw;
-            boost::system::error_code ErrorCode;
-            while (Raw.find(Delim) == std::string::npos)
+            while (!Framing.IsComplete())
             {
                 std::array<std::uint8_t, 2048> Buffer{};
-                Tls_.Arm();
-                const auto Count = co_await Tls_.Stream().async_read_some(
-                    Net::buffer(Buffer), Net::redirect_error(Net::use_awaitable, ErrorCode));
-                Tls_.Disarm();
-                if (ErrorCode)
+                const auto Chunk = co_await Tls_.ReadSome(
+                    std::span<std::uint8_t>(Buffer.data(), Buffer.size()), Deadline);
+                if (!Chunk)
                 {
-                    co_return std::unexpected(ErrorCode);
+                    const auto Native = Chunk.error();
+                    Close();
+                    co_return std::unexpected(Native);
                 }
-                Raw.append(reinterpret_cast<const char *>(Buffer.data()), Count);
-                if (Raw.size() > MaxHeaderBytes)
+                if (*Chunk == 0U)
                 {
-                    co_return std::unexpected(Bad());
+                    Close();
+                    co_return std::unexpected(
+                        Preview::make_error_code(Preview::Error::UnexpectedEof));
                 }
-            }
 
-            // ── 2. 状态码必须为 200 ──
-            const auto HeaderEnd = Raw.find(Delim);
-            const auto HeaderView =
-                std::string_view(Raw).substr(0, HeaderEnd);
-            if (!HeaderView.starts_with("HTTP/1.1 200") && !HeaderView.starts_with("HTTP/1.0 200"))
-            {
-                co_return std::unexpected(Bad());
-            }
+                const auto Input = std::as_bytes(std::span(Buffer.data(), *Chunk));
+                const auto Framed = Framing.Consume(Input);
+                if (Framed.ErrorCode != Preview::Error::None)
+                {
+                    const auto Native = Preview::make_error_code(Framed.ErrorCode);
+                    Close();
+                    co_return std::unexpected(Native);
+                }
+                if (Framed.Accepted != Input.size())
+                {
+                    Close();
+                    co_return std::unexpected(
+                        Preview::make_error_code(Preview::Error::BadMessage));
+                }
 
-            // ── 3. Content-Length 仅在头区内解析（纯数字，体上限 64KB）──
-            const auto ClKey = std::string_view("Content-Length:");
-            auto ClPos = HeaderView.find(ClKey);
-            if (ClPos == std::string_view::npos)
-            {
-                ClPos = HeaderView.find("content-length:"); // 小写形式同样自此处起解析
-            }
-            std::size_t ContentLength = 0;
-            if (ClPos != std::string_view::npos)
-            {
-                auto Value = HeaderView.substr(ClPos + ClKey.size());
-                const auto ValueEnd = Value.find("\r\n");
-                if (ValueEnd != std::string_view::npos)
+                if (Framing.HasFinalResponseHeaders())
                 {
-                    Value = Value.substr(0, ValueEnd);
-                }
-                std::size_t Start = 0;
-                while (Start < Value.size() && (Value[Start] == ' ' || Value[Start] == '\t'))
-                {
-                    ++Start; // 跳过冒号后的空白
-                }
-                for (auto Index = Start; Index < Value.size(); ++Index)
-                {
-                    const auto Character = Value[Index];
-                    if (Character < '0' || Character > '9')
+                    const auto &Fields = Framing.ResponseFields();
+                    const bool HasSingleLength = Fields.HasContentLength &&
+                                                 !Fields.HasTransferEncoding &&
+                                                 Fields.ContentLengthFieldCount == 1U &&
+                                                 Fields.ContentLength > 0U &&
+                                                 Fields.ContentLength <= MaxBodyBytes;
+                    const bool HasSingleChunked = Fields.HasTransferEncoding &&
+                                                  !Fields.HasContentLength &&
+                                                  Fields.TransferCodingCount == 1U &&
+                                                  Fields.FinalTransferCodingChunked;
+                    if (Framing.StatusCode() != 200 ||
+                        (!HasSingleLength && !HasSingleChunked) ||
+                        Fields.ContentTypeFieldCount != 1U ||
+                        !Fields.ContentTypeIs("application/dns-message"))
                     {
-                        break;
-                    }
-                    ContentLength = ContentLength * 10 +
-                                    static_cast<std::size_t>(Character - '0');
-                    if (ContentLength > MaxBodyBytes)
-                    {
-                        co_return std::unexpected(Bad());
+                        Close();
+                        co_return std::unexpected(
+                            Preview::make_error_code(Preview::Error::BadMessage));
                     }
                 }
             }
-            if (ContentLength == 0)
-            {
-                co_return std::unexpected(Bad());
-            }
 
-            // ── 4. 头区后已到达的字节 + 补读剩余 ──
-            std::vector<std::uint8_t> Body(
-                Raw.begin() + static_cast<std::ptrdiff_t>(HeaderEnd + Delim.size()), Raw.end());
-            if (Body.size() > ContentLength)
-            {
-                Body.resize(ContentLength);
-            }
-            while (Body.size() < ContentLength)
-            {
-                std::array<std::uint8_t, 2048> Buffer{};
-                Tls_.Arm();
-                const auto Count = co_await Tls_.Stream().async_read_some(
-                    Net::buffer(Buffer), Net::redirect_error(Net::use_awaitable, ErrorCode));
-                Tls_.Disarm();
-                if (ErrorCode)
-                {
-                    co_return std::unexpected(ErrorCode);
-                }
-                const auto Take = std::min<std::size_t>(
-                    Count, ContentLength - Body.size());
-                Body.insert(Body.end(), Buffer.begin(), Buffer.begin() + static_cast<std::ptrdiff_t>(Take));
-            }
-            co_return Body;
+            co_return Framing.TakeDecodedBody();
         }
 
-        auto IsOpen() const -> bool
+        /// 底层连接是否仍打开
+        [[nodiscard]] auto IsOpen() const -> bool
         {
             return Tls_.IsOpen();
         }
 
+        /// 关闭底层连接
         auto Close() -> void
         {
             Tls_.Close();
-        }
-
-        /// 暴露给池/上层：底层 TLS 流的 Arm/Disarm 由本类收发操作委托使用
-        void Arm()
-        {
-            Tls_.Arm();
-        }
-
-        void Disarm()
-        {
-            Tls_.Disarm();
         }
 
     private:

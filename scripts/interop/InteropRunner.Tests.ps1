@@ -1,3 +1,7 @@
+param(
+    [switch]$StaticOnly
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -8,6 +12,58 @@ function Assert-Equal([object]$Expected, [object]$Actual, [string]$Message) {
     if ($Expected -ne $Actual) {
         throw "$Message. Expected '$Expected', got '$Actual'."
     }
+}
+
+function Assert-ClearInteropArtifactsContract {
+    $SourcePath = Join-Path $PSScriptRoot 'Invoke-Interop.ps1'
+    $Source = Get-Content -LiteralPath $SourcePath -Raw -ErrorAction Stop
+    $FunctionSource = [regex]::Match(
+        $Source,
+        '(?ms)^function Clear-InteropArtifacts \{.*?(?=^function Stop-InteropProcessTree \{)'
+    ).Value
+    Assert-Equal $true ($FunctionSource.Length -gt 0) 'cleanup function source'
+    Assert-Equal $true ($FunctionSource -match '(?ms)\bforeach\s*\(\s*\$Artifact\s+in\s+\$Artifacts') `
+        'cleanup handles artifacts individually'
+    Assert-Equal $true ($FunctionSource -match '(?ms)\btry\s*\{.*?\bcatch\s*\{') `
+        'cleanup skips an individual removal failure'
+    Assert-Equal $true ($FunctionSource -match 'Remove-Item\s+-LiteralPath\s+\$Artifact\.FullName\s+-Force\s+-ErrorAction\s+Stop') `
+        'cleanup removes the selected artifact'
+    Assert-Equal $true ($FunctionSource -match '\bWrite-Warning\b') `
+        'cleanup records a skipped artifact'
+    Assert-Equal $false ($FunctionSource -match '\|\s*Remove-Item\b') `
+        'cleanup does not use a terminating deletion pipeline'
+}
+
+Assert-ClearInteropArtifactsContract
+
+function Assert-TrusttunnelReadinessContract {
+    $SourcePath = Join-Path $PSScriptRoot 'Run-Matrix.ps1'
+    $Source = Get-Content -LiteralPath $SourcePath -Raw -ErrorAction Stop
+    $WaitFunctionSource = [regex]::Match(
+        $Source,
+        '(?ms)^function Wait-TcpReady \{.*?(?=^function Wait-OutputReady \{)'
+    ).Value
+    Assert-Equal $true ($WaitFunctionSource.Length -gt 0) 'TCP readiness function source'
+    Assert-Equal $true ($WaitFunctionSource -match '\$Owned\s+-ne\s+\$true') `
+        'TCP readiness fails closed when ownership is not confirmed'
+
+    $TrusttunnelFunctionSource = [regex]::Match(
+        $Source,
+        '(?ms)^function Invoke-TrusttunnelInterop \{.*?(?=^function Invoke-TuicInterop \{)'
+    ).Value
+    Assert-Equal $true ($TrusttunnelFunctionSource.Length -gt 0) 'TrustTunnel function source'
+    Assert-Equal $true ($TrusttunnelFunctionSource -match
+        'Wait-TcpReady\s+''127\.0\.0\.1''\s+\$TrusttunnelPort\s+-ProcessId\s+\$GoServerProcess\.Id') `
+        'Go TrustTunnel readiness is bound to the launched process'
+    Assert-Equal $true ($TrusttunnelFunctionSource -match
+        'Wait-TcpReady\s+''127\.0\.0\.1''\s+\$TrusttunnelPort\s+-ProcessId\s+\$CppServerProcess\.Id') `
+        'Preview TrustTunnel readiness is bound to the launched process'
+}
+
+Assert-TrusttunnelReadinessContract
+if ($StaticOnly) {
+    Write-Output 'PASS: InteropRunner static contracts'
+    return
 }
 
 Assert-Equal 'pass' (Get-InteropStatus -ExitCode 0 -Output 'PASS: echo') 'zero exit is pass'
@@ -22,6 +78,19 @@ Assert-Equal 'production-blocked' (Get-GateDClassification -Scope full -Status b
 Assert-Equal 'preview-only-blocked' (Get-GateDClassification -Scope preview-only -Status blocked-production-prerequisite) 'preview-only gate classifies production prerequisite'
 Assert-Equal 'preview-only-blocked' (Get-GateDClassification -Scope preview-only -Status environment-unavailable) 'preview-only gate classifies missing environment'
 Assert-Equal 'failed' (Get-GateDClassification -Scope full -Status failed) 'gate preserves hard failures'
+
+$Listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+$Listener.Start()
+try {
+    $ListenerPort = ([System.Net.IPEndPoint]$Listener.LocalEndpoint).Port
+    Assert-Equal $true (Test-InteropOwnedTcpPort -ProcessId $PID -Port $ListenerPort) `
+        'listener readiness recognizes the owning process'
+    Assert-Equal $false (Test-InteropOwnedTcpPort -ProcessId ($PID + 1) -Port $ListenerPort) `
+        'listener readiness rejects a stale process owner'
+}
+finally {
+    $Listener.Stop()
+}
 
 $ReferenceVersions = Get-InteropReferenceVersions -RepoRoot (Get-Location).Path
 Assert-Equal 'v1.19.30' $ReferenceVersions['github.com/metacubex/mihomo'] 'mihomo reference version'
@@ -114,6 +183,25 @@ try {
 }
 finally {
     Remove-Item -LiteralPath $CleanupRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$TimeoutRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('prism-interop-timeout-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $TimeoutRoot -Force | Out-Null
+try {
+    $PowerShell = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if (-not $PowerShell) {
+        $PowerShell = (Get-Command powershell -ErrorAction Stop).Source
+    }
+    $TimeoutResult = Invoke-InteropCase -Executable $PowerShell -Arguments @(
+        '-NoProfile', '-Command', 'Start-Sleep -Seconds 2') `
+        -Protocol 'synthetic' -Direction 'timeout' -Scenario 'bounded-wait' `
+        -Implementation 'runner-regression' -Commit 'deadbeef' -Platform 'windows-amd64' `
+        -OutputDirectory $TimeoutRoot -TimeoutSeconds 1
+    Assert-Equal 124 $TimeoutResult.exit_code 'timed-out case exit code'
+    Assert-Equal 'protocol-failure' $TimeoutResult.status 'timed-out case status'
+}
+finally {
+    Remove-Item -LiteralPath $TimeoutRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Output 'PASS: InteropRunner classifier tests'

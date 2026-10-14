@@ -1,6 +1,32 @@
 cmake_minimum_required(VERSION 3.23)
 project(Prism LANGUAGES C CXX)
 
+# MinGW 的宿主环境可能缺少处理器名称；依赖库仍按目标架构选择汇编源。
+# 只补充缺失值，使用编译器目标宏，不能把宿主架构冒充交叉编译目标。
+if(MINGW AND NOT CMAKE_SYSTEM_PROCESSOR AND NOT CMAKE_CROSSCOMPILING)
+    include(CheckCSourceCompiles)
+    check_c_source_compiles("
+#if !defined(__x86_64__) && !defined(_M_X64)
+#error Target is not x86_64
+#endif
+int main(void) { return 0; }
+" PRISM_TARGET_X86_64)
+    check_c_source_compiles("
+#if !defined(__i386__) && !defined(_M_IX86)
+#error Target is not x86
+#endif
+int main(void) { return 0; }
+" PRISM_TARGET_X86_32)
+    if(PRISM_TARGET_X86_64)
+        set(CMAKE_SYSTEM_PROCESSOR "x86_64")
+    elseif(PRISM_TARGET_X86_32)
+        set(CMAKE_SYSTEM_PROCESSOR "x86")
+    else()
+        message(FATAL_ERROR "MinGW target architecture is unavailable; specify a toolchain processor")
+    endif()
+    message(STATUS "MinGW compiler target processor: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
 # Project-owned test switch. Third-party FetchContent projects temporarily use
 # BUILD_TESTING=OFF below, but Preview/Contract tests are enabled by default
 # and can only be disabled explicitly with -DPRISM_BUILD_TESTING=OFF.
@@ -39,7 +65,7 @@ include(FetchContent)
 # 依赖缓存：复用已有构建的 _deps 目录，避免重复下载
 # 必须在 FetchContent_MakeAvailable 之前设置，否则缓存变量不生效
 if(NOT DEFINED PRISM_DEPS_CACHE)
-    set(PRISM_DEPS_CACHE "" CACHE PATH "Reuse dependencies from another build's _deps directory")
+    set(PRISM_DEPS_CACHE "" CACHE PATH "Build directory containing the reusable _deps source cache")
 endif()
 message(STATUS "PRISM_DEPS_CACHE=${PRISM_DEPS_CACHE}")
 
@@ -90,6 +116,10 @@ target_include_directories(BoostSystemHeaderOnly INTERFACE ${boost_include_dir})
 # BOOST_ERROR_CODE_HEADER_ONLY: boost::system::error_code 纯头文件实现，不链接 boost_system 库
 # BOOST_SYSTEM_NO_LIB: 禁止 CMake 自动链接 Boost.System 共享库
 target_compile_definitions(BoostSystemHeaderOnly INTERFACE BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
+if(MINGW)
+    # MinGW 的标准库可先引入 _POSIX_THREADS，统一线程 ABI，避免头文件顺序改变 Asio 类型。
+    target_compile_definitions(BoostSystemHeaderOnly INTERFACE BOOST_ASIO_HAS_PTHREADS=1)
+endif()
 
 # --- glaze v6.5.1 ---
 # 高性能 JSON 序列化库，纯 header-only。
@@ -236,18 +266,28 @@ if(MINGW)
     # 1. 从 sources.cmake 中移除 fiat_p256_adx 文件
     set(SOURCES_CMAKE "${boringssl_SOURCE_DIR}/gen/sources.cmake")
     file(READ ${SOURCES_CMAKE} SOURCES_CONTENT)
+    set(SOURCES_ORIGINAL "${SOURCES_CONTENT}")
     string(REPLACE "  third_party/fiat/asm/fiat_p256_adx_mul.S\n" "" SOURCES_CONTENT "${SOURCES_CONTENT}")
     string(REPLACE "  third_party/fiat/asm/fiat_p256_adx_sqr.S\n" "" SOURCES_CONTENT "${SOURCES_CONTENT}")
-    file(WRITE ${SOURCES_CMAKE} "${SOURCES_CONTENT}")
+    if(NOT SOURCES_CONTENT STREQUAL SOURCES_ORIGINAL)
+        file(WRITE ${SOURCES_CMAKE} "${SOURCES_CONTENT}")
+    endif()
 
     # 2. 修改 p256_64.h 中的条件编译，添加 !defined(OPENSSL_WINDOWS)
     set(P256_64_H "${boringssl_SOURCE_DIR}/third_party/fiat/p256_64.h")
     file(READ ${P256_64_H} P256_CONTENT)
-    string(REPLACE
-        "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__)"
-        "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__) && !defined(OPENSSL_WINDOWS)"
-        P256_CONTENT "${P256_CONTENT}")
-    file(WRITE ${P256_64_H} "${P256_CONTENT}")
+    set(P256_ORIGINAL "${P256_CONTENT}")
+    set(P256_WINDOWS_GUARD "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__) && !defined(OPENSSL_WINDOWS)")
+    string(FIND "${P256_CONTENT}" "${P256_WINDOWS_GUARD}" P256_WINDOWS_GUARD_POSITION)
+    if(P256_WINDOWS_GUARD_POSITION EQUAL -1)
+        string(REPLACE
+            "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__)"
+            "${P256_WINDOWS_GUARD}"
+            P256_CONTENT "${P256_CONTENT}")
+    endif()
+    if(NOT P256_CONTENT STREQUAL P256_ORIGINAL)
+        file(WRITE ${P256_64_H} "${P256_CONTENT}")
+    endif()
 endif()
 
 add_subdirectory(${boringssl_SOURCE_DIR} ${boringssl_BINARY_DIR})
@@ -273,24 +313,35 @@ FetchContent_MakeAvailable(blake3)
 
 # BLAKE3 C 库（手动构建，不使用 Rust/Cargo）
 set(BLAKE3_C_DIR "${blake3_SOURCE_DIR}/c")
+# 以编译器的目标宏判定架构；Windows 进程环境可能不提供处理器名称。
+include(CheckCSourceCompiles)
+check_c_source_compiles("
+#if !defined(__i386__) && !defined(__x86_64__) && !defined(_M_IX86) && !defined(_M_X64)
+#error Target is not x86
+#endif
+int main(void) { return 0; }
+" PRISM_TARGET_X86)
 add_library(Blake3C STATIC
     ${BLAKE3_C_DIR}/blake3.c
     ${BLAKE3_C_DIR}/blake3_dispatch.c
     ${BLAKE3_C_DIR}/blake3_portable.c
-    ${BLAKE3_C_DIR}/blake3_sse2.c
-    ${BLAKE3_C_DIR}/blake3_sse41.c
-    ${BLAKE3_C_DIR}/blake3_avx2.c
-    ${BLAKE3_C_DIR}/blake3_avx512.c
 )
 target_include_directories(Blake3C PUBLIC ${BLAKE3_C_DIR})
 # BLAKE3 各 SIMD 源文件需要对应的指令集编译选项（per-file）。
-# 非 x86 架构不传递 GCC x86 专用参数，交由 BLAKE3 的可移植实现处理。
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|x86|i[3-6]86)$" AND
-   CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+# 非 x86 或不支持这些选项的编译器只编译可移植实现。
+if(PRISM_TARGET_X86 AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_sources(Blake3C PRIVATE
+        ${BLAKE3_C_DIR}/blake3_sse2.c
+        ${BLAKE3_C_DIR}/blake3_sse41.c
+        ${BLAKE3_C_DIR}/blake3_avx2.c
+        ${BLAKE3_C_DIR}/blake3_avx512.c)
     set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
     set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
     set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
     set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
+else()
+    target_compile_definitions(Blake3C PRIVATE
+        BLAKE3_NO_SSE2 BLAKE3_NO_SSE41 BLAKE3_NO_AVX2 BLAKE3_NO_AVX512 BLAKE3_USE_NEON=0)
 endif()
 
 # --- nghttp2 ---

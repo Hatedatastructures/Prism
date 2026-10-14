@@ -14,9 +14,9 @@ namespace Preview::Diagnose
      */
     enum class RenderMode : std::uint8_t
     {
-        CompactHuman,    ///< 上下文正文只包含固定身份前缀和消息；时间等元数据由 sink pattern 添加。
+        CompactHuman, ///< 上下文正文只包含固定身份前缀和消息；时间等元数据由 sink pattern 添加。
         HumanWithFields, ///< 上下文正文还包含可见字段；时间等元数据由 sink pattern 添加。
-        Structured,      ///< 输出包含时间、级别、身份、字段和消息的 JSON 行。
+        Structured, ///< 输出包含时间、级别、身份、字段和消息的 JSON 行。
     };
 
 } // namespace Preview::Diagnose

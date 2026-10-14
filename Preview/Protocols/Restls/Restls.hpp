@@ -1,11 +1,7 @@
 /**
  * @file Restls.hpp
- * @brief Restls 协议入口（聚合头 + 工厂函数）
- * @details 协议族统一入口：
- * - 工厂函数（本文件）：Connect / Accept ——认证握手在工厂内部完成
- * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
- * - 连接：Conn（流，Conn.hpp，BLAKE3 认证 + 数据透传）
- * - 编解码/认证：Codec.hpp（Secret 派生 + ServerMask + auth_mac + mask）
+ * @brief Restls 协议的稳定客户端工厂与 server-session façade。
+ * @details 根目录保留配置、typed 工厂和 ServerSession；record、认证、连接与 relay 状态由本协议 Detail owner 实现。
  */
 
 #pragma once
@@ -14,6 +10,7 @@
 
 #include <array>
 #include <cstddef>
+#include <expected>
 #include <memory>
 #include <span>
 #include <string>
@@ -22,10 +19,10 @@
 
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Transport/Transmission.hpp>
-#include <Preview/Protocols/Restls/Codec.hpp>
-#include <Preview/Protocols/Restls/Conn.hpp>
+#include <Preview/Protocols/Restls/Detail/Record.hpp>
+#include <Preview/Protocols/Restls/Detail/Session.hpp>
+#include <Preview/Protocols/Restls/Detail/Control.hpp>
 #include <Preview/Protocols/Restls/Server.hpp>
-#include <Preview/Protocols/Restls/Carrier.hpp>
 #include <Preview/Protocols/Restls/Types.hpp>
 
 namespace Preview::Restls
@@ -55,26 +52,30 @@ namespace Preview::Restls
      * @param Upstream 上游传输（所有权移交）
      * @param Config 客户端配置
      * @param ServerRandom 服务端随机数（32 字节）
-     * @return 错误码与协议连接（失败时连接为空）
+     * @return 成功时为唯一连接 owner；失败时保留协议分类与底层 cause
      */
     [[nodiscard]] inline auto Connect(
         SharedTransmission Upstream,
         const ClientConfig &Config,
         std::span<const std::uint8_t> ServerRandom)
-        -> Net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<Result<SharedConn>>
     {
-        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.password);
-        const auto ErrorCode = co_await Connection->WriteHandshake(ServerRandom);
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        if (!Upstream)
         {
-            Result = SharedConn(std::move(Connection));
+            co_return std::unexpected(ProtocolFailure(Error::NotOpen));
         }
-        else
+        auto Connection = std::make_shared<Detail::Conn<>>(std::move(Upstream), Config.password);
+        const auto Handshake = co_await Connection->WriteHandshake(ServerRandom);
+        if (!Handshake)
         {
-            Connection->Close();
+            const auto Retired = co_await Detail::TransportRetirement::RetireAndDrain(std::move(Connection));
+            const auto CleanupFailure = Retired
+                                            ? Failure{}
+                                            : Detail::WireFailure(Retired.error());
+            co_return std::unexpected(
+                PreserveFirstFailure(Handshake.error(), CleanupFailure));
         }
-        co_return std::pair{ErrorCode, std::move(Result)};
+        co_return SharedConn(std::move(Connection));
     }
 
     /**
@@ -82,26 +83,30 @@ namespace Preview::Restls
      * @param Upstream 上游传输（所有权移交）
      * @param Config 服务端配置
      * @param ServerRandom 服务端随机数（32 字节）
-     * @return 错误码与协议连接（失败时连接为空）
+     * @return 成功时为唯一连接 owner；失败时保留协议分类与底层 cause
      */
     [[nodiscard]] inline auto Accept(
         SharedTransmission Upstream,
         const ServerConfig &Config,
         std::span<const std::uint8_t> ServerRandom)
-        -> Net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<Result<SharedConn>>
     {
-        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.password);
-        const auto ErrorCode = co_await Connection->ReadHandshake(ServerRandom);
-        SharedConn Result;
-        if (ErrorCode == Error::None)
+        if (!Upstream)
         {
-            Result = SharedConn(std::move(Connection));
+            co_return std::unexpected(ProtocolFailure(Error::NotOpen));
         }
-        else
+        auto Connection = std::make_shared<Detail::Conn<>>(std::move(Upstream), Config.password);
+        const auto Handshake = co_await Connection->ReadHandshake(ServerRandom);
+        if (!Handshake)
         {
-            Connection->Close();
+            const auto Retired = co_await Detail::TransportRetirement::RetireAndDrain(std::move(Connection));
+            const auto CleanupFailure = Retired
+                                            ? Failure{}
+                                            : Detail::WireFailure(Retired.error());
+            co_return std::unexpected(
+                PreserveFirstFailure(Handshake.error(), CleanupFailure));
         }
-        co_return std::pair{ErrorCode, std::move(Result)};
+        co_return SharedConn(std::move(Connection));
     }
 
 } // namespace Preview::Restls

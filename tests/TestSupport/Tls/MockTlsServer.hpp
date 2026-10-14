@@ -1,23 +1,14 @@
 /**
  * @file MockTlsServer.hpp
- * @brief 可复用的 Mock TLS 后端服务器（echo）
- * @details 使用 BoringSSL 在内存中完成 TLS 握手，将原始 TLS 记录写入 TCP socket。
- * 这允许 ShadowTLS handshake 函数直接从 socket 读取 TLS 记录，也用于 DoT/DoH
- * 等 TLS 承载协议的路径覆盖测试。
- *
- * 采用主协程内联 flush 模式：每个数据块到达后，推进握手 / 读取应用数据并
- * echo，随后将 WriteBio 中积累的全部 TLS 记录冲刷到 socket。TLS1.3 握手
- * 的多阶段输出（ServerHello → CCS/Finished）都能及时发出，无独立转发协程，
- * 避免了通道/信号等待的兼容性与竞态问题。
- *
- * 用法：
- *   tcp::acceptor acceptor(ioc, {address, 0});
- *   co_spawn(ioc, MockTlsServer::Run(acceptor, 3), detached);
+ * @brief 测试用内存 BIO TLS 服务端及 DoH 应答构造器。
+ * @details 服务端身份、单连接 TLS 状态机和 DoH 请求累积器分别拥有自己的资源与状态。
+ *          TLS 记录经 TCP socket 读写；应用数据默认原样回显，也可交给显式应答器。
  */
 
 #pragma once
 
 #include <boost/asio.hpp>
+#include <boost/system/system_error.hpp>
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -26,266 +17,385 @@
 
 #include <array>
 #include <cstddef>
-#include <cstring>
 #include <functional>
+#include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Preview::Testing::Tls
 {
     namespace net = boost::asio;
 
-    struct MockTlsServer
+    using TlsResponder =
+        std::function<std::optional<std::vector<std::byte>>(const std::byte *, std::size_t)>;
+
+    /**
+     * @brief 拥有 TLS 测试身份及其 SSL_CTX。
+     * @details 私钥和上下文存活至最后一个连接处理完毕；证书的引用由 SSL_CTX 持有。
+     */
+    class TlsServerIdentity final
     {
-        /**
-         * @brief 运行 TLS echo 服务器
-         * @param acceptor TCP 接受器
-         * @param MaxConnections 最大连接数，达到后退出
-         * @param Responder 可选应答工厂：收到应用数据时调用，返回的构造应答
-         *                  取代默认 echo 写回对端（用于 DoH 等需要结构化应答的
-         *                  路径测试）。返回 nullopt 表示"本轮不应答、继续等待
-         *                  后续数据"（请求分多条 TLS 记录到达时由工厂自行累积）；
-         *                  为空表示使用默认 echo
-         * @details 使用 BoringSSL 在内存中完成 TLS 握手，将原始 TLS 记录
-         *          通过 BIO 写入 TCP socket；应用数据原样 echo
-         */
-        static auto Run(net::ip::tcp::acceptor &acceptor, int MaxConnections = 1,
-                        std::function<std::optional<std::vector<std::byte>>(const std::byte *,
-                                                                            std::size_t)>
-                            Responder = {}) -> net::awaitable<void>
+    public:
+        [[nodiscard]] static auto Create() -> std::unique_ptr<TlsServerIdentity>
         {
-            // 创建 SSL_CTX
-            auto *SslCtx = SSL_CTX_new(TLS_method());
-            SSL_CTX_set_min_proto_version(SslCtx, TLS1_3_VERSION);
-            SSL_CTX_set_max_proto_version(SslCtx, TLS1_3_VERSION);
-
-            // 生成自签名 ECDSA P-256 证书（TLS1.3 客户端必支持 ecdsa_secp256r1_sha256；
-            // 此 BoringSSL 客户端默认签名算法不含 Ed25519，故不使用 Ed25519）
-            auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
-            EVP_PKEY *pkey = nullptr;
-            if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
-                EVP_PKEY_CTX_set_ec_paramgen_curve_nid(PkeyCtx, NID_X9_62_prime256v1) > 0)
+            auto Identity = std::unique_ptr<TlsServerIdentity>{new TlsServerIdentity{}};
+            Identity->Context_.reset(SSL_CTX_new(TLS_method()));
+            if (!Identity->Context_)
             {
-                EVP_PKEY_keygen(PkeyCtx, &pkey);
+                return {};
             }
-            EVP_PKEY_CTX_free(PkeyCtx);
-
-            if (!pkey)
+            if (SSL_CTX_set_min_proto_version(Identity->Context_.get(), TLS1_3_VERSION) != 1
+                || SSL_CTX_set_max_proto_version(Identity->Context_.get(), TLS1_3_VERSION) != 1)
             {
-                SSL_CTX_free(SslCtx);
+                return {};
+            }
+
+            auto KeyContext = std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)>{
+                EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr), &EVP_PKEY_CTX_free};
+            if (!KeyContext || EVP_PKEY_keygen_init(KeyContext.get()) <= 0
+                || EVP_PKEY_CTX_set_ec_paramgen_curve_nid(
+                       KeyContext.get(), NID_X9_62_prime256v1)
+                       <= 0)
+            {
+                return {};
+            }
+
+            EVP_PKEY *GeneratedKey = nullptr;
+            const int KeygenResult = EVP_PKEY_keygen(KeyContext.get(), &GeneratedKey);
+            std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> KeyOwner{
+                GeneratedKey, &EVP_PKEY_free};
+            if (KeygenResult <= 0 || !KeyOwner)
+            {
+                return {};
+            }
+            Identity->PrivateKey_ = std::move(KeyOwner);
+
+            auto Certificate = std::unique_ptr<X509, decltype(&X509_free)>{
+                X509_new(), &X509_free};
+            if (!Certificate || X509_set_version(Certificate.get(), 2) != 1
+                || ASN1_INTEGER_set(X509_get_serialNumber(Certificate.get()), 1) != 1
+                || !X509_gmtime_adj(X509_get_notBefore(Certificate.get()), 0)
+                || !X509_gmtime_adj(X509_get_notAfter(Certificate.get()), 3600 * 24))
+            {
+                return {};
+            }
+
+            auto Name = std::unique_ptr<X509_NAME, decltype(&X509_NAME_free)>{
+                X509_NAME_new(), &X509_NAME_free};
+            if (!Name
+                || X509_NAME_add_entry_by_txt(
+                       Name.get(), "CN", MBSTRING_ASC,
+                       reinterpret_cast<const unsigned char *>("MockTlsServer"), -1, -1, 0)
+                       != 1
+                || X509_set_subject_name(Certificate.get(), Name.get()) != 1
+                || X509_set_issuer_name(Certificate.get(), Name.get()) != 1
+                || X509_set_pubkey(Certificate.get(), Identity->PrivateKey_.get()) != 1
+                || X509_sign(Certificate.get(), Identity->PrivateKey_.get(), EVP_sha256()) <= 0)
+            {
+                return {};
+            }
+            if (SSL_CTX_use_certificate(Identity->Context_.get(), Certificate.get()) != 1
+                || SSL_CTX_use_PrivateKey(Identity->Context_.get(), Identity->PrivateKey_.get()) != 1)
+            {
+                return {};
+            }
+            return Identity;
+        }
+
+        [[nodiscard]] auto Context() const noexcept -> SSL_CTX *
+        {
+            return Context_.get();
+        }
+
+    private:
+        TlsServerIdentity()
+            : PrivateKey_(nullptr, &EVP_PKEY_free), Context_(nullptr, &SSL_CTX_free)
+        {
+        }
+
+        std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> PrivateKey_;
+        std::unique_ptr<SSL_CTX, decltype(&SSL_CTX_free)> Context_;
+    };
+
+    /**
+     * @brief 拥有单条测试 TLS 连接的 socket、SSL 状态与内存 BIO。
+     * @details SSL 独占两个 BIO；本对象只保留非拥有 BIO 指针用于读写。
+     *          Responder 引用由外层 Run 协程持有，覆盖本连接的全部挂起周期。
+     */
+    class TlsServerConnection final
+    {
+    public:
+        TlsServerConnection(net::ip::tcp::socket Socket, SSL_CTX *Context,
+                            const TlsResponder &Responder)
+            : Socket_(std::move(Socket)), Responder_(Responder), Ssl_(nullptr, &SSL_free)
+        {
+            using BioOwner = std::unique_ptr<BIO, decltype(&BIO_free)>;
+            BioOwner ReadBio{BIO_new(BIO_s_mem()), &BIO_free};
+            BioOwner WriteBio{BIO_new(BIO_s_mem()), &BIO_free};
+            Ssl_.reset(SSL_new(Context));
+            if (!ReadBio || !WriteBio || !Ssl_)
+            {
+                return;
+            }
+
+            SSL_set_accept_state(Ssl_.get());
+            ReadBio_ = ReadBio.get();
+            WriteBio_ = WriteBio.get();
+            SSL_set_bio(Ssl_.get(), ReadBio.release(), WriteBio.release());
+            Ready_ = true;
+        }
+
+        auto Run() -> net::awaitable<void>
+        {
+            if (!Ready_)
+            {
                 co_return;
             }
 
-            auto *x509 = X509_new();
-            X509_set_version(x509, 2);
-            ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
-            X509_gmtime_adj(X509_get_notBefore(x509), 0);
-            X509_gmtime_adj(X509_get_notAfter(x509), 3600 * 24);
-
-            auto *name = X509_NAME_new();
-            X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                                       reinterpret_cast<const unsigned char *>("MockTlsServer"), -1, -1, 0);
-            X509_set_subject_name(x509, name);
-            X509_set_issuer_name(x509, name);
-            X509_NAME_free(name);
-
-            X509_set_pubkey(x509, pkey);
-            X509_sign(x509, pkey, EVP_sha256()); // ECDSA 签名需显式摘要
-
-            SSL_CTX_use_certificate(SslCtx, x509);
-            SSL_CTX_use_PrivateKey(SslCtx, pkey);
-
-            X509_free(x509);
-
-            for (int I = 0; I < MaxConnections; ++I)
+            std::array<std::byte, 16384> ReceiveBuffer{};
+            std::array<std::byte, 16384> ApplicationBuffer{};
+            while (true)
             {
-                auto Socket = co_await acceptor.async_accept(net::use_awaitable);
-
-                // 创建 BIO 对：一个给 SSL 用，一个用于读取 SSL 写出的数据
-                auto *ReadBio = BIO_new(BIO_s_mem());
-                auto *WriteBio = BIO_new(BIO_s_mem());
-
-                auto *ssl = SSL_new(SslCtx);
-                SSL_set_accept_state(ssl);
-                SSL_set_bio(ssl, ReadBio, WriteBio);
-
-                // 把 WriteBio 中积累的全部 TLS 记录冲刷到 socket；写失败返回 false
-                auto FlushOut = [&Socket, WriteBio]() -> net::awaitable<bool>
+                boost::system::error_code ErrorCode;
+                const auto Bytes = co_await Socket_.async_read_some(
+                    net::buffer(ReceiveBuffer),
+                    net::redirect_error(net::use_awaitable, ErrorCode));
+                if (ErrorCode || Bytes == 0)
                 {
-                    std::array<std::byte, 16384> buf{};
-                    for (;;)
-                    {
-                        const int N = BIO_read(WriteBio, buf.data(), static_cast<int>(buf.size()));
-                        if (N <= 0)
-                        {
-                            co_return true;
-                        }
-                        boost::system::error_code ec;
-                        co_await net::async_write(Socket, net::buffer(buf.data(), N),
-                                                  net::redirect_error(net::use_awaitable, ec));
-                        if (ec)
-                        {
-                            co_return false;
-                        }
-                    }
-                };
-
-                // 主循环：读 socket → 喂 ReadBio → 推进握手 / 读取应用数据并 echo
-                std::array<std::byte, 16384> RecvBuf{};
-                std::array<std::byte, 16384> AppBuf{};
-                while (true)
+                    co_return;
+                }
+                const auto Input = std::span<const std::byte>(ReceiveBuffer.data(), Bytes);
+                if (!(co_await ProcessInput(Input, ApplicationBuffer)))
                 {
-                    boost::system::error_code ReadEc;
-                    auto N = co_await Socket.async_read_some(
-                        net::buffer(RecvBuf), net::redirect_error(net::use_awaitable, ReadEc));
+                    co_return;
+                }
+            }
+        }
 
-                    if (ReadEc || N == 0)
+    private:
+        auto ProcessInput(std::span<const std::byte> Input,
+                          std::span<std::byte> ApplicationBuffer)
+            -> net::awaitable<bool>
+        {
+            if (BIO_write(ReadBio_, Input.data(), static_cast<int>(Input.size())) <= 0)
+            {
+                co_return false;
+            }
+            if (!SSL_is_init_finished(Ssl_.get()))
+            {
+                const int Result = SSL_do_handshake(Ssl_.get());
+                if (Result <= 0)
+                {
+                    const int Error = SSL_get_error(Ssl_.get(), Result);
+                    if (Error != SSL_ERROR_WANT_READ && Error != SSL_ERROR_WANT_WRITE)
                     {
-                        break;
-                    }
-
-                    // 将收到的数据写入 ReadBio（SSL 会读取）
-                    BIO_write(ReadBio, RecvBuf.data(), static_cast<int>(N));
-
-                    // 如果 SSL 握手还没完成，尝试完成
-                    if (!SSL_is_init_finished(ssl))
-                    {
-                        const int Ret = SSL_do_handshake(ssl);
-                        if (Ret <= 0)
-                        {
-                            const int Err = SSL_get_error(ssl, Ret);
-                            if (Err != SSL_ERROR_WANT_READ && Err != SSL_ERROR_WANT_WRITE)
-                            {
-                                break; // 握手真正失败
-                            }
-                            // WANT_READ / WANT_WRITE：冲刷产出后回到读循环
-                        }
-                        if (!(co_await FlushOut()))
-                        {
-                            break;
-                        }
-                        // TLS1.3 客户端可能把 Finished 与应用数据同段送达：
-                        // 握手仍未完成则继续等输入；已完成则下沉到 SSL_read，
-                        // 消费已缓冲在 ReadBio 中的应用数据，避免双端互等
-                        if (!SSL_is_init_finished(ssl))
-                        {
-                            continue;
-                        }
-                    }
-
-                    // 握手完成后，循环读取已缓冲的应用数据并应答
-                    // （TLS 记录可能分多条，必须消费完 ReadBio 中的全部内容，
-                    //  否则客户端已发完所有记录、在等完整应答时双端互等）
-                    for (;;)
-                    {
-                        int AppN = SSL_read(ssl, AppBuf.data(), static_cast<int>(AppBuf.size()));
-                        if (AppN <= 0)
-                        {
-                            break; // WANT_READ / EOF / 错误：回到读循环
-                        }
-                        int Written = 0;
-                        if (Responder)
-                        {
-                            auto Reply = Responder(AppBuf.data(), static_cast<std::size_t>(AppN));
-                            if (!Reply)
-                            {
-                                continue; // 本轮不应答：继续等待后续数据（请求分块到达）
-                            }
-                            if (Reply->empty()
-                                || SSL_write(ssl, Reply->data(),
-                                             static_cast<int>(Reply->size()))
-                                       <= 0)
-                            {
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            Written = SSL_write(ssl, AppBuf.data(), AppN);
-                            if (Written <= 0)
-                            {
-                                break;
-                            }
-                        }
-                        if (!(co_await FlushOut()))
-                        {
-                            break;
-                        }
+                        co_return false;
                     }
                 }
-
-                SSL_free(ssl); // 这也会释放 ReadBio 和 WriteBio
+                if (!(co_await FlushOutput()))
+                {
+                    co_return false;
+                }
+                if (!SSL_is_init_finished(Ssl_.get()))
+                {
+                    co_return true;
+                }
             }
 
-            EVP_PKEY_free(pkey);
-            SSL_CTX_free(SslCtx);
+            while (true)
+            {
+                const int Bytes =
+                    SSL_read(Ssl_.get(), ApplicationBuffer.data(),
+                             static_cast<int>(ApplicationBuffer.size()));
+                if (Bytes <= 0)
+                {
+                    break;
+                }
+                if (!WriteApplicationData(ApplicationBuffer.data(),
+                                          static_cast<std::size_t>(Bytes)))
+                {
+                    break;
+                }
+                if (!(co_await FlushOutput()))
+                {
+                    break;
+                }
+            }
+            co_return true;
+        }
+
+        auto WriteApplicationData(const std::byte *Data, std::size_t Length) -> bool
+        {
+            if (Responder_)
+            {
+                auto Reply = Responder_(Data, Length);
+                if (!Reply)
+                {
+                    return true;
+                }
+                return !Reply->empty()
+                       && SSL_write(Ssl_.get(), Reply->data(),
+                                    static_cast<int>(Reply->size()))
+                              > 0;
+            }
+            return SSL_write(Ssl_.get(), Data, static_cast<int>(Length)) > 0;
+        }
+
+        auto FlushOutput() -> net::awaitable<bool>
+        {
+            std::array<std::byte, 16384> Buffer{};
+            while (true)
+            {
+                const int Bytes =
+                    BIO_read(WriteBio_, Buffer.data(), static_cast<int>(Buffer.size()));
+                if (Bytes <= 0)
+                {
+                    co_return true;
+                }
+
+                boost::system::error_code ErrorCode;
+                co_await net::async_write(
+                    Socket_, net::buffer(Buffer.data(), Bytes),
+                    net::redirect_error(net::use_awaitable, ErrorCode));
+                if (ErrorCode)
+                {
+                    co_return false;
+                }
+            }
+        }
+
+        net::ip::tcp::socket Socket_;
+        const TlsResponder &Responder_;
+        std::unique_ptr<SSL, decltype(&SSL_free)> Ssl_;
+        BIO *ReadBio_{nullptr};
+        BIO *WriteBio_{nullptr};
+        bool Ready_{false};
+    };
+
+    struct MockTlsServer
+    {
+        /**
+         * @brief 接受有限数量连接并逐条运行 TLS echo 或结构化应答。
+         * @param Acceptor TCP 接受器；其生命周期由调用方覆盖整个协程。
+         * @param MaxConnections 达到上限后退出。
+         * @param Responder 可选应用数据应答器；空值使用原样 echo，nullopt 表示继续累积输入。
+         * @details 服务端身份由本次 Run 独占；单连接状态由 TlsServerConnection 独占。
+         *          调用方关闭 acceptor 时，等待中的 accept 以 operation_aborted 正常退栈；其他错误继续传播。
+         */
+        static auto Run(net::ip::tcp::acceptor &Acceptor, int MaxConnections = 1,
+                        TlsResponder Responder = {}) -> net::awaitable<void>
+        {
+            auto Identity = TlsServerIdentity::Create();
+            if (!Identity)
+            {
+                co_return;
+            }
+
+            for (int Index = 0; Index < MaxConnections; ++Index)
+            {
+                if (!Acceptor.is_open())
+                {
+                    co_return;
+                }
+                boost::system::error_code ErrorCode;
+                auto Socket = co_await Acceptor.async_accept(
+                    net::redirect_error(net::use_awaitable, ErrorCode));
+                if (ErrorCode)
+                {
+                    if (!Acceptor.is_open() && ErrorCode == net::error::operation_aborted)
+                    {
+                        co_return;
+                    }
+                    throw boost::system::system_error(ErrorCode);
+                }
+                TlsServerConnection Connection{
+                    std::move(Socket), Identity->Context(), Responder};
+                co_await Connection.Run();
+            }
         }
     };
 
     /**
-     * @brief 构造带状态累积的 DoH 应答工厂
-     * @param statusLine HTTP 状态行（如 "HTTP/1.1 200 OK"）
-     * @details HTTP 请求可能分多条 TLS 记录到达：工厂内部累积各分块，
-     *          直到收满一个完整请求（头区结束 + 请求 Content-Length 声明的
-     *          报文体）才以指定状态行 + DNS 报文体回包，随后重置累积状态
-     *          以支持 keep-alive 连接上的后续请求。配合 MockTlsServer 的
-     *          optional 语义：未收满前返回 nullopt 继续等待
+     * @brief 构造带状态累积的 DoH 应答器。
+     * @details 请求可能分多次 TLS 读取到达；收齐头与 Content-Length 正文后回送 DNS 正文，
+     *          并清空本轮状态以支持同一 TLS 连接上的后续请求。
      */
-    inline auto MakeDohResponder(std::string_view statusLine)
-        -> std::function<std::optional<std::vector<std::byte>>(const std::byte *, std::size_t)>
+    class DohResponder final
     {
-        auto State = std::make_shared<std::string>();
-        return [State, Line = std::string(statusLine)](const std::byte *data,
-                                                       const std::size_t len)
-                   -> std::optional<std::vector<std::byte>>
+    public:
+        explicit DohResponder(std::string StatusLine)
+            : State_(std::make_shared<std::string>()), StatusLine_(std::move(StatusLine))
         {
-            State->append(reinterpret_cast<const char *>(data), len);
-            const auto HeaderEnd = State->find("\r\n\r\n");
+        }
+
+        auto operator()(const std::byte *Data, std::size_t Length)
+            -> std::optional<std::vector<std::byte>>
+        {
+            State_->append(reinterpret_cast<const char *>(Data), Length);
+            const auto HeaderEnd = State_->find("\r\n\r\n");
             if (HeaderEnd == std::string::npos)
             {
                 return std::nullopt;
             }
-            // 请求头中的 Content-Length（决定何时收满报文体）
+
             std::size_t ContentLength = 0;
-            if (const auto Pos = State->find("Content-Length:");
-                Pos != std::string::npos && Pos < HeaderEnd)
+            if (const auto Position = State_->find("Content-Length:");
+                Position != std::string::npos && Position < HeaderEnd)
             {
-                const auto *p = State->c_str() + Pos + 15;
-                while (*p == ' ' || *p == '\t')
+                const auto *Character = State_->c_str() + Position + 15;
+                while (*Character == ' ' || *Character == '\t')
                 {
-                    ++p; // 跳过冒号后的空白
+                    ++Character;
                 }
-                for (; *p >= '0' && *p <= '9'; ++p)
+                for (; *Character >= '0' && *Character <= '9'; ++Character)
                 {
-                    ContentLength = ContentLength * 10 + static_cast<std::size_t>(*p - '0');
+                    ContentLength =
+                        ContentLength * 10 + static_cast<std::size_t>(*Character - '0');
                 }
             }
+
             const auto BodyStart = HeaderEnd + 4;
-            if (State->size() < BodyStart + ContentLength)
+            if (State_->size() < BodyStart + ContentLength)
             {
                 return std::nullopt;
             }
+            const auto Body = State_->substr(BodyStart, ContentLength);
+            State_->clear();
 
-            const auto Body = State->substr(BodyStart, ContentLength);
-            State->clear(); // keep-alive 多请求：重置累积状态
+            std::string Response(StatusLine_);
+            Response += "\r\nContent-Type: application/dns-message\r\nContent-Length: ";
+            Response += std::to_string(Body.size());
+            Response += "\r\n\r\n";
+            std::vector<std::byte> Output;
+            Output.reserve(Response.size() + Body.size());
+            for (const auto Character : Response)
+            {
+                Output.push_back(static_cast<std::byte>(Character));
+            }
+            for (const auto Character : Body)
+            {
+                Output.push_back(static_cast<std::byte>(Character));
+            }
+            return Output;
+        }
 
-            std::string response(Line);
-            response += "\r\nContent-Type: application/dns-message\r\nContent-Length: ";
-            response += std::to_string(Body.size());
-            response += "\r\n\r\n";
-            std::vector<std::byte> out;
-            out.reserve(response.size() + Body.size());
-            for (const auto ch : response)
-            {
-                out.push_back(static_cast<std::byte>(ch));
-            }
-            for (const auto ch : Body)
-            {
-                out.push_back(static_cast<std::byte>(ch));
-            }
-            return out;
-        };
+    private:
+        std::shared_ptr<std::string> State_;
+        std::string StatusLine_;
+    };
+
+    /**
+     * @brief 创建可复制的 DoH 应答器；状态在各份 callable 间共享。
+     * @param StatusLine 应答 HTTP 状态行。
+     * @return 累积分块请求并保留 DNS 正文的应答器。
+     */
+    inline auto MakeDohResponder(std::string_view StatusLine) -> TlsResponder
+    {
+        return TlsResponder{DohResponder{std::string(StatusLine)}};
     }
 
 } // namespace Preview::Testing::Tls

@@ -10,11 +10,11 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
 #include <cstddef>
+#include <expected>
 #include <memory>
 #include <span>
 #include <system_error>
@@ -22,6 +22,8 @@
 #include <vector>
 
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Contract/Io/PacketTransferResult.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Vmess/Conn.hpp>
 
@@ -32,18 +34,20 @@ namespace Preview::Vmess
      * @class Dgram
      * @brief VMess UDP 包连接对象（Transmission 装饰器）
      * @details 持有底层流连接（Vmess::Conn，已握手）的独占所有权，
-     * 对外暴露包级 API（AsyncSendTo / AsyncReceiveFrom）。
+     * 对外暴露固定目标包级 API（AsyncSendDatagram / AsyncReceiveDatagram）。
      * 由工厂（ConnectPacket / AcceptPacket）创建。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Dgram : public Preview::Transmission, public std::enable_shared_from_this<Dgram<Memory>>
+    class Dgram : public Preview::Transmission
     {
     public:
         /**
          * @brief 构造函数（工厂调用）
          * @param Stream 底层流连接（已握手，所有权移交）
          */
-        explicit Dgram(SharedTransmission Stream) : NextLayer_(std::move(Stream))
+        explicit Dgram(SharedTransmission Stream)
+            : Preview::Transmission(Stream ? Stream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Stream))
         {
         }
 
@@ -54,7 +58,7 @@ namespace Preview::Vmess
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
@@ -68,23 +72,25 @@ namespace Preview::Vmess
         }
 
         /**
-         * @brief 发送一个 UDP 数据报（加密一个 chunk）
+         * @brief 向握手固定目标发送一个 UDP 数据报（加密一个 chunk）。
          * @param Payload 数据报载荷
-         * @return 错误码
+         * @return 载荷完成量、真实 chunk wire 完成量与完整 Failure/native cause。
          */
-        [[nodiscard]] auto AsyncSendTo(
-            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
+        [[nodiscard]] auto AsyncSendDatagram(
+            std::span<const std::uint8_t> Payload)
+            -> Net::awaitable<Preview::Contract::Io::PacketTransferResult>
         {
             return AsyncSendDatagramImpl(Payload);
         }
 
         /**
-         * @brief 接收一个 UDP 数据报（解密一个 chunk）
+         * @brief 接收一个 UDP 数据报（解密一个 chunk）。
          * @param Payload 输出数据报载荷
-         * @return 错误码
+         * @return 载荷完成量、真实 chunk wire 完成量与完整 Failure/native cause。
          */
-        [[nodiscard]] auto AsyncReceiveFrom(
-            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
+        [[nodiscard]] auto AsyncReceiveDatagram(
+            std::vector<std::uint8_t> &Payload)
+            -> Net::awaitable<Preview::Contract::Io::PacketTransferResult>
         {
             return AsyncReceiveDatagramImpl(Payload);
         }
@@ -92,55 +98,62 @@ namespace Preview::Vmess
         /**
          * @brief 透传读取（底层流原样）
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            NextLayer_->ReadSome(Buffer, std::move(Handler));
         }
 
         /**
          * @brief 透传写入（底层流原样）
          */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            NextLayer_->WriteSome(Buffer, std::move(Handler));
+        }
+
+        /** @brief 真实写半关闭转交底层流；读取方向保持可用。 */
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            if (!NextLayer_)
+            {
+                Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), Preview::IoResult{0, {Preview::Fault::Code::IoError}});
+                return;
+            }
+            NextLayer_->WriteShutdown(std::move(Handler));
         }
 
         /**
          * @brief 关闭底层流连接
          */
-        auto Close() -> void override
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Close();
+                return NextLayer_->Close();
             }
+            return {};
         }
 
         /**
          * @brief 取消挂起操作
          */
-        auto Cancel() -> void override
+        [[nodiscard]] auto OnCancel() -> ControlResult override
         {
             if (NextLayer_)
             {
-                NextLayer_->Cancel();
+                return NextLayer_->Cancel();
             }
+            return {};
         }
 
         /**
@@ -175,21 +188,30 @@ namespace Preview::Vmess
             return NextLayer_;
         }
 
+        /** @brief 返回此 VMess 数据报实际拥有的协议连接，用于读取认证会话事实。 */
+        [[nodiscard]] auto SessionConnection() const noexcept -> std::shared_ptr<Conn<Memory>>
+        {
+            return std::dynamic_pointer_cast<Conn<Memory>>(NextLayer_);
+        }
+
     private:
         /**
          * @brief 转调底层数据报发送（chunk 加密）
          */
         [[nodiscard]] auto AsyncSendDatagramImpl(
-            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
+            std::span<const std::uint8_t> Payload)
+            -> Net::awaitable<Preview::Contract::Io::PacketTransferResult>
         {
             if (!NextLayer_)
             {
-                co_return Error::NotOpen;
+                co_return Preview::Contract::Io::PacketTransferResult{
+                    0, 0, {Preview::Fault::Code::IoError}};
             }
-            auto *Connection = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
+            auto Connection = SessionConnection();
             if (!Connection)
             {
-                co_return Error::NotOpen;
+                co_return Preview::Contract::Io::PacketTransferResult{
+                    0, 0, {Preview::Fault::Code::IoError}};
             }
             co_return co_await Connection->AsyncSendDatagram(Payload);
         }
@@ -198,16 +220,19 @@ namespace Preview::Vmess
          * @brief 转调底层数据报接收（chunk 解密）
          */
         [[nodiscard]] auto AsyncReceiveDatagramImpl(
-            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
+            std::vector<std::uint8_t> &Payload)
+            -> Net::awaitable<Preview::Contract::Io::PacketTransferResult>
         {
             if (!NextLayer_)
             {
-                co_return Error::NotOpen;
+                co_return Preview::Contract::Io::PacketTransferResult{
+                    0, 0, {Preview::Fault::Code::IoError}};
             }
-            auto *Connection = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
+            auto Connection = SessionConnection();
             if (!Connection)
             {
-                co_return Error::NotOpen;
+                co_return Preview::Contract::Io::PacketTransferResult{
+                    0, 0, {Preview::Fault::Code::IoError}};
             }
             co_return co_await Connection->AsyncReceiveDatagram(Payload);
         }

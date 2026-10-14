@@ -17,6 +17,7 @@
 
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
+#include <Preview/Foundation/Memory/BytePool.hpp>
 #include <Preview/Runtime/Recognition/Types.hpp>
 #include <Preview/Transport/Preview.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -39,12 +40,16 @@ namespace Preview::Recognition
         /**
          * @brief 构造缓冲
          * @param MaxBytes 本连接允许捕获的最大字节数
+         * @param Bytes 连接级共享有界池；为空表示调用方没有完成资源注入
+         * @details 池只在构造时取得；Replay 需要跨越异步边界保活前缀存储。
          */
-        explicit ProbeBuffer(std::size_t MaxBytes)
+        explicit ProbeBuffer(std::size_t MaxBytes,
+                             std::shared_ptr<Preview::Memory::BytePool> Bytes)
             : MaxBytes_((std::min)(MaxBytes, MaxSupportedBytes)),
               Storage_(std::make_shared<std::vector<std::byte>>())
         {
             Storage_->reserve(MaxBytes_);
+            Bytes_ = std::move(Bytes);
         }
 
         [[nodiscard]] auto Size() const noexcept -> std::size_t
@@ -60,6 +65,12 @@ namespace Preview::Recognition
         [[nodiscard]] auto Empty() const noexcept -> bool
         {
             return Storage_->empty();
+        }
+
+        [[nodiscard]] auto Bytes() const noexcept
+            -> const std::shared_ptr<Preview::Memory::BytePool>&
+        {
+            return Bytes_;
         }
 
         /**
@@ -108,34 +119,28 @@ namespace Preview::Recognition
                 const auto Need = Minimum - OriginalSize;
                 Storage_->resize(Minimum);
 
-                std::error_code Error;
-                const auto Read = co_await Transport.async_read_some(
-                    std::span<std::byte>(Storage_->data() + OriginalSize, Need), Error);
+                const auto Part = co_await Transport.ReadSome(
+                    std::span<std::byte>(Storage_->data() + OriginalSize, Need));
+                const auto Read = Part.Bytes;
                 if (Read > Need)
                 {
                     Storage_->resize(OriginalSize);
                     Result.Status = RecognitionStatus::IoError;
-                    if (Error)
-                    {
-                        Result.Error = Error;
-                    }
-                    else
-                    {
-                        Result.Error = std::make_error_code(std::errc::value_too_large);
-                    }
+                    Result.Error = Preview::Fault::ToNative(Part.Failure);
+                    if (!Result.Error) Result.Error = std::make_error_code(std::errc::value_too_large);
                     co_return Result;
                 }
 
                 Storage_->resize(OriginalSize + Read);
                 Result.Added += Read;
-                if (Error)
+                if (Part.Failure.Failed())
                 {
                     Result.Status = RecognitionStatus::IoError;
-                    if (Read == 0 && Preview::Fault::ToCode(Error) == Preview::Fault::Code::Eof)
+                    if (Read == 0 && Part.Failure.Code == Preview::Fault::Code::Eof)
                     {
                         Result.Status = RecognitionStatus::EndOfStream;
                     }
-                    Result.Error = Error;
+                    Result.Error = Preview::Fault::ToNative(Part.Failure);
                     co_return Result;
                 }
                 if (Read == 0)
@@ -176,34 +181,28 @@ namespace Preview::Recognition
             const auto ReadSize = (std::min)(Maximum, MaxBytes_ - OriginalSize);
             Storage_->resize(OriginalSize + ReadSize);
 
-            std::error_code Error;
-            const auto Read = co_await Transport.async_read_some(
-                std::span<std::byte>(Storage_->data() + OriginalSize, ReadSize), Error);
+            const auto Part = co_await Transport.ReadSome(
+                std::span<std::byte>(Storage_->data() + OriginalSize, ReadSize));
+            const auto Read = Part.Bytes;
             if (Read > ReadSize)
             {
                 Storage_->resize(OriginalSize);
                 Result.Status = RecognitionStatus::IoError;
-                if (Error)
-                {
-                    Result.Error = Error;
-                }
-                else
-                {
-                    Result.Error = std::make_error_code(std::errc::value_too_large);
-                }
+                Result.Error = Preview::Fault::ToNative(Part.Failure);
+                if (!Result.Error) Result.Error = std::make_error_code(std::errc::value_too_large);
                 co_return Result;
             }
 
             Storage_->resize(OriginalSize + Read);
             Result.Added = Read;
-            if (Error)
+            if (Part.Failure.Failed())
             {
                 Result.Status = RecognitionStatus::IoError;
-                if (Read == 0 && Preview::Fault::ToCode(Error) == Preview::Fault::Code::Eof)
+                if (Read == 0 && Part.Failure.Code == Preview::Fault::Code::Eof)
                 {
                     Result.Status = RecognitionStatus::EndOfStream;
                 }
-                Result.Error = Error;
+                Result.Error = Preview::Fault::ToNative(Part.Failure);
                 co_return Result;
             }
             if (Read == 0)
@@ -225,12 +224,24 @@ namespace Preview::Recognition
         /**
          * @brief 创建预读回放传输
          * @param Transport 被回放包装的底层传输
-         * @return 预读优先的传输；无预读时返回原对象
+         * @return 预读优先的传输；无预读时返回原对象；池额度耗尽或载体非法返回空 owner
+         * @details 前缀真实块由 PreviewTransport 持有至前缀耗尽；空返回表示未创建回放层，
+         *          调用者按失败处理，不执行半关闭或最终关闭。
          */
         [[nodiscard]] auto Replay(Preview::SharedTransmission Transport) const
             -> Preview::SharedTransmission
         {
-            return Preview::Transport::WrapWithPreview(std::move(Transport), Data());
+            if (Data().empty())
+            {
+                return Transport;
+            }
+            const auto Created = Preview::Transport::PreviewTransport::Create(
+                Transport, Preview::Transport::PrefixInput{Data(), Bytes_, {}});
+            if (!Created)
+            {
+                return {};
+            }
+            return *Created;
         }
 
     private:
@@ -245,6 +256,7 @@ namespace Preview::Recognition
 
         std::size_t MaxBytes_{0};
         std::shared_ptr<std::vector<std::byte>> Storage_;
+        std::shared_ptr<Preview::Memory::BytePool> Bytes_;
     };
 
 } // namespace Preview::Recognition

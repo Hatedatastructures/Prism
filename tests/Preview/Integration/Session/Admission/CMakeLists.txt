@@ -1,0 +1,20 @@
+# 跨协议 admission/adapter 与统一 reply 错误场景
+AddPreviewTest(AdapterAdmissionTest.cpp)
+AddPreviewTest(AdapterErrorMappingTest.cpp)
+target_link_libraries(AdapterAdmissionTest PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewTestSupport)
+target_sources(AdapterAdmissionTest PRIVATE AdapterTestSupport.hpp)
+target_sources(AdapterAdmissionTest PRIVATE AccountLeaseAdmissionTest.cpp)
+target_link_libraries(AdapterErrorMappingTest PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewTestSupport)
+target_sources(AdapterErrorMappingTest PRIVATE AdapterTestSupport.hpp)
+AddPreviewTest(AdapterMuxLeaseTest.cpp)
+target_link_libraries(AdapterMuxLeaseTest PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewTestSupport)
+
+AddPreviewTest(PostDialReplyFailureTest.cpp)
+target_link_libraries(PostDialReplyFailureTest PRIVATE
+    PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition
+    PreviewProtocolHttp PreviewProtocolSocks5 PreviewTestSupport)
+
+AddPreviewTest(ProviderAcceptPathTest.cpp)
+target_link_libraries(ProviderAcceptPathTest PRIVATE PreviewApplication)
+AddPreviewTest(ProviderClosingOwnerTest.cpp)
+target_link_libraries(ProviderClosingOwnerTest PRIVATE PreviewApplication PreviewTestSupport)

@@ -1,425 +1,71 @@
-/**
- * @file Pad.hpp
- * @brief Transport 层记录填充装饰器
- * @details 在 async_write_some 中根据填充策略注入随机填充字节,
- *          混淆 tunnel relay 的字节流大小特征。使用 BLAKE3 作为
- *          CSPRNG 生成随机填充大小和内容。
- *          前 StopAfter 次 Write 执行填充,之后透传零开销。
- */
-
+/** @file Pad.hpp @brief typed填充装饰器，所有写入通过唯一有界writer保持记录顺序。 */
 #pragma once
-
-#include <Preview/Foundation/Memory/Container.hpp>
-#include <Preview/Foundation/Utility/Crypto/Random.hpp>
-#include <Preview/Transport/Transmission.hpp>
-
-#include <boost/asio.hpp>
-
-#include <array>
-#include <charconv>
-#include <cstdint>
-#include <cstring>
-#include <functional>
-#include <span>
-#include <string>
-#include <string_view>
-
-#include <blake3.h>
-
-namespace Preview::Transport {
-
-
-    namespace Net = boost::asio;
-
+#include <Preview/Transport/Writer.hpp>
+#include <Preview/Transport/Detail/PadDriver.hpp>
+#include <Preview/Transport/Detail/ActivityGroup.hpp>
+namespace Preview::Transport
+{
     /**
-     * @struct PadTarget
-     * @brief 填充目标描述
-     * @details 用 [MinVal, MaxVal] 区间描述单条填充目标记录。
+     * @brief 填充装饰器的冷配置：冻结的不可变策略 owner、实际字节池与一次性随机源。
+     * @details 输入所有权：Policy 以 shared_ptr<const PadConfig> 共享只读 owner，热路径不再复制 vector 或
+     *          做数字→字符串→解析；为空时 PadDriver 的每次 WritePartial 直接以 InvalidArgument 拒绝。
+     *          Bytes 移交内部 Writer，必须是装配层实际池（块形状不合 64KiB 时 Writer 明确拒绝）。
+     *          Random 只被同步消费一次：PadDriver 构造用它填充 keyed BLAKE3 密钥，之后不保存该 std::function，
+     *          因此其生命周期只需借用到构造返回；未提供时使用默认随机源。
+     *          输出与错误：本结构不返回结果，校验事实（策略缺失、目标数超 64、倒置区间、随机填充失败）由
+     *          PadDriver 构造写入 Failure_ 并经 PadTransport::IsValid() 暴露，原始 CryptoError 与 Native 保留。
+     *          取消、半关闭、最终关闭者、executor：纯配置值，不执行取消或半关闭，不拥有描述符，不绑定执行域；
+     *          这些语义全部由 PadTransport 与其内部 Writer 承担。
      */
-    struct PadTarget
+    struct PadOptions final
     {
-        std::uint16_t MinVal{0}; // 填充长度下限
-        std::uint16_t MaxVal{0}; // 填充长度上限
+        std::shared_ptr<const PadConfig> Policy;
+        std::shared_ptr<Memory::BytePool> Bytes;
+        Detail::PadDriver::RandomSource Random;
     };
-
     /**
-     * @struct PadConfig
-     * @brief 填充配置
-     */
-    struct PadConfig
-    {
-        std::string PadTargets{"17,30-50,30-50,80-150"}; // 填充目标规格（逗号分隔，区间用 "-" 连接）
-        std::uint8_t StopAfter{12};                         // 前 N 次写入执行填充
-        std::uint16_t MaxPadBytes{256};                    // 单次填充字节数上限
-
-        /**
-         * @brief 填充功能是否启用
-         * @return PadTargets 非空返回 true
-         */
-        [[nodiscard]] auto Enabled() const noexcept -> bool
-        {
-            return !PadTargets.empty();
-        }
-    };
-
-    /**
-     * @class PadTransport
-     * @brief Transport 层记录填充装饰器
-     * @details 包装下层传输,在前 N 次 Write 中注入随机填充。
-     *          读操作直接透传。使用 BLAKE3 CTR 模式作为 CSPRNG。
+     * @brief typed 填充装饰器：读直连 Inner，写经唯一有界 Writer 串行并保持记录顺序。
+     * @details 输入所有权：构造把 Inner 的共享所有权同时交给本层与 PadDriver，Bytes 移交 Writer；读写 span
+     *          都只借用到该操作 completion——写侧输入被复制进 driver 独占的固定 record 缓冲并由 Writer 拥有
+     *          自己的 64KiB 块，读侧直接落入调用方缓冲区。completion 恰好一次且异步交付，交付的 Bytes 已剔除
+     *          填充长度，只计真实 payload 字节。
+     *          输出与错误：结果沿用 IoResult{Bytes, Failure}；策略缺失或 driver 构造失败为 InvalidArgument
+     *          或保留原 CryptoError/Native，Inner 缺失为 InvalidArgument，准入耗尽为 ResourceUnavailable，
+     *          封止后新写为 Canceled，EOF 与底层错误保留 Native，四类互不折叠。
+     *          取消：OnCancel 只转交 Writer 的取消，封止本层写序列；本层不调用 Inner 的取消。
+     *          半关闭：StartWriteShutdown 走 Writer 的第 65 控制槽，排在所有先前 ticket 之后，再经 driver
+     *          转交 Inner 的 WriteShutdown；读方向保持可用，填充计数与随机状态不复位。
+     *          最终关闭者：OnClose 返回 Writer::Close()，Writer 在全部 native 写回调退出后才向 driver 下发
+     *          Close，driver 再转交 Inner；本层未覆写 OwnsClose，故 Close 交付即行使本层关闭权，裸描述符的
+     *          实际关闭者仍是 Inner 指向的叶子载体。
+     *          executor：冷构造固定 Inner->Executor() 为原域，Writer 在其上另建 strand 串行化 ticket；
+     *          driver 的 record 与 RNG 状态无锁，只被该 strand 上的唯一 active 写调用，要求单一执行域。
+     * @note 未定义：装饰层的 Activity 组只包含本层前门与 Writer，不含 Inner 的 activity，因此 Drain 不证明
+     *       Inner 的在途读已退栈；读方向的取消与最终退栈证据归属，留待 M13 决定。
      */
     class PadTransport final : public Transmission
     {
     public:
-        using RandomSource = std::function<int(std::uint8_t *, int)>;
-
-        /**
-         * @brief 构造填充装饰器
-         * @param Inner 被包装的内层传输
-         * @param cfg 填充配置
-         */
-        explicit PadTransport(SharedTransmission Inner, const PadConfig &Config,
-                              RandomSource Source = {});
-
-        ~PadTransport() noexcept override = default;
-
-        /**
-         * @brief 获取传输层类型
-         * @return 内层传输的类型
-         */
-        [[nodiscard]] auto TransportType() const noexcept -> Type override
-        {
-            return Inner_->TransportType();
-        }
-
-        /**
-         * @brief 获取内层传输
-         * @return 被包装的内层传输指针
-         */
-        [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
-        {
-            return Inner_.get();
-        }
-
-        /**
-         * @brief 获取内层传输（const 版本）
-         * @return 被包装的内层传输指针
-         */
-        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
-        {
-            return Inner_.get();
-        }
-
-        /**
-         * @brief 获取关联的执行器
-         * @return 内层传输的执行器
-         */
-        [[nodiscard]] auto Executor() const -> ExecutorType override
-        {
-            return Inner_->Executor();
-        }
-
-        /**
-         * @brief 异步读取数据
-         * @details 读操作直接透传给内层传输，不做填充处理。
-         * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
-         * @return 异步操作，完成后返回读取的字节数
-         */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override;
-
-        /**
-         * @brief 异步写入数据
-         * @details 在前 StopAfter 次写入中按填充策略注入随机填充，
-         * 之后透传零开销。
-         * @param Buffer 发送缓冲区
-         * @param ec 错误码输出参数
-         * @return 异步操作，完成后返回写入的字节数
-         */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
-                                            std::error_code &ErrorCode)
-            -> Net::awaitable<std::size_t> override;
-
-        /**
-         * @brief 关闭传输层
-         */
-        void Close() override;
-
-        /**
-         * @brief 取消所有未完成的异步操作
-         */
-        void Cancel() override;
-
-        /// 随机源初始化成功且可执行填充时返回 true
-        [[nodiscard]] auto IsValid() const noexcept -> bool
-        {
-            return Valid_;
-        }
-
+        PadTransport(SharedTransmission Inner, PadOptions Options)
+            : Transmission(Inner->Executor()), Inner_(std::move(Inner)),
+              Driver_(std::make_shared<Detail::PadDriver>(Inner_, Detail::PadDriver::Options{std::move(Options.Policy), std::move(Options.Random)})),
+              Writer_(std::make_shared<Writer>(std::move(Options.Bytes), Driver_)),
+              Activity_(std::make_shared<Detail::ActivityGroup>(Transmission::Activity(),
+                  std::vector<std::shared_ptr<Contract::CarrierActivity>>{Writer_->Activity()})) {}
+        [[nodiscard]] auto Activity() const noexcept -> std::shared_ptr<Contract::CarrierActivity> override { return Activity_; }
+        [[nodiscard]] auto IsValid() const noexcept -> bool { return Driver_->IsValid(); }
+        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { return Inner_.get(); }
+        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission* override { return Inner_.get(); }
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override { Inner_->ReadSome(Buffer, std::move(Handler)); }
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override { Writer_->Write(Buffer, std::move(Handler)); }
+        auto StartWriteShutdown(Completion Handler) -> void override { Writer_->WriteShutdown(std::move(Handler)); }
+        [[nodiscard]] auto OnClose() -> ControlResult override { return Writer_->Close(); }
+        [[nodiscard]] auto OnCancel() -> ControlResult override { return Writer_->Cancel(); }
     private:
-        SharedTransmission Inner_;                    // 被包装的内层传输
-        PadConfig Cfg_;                               // 填充配置
-        Preview::Memory::Vector<PadTarget> Targets_;           // 解析后的填充目标列表
-        Preview::Memory::Vector<std::byte> PadBuf_;            // 填充数据缓冲区
-        std::uint8_t WriteCount_{0};                  // 已执行填充的写入次数
-
-        /// BLAKE3 CSPRNG 状态
-        std::array<std::uint8_t, 32> RngKey_{};       // CSPRNG 密钥
-        bool Valid_{false};                            // CSPRNG 初始化状态
-        std::uint64_t RngCounter_{0};                 // CSPRNG 计数器
-        std::array<std::uint8_t, 32> RngCache_{};     // CSPRNG 输出缓存
-        std::size_t RngCachePos_{32};                // CSPRNG 缓存读取位置
-
-        /**
-         * @brief 计算当前 Write 的填充字节数
-         * @param DataLen 待写入的数据长度
-         * @return 本次写入的填充字节数
-         */
-        [[nodiscard]] auto ComputePadding(std::size_t DataLen) -> std::size_t;
-
-        /**
-         * @brief 从 CSPRNG 生成 [MinVal, MaxVal] 范围的随机数
-         * @param MinVal 随机数下限
-         * @param MaxVal 随机数上限
-         * @return [MinVal, MaxVal] 范围内的随机数
-         */
-        [[nodiscard]] auto RngNextU16(std::uint16_t MinVal, std::uint16_t MaxVal) -> std::uint16_t;
-
-        /**
-         * @brief 刷新 CSPRNG 缓存
-         */
-        auto RngRefill() -> void;
-
-        /**
-         * @brief 从 CSPRNG 填充指定缓冲区
-         * @param out 目标缓冲区
-         */
-        auto RngNextBytes(std::span<std::byte> Output) -> void;
-
-        /**
-         * @brief 解析 PadTargets 字符串为目标列表
-         * @param spec 填充目标规格字符串
-         * @param mr 内存资源指针
-         * @return 解析后的填充目标列表
-         */
-        [[nodiscard]] static auto ParseTargets(std::string_view Specification,
-                                               Preview::Memory::ResourcePointer Resource)
-            -> Preview::Memory::Vector<PadTarget>;
+        SharedTransmission Inner_;
+        std::shared_ptr<Detail::PadDriver> Driver_;
+        std::shared_ptr<Writer> Writer_;
+        std::shared_ptr<Detail::ActivityGroup> Activity_;
     };
-
-
-
-
-    inline PadTransport::PadTransport(SharedTransmission Inner, const PadConfig &Config,
-                                      RandomSource Source)
-        : Inner_(std::move(Inner)), Cfg_(Config),
-          Targets_(ParseTargets(Config.PadTargets, Preview::Memory::CurrentResource())),
-          PadBuf_(16384 + 256, Preview::Memory::CurrentResource())
-    {
-        /// 从 BoringSSL 获取 CSPRNG 种子
-        if (Source)
-        {
-            Valid_ = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RngKey_), std::move(Source));
-        }
-        else
-        {
-            Valid_ = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RngKey_));
-        }
-    }
-
-    inline auto PadTransport::async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
-        -> Net::awaitable<std::size_t>
-    {
-        co_return co_await Inner_->async_read_some(Buffer, ErrorCode);
-    }
-
-    inline auto PadTransport::async_write_some(std::span<const std::byte> Buffer,
-                                               std::error_code &ErrorCode)
-        -> Net::awaitable<std::size_t>
-    {
-        ErrorCode.clear();
-
-        /// 未启用或超过 StopAfter 后直接透传,零开销
-        if (!Cfg_.Enabled() || WriteCount_ >= Cfg_.StopAfter || Buffer.empty())
-        {
-            co_return co_await Inner_->async_write_some(Buffer, ErrorCode);
-        }
-        if (!Valid_)
-        {
-            ErrorCode = Preview::make_error_code(Preview::Error::IoError);
-            co_return 0;
-        }
-
-        const auto DataLen = Buffer.size();
-        const auto PadSize = ComputePadding(DataLen);
-        const auto Total = DataLen + PadSize;
-
-        /// 如果 PadBuf_ 不够大,直接透传(极端情况)
-        if (Total > PadBuf_.size())
-        {
-            co_return co_await Inner_->async_write_some(Buffer, ErrorCode);
-        }
-
-        std::memcpy(PadBuf_.data(), Buffer.data(), DataLen);
-        if (PadSize > 0)
-        {
-            RngNextBytes(std::span<std::byte>(PadBuf_.data() + DataLen, PadSize));
-        }
-
-        co_await Inner_->AsyncWrite(std::span<const std::byte>(PadBuf_.data(), Total), ErrorCode);
-
-        ++WriteCount_;
-
-        if (ErrorCode)
-        {
-            co_return 0;
-        }
-        co_return DataLen;
-    }
-
-    inline void PadTransport::Close()
-    {
-        Inner_->Close();
-    }
-
-    inline void PadTransport::Cancel()
-    {
-        Inner_->Cancel();
-    }
-
-    inline auto PadTransport::ComputePadding(std::size_t DataLen) -> std::size_t
-    {
-        if (Targets_.empty())
-        {
-            return RngNextU16(0, Cfg_.MaxPadBytes);
-        }
-
-        /// 选取当前 WriteCount 对应的 Target(循环使用)
-        const auto &Target = Targets_[WriteCount_ % Targets_.size()];
-        const auto TargetLen = RngNextU16(Target.MinVal, Target.MaxVal);
-
-        if (DataLen < TargetLen)
-        {
-            return TargetLen - DataLen;
-        }
-
-        return RngNextU16(0, Cfg_.MaxPadBytes);
-    }
-
-    inline auto PadTransport::RngNextU16(std::uint16_t MinVal, std::uint16_t MaxVal) -> std::uint16_t
-    {
-        if (MinVal >= MaxVal)
-        {
-            return MinVal;
-        }
-
-        std::array<std::byte, 2> RandomBytes{};
-        RngNextBytes(RandomBytes);
-
-        const auto Raw =
-            static_cast<std::uint16_t>(
-                (static_cast<std::uint16_t>(static_cast<std::uint8_t>(RandomBytes[0])) << 8) |
-                static_cast<std::uint16_t>(static_cast<std::uint8_t>(RandomBytes[1])));
-
-        // 用 uint32 计算区间，避免 MaxVal=65535 时 uint16 溢出为 0
-        // 导致取模除零
-        const auto Range = static_cast<std::uint32_t>(MaxVal) - MinVal + 1;
-        return static_cast<std::uint16_t>(MinVal + (Raw % Range));
-    }
-
-    inline void PadTransport::RngRefill()
-    {
-        blake3_hasher Hasher;
-        blake3_hasher_init_keyed(&Hasher, RngKey_.data());
-
-        std::array<std::uint8_t, 8> CounterBytes{};
-        auto Ctr = RngCounter_;
-        for (std::size_t I = 0; I < 8; ++I)
-        {
-            CounterBytes[I] = static_cast<std::uint8_t>(Ctr & 0xFF);
-            Ctr >>= 8;
-        }
-        blake3_hasher_update(&Hasher, CounterBytes.data(), 8);
-        blake3_hasher_finalize(&Hasher, RngCache_.data(), 32);
-
-        RngCachePos_ = 0;
-        ++RngCounter_;
-    }
-
-    inline void PadTransport::RngNextBytes(std::span<std::byte> Output)
-    {
-        std::size_t Offset = 0;
-        while (Offset < Output.size())
-        {
-            if (RngCachePos_ >= 32)
-            {
-                RngRefill();
-            }
-
-            std::size_t Chunk = 0;
-            if (Output.size() - Offset < 32 - RngCachePos_)
-            {
-                Chunk = Output.size() - Offset;
-            }
-            else
-            {
-                Chunk = 32 - RngCachePos_;
-            }
-            std::memcpy(Output.data() + Offset, RngCache_.data() + RngCachePos_, Chunk);
-            RngCachePos_ += Chunk;
-            Offset += Chunk;
-        }
-    }
-
-    inline auto PadTransport::ParseTargets(std::string_view Specification,
-                                           Preview::Memory::ResourcePointer Resource)
-        -> Preview::Memory::Vector<PadTarget>
-    {
-        Preview::Memory::Vector<PadTarget> Targets(Resource);
-
-        std::size_t Start = 0;
-        while (Start <= Specification.size())
-        {
-            auto End = Specification.find(',', Start);
-            if (End == std::string_view::npos)
-            {
-                End = Specification.size();
-            }
-
-            const auto Token = Specification.substr(Start, End - Start);
-            if (!Token.empty())
-            {
-                PadTarget Target{};
-
-                auto Dash = Token.find('-');
-                if (Dash != std::string_view::npos)
-                {
-                    auto MinStr = Token.substr(0, Dash);
-                    auto MaxStr = Token.substr(Dash + 1);
-                    std::uint16_t Mn = 0;
-                    std::uint16_t Mx = 0;
-                    std::from_chars(MinStr.data(), MinStr.data() + MinStr.size(), Mn);
-                    std::from_chars(MaxStr.data(), MaxStr.data() + MaxStr.size(), Mx);
-                    Target.MinVal = Mn;
-                    Target.MaxVal = Mx;
-                }
-                else
-                {
-                    std::uint16_t Val = 0;
-                    std::from_chars(Token.data(), Token.data() + Token.size(), Val);
-                    Target.MinVal = Val;
-                    Target.MaxVal = Val;
-                }
-
-                Targets.push_back(Target);
-            }
-
-            Start = End + 1;
-        }
-
-        return Targets;
-    }
-
-
-} // namespace Preview::Transport
+}

@@ -16,7 +16,6 @@
  */
 
 #pragma once
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <openssl/rand.h>
@@ -36,6 +35,7 @@
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
+#include <Preview/Transport/Detail/IoCompletion.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Transport/Unreliable.hpp>
 #include <Preview/Protocols/Shadowsocks2022/Codec.hpp>
@@ -55,7 +55,7 @@ namespace Preview::Shadowsocks2022
      * AcceptPacket）创建。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Dgram : public Preview::Transmission, public std::enable_shared_from_this<Dgram<Memory>>
+    class Dgram : public Preview::Transmission
     {
     public:
         /**
@@ -67,7 +67,8 @@ namespace Preview::Shadowsocks2022
             SharedTransmission Upstream,
             std::array<std::uint8_t, 16> Key,
             UdpRole Role = UdpRole::Client)
-            : NextLayer_(std::move(Upstream)), Key_(Key), Role_(Role)
+            : Preview::Transmission(Upstream ? Upstream->Executor() : Net::any_io_executor{}),
+              NextLayer_(std::move(Upstream)), Key_(Key), Role_(Role)
         {
             SessionIdReady_ = RAND_bytes(LocalSessionId_.data(), static_cast<int>(LocalSessionId_.size())) == 1;
         }
@@ -79,7 +80,7 @@ namespace Preview::Shadowsocks2022
         {
             if (!NextLayer_)
             {
-                return {};
+                return Preview::Transmission::Executor();
             }
             return NextLayer_->Executor();
         }
@@ -131,13 +132,17 @@ namespace Preview::Shadowsocks2022
                 std::size_t Sent = 0;
                 if (PeerEndpoint_.has_value())
                 {
-                    Sent = co_await Udp->AsyncSendTo(
-                        AsBytes(std::span<const std::uint8_t>(TxWire_)), *PeerEndpoint_, ErrorCode);
+                    const auto Part = co_await Udp->SendTo(
+                        AsBytes(std::span<const std::uint8_t>(TxWire_)), *PeerEndpoint_);
+                    ErrorCode = Preview::Fault::ToNative(Part.Failure);
+                    Sent = Part.Bytes;
                 }
                 else
                 {
-                    Sent = co_await NextLayer_->async_write_some(
-                        AsBytes(std::span<const std::uint8_t>(TxWire_)), ErrorCode);
+                    const auto Part = co_await NextLayer_->WriteSome(
+                        AsBytes(std::span<const std::uint8_t>(TxWire_)));
+                    ErrorCode = Preview::Fault::ToNative(Part.Failure);
+                    Sent = Part.Bytes;
                 }
                 if (ErrorCode)
                 {
@@ -154,8 +159,10 @@ namespace Preview::Shadowsocks2022
             }
             else
             {
-                const auto Sent = co_await NextLayer_->async_write_some(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)), ErrorCode);
+                const auto Part = co_await NextLayer_->WriteSome(
+                    AsBytes(std::span<const std::uint8_t>(TxWire_)));
+                ErrorCode = Preview::Fault::ToNative(Part.Failure);
+                const auto Sent = Part.Bytes;
                 if (ErrorCode)
                 {
                     co_return Error::IoError;
@@ -199,8 +206,10 @@ namespace Preview::Shadowsocks2022
             {
                 Preview::Transport::Unreliable::EndpointType Sender;
                 ErrorCode.clear();
-                Received = co_await Udp->AsyncReceiveFrom(
-                    AsBytes(std::span<std::uint8_t>(Buffer)), Sender, ErrorCode);
+                const auto Part = co_await Udp->ReceiveFrom(
+                    AsBytes(std::span<std::uint8_t>(Buffer)), Sender);
+                ErrorCode = Preview::Fault::ToNative(Part.Failure);
+                Received = Part.Bytes;
                 if (!ErrorCode)
                 {
                     SenderEndpoint = Sender;
@@ -209,8 +218,10 @@ namespace Preview::Shadowsocks2022
             else
             {
                 ErrorCode.clear();
-                Received = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(Buffer)), ErrorCode);
+                const auto Part = co_await NextLayer_->ReadSome(
+                    AsBytes(std::span<std::uint8_t>(Buffer)));
+                ErrorCode = Preview::Fault::ToNative(Part.Failure);
+                Received = Part.Bytes;
             }
             if (ErrorCode)
             {
@@ -301,56 +312,78 @@ namespace Preview::Shadowsocks2022
 
         /**
          * @brief 透传读取（底层数据报原样）
+         * @details 底层缺失时异步交付一次 NotOpen；否则 token 直通底层。
          */
-        [[nodiscard]] auto async_read_some(
-            std::span<std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
+            NextLayer_->ReadSome(Buffer, std::move(Handler));
         }
 
         /**
          * @brief 透传写入（底层数据报原样）
+         * @details 底层缺失时异步交付一次 NotOpen；否则 token 直通底层。
          */
-        [[nodiscard]] auto async_write_some(
-            std::span<const std::byte> Buffer,
-            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            ErrorCode.clear();
             if (!NextLayer_)
             {
-                ErrorCode = make_error_code(Error::NotOpen);
-                co_return 0;
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
+            NextLayer_->WriteSome(Buffer, std::move(Handler));
         }
 
         /**
-         * @brief 关闭底层传输
+         * @brief 真实写半关闭转交底层载体；反向读取仍然可用。
          */
-        auto Close() -> void override
+        auto StartWriteShutdown(Completion Handler) -> void override
         {
-            if (NextLayer_)
+            if (!NextLayer_)
             {
-                NextLayer_->Close();
+                Preview::Transport::Detail::PostResult(
+                    Executor(),
+                    std::move(Handler),
+                    Preview::IoResult{0, Preview::Fault::FromNative(make_error_code(Error::NotOpen))});
+                return;
             }
+            NextLayer_->WriteShutdown(std::move(Handler));
         }
 
         /**
-         * @brief 取消挂起操作
+         * @brief 封止并交付底层关闭
+         * @return 命令接管成功；实际退出由 Activity()->Drain() 另行等待。
          */
-        auto Cancel() -> void override
+        [[nodiscard]] auto OnClose() -> ControlResult override
         {
-            if (NextLayer_)
+            if (!NextLayer_)
             {
-                NextLayer_->Cancel();
+                return {};
             }
+            return NextLayer_->Close();
+        }
+
+        /**
+         * @brief 可重复取消底层挂起操作
+         * @return 命令接管成功只表示取消请求已排入原 executor，不宣称已经关闭。
+         */
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            if (!NextLayer_)
+            {
+                return {};
+            }
+            return NextLayer_->Cancel();
         }
 
         /**

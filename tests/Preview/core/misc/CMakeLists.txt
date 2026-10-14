@@ -1,8 +1,0 @@
-# misc 子模块测试
-AddPreviewTest(CoreModulesCoverage.cpp)
-target_link_libraries(CoreModulesCoverage PRIVATE PreviewTransport PreviewRuntime PreviewTestSupport)
-AddPreviewTest(OwnershipAudit.cpp)
-target_link_libraries(OwnershipAudit PRIVATE PreviewFoundation PreviewTransport PreviewProtocolMux PreviewProtocolVmess PreviewTestSupport)
-AddProductionTest(TestRunnerDeep.cpp)
-target_link_libraries(TestRunnerDeep PRIVATE ProductionTestSupport)
-target_compile_options(TestRunnerDeep PRIVATE -O0 -fno-inline)
