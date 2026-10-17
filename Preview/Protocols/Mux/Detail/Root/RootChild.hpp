@@ -60,7 +60,9 @@ namespace Preview::Mux::Detail
         const std::shared_ptr<RootState> &Root) -> void
     {
         if (Result) return;
-        Root->RecordTerminalFailure(Result.error());
+        if (!(Root->IsClosingNormally() &&
+            Result.error().Code == Preview::Fault::Code::Canceled))
+            Root->RecordTerminalFailure(Result.error());
         if (Failure) return;
         try
         {
@@ -70,6 +72,16 @@ namespace Preview::Mux::Detail
         {
             Failure = std::current_exception();
         }
+    }
+
+    inline auto RecordCloseException(
+        const std::exception_ptr &Exception,
+        const std::shared_ptr<RootState> &Root) noexcept -> void
+    {
+        const auto Failure = ControlFailureFromException(Exception);
+        if (!(Root->IsClosingNormally() &&
+            Failure.Code == Preview::Fault::Code::Canceled))
+            Root->RecordTerminalFailure(Failure);
     }
 
     inline auto RejectChild(std::shared_ptr<ChildState> Child) -> Net::awaitable<void>
@@ -87,6 +99,8 @@ namespace Preview::Mux::Detail
         if (!Child->Admitted)
         { co_await RejectChild(Child); co_return Preview::Network::Relay::Result{.Failure = {Code::Streamcap}}; }
         const auto Request = co_await Preview::Mux::Detail::SingMux::ReadStreamRequest(Child->Inbound);
+        if (!Request && Child->NormalCloseCancellation.load(std::memory_order_acquire))
+            co_return Preview::Network::Relay::Result{.Failure = {Code::Canceled}};
         if (!Request || Request->Udp || Request->PacketAddress || Request->Target.Host.Empty())
         { co_await RejectChild(Child); co_return Preview::Network::Relay::Result{.Failure = {Code::NotSupported}}; }
         Child->Target = Request->Target;
@@ -113,6 +127,7 @@ namespace Preview::Mux::Detail
         Preview::Network::Relay::Result Result;
         Preview::Foundation::TrafficObservation Observation;
         std::exception_ptr Failure;
+        Preview::Fault::Failure FinishFailure;
         bool FinishDrained{false};
     };
     inline auto CompleteChild(ChildCompletion Completion) -> Net::awaitable<void>;
@@ -141,7 +156,6 @@ namespace Preview::Mux::Detail
         {
             Completion.Failure = std::current_exception();
             Completion.Result.Failure = ControlFailureFromException(Completion.Failure);
-            Child->Root->RecordTerminalFailure(Completion.Result.Failure);
         }
         co_await CompleteChild(std::move(Completion));
     }
@@ -161,40 +175,45 @@ namespace Preview::Mux::Detail
             if (Finished) Completion.FinishDrained = true;
             else
             {
+                Completion.FinishFailure = Finished.error();
                 if (!Completion.Result.Failure.Failed())
                     Completion.Result.Failure = Finished.error();
-                Child->Root->RecordTerminalFailure(Finished.error());
             }
         }
         catch (...)
         {
+            Completion.FinishFailure = ControlFailureFromException(std::current_exception());
             if (!Completion.Failure)
             {
                 Completion.Failure = std::current_exception();
-                Child->Root->RecordTerminalFailure(
-                    ControlFailureFromException(Completion.Failure));
             }
         }
     }
 
     inline auto DrainRetainedActivity(
+        const std::shared_ptr<RootState> &Root,
         const Preview::SharedTransmission &Transport,
         Preview::Fault::Failure &Failure) -> Net::awaitable<bool>;
 
+    struct ChildActivityDrainReceipt final
+    {
+        bool Retired{true};
+        Preview::Fault::Failure Failure;
+    };
+
     inline auto DrainChildActivities(std::shared_ptr<ChildState> Child)
-        -> Net::awaitable<bool>
+        -> Net::awaitable<ChildActivityDrainReceipt>
     {
         Preview::Fault::Failure Failure;
         const bool InboundRetired = co_await DrainRetainedActivity(
-            Child->Inbound, Failure);
+            Child->Root, Child->Inbound, Failure);
         bool OutboundRetired = InboundRetired;
         if (Child->Outbound != Child->Inbound)
         {
             OutboundRetired = co_await DrainRetainedActivity(
-                Child->Outbound, Failure);
+                Child->Root, Child->Outbound, Failure);
         }
-        if (Failure.Failed()) Child->Root->RecordTerminalFailure(Failure);
-        co_return InboundRetired && OutboundRetired;
+        co_return ChildActivityDrainReceipt{InboundRetired && OutboundRetired, Failure};
     }
 
     inline auto CloseChildTransports(ChildCompletion &Completion)
@@ -223,7 +242,7 @@ namespace Preview::Mux::Detail
             if (!Failure)
             {
                 Failure = std::current_exception();
-                Root->RecordTerminalFailure(ControlFailureFromException(Failure));
+                RecordCloseException(Failure, Root);
             }
         }
         try
@@ -236,10 +255,27 @@ namespace Preview::Mux::Detail
             if (!Failure)
             {
                 Failure = std::current_exception();
-                Root->RecordTerminalFailure(ControlFailureFromException(Failure));
+                RecordCloseException(Failure, Root);
             }
         }
         co_await DrainChildFinish(Completion);
+    }
+
+    inline auto UpdateChildStreamCatalog(
+        const std::shared_ptr<ChildState> &Child, bool ChildRetired) -> void
+    {
+        const auto Root = Child->Root;
+        if (!Child->RetirementSlot || !Root->StreamCatalogOwner) return;
+        const Preview::Contract::Ingress::StreamIdentity Identity{
+            Root->Metadata.TaskIdentity.SessionId,
+            Root->Metadata.TaskIdentity.WorkerId,
+            Root->Metadata.TaskIdentity.Generation,
+            Child->Identity.StreamId};
+        if (ChildRetired && Root->StreamCatalogOwner->IsAvailable() &&
+            !Root->StreamCatalogOwner->Retire(Identity))
+        {
+            Root->StreamCatalogOwner->Disable();
+        }
     }
 
     inline auto CompleteChild(ChildCompletion Completion) -> Net::awaitable<void>
@@ -250,12 +286,6 @@ namespace Preview::Mux::Detail
         auto &Failure = Completion.Failure;
         auto &Observation = Completion.Observation;
         auto &FinishDrained = Completion.FinishDrained;
-        if (Failure) Root->RecordTerminalFailure(ControlFailureFromException(Failure));
-        if (Child->ControlFailure)
-        {
-            const auto ControlFailure = Child->ControlFailure->Load();
-            if (ControlFailure.Failed()) Root->RecordTerminalFailure(ControlFailure);
-        }
         try
         {
             co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
@@ -265,11 +295,11 @@ namespace Preview::Mux::Detail
             if (!Failure)
             {
                 Failure = std::current_exception();
-                Root->RecordTerminalFailure(ControlFailureFromException(Failure));
             }
         }
         co_await CloseChildTransports(Completion);
-        const bool ActivitiesRetired = co_await DrainChildActivities(Child);
+        const auto ActivityDrain = co_await DrainChildActivities(Child);
+        const bool ActivitiesRetired = ActivityDrain.Retired;
         Preview::Fault::Failure ControlFailure;
         if (Child->ControlFailure)
         {
@@ -286,23 +316,41 @@ namespace Preview::Mux::Detail
         }
         if (Failure && !Result.Failure.Failed())
             Result.Failure = ControlFailureFromException(Failure);
-        const bool ChildRetired = FinishDrained && ActivitiesRetired &&
-            !Result.DirectionFailure[0].Failed() && !Result.DirectionFailure[1].Failed();
-        if (Child->RetirementSlot && Root->StreamCatalogOwner)
+        const auto IsClearOrCanceled = [](const Preview::Fault::Failure Value)
         {
-            const auto Identity = Preview::Contract::Ingress::StreamIdentity{
-                Root->Metadata.TaskIdentity.SessionId,
-                Root->Metadata.TaskIdentity.WorkerId,
-                Root->Metadata.TaskIdentity.Generation,
-                Child->Identity.StreamId};
-            if (ChildRetired && Root->StreamCatalogOwner->IsAvailable())
-            {
-                if (!Root->StreamCatalogOwner->Retire(Identity))
-                {
-                    Root->StreamCatalogOwner->Disable();
-                }
-            }
+            return !Value.Failed() || Value.Code == Preview::Fault::Code::Canceled;
+        };
+        const auto ExceptionFailure = Failure
+            ? ControlFailureFromException(Failure) : Preview::Fault::Failure{};
+        const bool NormalCloseRetired =
+            Child->NormalCloseCancellation.load(std::memory_order_acquire) &&
+            Root->IsClosingNormally() && (FinishDrained ||
+                Completion.FinishFailure.Code == Preview::Fault::Code::Canceled) &&
+            ActivitiesRetired && IsClearOrCanceled(Completion.FinishFailure) &&
+            IsClearOrCanceled(Result.Failure) &&
+            IsClearOrCanceled(Result.DirectionFailure[0]) &&
+            IsClearOrCanceled(Result.DirectionFailure[1]) &&
+            IsClearOrCanceled(ControlFailure) && IsClearOrCanceled(ExceptionFailure) &&
+            IsClearOrCanceled(ActivityDrain.Failure);
+        if (NormalCloseRetired)
+        {
+            Result = {};
+            Failure = nullptr;
+            ControlFailure = {};
         }
+        else
+        {
+            if (Completion.FinishFailure.Failed())
+                Root->RecordTerminalFailure(Completion.FinishFailure);
+            if (ActivityDrain.Failure.Failed())
+                Root->RecordTerminalFailure(ActivityDrain.Failure);
+            if (Failure) Root->RecordTerminalFailure(ExceptionFailure);
+            if (ControlFailure.Failed()) Root->RecordTerminalFailure(ControlFailure);
+        }
+        const bool ChildRetired = (FinishDrained || NormalCloseRetired) && ActivitiesRetired &&
+            (NormalCloseRetired ||
+                (!Result.DirectionFailure[0].Failed() && !Result.DirectionFailure[1].Failed()));
+        UpdateChildStreamCatalog(Child, ChildRetired);
         Observation.Complete();
         try
         {
@@ -347,9 +395,15 @@ namespace Preview::Mux::Detail
         Preview::Fault::Failure &Primary,
         const Preview::Fault::Failure &Next) noexcept -> void
     {
-        if (!Primary.Failed() && Next.Failed()) Primary = Next;
+        if (Next.Failed() && (!Primary.Failed() ||
+            (Primary.Code == Preview::Fault::Code::Canceled &&
+             Next.Code != Preview::Fault::Code::Canceled)))
+        {
+            Primary = Next;
+        }
     }
     inline auto DrainRetainedActivity(
+        const std::shared_ptr<RootState> &Root,
         const Preview::SharedTransmission &Transport,
         Preview::Fault::Failure &Failure)
         -> Net::awaitable<bool>
@@ -367,17 +421,19 @@ namespace Preview::Mux::Detail
                 continue;
             }
             Activity->Seal();
+            auto LayerFailure = Preview::Fault::Failure{};
             try
             {
                 const auto Drained = co_await Activity->Drain();
-                if (!Drained) PreserveChildDrainFailure(Failure, Drained.error());
+                if (!Drained) LayerFailure = Drained.error();
             }
             catch (...)
             {
-                PreserveChildDrainFailure(
-                    Failure, ControlFailureFromException(std::current_exception()));
+                LayerFailure = ControlFailureFromException(std::current_exception());
             }
             const bool LayerRetired = Activity->IsRetired();
+            if (!Root->IsExpectedRetirementCancellation(LayerFailure, LayerRetired))
+                PreserveChildDrainFailure(Failure, LayerFailure);
             Retired = LayerRetired && Retired;
             if (!LayerRetired && !Failure.Failed())
                 PreserveChildDrainFailure(
@@ -417,10 +473,12 @@ namespace Preview::Mux::Detail
                 }
                 continue;
             }
-            const auto Inbound = co_await DrainRetainedActivity(Child->Inbound, FirstFailure);
+            const auto Inbound = co_await DrainRetainedActivity(
+                Root, Child->Inbound, FirstFailure);
             bool Outbound = Inbound;
             if (Child->Outbound != Child->Inbound)
-                Outbound = co_await DrainRetainedActivity(Child->Outbound, FirstFailure);
+                Outbound = co_await DrainRetainedActivity(
+                    Root, Child->Outbound, FirstFailure);
             if (!Inbound || !Outbound)
             {
                 Receipt.Retired = false;

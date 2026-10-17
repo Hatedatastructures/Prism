@@ -8,7 +8,7 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 `Preview/`、`tests/Preview/` 和 `PrismPreview` 是当前优先审查、开发与验收的实现。除非任务明确指向旧版，否则默认沿 `Preview/Application/Startup/Start.hpp` 的真实启动路径和 `Preview/Runtime/Session.hpp`、`Preview/Boundary/` 的真实请求路径分析；`include/prism/`、`src/prism/` 仅作为兼容和对照资料，不能把旧版目录、工厂或测试结果当成 Preview 的现状。
 
-Preview 的持续结构审查见 [docs/preview-refactor/2026-09-28-preview-module-refactor-analysis.md](docs/preview-refactor/2026-09-28-preview-module-refactor-analysis.md)。该文档是问题与迁移台账，不代表所列改造已经实现或通过测试。
+Preview 的当前模块责任与架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/preview/modules/README.md](docs/preview/modules/README.md)。[2026-09-28 模块分析](docs/preview-refactor/2026-09-28-preview-module-refactor-analysis.md) 保留为历史问题与迁移台账，不代表所列改造已经实现或通过测试。
 
 ### Preview 模块所有权
 
@@ -382,7 +382,7 @@ C:/msys64/ucrt64/bin/clang-tidy.exe -p build <file.cpp> --config-file=.clang-tid
 
 ## 资源所有权模型
 
-Prism 采用四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached），detached 协程严禁引用 L3 资源。详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+旧版 `include/prism/`、`src/prism/` 的四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached）与 PMR 规则见 [docs/legacy/prism-architecture.md](docs/legacy/prism-architecture.md)；Preview 的 typed owner、executor、取消、关闭与 drain 规则见 [docs/preview/ownership-and-lifecycle.md](docs/preview/ownership-and-lifecycle.md)。不要把旧版 resource 层级直接当作 Preview 模块所有权表。
 
 新增 detached 协程（`net::co_spawn + net::detached`）或修改 PMR allocator 时，必须对照该文档审查资源所有权，并运行 `scripts/audit_detached.sh` 静态审计。
 

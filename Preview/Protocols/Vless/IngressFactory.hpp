@@ -53,7 +53,8 @@ namespace Preview::Vless
                 co_return co_await Preview::Protocols::RejectProviderAccept(
                     Admission, Attempt, Accepted.error());
             }
-            auto Connection = std::move(Accepted->Connection);
+            // Track 仅借用共享 owner；Accepted 仍需把连接移交给 BuildPlane。
+            auto Connection = Accepted->Connection;
             if (const auto Tracked = Track(Admission, Attempt, Connection); !Tracked)
             {
                 co_return co_await Preview::Protocols::RejectProviderAccept(
@@ -141,6 +142,11 @@ namespace Preview::Vless
             auto Accepted = std::move(Input.Accepted);
             auto Request = std::move(Accepted.Request);
             auto Connection = std::move(Accepted.Connection);
+            if (!Connection)
+            {
+                return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
+            }
             Preview::Contract::ProtocolDataPlane Plane;
             Plane.Protocol = Preview::Contract::ProtocolType::Vless;
             if (Request.Cmd != Command::Mux)

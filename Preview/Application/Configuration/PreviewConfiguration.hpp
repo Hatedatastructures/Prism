@@ -5,6 +5,7 @@
 #pragma once
 #include <Preview/Contract/Ingress/ProtocolConfiguration.hpp>
 #include <Preview/Contract/Ingress/CarrierConfiguration.hpp>
+#include <Preview/Account/PolicyConfiguration.hpp>
 
 #include <cstdint>
 #include <map>
@@ -67,12 +68,25 @@ namespace Preview::Application::Configuration
         std::int32_t ConfiguredCandidate{-1};
     };
 
+    /** @brief 配置文件中稳定、按字符串持久化的账户组 ID。 */
+    using AccountGroupId = std::string;
+
+    /** @brief 账户组仅提供稳定分类标识和显示名称，不承载继承策略。 */
+    struct AccountGroupConfiguration final
+    {
+        AccountGroupId Id;
+        std::string Name;
+        Preview::Account::PolicyConfiguration Policy;
+    };
+
     struct AccountConfiguration final
     {
         std::string Id;
+        std::optional<AccountGroupId> GroupId;
         std::string SecretRef;
         std::string Credential;
         std::map<std::string, std::string> Credentials;
+        Preview::Account::PolicyConfiguration Policy;
     };
 
     struct RouteConfiguration final
@@ -123,6 +137,13 @@ namespace Preview::Application::Configuration
         std::optional<std::string> WebDirectory{}; ///< 未指定用宿主默认目录；空字符串禁用；相对路径相对配置文件。
     };
 
+    /** @brief 空目录使用配置旁 data/配置名；显式路径按配置目录解析。 */
+    struct StorageConfiguration final
+    {
+        std::string Directory;
+        std::uint64_t HistoryMaxBytes{4ULL * 1024ULL * 1024ULL * 1024ULL};
+    };
+
     struct HotReloadConfiguration final
     {
         bool Enabled{true};
@@ -146,6 +167,7 @@ namespace Preview::Application::Configuration
         std::vector<Preview::Contract::CarrierConfiguration> Carriers;
         std::vector<Preview::Contract::ProtocolBindingConfiguration> ProtocolBindings;
         RecognitionConfiguration Recognition{};
+        std::vector<AccountGroupConfiguration> AccountGroups;
         std::vector<AccountConfiguration> Accounts;
         std::map<std::string, std::string> Secrets;
         std::vector<RouteConfiguration> Routes;
@@ -154,6 +176,7 @@ namespace Preview::Application::Configuration
         TraceConfiguration Trace{};
         StatisticsConfiguration Statistics{};
         OperationsConfiguration Operations{};
+        StorageConfiguration Storage{};
         HotReloadConfiguration HotReload{};
         ShutdownConfiguration Shutdown{};
 

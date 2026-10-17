@@ -4,7 +4,7 @@ if(PRISM_ENABLE_BENCHMARK)
         AddPreviewTest(${_case}.cpp)
         target_sources(${_case} PRIVATE CarrierBenchmarkWsFactory.cpp
             CarrierBenchmarkWsFactory.hpp CarrierBenchmarkTransportResult.hpp
-            ../../protocols/Ws/WsFactorySupport.hpp)
+            ../../Protocols/Ws/WsFactorySupport.hpp)
         target_link_libraries(${_case} PRIVATE PreviewTransport PreviewProtocolAnytls
             PreviewProtocolGun PreviewProtocolReality PreviewProtocolRestls PreviewProtocolShadowtls
             PreviewProtocolSocks5 PreviewProtocolTrojan PreviewProtocolTrusttunnel PreviewProtocolVless
@@ -16,6 +16,6 @@ endif()
 # 同一 owner 的正式职责头与行为场景，复用既有 target。
 if(TARGET CarrierMemoryBenchmark)
 target_sources(CarrierMemoryBenchmark PRIVATE
-    ../../integration/Layering/CarrierMemoryTrustTunnelHandshake.cpp
+    CarrierMemoryTrustTunnelHandshake.cpp
 )
 endif()

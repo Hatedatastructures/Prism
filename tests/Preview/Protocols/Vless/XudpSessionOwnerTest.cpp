@@ -185,16 +185,19 @@ namespace
     }
     auto Write(Preview::SharedTransmission Stream, std::span<const std::byte> Wire) -> Net::awaitable<bool>
     {
-        std::error_code Error;
-        co_await Stream->AsyncWrite(Wire, Error);
-        co_return !Error;
+        const auto Result = co_await Stream->WriteExact(Wire);
+        co_return !Result.Failure.Failed() && Result.Bytes == Wire.size();
+    }
+    auto ReadExact(Preview::SharedTransmission Stream, std::span<std::byte> Buffer)
+        -> Net::awaitable<bool>
+    {
+        const auto Result = co_await Stream->ReadExact(Buffer);
+        co_return !Result.Failure.Failed() && Result.Bytes == Buffer.size();
     }
     auto ReadResponse(std::shared_ptr<Fixture> State, std::uint16_t Id) -> Net::awaitable<bool>
     {
         std::array<std::byte, 16> Header{};
-        std::error_code Error;
-        co_await State->Client->AsyncRead(Header, Error);
-        if (Error) co_return false;
+        if (!(co_await ReadExact(State->Client, Header))) co_return false;
         const bool Valid = Header[0] == std::byte{0} && Header[1] == std::byte{12} &&
             Header[2] == std::byte{0} && Header[3] == std::byte{static_cast<std::uint8_t>(Id)} &&
             Header[4] == std::byte{2} && Header[5] == std::byte{1} && Header[6] == std::byte{2} &&
@@ -202,15 +205,13 @@ namespace
             Header[11] == std::byte{0} && Header[12] == std::byte{0} && Header[13] == std::byte{1} &&
             Header[14] == std::byte{0} && Header[15] == std::byte{static_cast<std::uint8_t>(Payload.size())};
         std::array<std::byte, Payload.size()> Data{};
-        co_await State->Client->AsyncRead(Data, Error);
-        co_return Valid && !Error && std::equal(Data.begin(), Data.end(), Bytes(Payload).begin());
+        if (!Valid || !(co_await ReadExact(State->Client, Data))) co_return false;
+        co_return std::equal(Data.begin(), Data.end(), Bytes(Payload).begin());
     }
     auto ReadIpv6Response(std::shared_ptr<Fixture> State, std::uint16_t Id) -> Net::awaitable<bool>
     {
         std::array<std::byte, 28> Header{};
-        std::error_code Error;
-        co_await State->Client->AsyncRead(Header, Error);
-        if (Error) co_return false;
+        if (!(co_await ReadExact(State->Client, Header))) co_return false;
         const bool Valid = Header[0] == std::byte{0} && Header[1] == std::byte{24} &&
             Header[2] == std::byte{0} && Header[3] == std::byte{static_cast<std::uint8_t>(Id)} &&
             Header[4] == std::byte{2} && Header[5] == std::byte{1} && Header[6] == std::byte{2} &&
@@ -218,8 +219,8 @@ namespace
             Header[25] == std::byte{1} && Header[26] == std::byte{0} &&
             Header[27] == std::byte{static_cast<std::uint8_t>(Payload.size())};
         std::array<std::byte, Payload.size()> Data{};
-        co_await State->Client->AsyncRead(Data, Error);
-        co_return Valid && !Error && std::equal(Data.begin(), Data.end(), Bytes(Payload).begin());
+        if (!Valid || !(co_await ReadExact(State->Client, Data))) co_return false;
+        co_return std::equal(Data.begin(), Data.end(), Bytes(Payload).begin());
     }
     auto Resolve(std::shared_ptr<Fixture> S, Preview::Network::Target Target)
         -> Net::awaitable<std::expected<Udp::endpoint, Preview::Fault::Failure>>
@@ -331,8 +332,9 @@ namespace
     }
     auto ReadEnd(std::shared_ptr<Fixture> S,std::uint16_t Id)->Net::awaitable<bool>
     {
-        std::array<std::byte,6> Wire{};std::error_code Error;co_await S->Client->AsyncRead(Wire,Error);
-        co_return !Error&&Wire==std::array<std::byte,6>{std::byte{0},std::byte{4},std::byte{0},
+        std::array<std::byte,6> Wire{};
+        const auto Received = co_await ReadExact(S->Client, Wire);
+        co_return Received && Wire == std::array<std::byte,6>{std::byte{0},std::byte{4},std::byte{0},
             std::byte{static_cast<std::uint8_t>(Id)},std::byte{3},std::byte{2}};
     }
     auto DnsClient(std::shared_ptr<Fixture> S)->Net::awaitable<void>
@@ -380,10 +382,9 @@ namespace
         const auto Request = Preview::Vless::BuildRequest(Header);
         EXPECT_TRUE(co_await Write(State->Client, std::as_bytes(std::span(Request))));
         std::array<std::byte, 2> Response{};
-        std::error_code Error;
-        co_await State->Client->AsyncRead(Response, Error);
-        EXPECT_FALSE(Error);
-        if (Error) { State->Close(); co_return; }
+        const auto ResponseRead = co_await ReadExact(State->Client, Response);
+        EXPECT_TRUE(ResponseRead);
+        if (!ResponseRead) { State->Close(); co_return; }
         if(State->Action==Lifecycle::Quota){co_await QuotaClient(State);co_return;}
         if(State->Action==Lifecycle::FamilySwitch)
         {

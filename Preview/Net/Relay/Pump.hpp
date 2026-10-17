@@ -21,6 +21,7 @@ namespace Preview::Network::Relay
             { Owner->Record(Direction, {Fault::Code::InvalidArgument}); Owner->Close(); co_return false; }
             Offset += Part.Bytes;
             Owner->Output.Total[Direction] += Part.Bytes;
+            if (Part.Bytes != 0U) Owner->ReportFirstTransfer(Direction);
             auto Flow = Foundation::TrafficObservation::Direction::Download;
             if (Direction == 0) Flow = Foundation::TrafficObservation::Direction::Upload;
             Owner->Input.Observation.Transfer(Part.Bytes, Flow);

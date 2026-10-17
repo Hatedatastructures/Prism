@@ -172,7 +172,7 @@ TEST(PreviewConfigurationAssembly, KeepsPureConfigurationHelpersSelfContained)
         Binding.Id="binding";
         Binding.ProtocolId=Protocol.Id;
         Binding.MuxModes = {"Smux", "H2Mux"};
-        ASSERT_EQ(Preview::Composition::Provider::MuxProvider::ConfiguredMuxMode(Protocol,Binding),
+        ASSERT_EQ(Preview::Composition::Provider::ConfiguredMuxMode(Protocol, Binding),
                   Preview::Mux::Mode::H2Mux);
 
         const auto Uuid = Preview::Vless::ParseAccountUuid(

@@ -6,12 +6,14 @@
 #include <Preview/Protocols/Mux/Detail/Root/RootChild.hpp>
 #include <Preview/Protocols/Mux/Detail/Root/RootSession.hpp>
 #include <Preview/Protocols/Mux/RootBinding.hpp>
+#include "MuxRootCloseTestSupport.hpp"
 #include <Preview/Contract/Ingress/InboundAdmission.hpp>
 #include <Preview/Foundation/Generation/Lifetime.hpp>
 #include <Preview/Contract/Ingress/StreamCatalog.hpp>
 #include <Preview/Contract/Services/Authentication.hpp>
 #include <Preview/Protocols/Mux/Smux/Smux.hpp>
 #include <TestSupport/Preview/ProviderBindings.hpp>
+#include <TestSupport/Fixtures/MuxRoot.hpp>
 #include "MuxStreamAcceptInputTestSupport.hpp"
 #include <array>
 #include <atomic>
@@ -22,19 +24,6 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
-
-namespace Preview::Mux::Testing
-{
-    class RootSessionStateFixture final
-    {
-    public:
-        [[nodiscard]] static auto State(const std::shared_ptr<Detail::RootSession> &Root)
-            -> std::shared_ptr<Detail::RootState>
-        {
-            return Root->State_;
-        }
-    };
-}
 
 namespace
 {
@@ -233,7 +222,7 @@ namespace
         auto operator()(Preview::Mux::ChildReport Report) const -> void
         {
             ++State->ObserverCalls;
-            State->ChildReportFailure = Report.Result.Failure;
+            State->ChildReportFailure = Report.Relay.Failure;
             throw std::runtime_error("observer-failure");
         }
     };
@@ -455,6 +444,11 @@ namespace
         co_await RetireFailedRoot(State, RootPeer);
         EXPECT_TRUE(co_await ParentTask::DrainRootParentTask(State->ParentTasks));
         EXPECT_EQ(State->ParentTasks->Stats().Active, 0U);
+        State->Root.reset();
+        State->ParentTasks.reset();
+        State->Binding.reset();
+        State->StreamCatalogOwner.reset();
+        State->ChildPeer.reset();
     }
 
     auto ExceptionMessage(const std::exception_ptr &Failure) -> std::string
@@ -550,4 +544,120 @@ TEST(MuxRootOwner, RunChildFinishFailureCompletesTrafficAndReleasesChildLease)
         Preview::Fault::Code::ConnectionReset, Native};
     VerifyFinishFailureScenario(
         RunFinishFailureCase(FinishFailure), FinishFailure, false);
+}
+
+namespace
+{
+    auto RunPublishedRootCancellation(Net::any_io_executor Executor)
+        -> Net::awaitable<void>
+    {
+        auto [PeerRaw, InboundRaw] = Preview::MakeMemoryPair(Executor);
+        auto Peer = std::make_shared<Preview::MemoryStream>(std::move(PeerRaw));
+        auto Inbound = std::make_shared<Preview::MemoryStream>(std::move(InboundRaw));
+        auto Root = std::make_shared<Preview::Mux::Detail::RootState>(
+            Inbound, Preview::Mux::RootOptions{});
+        Root->Started.store(true, std::memory_order_release);
+        EXPECT_FALSE(Root->PublishRunOutcome());
+        EXPECT_FALSE(Root->ResourcesRetired.load(std::memory_order_acquire));
+
+        Root->RequestCancel();
+        EXPECT_EQ(Root->ExitStatus.load(), Preview::Fault::Code::Success);
+        EXPECT_FALSE(Root->TerminalFailure.Load().Failed());
+
+        const auto Activity = Inbound->Activity();
+        EXPECT_TRUE(Activity);
+        (void)Inbound->Close();
+        if (Activity)
+        {
+            const auto Drained = co_await Activity->Drain();
+            EXPECT_TRUE(Drained);
+        }
+        Root->Inbound.reset();
+        Root.reset();
+        (void)Peer->Close();
+    }
+}
+
+TEST(MuxRootOwner, RequestCancelAfterRunOutcomePreservesSuccessfulTerminalState)
+{
+    Net::io_context Io;
+    std::exception_ptr Exception;
+    Net::co_spawn(Io, RunPublishedRootCancellation(Io.get_executor()),
+        [&Exception](std::exception_ptr Failure) { Exception = std::move(Failure); });
+    Io.run();
+    EXPECT_FALSE(Exception);
+}
+
+namespace
+{
+    auto RunCancellationBeforeOutcome(Net::any_io_executor Executor)
+        -> Net::awaitable<void>
+    {
+        auto [PeerRaw, InboundRaw] = Preview::MakeMemoryPair(Executor);
+        auto Peer = std::make_shared<Preview::MemoryStream>(std::move(PeerRaw));
+        auto Inbound = std::make_shared<Preview::MemoryStream>(std::move(InboundRaw));
+        auto Root = std::make_shared<Preview::Mux::Detail::RootState>(
+            Inbound, Preview::Mux::RootOptions{});
+
+        Root->RequestCancel();
+        EXPECT_EQ(Root->ExitStatus.load(), Preview::Fault::Code::Canceled);
+        Root->Started.store(true, std::memory_order_release);
+        Root->RequestCancel();
+        EXPECT_EQ(Root->TerminalFailure.Load().Code, Preview::Fault::Code::Canceled);
+        EXPECT_TRUE(Root->PublishRunOutcome());
+
+        const auto Activity = Inbound->Activity();
+        EXPECT_TRUE(Activity);
+        if (!Activity) co_return;
+        const auto Drained = co_await Activity->Drain();
+        EXPECT_TRUE(Drained);
+        EXPECT_TRUE(Activity->IsRetired());
+        Root->Inbound.reset();
+        Root.reset();
+        (void)Peer->Close();
+    }
+}
+
+TEST(MuxRootOwner, RequestCancelBeforeRunOutcomeClaimsTerminalState)
+{
+    Net::io_context Io;
+    std::exception_ptr Exception;
+    Net::co_spawn(Io, RunCancellationBeforeOutcome(Io.get_executor()),
+        [&Exception](std::exception_ptr Failure) { Exception = std::move(Failure); });
+    Io.run();
+    EXPECT_FALSE(Exception);
+}
+
+namespace
+{
+    auto RunRootCloseWithoutCancelFailure(Net::any_io_executor Executor)
+        -> Net::awaitable<void>
+    {
+        auto [PeerRaw, InboundRaw] = Preview::MakeMemoryPair(Executor);
+        auto Peer = std::make_shared<Preview::MemoryStream>(std::move(PeerRaw));
+        auto Inbound = std::make_shared<Preview::MemoryStream>(std::move(InboundRaw));
+        auto State = std::make_shared<Preview::Mux::Detail::RootState>(
+            Inbound, Preview::Mux::RootOptions{});
+        State->Started.store(true, std::memory_order_release);
+        auto Root = Preview::Mux::Testing::RootSessionStateFixture::CreateSession(State);
+
+        Root->Close();
+        const auto Activity = Root->Activity();
+        const auto Drained = co_await Activity->Drain();
+        EXPECT_TRUE(Drained);
+        EXPECT_EQ(State->ExitStatus.load(), Preview::Fault::Code::Success);
+        EXPECT_FALSE(State->TerminalFailure.Load().Failed());
+        EXPECT_TRUE(Root->IsRetired());
+        (void)Peer->Close();
+    }
+}
+
+TEST(MuxRootOwner, CloseDrainsWithoutPublishingCancellationFailure)
+{
+    Net::io_context Io;
+    std::exception_ptr Exception;
+    Net::co_spawn(Io, RunRootCloseWithoutCancelFailure(Io.get_executor()),
+        [&Exception](std::exception_ptr Failure) { Exception = std::move(Failure); });
+    Io.run();
+    EXPECT_FALSE(Exception);
 }

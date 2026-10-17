@@ -493,8 +493,11 @@ TEST(HttpForwardOperations, HotReloadPublishesNewDiagnoseRenderEpoch)
     const auto LogDirectory = (std::filesystem::temp_directory_path() /
         ("PrismPreviewDiagnoseReload-" + std::to_string(
             std::chrono::steady_clock::now().time_since_epoch().count()))).generic_string();
-    TemporaryConfiguration Configuration(TcpPort,
-        ConfigurationShape{.OperationsPort = OperationsPort, .LoggingDirectory = LogDirectory});
+    TemporaryConfiguration Configuration(
+        TcpPort, OperationsPort,
+        TemporaryConfigurationOptions{
+            .LogDirectory = LogDirectory,
+            .LogFileName = "preview.log"});
     RunningApplication Application(Configuration.Path());
     ASSERT_TRUE(Application.Start()) << Application.Error();
 

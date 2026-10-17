@@ -445,7 +445,10 @@ namespace Preview::Socks5
             {
                 Activity->Seal();
                 const auto Drained = co_await Activity->Drain();
-                if (!Drained)
+                // 只有同一层的物理退休回执已成立时，才接受取消结果并继续收尾。
+                if (!Drained &&
+                    (Drained.error().Code != Preview::Fault::Code::Canceled ||
+                     !Activity->IsRetired()))
                 {
                     RecordFailure(Drained.error());
                     co_return std::unexpected(LoadFailure());
@@ -453,7 +456,10 @@ namespace Preview::Socks5
             }
 
             const auto OperationsDrained = co_await Operations_.Drain();
-            if (!OperationsDrained)
+            // Run 操作的取消结果也必须与其独立退休回执同时成立。
+            if (!OperationsDrained &&
+                (OperationsDrained.error().Code != Preview::Fault::Code::Canceled ||
+                 !Operations_.IsRetired()))
             {
                 RecordFailure(OperationsDrained.error());
                 co_return std::unexpected(LoadFailure());

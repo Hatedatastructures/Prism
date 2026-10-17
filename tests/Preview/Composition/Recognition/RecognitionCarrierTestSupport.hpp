@@ -9,7 +9,7 @@
  * @brief TLS carrier 候选与 scheme 提交行为 RED 测试
  */
 
-#include "../../protocols/Ws/WsFactorySupport.hpp"
+#include "../../Protocols/Ws/WsFactorySupport.hpp"
 #include <gtest/gtest.h>
 #include <TestSupport/Fixtures/StreamFactory.hpp>
 

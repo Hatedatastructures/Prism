@@ -32,6 +32,7 @@
 #include <Preview/Runtime/ListenerConnectionDrain.hpp>
 #include <Preview/Runtime/ListenerCompletion.hpp>
 #include <Preview/Runtime/ListenerAdmissionOwner.hpp>
+#include <Preview/Runtime/ListenerTrace.hpp>
 #include <Preview/Runtime/ListenerSessionRunner.hpp>
 #include <Preview/Foundation/Identifier/SessionIdAllocator.hpp>
 #include <Preview/Lifecycle/TaskRegistry.hpp>
@@ -39,6 +40,7 @@
 #include <Preview/Runtime/SessionRegistry.hpp>
 #include <Preview/Runtime/WorkerGroup.hpp>
 #include <Preview/Runtime/WorkerDispatchResult.hpp>
+#include <Preview/Runtime/SessionTraceRing.hpp>
 #include <Preview/Transport/Transmission.hpp>
 namespace Preview::Runtime
 {
@@ -131,6 +133,7 @@ namespace Preview::Runtime
                 SessionInfo Info;
                 Preview::WorkerId Worker{};
                 Preview::Foundation::GenerationPin GenerationPin;
+                Detail::ListenerSessionTraceTiming TraceTiming{};
             };
             explicit AdmissionRequest(Options Input)
                 : Transport(std::move(Input.Transport)),
@@ -140,7 +143,8 @@ namespace Preview::Runtime
                   State(std::move(Input.State)),
                   Info(std::move(Input.Info)),
                   Worker(Input.Worker),
-                  GenerationPin(std::move(Input.GenerationPin))
+                  GenerationPin(std::move(Input.GenerationPin)),
+                  TraceTiming(Input.TraceTiming)
             {
             }
             ~AdmissionRequest() noexcept
@@ -184,6 +188,7 @@ namespace Preview::Runtime
             SessionInfo Info;
             Preview::WorkerId Worker{};
             Preview::Foundation::GenerationPin GenerationPin;
+            Detail::ListenerSessionTraceTiming TraceTiming{};
 
             [[nodiscard]] auto Generation() const noexcept -> Preview::GenerationId
             {
@@ -366,6 +371,7 @@ namespace Preview::Runtime
             if (SessionOwner) SessionOwner->SetDeferredCleanup({});
             if (Request) Request->RejectTransferred({});
         }
+
         /** @brief 在选定 worker executor 上完成 factory、registry 和 tracked start。 */
         static auto StartSession(const std::shared_ptr<AdmissionRequest> &Request) -> void
         {
@@ -374,6 +380,11 @@ namespace Preview::Runtime
             if (Request->State->Workers)
             {
                 WorkerValue = Request->State->Workers->Find(Request->Worker);
+            }
+            auto Trace = Detail::MakeListenerSessionTraceWriter(*Request, WorkerValue);
+            if (Trace)
+            {
+                Trace->Record(SessionTraceStage::SessionAdmissionStarted);
             }
             if (Request->State->Workers &&
                 (!WorkerValue || !WorkerValue->IsAccepting()))
@@ -416,6 +427,7 @@ namespace Preview::Runtime
                     return;
                 }
                 SessionOwner = Sess;
+                Sess->SetTraceWriter(Trace);
                 auto InitialState = std::make_shared<Detail::SessionAdmissionState>();
                 auto Control = Sess->Control();
                 if (!Control) { RejectAdmission(Request, SessionOwner); return; }
@@ -509,6 +521,8 @@ namespace Preview::Runtime
                     }
                     co_return;
                 }
+                const auto AcceptedMonotonic = std::chrono::steady_clock::now();
+                const auto AcceptedWall = std::chrono::system_clock::now();
                 if (State->Stopped.load(std::memory_order_acquire))
                 {
                     // 析构/Stop 后已接受的连接不再进入工厂
@@ -546,14 +560,23 @@ namespace Preview::Runtime
                 Info.Worker = Worker;
                 Info.Generation = GenerationPin->Id();
                 Info.StartedAt = static_cast<std::uint64_t>(
-                    std::chrono::steady_clock::now().time_since_epoch().count());
+                    AcceptedMonotonic.time_since_epoch().count());
+                const auto StartedAtUnixMilliseconds =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        AcceptedWall.time_since_epoch()).count();
+                Info.StartedAtUnixMilliseconds = StartedAtUnixMilliseconds > 0
+                    ? static_cast<std::uint64_t>(StartedAtUnixMilliseconds)
+                    : 0U;
                 auto Request = MakeAdmission(AdmissionRequest::Options{
                     std::move(Transport), std::move(ConnectionSlot), std::move(RejectionDrain), State->Factory,
-                    State, std::move(Info), Worker, std::move(GenerationPin)});
+                    State, std::move(Info), Worker, std::move(GenerationPin),
+                    Detail::ListenerSessionTraceTiming{AcceptedWall, AcceptedMonotonic}});
                 if (!Request) continue;
                 auto Result = WorkerDispatchResult::Accepted;
                 if (State->Workers)
                 {
+                    Request->TraceTiming.DispatchMonotonic = std::chrono::steady_clock::now();
+                    Request->TraceTiming.DispatchWall = std::chrono::system_clock::now();
                     Result = State->Workers->Dispatch(
                         Worker, Request->Generation(),
                         [Request] { StartSession(Request); });

@@ -291,7 +291,11 @@ namespace Preview::Transport
                 -> Net::awaitable<ControlResult>
             {
                 co_await Net::this_coro::throw_if_cancelled(false);
-                co_return co_await Activity->Drain();
+                const auto Result = co_await Activity->Drain();
+                if (!Result) co_return std::unexpected(Result.error());
+                if (!Activity->IsRetired())
+                    co_return std::unexpected(Fault::Failure{Fault::Code::Blocked});
+                co_return ControlResult{};
             }
             auto Partial(std::size_t Index, IoResult Result) -> void
             {

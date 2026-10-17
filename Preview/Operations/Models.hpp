@@ -13,6 +13,7 @@
 #include <Preview/Operations/QueryPage.hpp>
 #include <Preview/Operations/ScopedCollectionModels.hpp>
 #include <Preview/Operations/ConfigurationIssue.hpp>
+#include <Preview/Operations/ManagementModels.hpp>
 
 #include <array>
 #include <cstddef>
@@ -47,12 +48,14 @@ namespace Preview::Operations
             Preview::ProcessId Process{};
             Incarnation ProcessIncarnation{};
             CommandToken Token{};
+            std::string InstanceKey;
         };
 
         explicit BootstrapIdentity(Options Value)
             : Process_(Value.Process),
               Incarnation_(std::move(Value.ProcessIncarnation)),
-              CommandToken_(std::move(Value.Token))
+              CommandToken_(std::move(Value.Token)),
+              InstanceKey_(std::move(Value.InstanceKey))
         {
         }
 
@@ -75,9 +78,14 @@ namespace Preview::Operations
         }
 
     private:
+        /** @brief 持久实例身份由数据目录保存；不由进程 PID 推导。 */
+    public:
+        [[nodiscard]] auto InstanceKey() const noexcept -> const std::string& { return InstanceKey_; }
+    private:
         Preview::ProcessId Process_{};
         Incarnation Incarnation_{};
         CommandToken CommandToken_{};
+        std::string InstanceKey_;
     };
     using HealthStatus = Preview::Statistics::HealthStatus;
     using HealthSnapshot = Preview::Statistics::HealthSnapshot;
@@ -167,7 +175,8 @@ namespace Preview::Operations
                                     StreamListQuery,
                                     TaskQuery,
                                     TaskListQuery,
-                                    EventQuery>;
+                                    EventQuery,
+                                    ManagementQuery>;
 
     struct Query final
     {
@@ -185,6 +194,7 @@ namespace Preview::Operations
     {
         ValidateOnly,
         Apply,
+        ApplyAndPersist,
     };
 
     struct ReloadCommand final
@@ -492,7 +502,8 @@ namespace Preview::Operations
                                       Page<SessionSnapshot>,
                                       Page<StreamSnapshot>,
                                       Page<TaskSnapshot>,
-                                      Preview::Statistics::EventPage>;
+                                      Preview::Statistics::EventPage,
+                                      ManagementPayload>;
 
     struct QueryResult final
     {

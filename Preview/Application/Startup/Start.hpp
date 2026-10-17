@@ -8,6 +8,7 @@
 #include <Preview/Application/Application.hpp>
 #include <Preview/Application/BoundaryStartup.hpp>
 #include <Preview/Application/ClosingFailure.hpp>
+#include <Preview/Application/Account/PublishedPolicySource.hpp>
 #include <Preview/Application/Startup/BoundaryPhase.hpp>
 #include <Preview/Application/Startup/DatagramServices.hpp>
 #include <Preview/Application/Startup/OperationsPhase.hpp>
@@ -82,6 +83,10 @@ namespace Preview::Application
             Startup::StartupTransaction Transaction(Runtime);
             Runtime->Generation = Phase->Generation;
             Runtime->Accounts = Phase->Accounts;
+            if (Runtime->Accounts.Identities)
+                Runtime->Accounts.Identities->RuntimeRegistry()->AttachPolicySource(
+                    std::make_shared<Preview::Application::PublishedPolicySource>(
+                        Runtime->GenerationPublisher));
             Runtime->OperationsWebDirectory = Options_.OperationsWebDirectory;
             if (Config.Operations.WebDirectory)
             {

@@ -351,6 +351,7 @@ namespace Preview::Application
         std::atomic<bool> StopRequested{false};
         std::atomic<bool> StopCompleted{false};
         std::atomic<bool> ShutdownScheduled{false};
+        std::atomic<bool> ConfigurationPersistenceActive{false}; ///< 同一时刻只允许一个持久化 Reload。
         std::atomic<bool> Running{false};
         std::atomic<bool> SignalsArmed{false};
         std::atomic<bool> ResourcesFinalized{false};

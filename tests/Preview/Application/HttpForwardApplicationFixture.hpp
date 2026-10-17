@@ -45,13 +45,21 @@ namespace Preview::Testing::HttpForward
         KeepOpen
     };
 
+    /** @brief HTTP 正向代理临时配置的日志选项。 */
+    struct TemporaryConfigurationOptions final
+    {
+        std::filesystem::path LogDirectory; ///< 空路径时创建独立临时目录。
+        std::string LogFileName{"http-ingress.log"}; ///< 初始日志文件名。
+    };
+
     [[nodiscard]] auto FindFreePort() -> std::uint16_t;
 
     /** @brief 生成单个 HTTP 真实入口测试使用的临时配置与日志目录。 */
     class TemporaryConfiguration final
     {
     public:
-        TemporaryConfiguration(std::uint16_t TcpPort, std::uint16_t OperationsPort);
+        TemporaryConfiguration(std::uint16_t TcpPort, std::uint16_t OperationsPort,
+                               TemporaryConfigurationOptions Options = {});
         ~TemporaryConfiguration();
 
         TemporaryConfiguration(const TemporaryConfiguration&) = delete;
@@ -210,17 +218,21 @@ namespace Preview::Testing::HttpForward
         return Acceptor.local_endpoint().port();
     }
 
-    inline TemporaryConfiguration::TemporaryConfiguration(const std::uint16_t TcpPort,
-                                                   const std::uint16_t OperationsPort)
+    inline TemporaryConfiguration::TemporaryConfiguration(
+        const std::uint16_t TcpPort,
+        const std::uint16_t OperationsPort,
+        TemporaryConfigurationOptions Options)
         : Path_(std::filesystem::temp_directory_path() /
                 ("PrismPreviewHttpIngress-" +
                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
                  ".json")),
-          LogDirectory_(std::filesystem::temp_directory_path() /
-                        ("PrismPreviewHttpIngressLogs-" +
-                         std::to_string(std::chrono::steady_clock::now()
-                                            .time_since_epoch()
-                                            .count())))
+          LogDirectory_(Options.LogDirectory.empty()
+                            ? std::filesystem::temp_directory_path() /
+                                  ("PrismPreviewHttpIngressLogs-" +
+                                   std::to_string(std::chrono::steady_clock::now()
+                                                      .time_since_epoch()
+                                                      .count()))
+                            : std::move(Options.LogDirectory))
     {
         std::ofstream File(Path_, std::ios::binary);
         File << R"json({
@@ -264,7 +276,8 @@ namespace Preview::Testing::HttpForward
         "Level": "Trace",
         "Directory": ")json"
              << LogDirectory_.generic_string() << R"json(",
-        "FileName": "http-ingress.log",
+        "FileName": ")json"
+             << Options.LogFileName << R"json(",
         "RenderMode": "CompactHuman",
         "Console": false
     },

@@ -14,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -36,13 +37,28 @@ namespace Preview
             static constexpr unsigned CloseFlag = 2;
             static constexpr std::size_t CancelCapacity = 64;
             using ControlResult = std::expected<void, Preview::Fault::Failure>;
+            enum class KnownFailurePhase : std::uint8_t
+            {
+                None,
+                Recording,
+                Recorded,
+                ResolveRequested,
+                Resolving,
+            };
+            enum class RetryState : std::uint8_t
+            {
+                Idle,
+                InFlight,
+                ClosePending,
+            };
 
             struct Command final
             {
                 std::atomic<bool> Used{false};
                 std::atomic<bool> Retryable{false};
-                std::atomic<bool> RetryInFlight{false};
-                std::atomic<bool> KnownControlFailure{false};
+                std::atomic<RetryState> Retry{RetryState::Idle};
+                std::atomic<KnownFailurePhase> KnownControlFailure{KnownFailurePhase::None};
+                std::atomic<bool> ReleaseRequested{false};
                 std::atomic<bool> AwaitingExternalReceipt{false};
                 std::atomic<std::shared_ptr<Preview::Transmission>> Carrier;
                 std::optional<IoActivity::Operation> Reservation;
@@ -85,7 +101,8 @@ namespace Preview
                 auto FinishRetry() noexcept -> void
                 {
                     if (!Retry || !Owner) return;
-                    Owner->Commands[Index].RetryInFlight.store(false, std::memory_order_release);
+                    Owner->Commands[Index].Retry.store(
+                        RetryState::Idle, std::memory_order_release);
                     Owner->Activity->EndControlRetry();
                     Retry = false;
                 }
@@ -96,16 +113,20 @@ namespace Preview
                     auto& CommandValue = Owner->Commands[Index];
                     if (!Invoked || !HandlerInvoked)
                     {
-                        FinishRetry();
-                        Owner->FailUnknown();
+                        OnQuarantine();
                         return;
                     }
                     if (!Returned)
-                        Owner->RecordKnownFailure(Index,
+                    {
+                        const auto Recorded = Owner->RecordKnownFailure(Index,
                             {Preview::Fault::Code::Blocked});
+                        if (!Recorded) Owner->ReleaseCommand(Index);
+                    }
                     if (!Succeeded)
                     {
-                        if (!Owner->Unrecoverable.load(std::memory_order_acquire))
+                        if (Owner->IsControlClosed(Index))
+                            Owner->ReleaseCommand(Index);
+                        else if (!Owner->Unrecoverable.load(std::memory_order_acquire))
                             CommandValue.Retryable.store(true, std::memory_order_release);
                         FinishRetry();
                         return;
@@ -117,11 +138,11 @@ namespace Preview
                         FinishRetry();
                         return;
                     }
-                    Owner->ResolveKnownFailure(Index);
-                    CommandValue.Reservation->Returned();
-                    CommandValue.Reservation.reset();
-                    CommandValue.Carrier.store({});
-                    CommandValue.Used.store(false, std::memory_order_release);
+                    if (Index == CancelCapacity)
+                        Owner->ReleaseKnownCancelFailuresAfterClose();
+                    Owner->ReleaseCommand(Index);
+                    if (Index == CancelCapacity)
+                        Owner->Activity->RecordCloseDelivered();
                     Owner->Storage->Collect();
                     FinishRetry();
                 }
@@ -129,7 +150,14 @@ namespace Preview
                 auto operator()() -> void;
                 auto OnQuarantine() noexcept -> void
                 {
-                    if (Owner) Owner->FailUnknown();
+                    if (!Owner) return;
+                    const bool CloseSettled =
+                        Retry && Owner->CompleteRetryWithoutOperation(Index);
+                    Retry = false;
+                    if (!CloseSettled && Owner->IsControlClosed(Index))
+                        Owner->ReleaseCommand(Index);
+                    else if (!CloseSettled) Owner->FailUnknown();
+                    Owner.reset();
                 }
             };
 
@@ -203,32 +231,49 @@ namespace Preview
                     FailUnknown();
                     return;
                 }
+                const bool OwnsCloseRetry = CloseUsed && TryClaimCloseRetry(CancelCapacity);
                 ExternalCloseConfirmed.store(true, std::memory_order_release);
-                ResolveKnownFailure(CancelCapacity);
-                Activity->RecordCloseDelivered();
+                if (!CloseUsed || OwnsCloseRetry)
+                    (void)ResolveKnownFailure(CancelCapacity);
                 Activity->Seal();
                 LocalClosed.store(true, std::memory_order_release);
                 Finished.store(true, std::memory_order_release);
-                if (CloseUsed && !CloseCommand.RetryInFlight.load(std::memory_order_acquire))
-                    ReleaseCommand(CancelCapacity);
-                for (std::size_t Index = 0; Index < CancelCapacity; ++Index)
+                if (OwnsCloseRetry)
                 {
-                    auto& CommandValue = Commands[Index];
-                    if (CommandValue.Used.load(std::memory_order_acquire) &&
-                        CommandValue.KnownControlFailure.load(std::memory_order_acquire) &&
-                        !CommandValue.RetryInFlight.load(std::memory_order_acquire))
-                    {
-                        ReleaseCommand(Index);
-                    }
+                    ReleaseCommand(CancelCapacity);
+                    CloseCommand.Retry.store(RetryState::Idle, std::memory_order_release);
                 }
+                ReleaseKnownCancelFailuresAfterClose();
+                Activity->RecordCloseDelivered();
                 Storage->Collect();
             }
+            /** @brief 成功 close 接管空闲命令；进行中的重试收到关闭待处理状态。 */
+            [[nodiscard]] auto TryClaimCloseRetry(std::size_t Index) noexcept -> bool
+            {
+                auto& Retry = Commands[Index].Retry;
+                auto State = Retry.load(std::memory_order_acquire);
+                while (State != RetryState::ClosePending)
+                {
+                    const auto Target = State == RetryState::Idle ? RetryState::InFlight : RetryState::ClosePending;
+                    if (Retry.compare_exchange_weak(State, Target, std::memory_order_acq_rel))
+                        return Target == RetryState::InFlight;
+                }
+                return false;
+            }
 
-            /** @brief 真实底层关闭后释放控制预约，但保留其历史首因供 Drain 返回。 */
+            /** @brief 请求释放控制预约；失败登记并发时延后释放至其计数结算。 */
             auto ReleaseCommand(std::size_t Index) noexcept -> void
             {
                 auto& CommandValue = Commands[Index];
-                ResolveKnownFailure(Index);
+                CommandValue.ReleaseRequested.store(true, std::memory_order_release);
+                if (ResolveKnownFailure(Index)) CompleteCommandRelease(Index);
+            }
+
+            auto CompleteCommandRelease(std::size_t Index) noexcept -> void
+            {
+                auto& CommandValue = Commands[Index];
+                if (!CommandValue.ReleaseRequested.exchange(false,
+                        std::memory_order_acq_rel)) return;
                 if (CommandValue.Reservation)
                 {
                     CommandValue.Reservation->Returned();
@@ -239,36 +284,150 @@ namespace Preview
                 CommandValue.Used.store(false, std::memory_order_release);
             }
 
+            /** @brief 已无控制操作可重试时，将关闭抢占后的预约结算交回原 executor。 */
+            auto CompleteRetryWithoutOperation(std::size_t Index) noexcept -> bool
+            {
+                auto& CommandValue = Commands[Index];
+                auto Expected = RetryState::InFlight;
+                if (CommandValue.Retry.compare_exchange_strong(Expected,
+                        RetryState::Idle, std::memory_order_acq_rel))
+                {
+                    Activity->EndControlRetry(); Storage->Collect();
+                    return false;
+                }
+                const bool CloseWasPending = Expected == RetryState::ClosePending;
+                if (CloseWasPending)
+                {
+                    ReleaseCommand(Index);
+                    CommandValue.Retry.store(RetryState::Idle, std::memory_order_release);
+                }
+                Activity->EndControlRetry(); Storage->Collect();
+                return CloseWasPending;
+            }
+
+            /** @brief 成功的最终 close 退休已经完成的可重试 cancel 命令。 */
+            auto ReleaseKnownCancelFailuresAfterClose() noexcept -> void
+            {
+                for (std::size_t Index = 0U; Index < CancelCapacity; ++Index)
+                {
+                    auto& CommandValue = Commands[Index];
+                    if (!TryClaimCloseRetry(Index)) continue;
+                    if (CommandValue.Used.load(std::memory_order_acquire) &&
+                        CommandValue.KnownControlFailure.load(std::memory_order_acquire) !=
+                            KnownFailurePhase::None)
+                    {
+                        ReleaseCommand(Index);
+                    }
+                    CommandValue.Retry.store(RetryState::Idle, std::memory_order_release);
+                }
+            }
+
             auto Execute(std::size_t Index, bool& HandlerInvoked) -> bool;
 
             auto RecordKnownFailure(
                 std::size_t Index,
-                Preview::Fault::Failure Error) noexcept -> void
+                Preview::Fault::Failure Error) noexcept -> bool
             {
                 auto& CommandValue = Commands[Index];
-                const bool NewForCommand = !CommandValue.KnownControlFailure.load(
-                    std::memory_order_acquire);
-                Failure.TrySet(Error);
+                auto Expected = KnownFailurePhase::None;
+                if (!CommandValue.KnownControlFailure.compare_exchange_strong(
+                        Expected, KnownFailurePhase::Recording,
+                        std::memory_order_acq_rel, std::memory_order_acquire))
+                {
+                    Storage->Retain(shared_from_this());
+                    return true;
+                }
+                if (IsControlClosed(Index))
+                {
+                    Expected = KnownFailurePhase::Recording;
+                    if (!CommandValue.KnownControlFailure.compare_exchange_strong(
+                            Expected, KnownFailurePhase::None,
+                            std::memory_order_acq_rel, std::memory_order_acquire) &&
+                        Expected == KnownFailurePhase::ResolveRequested)
+                    {
+                        CommandValue.KnownControlFailure.store(
+                            KnownFailurePhase::None, std::memory_order_release);
+                    }
+                    CommandValue.Retryable.store(false, std::memory_order_release);
+                    CompleteCommandRelease(Index);
+                    Storage->Retain(shared_from_this());
+                    return false;
+                }
+                (void)Failure.TrySet(Error);
                 Blocked.store(true, std::memory_order_release);
-                Activity->RecordControlFailure(Error, NewForCommand);
-                if (NewForCommand)
-                    CommandValue.KnownControlFailure.store(true, std::memory_order_release);
+                Activity->RecordControlFailure(Error, true, Index == CancelCapacity);
+                CommandValue.Retryable.store(true, std::memory_order_release);
+                Expected = KnownFailurePhase::Recording;
+                if (!CommandValue.KnownControlFailure.compare_exchange_strong(
+                        Expected, KnownFailurePhase::Recorded,
+                        std::memory_order_acq_rel, std::memory_order_acquire) &&
+                    Expected == KnownFailurePhase::ResolveRequested)
+                {
+                    Activity->ResolveControlFailure(Index == CancelCapacity);
+                    CommandValue.KnownControlFailure.store(
+                        KnownFailurePhase::None, std::memory_order_release);
+                    CommandValue.Retryable.store(false, std::memory_order_release);
+                    CompleteCommandRelease(Index);
+                }
                 Storage->Retain(shared_from_this());
+                return true;
             }
 
-            auto ResolveKnownFailure(std::size_t Index) noexcept -> void
+            [[nodiscard]] auto ResolveKnownFailure(std::size_t Index) noexcept -> bool
             {
-                if (Commands[Index].KnownControlFailure.exchange(
-                        false, std::memory_order_acq_rel))
-                    Activity->ResolveControlFailure();
-                Commands[Index].Retryable.store(false, std::memory_order_release);
+                auto& CommandValue = Commands[Index];
+                auto Phase = CommandValue.KnownControlFailure.load(
+                    std::memory_order_acquire);
+                for (;;)
+                {
+                    if (Phase == KnownFailurePhase::None)
+                    {
+                        CommandValue.Retryable.store(false, std::memory_order_release);
+                        return true;
+                    }
+                    if (Phase == KnownFailurePhase::ResolveRequested ||
+                        Phase == KnownFailurePhase::Resolving)
+                    {
+                        CommandValue.Retryable.store(false, std::memory_order_release);
+                        return false;
+                    }
+                    if (Phase == KnownFailurePhase::Recording)
+                    {
+                        if (CommandValue.KnownControlFailure.compare_exchange_weak(
+                                Phase, KnownFailurePhase::ResolveRequested,
+                                std::memory_order_acq_rel, std::memory_order_acquire))
+                        {
+                            CommandValue.Retryable.store(false, std::memory_order_release);
+                            return false;
+                        }
+                        continue;
+                    }
+                    if (CommandValue.KnownControlFailure.compare_exchange_weak(
+                            Phase, KnownFailurePhase::Resolving,
+                            std::memory_order_acq_rel, std::memory_order_acquire))
+                    {
+                        Activity->ResolveControlFailure(Index == CancelCapacity);
+                        CommandValue.KnownControlFailure.store(
+                            KnownFailurePhase::None, std::memory_order_release);
+                        CommandValue.Retryable.store(false, std::memory_order_release);
+                        CompleteCommandRelease(Index);
+                        return true;
+                    }
+                }
+            }
+
+            [[nodiscard]] auto IsControlClosed(std::size_t Index) const noexcept -> bool
+            {
+                return LocalClosed.load(std::memory_order_acquire) ||
+                    ExternalCloseConfirmed.load(std::memory_order_acquire) ||
+                    Finished.load(std::memory_order_acquire);
             }
 
             auto FailUnknown(
                 Preview::Fault::Failure Error =
                     {Preview::Fault::Code::Blocked}) noexcept -> void
             {
-                Failure.TrySet(Error);
+                (void)Failure.TrySet(Error);
                 Blocked.store(true, std::memory_order_release);
                 Unrecoverable.store(true, std::memory_order_release);
                 Activity->Block(Error);
@@ -278,6 +437,8 @@ namespace Preview
             auto RequestRetirement() -> void override
             {
                 if (ExternalCloseConfirmed.load(std::memory_order_acquire) ||
+                    LocalClosed.load(std::memory_order_acquire) ||
+                    Finished.load(std::memory_order_acquire) ||
                     Unrecoverable.load(std::memory_order_acquire) || !Reclaimer->CanDispatch())
                     return;
                 if (ExternalReceiptPending.load(std::memory_order_acquire))
@@ -297,21 +458,23 @@ namespace Preview
                 for (std::size_t Index = 0; Index <= CancelCapacity; ++Index)
                 {
                     if (!Commands[Index].Used.load() || !Commands[Index].Carrier.load() ||
-                        !Commands[Index].KnownControlFailure.load(std::memory_order_acquire))
+                        Commands[Index].KnownControlFailure.load(std::memory_order_acquire) !=
+                            KnownFailurePhase::Recorded)
                         continue;
-                    bool Idle = false;
-                    if (!Commands[Index].RetryInFlight.compare_exchange_strong(
-                            Idle, true, std::memory_order_acq_rel))
-                        continue;
-                    if (!Commands[Index].Retryable.exchange(false, std::memory_order_acq_rel))
+                    Activity->BeginControlRetry();
+                    auto Expected = RetryState::Idle;
+                    if (!Commands[Index].Retry.compare_exchange_strong(
+                            Expected, RetryState::InFlight, std::memory_order_acq_rel))
                     {
-                        Commands[Index].RetryInFlight.store(false, std::memory_order_release);
+                        Activity->EndControlRetry();
                         continue;
                     }
-                    Activity->BeginControlRetry();
-                    const auto Posted = Reclaimer->Post(
-                        Delivery(shared_from_this(), Index, true));
-                    if (!Posted) FailUnknown(Posted.error());
+                    if (!Commands[Index].Retryable.exchange(false, std::memory_order_acq_rel))
+                    {
+                        CompleteRetryWithoutOperation(Index);
+                        continue;
+                    }
+                    (void)Reclaimer->Post(Delivery(shared_from_this(), Index, true));
                 }
             }
 
@@ -342,5 +505,96 @@ namespace Preview
             std::atomic<bool> ExternalReceiptRetryInFlight{false};
             Preview::Fault::FailureState Failure;
         };
+
+        inline auto TransmissionControlOwner::Submit(
+            std::shared_ptr<Transmission> Carrier, unsigned Flag) -> ControlResult
+        {
+            if (!Carrier)
+                return std::unexpected(Fault::Failure{Fault::Code::InvalidArgument});
+            if (Flag == CancelFlag)
+            {
+                const auto CloseWasAccepted = AcceptedClose.load(std::memory_order_acquire);
+                const auto WasClosedLocally = LocalClosed.load(std::memory_order_acquire);
+                const auto WasFinished = Finished.load(std::memory_order_acquire);
+                if (WasClosedLocally || WasFinished) return {};
+                if (Blocked.load(std::memory_order_acquire)) return std::unexpected(Failure.Load());
+                const auto ExistingFailure = Failure.Load();
+                if (ExistingFailure.Failed()) return std::unexpected(ExistingFailure);
+                if (CloseWasAccepted) return {};
+            }
+            else if (Finished.load(std::memory_order_acquire) ||
+                (Flag == CloseFlag && (LocalClosed.load(std::memory_order_acquire) ||
+                    ExternalCloseConfirmed.load(std::memory_order_acquire))))
+            {
+                return {};
+            }
+
+            std::size_t Index = CancelCapacity;
+            if (Flag == CloseFlag)
+            {
+                if (Commands[Index].Used.exchange(true))
+                {
+                    if (Blocked.load(std::memory_order_acquire))
+                        return std::unexpected(Failure.Load());
+                    return {};
+                }
+            }
+            else
+            {
+                for (Index = 0; Index < CancelCapacity; ++Index)
+                    if (!Commands[Index].Used.exchange(true)) break;
+                if (Index == CancelCapacity)
+                    return std::unexpected(Fault::Failure{Fault::Code::ResourceUnavailable});
+            }
+
+            auto Reservation = Flag == CloseFlag
+                ? Activity->TryAcquireCloseControl(Carrier)
+                : Activity->TryAcquireControl(Carrier);
+            if (!Reservation)
+            {
+                Commands[Index].Used.store(false);
+                const auto ReservationFailure = Reservation.error();
+                if (ReservationFailure.Code == Fault::Code::Canceled &&
+                    (ExternalCloseConfirmed.load(std::memory_order_acquire) ||
+                     LocalClosed.load(std::memory_order_acquire) ||
+                     Finished.load(std::memory_order_acquire)))
+                    return {};
+                return std::unexpected(ReservationFailure);
+            }
+            Commands[Index].Reservation.emplace(std::move(*Reservation));
+            Commands[Index].Carrier.store(std::move(Carrier));
+            Commands[Index].Retryable.store(false);
+            Commands[Index].Retry.store(RetryState::Idle, std::memory_order_release);
+            Commands[Index].AwaitingExternalReceipt.store(false);
+
+            if (Flag == CloseFlag && ExternalCloseConfirmed.load(std::memory_order_acquire))
+            {
+                ReleaseCommand(Index);
+                return {};
+            }
+
+            // 原执行域停止是尚未交付的已知拒绝；保留同一命令和真实预约供显式重试。
+            if (!Reclaimer->CanDispatch() && !Reclaimer->IsQuarantined())
+            {
+                const Fault::Failure Deferred{Fault::Code::Blocked};
+                if (!RecordKnownFailure(Index, Deferred))
+                {
+                    ReleaseCommand(Index);
+                    return {};
+                }
+                return std::unexpected(Deferred);
+            }
+            const auto Posted = Reclaimer->Post(Delivery(shared_from_this(), Index));
+            if (!Posted)
+            {
+                FailUnknown(Posted.error());
+            }
+            else if (Flag == CloseFlag)
+            {
+                AcceptedClose.store(true, std::memory_order_release);
+                Activity->RecordCloseAccepted();
+            }
+            return Posted;
+        }
     }
 }

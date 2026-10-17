@@ -5,6 +5,7 @@
 
 #include "ApplicationTestSupport.hpp"
 
+#include <Preview/Application/BoundaryStartup.hpp>
 #include <Preview/Application/OperationsBootstrap.hpp>
 
 namespace
@@ -413,4 +414,66 @@ TEST(PreviewApplication, RejectsFailedBindWithoutReadiness)
         EXPECT_EQ(Result.error().Code, Preview::Application::StartupErrorCode::Bind);
     }
 
+}
+
+TEST(PreviewApplication, BindPreflightAllowsRecentlyClosedListenerPort)
+{
+    Net::io_context Io;
+    Tcp::acceptor Listener(Io);
+    boost::system::error_code Error;
+    Listener.open(Tcp::v4(), Error);
+    ASSERT_FALSE(Error);
+    Listener.set_option(Tcp::acceptor::reuse_address(true), Error);
+    ASSERT_FALSE(Error);
+    Listener.bind(Tcp::endpoint(Net::ip::address_v4::loopback(), 0), Error);
+    ASSERT_FALSE(Error);
+    Listener.listen(Net::socket_base::max_listen_connections, Error);
+    ASSERT_FALSE(Error);
+    const auto Endpoint = Listener.local_endpoint(Error);
+    ASSERT_FALSE(Error);
+
+    const auto Occupied = Preview::Application::BoundaryStartup::CheckBindAvailable(Endpoint);
+    ASSERT_FALSE(Occupied.has_value()) << "preflight accepted a listener that is still bound";
+
+    Tcp::socket Client(Io);
+    Client.connect(Endpoint, Error);
+    ASSERT_FALSE(Error);
+    Tcp::socket Accepted(Io);
+    Listener.accept(Accepted, Error);
+    ASSERT_FALSE(Error);
+
+    const std::array<char, 1> Payload{'x'};
+    ASSERT_EQ(Accepted.write_some(Net::buffer(Payload), Error), Payload.size());
+    ASSERT_FALSE(Error);
+    Accepted.shutdown(Tcp::socket::shutdown_send, Error);
+    ASSERT_FALSE(Error);
+
+    std::array<char, 1> Received{};
+    EXPECT_EQ(Client.read_some(Net::buffer(Received), Error), Payload.size());
+    EXPECT_FALSE(Error);
+    Error.clear();
+    EXPECT_EQ(Client.read_some(Net::buffer(Received), Error), 0U);
+    EXPECT_EQ(Error, Net::error::eof);
+
+    Client.close(Error);
+    ASSERT_FALSE(Error);
+    Error.clear();
+    EXPECT_EQ(Accepted.read_some(Net::buffer(Received), Error), 0U);
+    EXPECT_EQ(Error, Net::error::eof);
+
+    Accepted.close(Error);
+    ASSERT_FALSE(Error);
+    Listener.close(Error);
+    ASSERT_FALSE(Error);
+
+    const auto Available = Preview::Application::BoundaryStartup::CheckBindAvailable(Endpoint);
+    ASSERT_TRUE(Available.has_value()) << Available.error().Message;
+
+    TemporaryConfiguration Config(Endpoint.port(),
+        ConfigurationShape{.OperationsPort = FindFreePort()});
+    Preview::Application::Application Application(MakeOptions(Config.Path()));
+    const auto Started = Application.Start();
+    ASSERT_TRUE(Started.has_value()) << Started.error().Message;
+    Application.Stop();
+    EXPECT_EQ(Application.Run(), 0);
 }

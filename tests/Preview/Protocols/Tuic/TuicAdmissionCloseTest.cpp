@@ -292,6 +292,13 @@ TEST(TuicAdmission, PreservesRejectedOwnerCloseFailureUntilSameOwnerRetrySucceed
     Harness.SetExpectedCloseOwnerCalls(3U);
     Harness.Install();
     const auto Admission = Harness.Admission();
+    Harness.SubmitUnidirectional(
+        MakeScriptedStream(Io.get_executor(), MakeAuthWire()).Provider);
+    Harness.SubmitExporter(TestExporter);
+    Io.run();
+    EXPECT_EQ(Harness.Record()->Runtime()->ActiveConnections(), 1U);
+
+    Io.restart();
     Admission->OnClosed();
     Io.run();
     EXPECT_EQ(Harness.CloseOwnerCalls(), 1U);

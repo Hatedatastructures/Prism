@@ -204,15 +204,84 @@ namespace Preview::Application::Configuration::Validation
         return {};
     }
 
+    [[nodiscard]] inline auto ValidateAccountGroups(
+        const PreviewConfiguration &Configuration) -> Result
+    {
+        std::unordered_set<std::string> GroupIds;
+        std::unordered_set<std::string> GroupNames;
+        for (std::size_t Index = 0; Index < Configuration.AccountGroups.size(); ++Index)
+        {
+            const auto &Group = Configuration.AccountGroups[Index];
+            const auto Path = "AccountGroups[" + std::to_string(Index) + "]";
+            if (!Preview::Account::ValidatePolicyConfiguration(Group.Policy))
+                return Failure(ConfigurationErrorCode::InvalidValue, Path + ".Policy",
+                               "用户组资源策略无效");
+            if (Group.Id.empty())
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               Path + ".Id",
+                               "group Id is required");
+            }
+            if (!GroupIds.insert(Group.Id).second)
+            {
+                return Failure(ConfigurationErrorCode::DuplicateId,
+                               Path + ".Id",
+                               "group Id must be unique");
+            }
+            if (Group.Name.empty())
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               Path + ".Name",
+                               "group Name is required");
+            }
+            if (!GroupNames.insert(Group.Name).second)
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               Path + ".Name",
+                               "group Name must be unique");
+            }
+        }
+
+        for (std::size_t Index = 0; Index < Configuration.Accounts.size(); ++Index)
+        {
+            const auto &Account = Configuration.Accounts[Index];
+            if (!Account.GroupId)
+            {
+                continue;
+            }
+            const auto Path = "Accounts[" + std::to_string(Index) + "].GroupId";
+            if (Account.GroupId->empty())
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               Path,
+                               "GroupId must be nonempty when present");
+            }
+            if (!GroupIds.contains(*Account.GroupId))
+            {
+                return Failure(ConfigurationErrorCode::MissingReference,
+                               Path,
+                               "GroupId does not reference a configured AccountGroup");
+            }
+        }
+        return {};
+    }
+
     [[nodiscard]] inline auto ValidateAccounts(
         const PreviewConfiguration &Configuration,
         const ValidationOptions &Options,
         std::unordered_set<std::string> &Ids) -> Result
     {
+        if (const auto ResultValue = ValidateAccountGroups(Configuration); !ResultValue)
+        {
+            return ResultValue;
+        }
         for (std::size_t Index = 0; Index < Configuration.Accounts.size(); ++Index)
         {
             const auto &Account = Configuration.Accounts[Index];
             const auto Path = "Accounts[" + std::to_string(Index) + "]";
+            if (!Preview::Account::ValidatePolicyConfiguration(Account.Policy))
+                return Failure(ConfigurationErrorCode::InvalidValue, Path + ".Policy",
+                               "账户资源策略无效");
             if (const auto ResultValue = AddId(Ids, Account.Id, Path + ".Id"); !ResultValue)
             {
                 return ResultValue;

@@ -83,6 +83,7 @@ function(AssertPreviewDependency Consumer Dependency)
 endfunction()
 
 set(_PreviewExternalLinkTargets
+    PrismSqlite
     OpenSSL::SSL
     OpenSSL::Crypto
     ssl

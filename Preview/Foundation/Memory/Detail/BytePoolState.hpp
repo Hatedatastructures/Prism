@@ -5,6 +5,7 @@
 #pragma once
 
 #include <Preview/Foundation/Exception/Deviant.hpp>
+#include <Preview/Foundation/Memory/BytePoolMetrics.hpp>
 #include <Preview/Foundation/Memory/BytePoolOptions.hpp>
 
 #include <atomic>
@@ -69,6 +70,9 @@ namespace Preview::Memory::Detail
             {
                 if (const auto Index = TryReserveWord(Word))
                 {
+                    const auto Current = ActiveBlocks_.fetch_add(1, std::memory_order_relaxed) + 1;
+                    AllocationCount_.fetch_add(1, std::memory_order_relaxed);
+                    RecordPeak(Current);
                     return Index;
                 }
                 ++Word;
@@ -83,6 +87,8 @@ namespace Preview::Memory::Detail
         /** @brief 归还调用者独占的有效块；不分配、不等待、不清除业务数据。 */
         auto Release(const std::size_t Index) noexcept -> void
         {
+            ActiveBlocks_.fetch_sub(1, std::memory_order_relaxed);
+            ReleaseCount_.fetch_add(1, std::memory_order_relaxed);
             const auto Mask = std::uint64_t{1} << (Index % WordBits);
             Occupied_[Index / WordBits].fetch_and(~Mask, std::memory_order_release);
         }
@@ -123,10 +129,36 @@ namespace Preview::Memory::Detail
             return Options_.BlockCount - UsedBlocks();
         }
 
+        /** @brief 生成容量、租约计数和峰值的独立值快照；允许与获取/归还并发。 */
+        [[nodiscard]] auto Metrics() const noexcept -> BytePoolMetrics
+        {
+            const auto Used = UsedBlocks();
+            const auto Peak = PeakUsedBlocks_.load(std::memory_order_relaxed);
+            const auto PeakAtLeastUsed = Peak > Used ? Peak : Used;
+            const auto BlockSizeValue = BlockSize();
+            const auto UsedBytesValue = Used * BlockSizeValue;
+            const auto Capacity = CapacityBytes();
+            return BytePoolMetrics{Capacity, UsedBytesValue, Capacity - UsedBytesValue,
+                AllocationCount_.load(std::memory_order_relaxed),
+                ReleaseCount_.load(std::memory_order_relaxed), PeakAtLeastUsed * BlockSizeValue};
+        }
+
     private:
         static constexpr std::size_t WordBits = std::numeric_limits<std::uint64_t>::digits;
         static constexpr std::size_t AttemptsPerWord = 4;
         static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
+        static_assert(std::atomic<std::size_t>::is_always_lock_free);
+
+        /** @brief 单次 CAS 更新高水位；竞争下允许漏记瞬时峰值，保持准入工作有界。 */
+        auto RecordPeak(const std::size_t Current) noexcept -> void
+        {
+            auto Peak = PeakUsedBlocks_.load(std::memory_order_relaxed);
+            if (Current > Peak)
+            {
+                (void)PeakUsedBlocks_.compare_exchange_strong(
+                    Peak, Current, std::memory_order_relaxed, std::memory_order_relaxed);
+            }
+        }
 
         [[nodiscard]] static auto CountWords(const std::size_t Blocks) noexcept -> std::size_t
         {
@@ -196,5 +228,9 @@ namespace Preview::Memory::Detail
         std::unique_ptr<std::byte[]> Storage_;
         std::unique_ptr<std::atomic<std::uint64_t>[]> Occupied_;
         std::atomic<std::uint64_t> Hint_{0};
+        std::atomic<std::size_t> ActiveBlocks_{0};
+        std::atomic<std::size_t> PeakUsedBlocks_{0};
+        std::atomic<std::uint64_t> AllocationCount_{0};
+        std::atomic<std::uint64_t> ReleaseCount_{0};
     };
 }

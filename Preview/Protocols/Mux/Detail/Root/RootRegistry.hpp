@@ -195,10 +195,17 @@ namespace Preview::Mux::Detail
                 !State_->Head.load(std::memory_order_acquire);
         }
 
+        /** @brief 返回 root owner 已发布的持久终态首因，不包含可重试的本轮取消。 */
+        [[nodiscard]] auto DrainFailure() const noexcept -> Preview::Fault::Failure
+        {
+            return State_->HistoricalFailure.Load();
+        }
+
         [[nodiscard]] auto Drain()
             -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
             Close();
+            auto AttemptCancellation = std::optional<Preview::Fault::Failure>{};
             const auto Gate = State_->RegistrationGate.load(std::memory_order_acquire);
             if ((Gate & RegistrationMask) != 0U)
             {
@@ -216,7 +223,20 @@ namespace Preview::Mux::Detail
                     try
                     {
                         const auto Result = co_await Node->Owner->Drain();
-                        if (!Result) (void)State_->HistoricalFailure.TrySet(Result.error());
+                        const auto Durable = Node->Owner->HistoricalFailure();
+                        if (Durable.Failed())
+                            (void)State_->HistoricalFailure.TrySet(Durable);
+                        else if (!Result)
+                        {
+                            if (Result.error().Code == Preview::Fault::Code::Canceled)
+                            {
+                                if (!AttemptCancellation) AttemptCancellation = Result.error();
+                            }
+                            else
+                            {
+                                (void)State_->HistoricalFailure.TrySet(Result.error());
+                            }
+                        }
                     }
                     catch (...)
                     {
@@ -230,8 +250,12 @@ namespace Preview::Mux::Detail
             const auto Failure = State_->HistoricalFailure.Load();
             if (Failure.Failed()) co_return std::unexpected(Failure);
             if (!IsRetired())
+            {
+                if (AttemptCancellation)
+                    co_return std::unexpected(*AttemptCancellation);
                 co_return std::unexpected(
                     Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            }
             co_return std::expected<void, Preview::Fault::Failure>{};
         }
 

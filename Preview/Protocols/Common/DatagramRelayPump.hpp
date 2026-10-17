@@ -134,23 +134,29 @@ namespace Preview::Protocols
             if (CancelRun)
             {
                 Preserve(Failure{Preview::Fault::Code::Canceled});
-                Cancellation_.emit(Net::cancellation_type::all);
             }
+            Cancellation_.emit(Net::cancellation_type::all);
             ClosePumps();
         }
 
-        /** @brief 同步请求 Wire typed controls 与关闭两个地址族的本地 UDP socket。 */
-        [[nodiscard]] auto RequestControls() noexcept -> Result
+        /**
+         * @brief 按关闭意图提交 Wire control 并关闭两个地址族的本地 UDP socket。
+         * @param CancelRun 是否保留显式取消语义。
+         */
+        [[nodiscard]] auto RequestControls(const bool CancelRun) noexcept -> Result
         {
             std::optional<Failure> First = ControlFailure_;
-            try
+            if (CancelRun)
             {
-                const auto Control = Wire_.Cancel();
-                if (!Control) Preserve(First, Control.error());
-            }
-            catch (...)
-            {
-                Preserve(First, DatagramFailure::FromException(std::current_exception()));
+                try
+                {
+                    const auto Control = Wire_.Cancel();
+                    if (!Control) Preserve(First, Control.error());
+                }
+                catch (...)
+                {
+                    Preserve(First, DatagramFailure::FromException(std::current_exception()));
+                }
             }
             try
             {
@@ -187,7 +193,9 @@ namespace Preview::Protocols
             }
             catch (...)
             {
-                Preserve(DatagramFailure::FromException(std::current_exception()));
+                const auto Cause = DatagramFailure::FromException(
+                    std::current_exception());
+                if (!IsClosingCancellation(Cause)) Preserve(Cause);
                 ClosePumps();
             }
             if (FirstFailure_) co_return std::unexpected(*FirstFailure_);
@@ -228,6 +236,11 @@ namespace Preview::Protocols
                 if (!Received)
                 {
                     const auto Cause = Received.error();
+                    if (IsClosingCancellation(Cause))
+                    {
+                        FinishInput();
+                        co_return Result{};
+                    }
                     if (Cause.Code == Preview::Fault::Code::Eof ||
                         Cause.Code == Preview::Fault::Code::Timeout)
                     {
@@ -244,6 +257,11 @@ namespace Preview::Protocols
                         Options_.Services, std::move(Packet.Target)));
                 if (!Target)
                 {
+                    if (IsClosingCancellation(Target.error()))
+                    {
+                        FinishInput();
+                        co_return Result{};
+                    }
                     Abort(Target.error());
                     co_return std::unexpected(Target.error());
                 }
@@ -263,6 +281,11 @@ namespace Preview::Protocols
                 if (!Queued)
                 {
                     const auto Cause = FirstFailure_.value_or(Queued.error());
+                    if (IsClosingCancellation(Cause))
+                    {
+                        FinishInput();
+                        co_return Result{};
+                    }
                     if (!Closed_) Abort(Cause);
                     co_return std::unexpected(Cause);
                 }
@@ -449,6 +472,7 @@ namespace Preview::Protocols
                     Wire_.Send(Reply.Source, Reply.Payload));
                 if (!Sent)
                 {
+                    if (IsClosingCancellation(Sent.error())) co_return Result{};
                     Abort(Sent.error());
                     co_return std::unexpected(Sent.error());
                 }
@@ -490,6 +514,12 @@ namespace Preview::Protocols
             ClosePumps();
             const auto Control = Wire_.Cancel();
             if (!Control) Preserve(ControlFailure_, Control.error());
+        }
+
+        [[nodiscard]] auto IsClosingCancellation(const Failure& Cause) const noexcept -> bool
+        {
+            return Closed_ && (Cause.Code == Preview::Fault::Code::Canceled ||
+                Cause.Native == std::errc::operation_canceled);
         }
 
         auto ClosePumps() noexcept -> void

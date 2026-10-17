@@ -129,7 +129,9 @@ namespace Preview::Composition::Recognition
             }
             else if constexpr (std::is_same_v<Binding, Preview::Anytls::Binding>)
             {
-                return MakeAnytls(std::move(Options), Owner->Options);
+                auto Projection = Owner->BeginProjection();
+                if (!Projection) return std::nullopt;
+                return MakeAnytls(std::move(Options), Projection->Options());
             }
             else if constexpr (std::is_same_v<Binding, Preview::Trusttunnel::Binding>)
             {

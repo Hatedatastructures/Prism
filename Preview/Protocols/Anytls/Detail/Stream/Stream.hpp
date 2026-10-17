@@ -129,7 +129,7 @@ namespace Preview::Anytls::Detail
 
         static auto Finish(std::shared_ptr<State> Root, std::shared_ptr<StreamState> Stream) -> Net::awaitable<void>
         {
-            if (Root->Stopping.load() || Stream->PeerFin) co_return;
+            if (Root->Stopping.load() || Stream->IsInputTerminated()) co_return;
             const auto Result = co_await Root->Writer->Send({Command::Fin, Stream->Id});
             if (Result.Failure.Failed())
             {
@@ -139,7 +139,7 @@ namespace Preview::Anytls::Detail
         }
         auto SendFin() -> void
         {
-            if (Stream_->FinSent || Stream_->PeerFin || Root_->Stopping.load()) return;
+            if (Stream_->FinSent || Stream_->IsInputTerminated() || Root_->Stopping.load()) return;
             Stream_->FinSent = true;
             Preview::Lifecycle::TaskRequest Request{.Context = Preview::Lifecycle::FromParent(Stream_->Identity), .StartOnSubmit = true};
             const auto Started = Stream_->Tasks->SpawnTracked(std::move(Request), Finish(Root_, Stream_));

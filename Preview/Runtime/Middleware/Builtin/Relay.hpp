@@ -42,9 +42,11 @@ namespace Preview::Middleware::Builtin
                     .Session = ContextValue.TaskIdentity.SessionId,
                     .Stream = ContextValue.TaskIdentity.StreamId,
                     .Task = ContextValue.TaskIdentity.TaskId,
-                    .Account = ContextValue.DataPlane.AccountId}};
+                    .Account = ContextValue.DataPlane.AccountId,
+                    .Protocol = static_cast<std::uint64_t>(ContextValue.DataPlane.Protocol)}};
             Last_ = co_await Preview::Network::Relay::Run(
-                {Inbound, Outbound, ContextValue.BufferSize, Timeout, Observation, ContextValue.Bytes});
+                {Inbound, Outbound, ContextValue.BufferSize, Timeout, Observation,
+                 ContextValue.Bytes, ContextValue.FirstTransfer});
             Observation.Complete(Last_.Failure);
             co_return Last_.Failure;
         }

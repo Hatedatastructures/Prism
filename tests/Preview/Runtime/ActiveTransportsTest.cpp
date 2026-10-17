@@ -300,6 +300,115 @@ namespace
         std::atomic<bool> Closed_{false};
     };
 
+    struct CanceledRetirementReceipt final
+    {
+        std::atomic<bool> AllowRetirement{true};
+        std::atomic<bool> ReturnedCanceled{false};
+        std::atomic<bool> UnderlyingRetired{false};
+    };
+
+    /** @brief 底层真实退休后返回取消结果，供 listener owner 核对物理回执。 */
+    class RetiredCanceledActivity final : public Preview::Contract::CarrierActivity
+    {
+    public:
+        RetiredCanceledActivity(
+            std::shared_ptr<Preview::Contract::CarrierActivity> Underlying,
+            std::shared_ptr<CanceledRetirementReceipt> Receipt)
+            : Underlying_(std::move(Underlying)), Receipt_(std::move(Receipt))
+        {
+        }
+
+        auto Seal() noexcept -> void override { Underlying_->Seal(); }
+
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
+        {
+            return Underlying_->Executor();
+        }
+
+        [[nodiscard]] auto IsRetired() const noexcept -> bool override
+        {
+            return Receipt_->ReturnedCanceled.load(std::memory_order_acquire) &&
+                   Receipt_->UnderlyingRetired.load(std::memory_order_acquire) &&
+                   Underlying_->IsRetired();
+        }
+
+        [[nodiscard]] auto Drain()
+            -> Net::awaitable<std::expected<void, Failure>> override
+        {
+            const auto Drained = co_await Underlying_->Drain();
+            if (!Drained) co_return std::unexpected(Drained.error());
+            Receipt_->UnderlyingRetired.store(
+                Underlying_->IsRetired() &&
+                    Receipt_->AllowRetirement.load(std::memory_order_acquire),
+                std::memory_order_release);
+            Receipt_->ReturnedCanceled.store(true, std::memory_order_release);
+            co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+        }
+
+    private:
+        std::shared_ptr<Preview::Contract::CarrierActivity> Underlying_;
+        std::shared_ptr<CanceledRetirementReceipt> Receipt_;
+    };
+
+    /** @brief listener cleanup 使用的无 I/O transport；关闭时回报已退休的取消结果。 */
+    class RetiredCanceledTransmission final : public Preview::Transmission
+    {
+    public:
+        RetiredCanceledTransmission(
+            Net::any_io_executor Executor,
+            std::shared_ptr<CanceledRetirementReceipt> Receipt)
+            : Preview::Transmission(std::move(Executor)),
+              Activity_(std::make_shared<RetiredCanceledActivity>(
+                  Preview::Transmission::Activity(), std::move(Receipt)))
+        {
+        }
+
+        [[nodiscard]] auto Activity() const noexcept
+            -> std::shared_ptr<Preview::Contract::CarrierActivity> override
+        {
+            return Activity_;
+        }
+
+        [[nodiscard]] auto IsOpen() const -> bool override
+        {
+            return !Closed_.load(std::memory_order_acquire);
+        }
+
+        [[nodiscard]] auto TransportType() const noexcept -> Type override
+        {
+            return Type::Tcp;
+        }
+
+    protected:
+        auto StartRead(std::span<std::byte>, Completion Handler) -> void override
+        {
+            Preview::Transport::Detail::PostResult(
+                Executor(), std::move(Handler), {0, {Preview::Fault::Code::Eof}});
+        }
+
+        auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
+        {
+            Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+        }
+
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            Preview::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+        }
+
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            Closed_.store(true, std::memory_order_release);
+            return {};
+        }
+
+        [[nodiscard]] auto OnCancel() -> ControlResult override { return {}; }
+
+    private:
+        std::shared_ptr<Preview::Contract::CarrierActivity> Activity_;
+        std::atomic<bool> Closed_{false};
+    };
+
     struct ActiveTransportWorker final
     {
         Preview::Runtime::ActiveTransports &Active;
@@ -577,14 +686,147 @@ namespace
         EXPECT_TRUE(WeakTransport.expired());
     }
 
+    TEST(ListenerConnectionDrain, AcceptsCanceledDrainAfterPhysicalRetirement)
+    {
+        auto Storage = std::make_shared<Preview::Executor::ClosingStorage>();
+        auto Context = Preview::Executor::ContextOwner::Create(Storage);
+        const auto Executor = Context->Io.get_executor();
+        auto Receipt = std::make_shared<CanceledRetirementReceipt>();
+        auto Transport = std::make_shared<RetiredCanceledTransmission>(Executor, Receipt);
+        std::weak_ptr<RetiredCanceledTransmission> WeakTransport = Transport;
+        auto Quota = std::make_shared<Preview::Runtime::Detail::ListenerConnectionGate::Quota>(
+            1, Executor);
+        ASSERT_TRUE(Preview::Runtime::Detail::ListenerConnectionGate::TryAcquire(Quota));
+        auto Reservation = std::make_shared<Preview::Runtime::Detail::ListenerConnectionGate::Reservation>(
+            Quota, Storage);
+        auto Session = std::make_shared<Preview::Runtime::Detail::SessionAdmissionState>();
+        Session->Started.store(true, std::memory_order_release);
+        Session->Drained.store(true, std::memory_order_release);
+        auto Drain = Preview::Runtime::Detail::ListenerConnectionDrain::Make(
+            {Transport, Reservation, {}, Session});
+        Transport.reset();
+
+        Drain->Start();
+        Context->Io.run();
+        Storage->Collect();
+
+        EXPECT_TRUE(Receipt->ReturnedCanceled.load(std::memory_order_acquire));
+        EXPECT_TRUE(Receipt->UnderlyingRetired.load(std::memory_order_acquire));
+        EXPECT_TRUE(Drain->IsRetired());
+        EXPECT_EQ(Quota->Active.load(std::memory_order_acquire), 0U);
+        EXPECT_EQ(Quota->Drain.Active(), 0U);
+        EXPECT_EQ(Storage->Pending(), 0U);
+
+        Reservation.reset();
+        Drain.reset();
+        EXPECT_TRUE(WeakTransport.expired());
+    }
+
+    TEST(ListenerConnectionDrain, RetainsCanceledDrainUntilPhysicalRetirement)
+    {
+        auto Storage = std::make_shared<Preview::Executor::ClosingStorage>();
+        auto Context = Preview::Executor::ContextOwner::Create(Storage);
+        const auto Executor = Context->Io.get_executor();
+        auto Receipt = std::make_shared<CanceledRetirementReceipt>();
+        Receipt->AllowRetirement.store(false, std::memory_order_release);
+        auto Transport = std::make_shared<RetiredCanceledTransmission>(Executor, Receipt);
+        std::weak_ptr<RetiredCanceledTransmission> WeakTransport = Transport;
+        auto Quota = std::make_shared<Preview::Runtime::Detail::ListenerConnectionGate::Quota>(
+            1, Executor);
+        ASSERT_TRUE(Preview::Runtime::Detail::ListenerConnectionGate::TryAcquire(Quota));
+        auto Reservation = std::make_shared<Preview::Runtime::Detail::ListenerConnectionGate::Reservation>(
+            Quota, Storage);
+        auto Session = std::make_shared<Preview::Runtime::Detail::SessionAdmissionState>();
+        Session->Started.store(true, std::memory_order_release);
+        Session->Drained.store(true, std::memory_order_release);
+        auto Drain = Preview::Runtime::Detail::ListenerConnectionDrain::Make(
+            {Transport, Reservation, {}, Session});
+        Transport.reset();
+
+        Drain->Start();
+        Context->Io.run();
+
+        EXPECT_FALSE(Drain->IsRetired());
+        EXPECT_FALSE(Receipt->UnderlyingRetired.load(std::memory_order_acquire));
+        EXPECT_EQ(Quota->Active.load(std::memory_order_acquire), 1U);
+        EXPECT_GT(Storage->Pending(), 0U);
+
+        Receipt->AllowRetirement.store(true, std::memory_order_release);
+        Context->Io.restart();
+        Storage->Retry();
+        Context->Io.run();
+        Storage->Collect();
+
+        EXPECT_TRUE(Receipt->ReturnedCanceled.load(std::memory_order_acquire));
+        EXPECT_TRUE(Receipt->UnderlyingRetired.load(std::memory_order_acquire));
+        EXPECT_TRUE(Drain->IsRetired());
+        EXPECT_EQ(Quota->Active.load(std::memory_order_acquire), 0U);
+        EXPECT_EQ(Storage->Pending(), 0U);
+
+        Reservation.reset();
+        Drain.reset();
+        EXPECT_TRUE(Quota->Drain.IsBlocked());
+        EXPECT_TRUE(WeakTransport.expired());
+    }
+
+    /** @brief 拒绝数据报的 session owner；carrier 仅在真实 Run 活动退出后关闭。 */
+    class RejectedDatagramActivity final : public Preview::Contract::CarrierActivity
+    {
+    public:
+        explicit RejectedDatagramActivity(std::shared_ptr<Preview::MemoryStream> Inbound)
+            : Inbound_(std::move(Inbound)),
+              RunActivity_(std::make_shared<Preview::Protocols::ProtocolActivity>(Inbound_->Executor())),
+              InboundActivity_(Inbound_->Activity())
+        {
+        }
+
+        [[nodiscard]] auto TryBegin()
+            -> std::expected<Preview::Protocols::ProtocolActivity::Reservation, Failure>
+        {
+            return RunActivity_->TryBegin();
+        }
+
+        auto Seal() noexcept -> void override { RunActivity_->Seal(); }
+
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
+        {
+            return RunActivity_->Executor();
+        }
+
+        [[nodiscard]] auto IsRetired() const noexcept -> bool override
+        {
+            return RunActivity_->IsRetired() && !Inbound_->IsOpen() &&
+                InboundActivity_ && InboundActivity_->IsRetired();
+        }
+
+        [[nodiscard]] auto Drain()
+            -> Net::awaitable<std::expected<void, Failure>> override
+        {
+            const auto RunDrained = co_await RunActivity_->Drain();
+            if (!RunDrained) co_return std::unexpected(RunDrained.error());
+            const auto Closed = Inbound_->Close();
+            if (!Closed) co_return std::unexpected(Closed.error());
+            InboundActivity_->Seal();
+            const auto CarrierDrained = co_await InboundActivity_->Drain();
+            if (!CarrierDrained) co_return std::unexpected(CarrierDrained.error());
+            if (!InboundActivity_->IsRetired())
+                co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            co_return std::expected<void, Failure>{};
+        }
+
+    private:
+        std::shared_ptr<Preview::MemoryStream> Inbound_;
+        std::shared_ptr<Preview::Protocols::ProtocolActivity> RunActivity_;
+        std::shared_ptr<Preview::Contract::CarrierActivity> InboundActivity_;
+    };
+
     /** @brief 验证拒绝的数据报根只 Cancel/Close/Drain，不进入 Run。 */
     class RejectedDatagramProbe final : public Preview::Contract::DatagramSession
     {
     public:
-        RejectedDatagramProbe(Net::any_io_executor Executor,
+        RejectedDatagramProbe(std::shared_ptr<Preview::MemoryStream> Inbound,
                               std::shared_ptr<ByteChannel> Closed)
-            : Activity_(std::make_shared<Preview::Protocols::ProtocolActivity>(
-                  std::move(Executor))),
+            : Activity_(std::make_shared<RejectedDatagramActivity>(std::move(Inbound))),
               Closed_(std::move(Closed))
         {
         }
@@ -617,7 +859,12 @@ namespace
         bool RunCalled{false};
         bool CancelCalled{false};
         bool CloseCalled{false};
-        std::shared_ptr<Preview::Protocols::ProtocolActivity> Activity_;
+        [[nodiscard]] auto TryBegin()
+            -> std::expected<Preview::Protocols::ProtocolActivity::Reservation, Failure>
+        {
+            return Activity_->TryBegin();
+        }
+        std::shared_ptr<RejectedDatagramActivity> Activity_;
 
     private:
         std::shared_ptr<ByteChannel> Closed_;
@@ -639,6 +886,12 @@ namespace
         bool ReservationReady{false};
         bool InboundOpenDuringDrain{false};
         bool InboundOpenAfterDrain{true};
+        bool PlaneLeaseHeldAfterAdmission{false};
+        bool AdmissionOwnerFound{false};
+        bool AdmissionRetiredAfterDrain{false};
+        bool AdmissionDispatchUnavailableAfterDrain{false};
+        bool SessionActivityRetiredAfterDrain{false};
+        bool InboundActivityRetiredAfterDrain{false};
     };
 
     auto RunRejectedDatagram(std::shared_ptr<RejectedDatagramState> State)
@@ -653,6 +906,12 @@ namespace
         {
             auto Admission = std::move(*Prepared);
             State->Outcome = co_await Admission.Admit(std::move(State->Plane));
+            State->PlaneLeaseHeldAfterAdmission = static_cast<bool>(State->Plane.AccountLease);
+            const auto Owner = std::dynamic_pointer_cast<Preview::Executor::ClosingResource>(
+                Admission.RootCreateOwner());
+            State->AdmissionOwnerFound = static_cast<bool>(Owner);
+            State->AdmissionRetiredAfterDrain = Owner && Owner->IsRetired();
+            State->AdmissionDispatchUnavailableAfterDrain = Owner && Owner->IsDispatchUnavailable();
         }
         (void)State->Finished->try_send(boost::system::error_code{});
     }
@@ -666,7 +925,7 @@ namespace
         State->Closed = MakeReleaseChannel(Io.get_executor());
         State->Finished = MakeReleaseChannel(Io.get_executor());
         State->Datagram = std::make_shared<RejectedDatagramProbe>(
-            Io.get_executor(), State->Closed);
+            State->Inbound, State->Closed);
 
         auto Directory = Preview::Testing::ProviderAccount(
             Preview::Account::Credential::Password("rejected-datagram"),
@@ -685,7 +944,7 @@ namespace
         State->Plane.AccountLease = std::move(*AuthResult);
         State->Plane.Root = Preview::Contract::DatagramDataPlane{
             State->Inbound, State->Datagram};
-        const auto Reservation = State->Datagram->Activity_->TryBegin();
+        auto Reservation = State->Datagram->TryBegin();
         if (Reservation)
         {
             State->ReservationReady = true;
@@ -706,6 +965,9 @@ namespace
         co_await State->Finished->async_receive(Net::redirect_error(Net::use_awaitable, Error));
         State->ActiveAfterDrain = State->Runtime->ActiveConnections();
         State->InboundOpenAfterDrain = State->Inbound->IsOpen();
+        State->SessionActivityRetiredAfterDrain = State->Datagram->Activity_->IsRetired();
+        const auto InboundActivity = State->Inbound->Activity();
+        State->InboundActivityRetiredAfterDrain = InboundActivity && InboundActivity->IsRetired();
     }
 
     TEST(ActiveTransports, RejectedDatagramDrainsWithoutRunAndRetainsLease)
@@ -724,6 +986,12 @@ namespace
         ASSERT_FALSE(*State->Outcome);
         EXPECT_EQ(State->Outcome->error().Code, Preview::Fault::Code::AuthFailed);
         EXPECT_FALSE(State->Outcome->error().Native);
+        EXPECT_FALSE(State->PlaneLeaseHeldAfterAdmission);
+        EXPECT_TRUE(State->AdmissionOwnerFound);
+        EXPECT_TRUE(State->AdmissionRetiredAfterDrain);
+        EXPECT_FALSE(State->AdmissionDispatchUnavailableAfterDrain);
+        EXPECT_TRUE(State->SessionActivityRetiredAfterDrain);
+        EXPECT_TRUE(State->InboundActivityRetiredAfterDrain);
         EXPECT_EQ(State->ActiveAfterDrain, 0U);
         EXPECT_FALSE(State->InboundOpenAfterDrain);
     }

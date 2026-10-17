@@ -18,7 +18,8 @@ namespace Preview::Operations::HttpDetail
 {
 
     /** @brief 已装配路由能力；数据可用性由每次查询返回的实时状态表达。 */
-    inline constexpr std::array<std::string_view, 19> BootstrapCapabilities{
+    inline constexpr std::array<std::string_view, 25> BootstrapCapabilities{
+        "overview.read", "ingresses.read", "groups.read", "protocols.read", "operations.read",
         "health.read",
         "metrics.read",
         "workers.read",
@@ -36,6 +37,7 @@ namespace Preview::Operations::HttpDetail
         "configuration.read",
         "configuration.reload.validate",
         "configuration.reload.apply",
+        "configuration.reload.persist",
         "workers.drain",
         "process.drain"};
 
@@ -63,7 +65,8 @@ namespace Preview::Operations::HttpDetail
         const auto Incarnation = EncodeHex(Identity.ProcessIncarnation());
         const auto Token = EncodeHex(Identity.Token());
         JsonWriter Writer(1024U);
-        if (!Writer.Append("{") || !Writer.Key("api_version") || !Writer.String("1") ||
+        if (!Writer.Append("{") || !Writer.Key("api_version") || !Writer.String("2") ||
+            !Writer.Append(",") || !Writer.Key("instance_key") || !Writer.String(Identity.InstanceKey()) ||
             !Writer.Append(",") || !Writer.Key("process_id") ||
             !Writer.Decimal(Identity.Process().Value()) || !Writer.Append(",") ||
             !Writer.Key("process_incarnation") ||

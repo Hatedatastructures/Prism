@@ -115,6 +115,135 @@ namespace Preview::Operations
     {
         return Value;
     }
+
+    [[nodiscard]] inline auto Redact(const LatencySummary &Value) -> LatencySummary
+    {
+        auto Result = Value;
+        Result.Name = Redact(Result.Name);
+        Result.Protocol = Redact(Result.Protocol);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const MemoryAllocationSnapshot &Value) -> MemoryAllocationSnapshot
+    {
+        auto Result = Value;
+        Result.Coverage = Redact(Result.Coverage);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const WorkerMemorySnapshot &Value) -> WorkerMemorySnapshot
+    {
+        auto Result = Value;
+        Result.Allocations = Redact(Result.Allocations);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const MemorySnapshot &Value) -> MemorySnapshot
+    {
+        auto Result = Value;
+        Result.ProcessAllocations = Redact(Result.ProcessAllocations);
+        for (auto &Worker : Result.WorkerAllocations)
+        {
+            Worker = Redact(Worker);
+        }
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const IngressSnapshot &Value) -> IngressSnapshot
+    {
+        auto Result = Value;
+        Result.Id = Redact(Result.Id);
+        Result.Transport = Redact(Result.Transport);
+        Result.ConfiguredAddress = Redact(Result.ConfiguredAddress);
+        if (Result.BoundAddress)
+        {
+            *Result.BoundAddress = Redact(*Result.BoundAddress);
+        }
+        for (auto &Protocol : Result.Protocols)
+        {
+            Protocol = Redact(Protocol);
+        }
+        for (auto &Carrier : Result.Carriers)
+        {
+            Carrier = Redact(Carrier);
+        }
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const ProtocolSnapshot &Value) -> ProtocolSnapshot
+    {
+        auto Result = Value;
+        Result.Id = Redact(Result.Id);
+        Result.Name = Redact(Result.Name);
+        if (Result.Latency)
+        {
+            *Result.Latency = Redact(*Result.Latency);
+        }
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const GroupSnapshot &Value) -> GroupSnapshot
+    {
+        auto Result = Value;
+        Result.Id = Redact(Result.Id);
+        Result.Name = Redact(Result.Name);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const OperationSnapshot &Value) -> OperationSnapshot
+    {
+        auto Result = Value;
+        Result.Command = Redact(Result.Command);
+        Result.Status = Redact(Result.Status);
+        Result.Message = Redact(Result.Message);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const TraceSpanSnapshot &Value) -> TraceSpanSnapshot
+    {
+        auto Result = Value;
+        Result.Name = Redact(Result.Name);
+        Result.Status = Redact(Result.Status);
+        Result.Stage = Redact(Result.Stage);
+        Result.Outcome = Redact(Result.Outcome);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const TracePageSnapshot &Value) -> TracePageSnapshot
+    {
+        auto Result = Value;
+        for (auto &Span : Result.Items)
+        {
+            Span = Redact(Span);
+        }
+        Result.NextCursor = Redact(Result.NextCursor);
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const OverviewSnapshot &Value) -> OverviewSnapshot
+    {
+        auto Result = Value;
+        Result.Phase = Redact(Result.Phase);
+        Result.RecognitionAdmission = Redact(Result.RecognitionAdmission);
+        for (auto &Stage : Result.LatencyStages)
+        {
+            Stage = Redact(Stage);
+        }
+        Result.Memory = Redact(Result.Memory);
+        for (auto &Protocol : Result.Protocols)
+        {
+            Protocol = Redact(Protocol);
+        }
+        return Result;
+    }
+
+    [[nodiscard]] inline auto Redact(const ManagementPayload &Value) -> ManagementPayload
+    {
+        auto Result = Value;
+        std::visit([](auto &Payload) { Payload = Redact(Payload); }, Result);
+        return Result;
+    }
+
     [[nodiscard]] inline auto Redact(const QueryResult &Value) -> QueryResult
     {
         auto Result = Value;

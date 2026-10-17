@@ -62,6 +62,12 @@ namespace Preview::Mux::H2Mux
         [[nodiscard]] auto OnClose() -> ControlResult override
         {
             if (!State_ || Closed_) return {};
+            if (State_->CloseRequested.load(std::memory_order_acquire))
+            {
+                MarkConnectionClosed();
+                TryQueueRetirement();
+                return {};
+            }
             Closed_ = true;
             Rx_.clear();
             Activity()->Seal();
@@ -76,11 +82,11 @@ namespace Preview::Mux::H2Mux
             TryQueueRetirement();
             return {};
         }
-
         /** @brief 本地半关闭只发送当前流 END_STREAM；共享 Raw 与兄弟流保持开启。 */
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            if (!State_ || State_->Closed)
+            if (!State_ || State_->Closed ||
+                State_->CloseRequested.load(std::memory_order_acquire))
             {
                 Preview::Transport::Detail::PostResult(
                     Executor(), std::move(Handler), {0, {Preview::Fault::Code::Canceled}});
@@ -111,28 +117,36 @@ namespace Preview::Mux::H2Mux
         {
             return StartReset(Preview::Http2::ErrorCancel);
         }
-
         /** @brief 接管本 stream 的 RESET；不向共享连接传播 sibling cancellation。 */
         [[nodiscard]] auto StartReset(const std::uint32_t ErrorCode) -> ControlResult
         {
-            if (!State_ || State_->Closed) return {};
+            if (!State_) return {};
+            if (State_->CloseRequested.load(std::memory_order_acquire))
+            {
+                SetConnectionClosed();
+                return {};
+            }
+            if (State_->Closed) return {};
             if (LocalTerminal_ && RemoteClosed_)
             {
-                TryQueueRetirement();
-                return {};
+                const auto BaseClosed = CloseBase();
+                if (BaseClosed) TryQueueRetirement();
+                return BaseClosed;
             }
             if (ResetByPeer_)
             {
                 Closed_ = true;
                 LocalTerminal_ = true;
-                TryQueueRetirement();
-                return {};
+                const auto BaseClosed = CloseBase();
+                if (BaseClosed) TryQueueRetirement();
+                return BaseClosed;
             }
             if (ResetPending_) return {};
             Closed_ = true;
             Rx_.clear();
-            Activity()->Seal();
+            const auto BaseClosed = CloseBase();
             Notify_.try_send(boost::system::error_code{});
+            if (!BaseClosed) return BaseClosed;
             ResetPending_ = true;
             LocalEndPending_ = true;
             return SubmitControl(MakeControlRequest(ControlKind::Reset, ErrorCode));
@@ -150,12 +164,14 @@ namespace Preview::Mux::H2Mux
 
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return State_ && State_->Raw ? State_->Raw.get() : nullptr;
+            // Raw 是 H2 根与所有虚拟流共享的 carrier，不归当前 child 所有。
+            return nullptr;
         }
 
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return State_ && State_->Raw ? State_->Raw.get() : nullptr;
+            // Raw 是 H2 根与所有虚拟流共享的 carrier，不归当前 child 所有。
+            return nullptr;
         }
 
         auto Push(std::span<const std::byte> Data) -> void
@@ -188,25 +204,38 @@ namespace Preview::Mux::H2Mux
             LocalTerminal_ = true;
             Closed_ = true;
             Rx_.clear();
-            Activity()->Seal();
+            const auto BaseClosed = CloseBase();
             IncomingPending_ = false;
             Notify_.try_send(boost::system::error_code{});
-            TryQueueRetirement();
+            if (BaseClosed) TryQueueRetirement();
         }
-
         /** @brief 根连接结束使当前流双向终态；仍等待真实 I/O 与 END barrier。 */
         auto SetConnectionClosed() -> void
         {
             Closed_ = true;
-            RemoteClosed_ = true;
-            LocalTerminal_ = true;
+            const auto BaseClosed = CloseBase();
+            MarkConnectionClosed();
+            if (BaseClosed) TryQueueRetirement();
+        }
+
+    private:
+        auto MarkConnectionClosed() -> void
+        {
+            RemoteClosed_ = LocalTerminal_ = FinSent_ = true;
+            LocalEndPending_ = ResetPending_ = false;
             Rx_.clear();
             Activity()->Seal();
             IncomingPending_ = false;
             Notify_.try_send(boost::system::error_code{});
-            TryQueueRetirement();
+        }
+        [[nodiscard]] auto CloseBase() -> ControlResult
+        {
+            const auto Result = Preview::Transmission::Close();
+            if (!Result) { Activity()->Seal(); MarkRetirementFailed(Result.error()); }
+            return Result;
         }
 
+    public:
         [[nodiscard]] auto CanRetire() const noexcept -> bool
         {
             return Retired_ || (CanAttemptRetirement() && !RetirementFailed_);
@@ -372,8 +401,11 @@ namespace Preview::Mux::H2Mux
                     const auto PendingFrames = co_await State_->Flush();
                     if (!PendingFrames)
                     {
-                        ErrorCode = Preview::Fault::ToNative(PendingFrames.error());
-                        State_->RecordFailure(PendingFrames.error());
+                        ErrorCode = Preview::Fault::ToNative(PendingFrames.Error);
+                        if (PendingFrames.CloseCanceled)
+                            State_->RecordCloseCancellation(PendingFrames.Error);
+                        else
+                            State_->RecordFailure(PendingFrames.Error);
                         co_return Offset;
                     }
                     const auto Writable = co_await State_->Session->AwaitWritable(StreamId_, Count);
@@ -394,14 +426,17 @@ namespace Preview::Mux::H2Mux
                     ErrorCode = Preview::Fault::ToNative(Failure);
                     co_return Offset;
                 }
-                Offset += Count;
                 const auto Flushed = co_await State_->Flush();
                 if (!Flushed)
                 {
-                    ErrorCode = Preview::Fault::ToNative(Flushed.error());
-                    State_->RecordFailure(Flushed.error());
+                    ErrorCode = Preview::Fault::ToNative(Flushed.Error);
+                    if (Flushed.CloseCanceled)
+                        State_->RecordCloseCancellation(Flushed.Error);
+                    else
+                        State_->RecordFailure(Flushed.Error);
                     co_return Offset;
                 }
+                Offset += Count;
             }
             ErrorCode.clear();
             co_return Offset;
@@ -416,121 +451,12 @@ namespace Preview::Mux::H2Mux
                     Terminations_, StreamId_, Kind, ErrorCode};
         }
 
-        /** @brief 原 executor 上预约并追踪本流 END_STREAM 或 RST_STREAM。 */
-        [[nodiscard]] static auto SubmitControl(ControlRequest Value) -> ControlResult
-        {
-            if (!Value.State || !Value.Stream)
-                return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
-            if (!Value.Barrier->Enter())
-                return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
-            Preview::Lifecycle::TaskRequest Request;
-            Request.Context = Preview::Lifecycle::FromParent(Value.State->Identity);
-            Request.Context.StreamId = Preview::StreamId{static_cast<std::uint64_t>(Value.Id)};
-            Request.StartOnSubmit = true;
-            const auto WeakStream = std::weak_ptr<Http2Stream>(Value.Stream);
-            Request.Cancel = [WeakStream]
-            {
-                if (const auto Stream = WeakStream.lock())
-                    Stream->OnControlFailed({Preview::Fault::Code::Canceled});
-            };
-            const auto Barrier = Value.Barrier;
-            const auto State = Value.State;
-            const auto Stream = Value.Stream;
-            const auto Spawned = State->Tasks->SpawnTracked(std::move(Request), ProcessControl(std::move(Value)));
-            if (Spawned) return {};
-            Barrier->Leave();
-            Stream->OnControlFailed(Spawned.error());
-            return std::unexpected(Spawned.error());
-        }
-
-        /** @brief 发送本流控制帧并完成唯一 writer Flush；失败不退还 admission slot。 */
-        [[nodiscard]] static auto ProcessControl(ControlRequest Request) -> Net::awaitable<void>
-        {
-            struct Completion final
-            {
-                std::shared_ptr<Preview::Lifecycle::DrainBarrier> Barrier;
-                ~Completion() { Barrier->Leave(); }
-            } Done{Request.Barrier};
-            const auto State = Request.State;
-            const auto Stream = Request.Stream;
-            auto Outcome = std::expected<void, Preview::Fault::Failure>{};
-            if (State && !State->Closed && State->Session)
-            {
-                if (Request.Kind == ControlKind::Fin)
-                {
-                    const auto Submitted = State->Session->SubmitData(
-                        Request.Id, std::span<const std::byte>{}, true);
-                    if (Submitted == Preview::Http2::SubmitDataStatus::Accepted)
-                    {
-                        Outcome = co_await State->Flush();
-                    }
-                    else if (Submitted == Preview::Http2::SubmitDataStatus::Blocked)
-                    {
-                        Outcome = std::unexpected(
-                            Preview::Fault::Failure{Preview::Fault::Code::WouldBlock});
-                    }
-                    else if (Submitted == Preview::Http2::SubmitDataStatus::Closed)
-                    {
-                        Outcome = std::unexpected(
-                            Preview::Fault::Failure{Preview::Fault::Code::ConnectionAborted});
-                    }
-                    else
-                    {
-                        Outcome = std::unexpected(
-                            Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
-                    }
-                }
-                else
-                {
-                    const auto Submitted = State->Session->ResetStream(Request.Id, Request.ErrorCode);
-                    if (!Submitted)
-                    {
-                        Outcome = std::unexpected(Submitted.error());
-                    }
-                    else
-                    {
-                        Outcome = co_await State->Flush();
-                    }
-                }
-            }
-            co_await Net::dispatch(State->Strand, Net::use_awaitable);
-            if (!Outcome) State->RecordFailure(Outcome.error());
-            Stream->OnControlCompleted(Request.Kind, Outcome);
-        }
-
-        auto OnControlFailed(const Preview::Fault::Failure Failure) -> void
-        {
-            LocalEndPending_ = false;
-            ResetPending_ = false;
-            if (State_) State_->RecordFailure(Failure);
-        }
-
+        [[nodiscard]] static auto SubmitControl(ControlRequest Value) -> ControlResult;
+        [[nodiscard]] static auto ProcessControl(ControlRequest Request) -> Net::awaitable<void>;
+        auto OnControlFailed(Preview::Fault::Failure Failure) -> void;
         auto OnControlCompleted(
-            const ControlKind Kind,
-            const std::expected<void, Preview::Fault::Failure> &Outcome) -> void
-        {
-            LocalEndPending_ = false;
-            if (!Outcome)
-            {
-                ResetPending_ = false;
-                TryQueueRetirement();
-                return;
-            }
-            if (Kind == ControlKind::Reset)
-            {
-                ResetPending_ = false;
-                ResetByPeer_ = false;
-                RemoteClosed_ = true;
-                Closed_ = true;
-                LocalTerminal_ = true;
-                Rx_.clear();
-            }
-            else
-            {
-                LocalTerminal_ = true;
-            }
-            TryQueueRetirement();
-        }
+            ControlKind Kind,
+            const std::expected<void, Preview::Fault::Failure> &Outcome) -> void;
 
         auto TryQueueRetirement() -> void
         {

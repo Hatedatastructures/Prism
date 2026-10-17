@@ -9,6 +9,7 @@
 #include <Preview/Application/RuntimeState.hpp>
 #include <Preview/Application/Shutdown.hpp>
 #include <Preview/Application/Startup/GenerationPhase.hpp>
+#include <algorithm>
 namespace Preview::Application::Startup::ProcessServices
 {
     namespace Net = boost::asio;
@@ -18,7 +19,9 @@ namespace Preview::Application::Startup::ProcessServices
     inline auto Build(const std::shared_ptr<Application::RuntimeState>& Runtime,
         const GenerationPhase::Result& Phase) -> std::expected<void, StartupError>
     {
-        Runtime->QuicConfigured = !Runtime->Generation->Configuration().Listeners.Quic.empty();
+        const auto &ConfiguredProtocols = Runtime->Generation->Configuration().Protocols;
+        Runtime->QuicConfigured = std::any_of(ConfiguredProtocols.begin(), ConfiguredProtocols.end(),
+            [](const auto &Protocol) { return Protocol.Quic.has_value(); });
         Runtime->Diagnose = std::make_unique<DiagnoseRuntime>();
         DiagnoseRuntimeConfiguration DiagnoseConfiguration;
         DiagnoseConfiguration.Logging.Level = *Phase.ConfiguredLogLevel;

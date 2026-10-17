@@ -18,6 +18,7 @@
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -34,6 +35,7 @@
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Protocols/Common/Address.hpp>
 #include <Preview/Transport/Transmission.hpp>
+#include <Preview/Protocols/Tuic/Detail/DatagramPackets.hpp>
 #include <Preview/Protocols/Tuic/Codec.hpp>
 #include <Preview/Protocols/Tuic/Types.hpp>
 
@@ -97,38 +99,68 @@ namespace Preview::Tuic
             {
                 co_return Error::NotOpen;
             }
-            if (Payload.size() > 0xFFFF)
+            if (Payload.size() > Detail::MaxUdpPayloadSize)
             {
                 co_return Error::BadLength;
             }
+            const auto Plan = Detail::BuildDatagramPlan(Detail::DatagramBuildRequest{
+                AssocId_, PacketId_, Destination, Payload.size(),
+                NextLayer_->TransportType() == Preview::Transmission::Type::Udp},
+                TxWire_);
+            if (!Plan)
+            {
+                co_return Plan.error();
+            }
+            const auto PacketId = PacketId_;
+            ++PacketId_;
+            const bool DatagramTransport =
+                NextLayer_->TransportType() == Preview::Transmission::Type::Udp;
             Message MessageValue;
             MessageValue.Cmd = CmdPacket;
             MessageValue.AssocId = AssocId_;
-            MessageValue.PktId = PacketId_;
+            MessageValue.PktId = PacketId;
+            MessageValue.FragTotal = Plan->FragTotal;
             MessageValue.dst = Destination;
-            MessageValue.payload.assign(
-                reinterpret_cast<const char *>(Payload.data()),
-                Payload.size());
-            Build(MessageValue, TxWire_);
-            if (TxWire_.empty())
+            std::size_t Offset = 0;
+            for (std::size_t Index = 0; Index < Plan->FragTotal; ++Index)
             {
-                co_return Error::BadAddress;
-            }
-            ++PacketId_;
-            std::size_t Done = 0;
-            while (Done < TxWire_.size())
-            {
-                const auto Part = co_await NextLayer_->WriteSome(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done));
-                if (Part.Failure.Failed() || Part.Bytes == 0)
+                const auto Capacity = Index == 0U
+                    ? Plan->FirstPayloadSize
+                    : Plan->LaterPayloadSize;
+                const auto Count = (std::min)(Capacity, Payload.size() - Offset);
+                MessageValue.FragId = static_cast<std::uint8_t>(Index);
+                MessageValue.Size = static_cast<std::uint16_t>(Count);
+                MessageValue.payload.clear();
+                if (Count != 0U)
                 {
-                    co_return Error::IoError;
+                    MessageValue.payload.assign(
+                        reinterpret_cast<const char *>(Payload.data() + Offset), Count);
                 }
-                if (Part.Bytes > TxWire_.size() - Done)
+                Build(MessageValue, TxWire_);
+                if (TxWire_.empty() ||
+                    (DatagramTransport && TxWire_.size() > Detail::MaxDatagramFrameSize))
                 {
                     co_return Error::BadLength;
                 }
-                Done += Part.Bytes;
+
+                std::size_t Done = 0;
+                while (Done < TxWire_.size())
+                {
+                    const auto Remaining = TxWire_.size() - Done;
+                    const auto Part = co_await NextLayer_->WriteSome(
+                        AsBytes(std::span<const std::uint8_t>(TxWire_).subspan(Done)));
+                    if (Part.Bytes > Remaining)
+                    {
+                        co_return Error::BadLength;
+                    }
+                    if (Part.Failure.Failed() || Part.Bytes == 0U ||
+                        (DatagramTransport && Part.Bytes != Remaining))
+                    {
+                        co_return Error::IoError;
+                    }
+                    Done += Part.Bytes;
+                }
+                Offset += Count;
             }
             co_return Error::None;
         }
@@ -148,105 +180,126 @@ namespace Preview::Tuic
             {
                 co_return Error::NotOpen;
             }
-            if (NextLayer_ && NextLayer_->TransportType() == Preview::Transmission::Type::Udp)
+            while (true)
             {
-                std::array<std::uint8_t, 65536> Datagram{};
-                const auto Part = co_await NextLayer_->ReadSome(AsBytes(std::span<std::uint8_t>(Datagram)));
-                if (Part.Failure.Failed())
-                {
-                    co_return Error::IoError;
-                }
-                if (Part.Bytes == 0)
-                {
-                    co_return Error::UnexpectedEof;
-                }
-                if (Part.Bytes > Datagram.size())
-                {
-                    co_return Error::BadLength;
-                }
-                const auto N = Part.Bytes;
                 Message Parsed{};
-                std::size_t Consumed = 0;
-                const auto Err = Parse(
-                    std::span<const std::uint8_t>(Datagram.data(), N),
-                    Parsed,
-                    Consumed);
-                if (Err != Error::None || Parsed.Cmd != CmdPacket || Consumed != N)
+                if (NextLayer_->TransportType() == Preview::Transmission::Type::Udp)
                 {
-                    if (Err != Error::None)
+                    std::array<std::uint8_t, 65536> Datagram{};
+                    const auto Part = co_await NextLayer_->ReadSome(
+                        AsBytes(std::span<std::uint8_t>(Datagram)));
+                    if (Part.Failure.Failed())
                     {
-                        co_return Err;
+                        co_return Error::IoError;
                     }
-                    co_return Error::BadMessage;
+                    if (Part.Bytes == 0U)
+                    {
+                        co_return Error::UnexpectedEof;
+                    }
+                    if (Part.Bytes > Datagram.size())
+                    {
+                        co_return Error::BadLength;
+                    }
+                    const auto Received = Part.Bytes;
+                    std::size_t Consumed = 0;
+                    const auto ParseError = Parse(
+                        std::span<const std::uint8_t>(Datagram.data(), Received),
+                        Parsed,
+                        Consumed);
+                    if (ParseError != Error::None || Parsed.Cmd != CmdPacket ||
+                        Consumed != Received)
+                    {
+                        co_return ParseError == Error::None ? Error::BadMessage : ParseError;
+                    }
                 }
-                Source = Parsed.dst;
+                else
+                {
+                    // 1. Ver + Cmd + AssocID(2) + PktID(2) + FragTotal + FragId + Size(2)
+                    std::array<std::uint8_t, 10> Head{};
+                    if (co_await ReadExact(std::span<std::uint8_t>(Head)))
+                    {
+                        co_return Error::UnexpectedEof;
+                    }
+                    if (Head[0] != ProtocolVersion || Head[1] != CmdPacket)
+                    {
+                        co_return Error::BadMessage;
+                    }
+
+                    Parsed.Cmd = Head[1];
+                    Parsed.AssocId = static_cast<std::uint16_t>(Head[2]) << 8U | Head[3];
+                    Parsed.PktId = static_cast<std::uint16_t>(Head[4]) << 8U | Head[5];
+                    Parsed.FragTotal = Head[6];
+                    Parsed.FragId = Head[7];
+                    Parsed.Size = static_cast<std::uint16_t>(Head[8]) << 8U | Head[9];
+                    if (Parsed.FragTotal == 0U || Parsed.FragId >= Parsed.FragTotal)
+                    {
+                        co_return Error::BadMessage;
+                    }
+
+                    // 2. ATYP + ADDR + PORT（ATYP 位于 10 字节头之后）
+                    std::array<std::uint8_t, 1> Atyp{};
+                    if (co_await ReadExact(std::span<std::uint8_t>(Atyp)))
+                    {
+                        co_return Error::UnexpectedEof;
+                    }
+                    Parsed.dst.Type = static_cast<AddressType>(Atyp[0]);
+                    if (Parsed.dst.Type == AddressType::None)
+                    {
+                        if (Parsed.FragId == 0U)
+                        {
+                            co_return Error::BadMessage;
+                        }
+                    }
+                    else
+                    {
+                        if (Parsed.FragId != 0U)
+                        {
+                            co_return Error::BadMessage;
+                        }
+                        const auto AddressError = co_await ReadAddressBody(Parsed.dst);
+                        if (AddressError != Error::None)
+                        {
+                            co_return AddressError;
+                        }
+                        std::array<std::uint8_t, 2> Port{};
+                        if (co_await ReadExact(std::span<std::uint8_t>(Port)))
+                        {
+                            co_return Error::UnexpectedEof;
+                        }
+                        Parsed.dst.Port = static_cast<std::uint16_t>(Port[0]) << 8U | Port[1];
+                    }
+
+                    // 3. 按 Size 精确读取，保持 stream frame 边界。
+                    std::vector<std::uint8_t> Chunk(Parsed.Size);
+                    if (co_await ReadExact(std::span<std::uint8_t>(Chunk)))
+                    {
+                        co_return Error::UnexpectedEof;
+                    }
+                    if (!Chunk.empty())
+                    {
+                        Parsed.payload.assign(
+                            reinterpret_cast<const char *>(Chunk.data()), Chunk.size());
+                    }
+                }
+
+                const auto Complete = Reassembler_.Accept(std::move(Parsed));
+                if (!Complete)
+                {
+                    co_return Complete.error();
+                }
+                if (!Complete->has_value())
+                {
+                    continue;
+                }
+                auto Packet = std::move(**Complete);
+                AssocId_ = Packet.AssocId;
+                Source = std::move(Packet.dst);
                 Payload.assign(
-                    reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()),
-                    reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()) +
-                        Parsed.payload.size());
+                    reinterpret_cast<const std::uint8_t *>(Packet.payload.data()),
+                    reinterpret_cast<const std::uint8_t *>(Packet.payload.data()) +
+                        Packet.payload.size());
                 co_return Error::None;
             }
-
-            // 1. Ver + Cmd + AssocID(2) + PktID(2) + FragTotal + FragId + Size(2)
-            std::array<std::uint8_t, 10> Head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(Head)))
-            {
-                co_return Error::UnexpectedEof;
-            }
-            if (Head[0] != ProtocolVersion || Head[1] != CmdPacket)
-            {
-                co_return Error::BadMessage;
-            }
-
-            const auto FragTotal = Head[6];
-            const auto FragId = Head[7];
-            const auto Size = static_cast<std::size_t>(Head[8]) << 8 | Head[9];
-            if (FragTotal == 0 || FragId >= FragTotal)
-            {
-                co_return Error::BadMessage;
-            }
-
-            // 2. ATYP + ADDR + PORT（ATYP 位于 10 字节头之后）
-            std::array<std::uint8_t, 1> Atyp{};
-            if (co_await ReadExact(std::span<std::uint8_t>(Atyp)))
-            {
-                co_return Error::UnexpectedEof;
-            }
-            Source.Type = static_cast<AddressType>(Atyp[0]);
-            if (Source.Type == AddressType::None)
-            {
-                if (FragId == 0)
-                {
-                    co_return Error::BadMessage;
-                }
-            }
-            else
-            {
-                if (FragId != 0)
-                {
-                    co_return Error::BadMessage;
-                }
-                const auto AddressError = co_await ReadAddressBody(Source);
-                if (AddressError != Error::None)
-                {
-                    co_return AddressError;
-                }
-                std::array<std::uint8_t, 2> Port{};
-                if (co_await ReadExact(std::span<std::uint8_t>(Port)))
-                {
-                    co_return Error::UnexpectedEof;
-                }
-                Source.Port = static_cast<std::uint16_t>(Port[0]) << 8 | Port[1];
-            }
-
-            // 3. 按 Size 精确读取，避免 TCP/QUIC stream 的 partial/coalesced write 破坏帧边界
-            std::vector<std::uint8_t> Chunk(Size);
-            if (co_await ReadExact(std::span<std::uint8_t>(Chunk)))
-            {
-                co_return Error::UnexpectedEof;
-            }
-            Payload.assign(Chunk.begin(), Chunk.end());
-            co_return Error::None;
         }
 
         /**
@@ -444,6 +497,7 @@ namespace Preview::Tuic
         std::uint16_t PacketId_{0};     ///< 下一个 UDP 包 ID（从 0 开始）
         Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
         typename Memory::template Buffer<std::uint8_t> TxWire_{Mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
+        Detail::DatagramReassembler Reassembler_; ///< TUIC packet 分片重组器
     };
 
     /// 包连接共享指针

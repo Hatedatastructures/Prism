@@ -1,6 +1,7 @@
 /** @file ProviderCatalogTest.cpp @brief 实际实例、冻结、单次绑定、移动和关闭后拒绝。 */
 #include <gtest/gtest.h>
 #include <Preview/Account/Authenticator.hpp>
+#include <Preview/Composition/Provider/BoundCatalog.hpp>
 #include <Preview/Contract/Io/CarrierActivity.hpp>
 #include <Preview/Foundation/Executor/ContextOwner.hpp>
 #include <Preview/Foundation/Generation/Lifetime.hpp>
@@ -13,6 +14,7 @@
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
 #include <atomic>
 #include <cstddef>
+#include <expected>
 #include <optional>
 #include <stdexcept>
 #include <thread>
@@ -23,6 +25,36 @@ namespace
 {
     namespace P=Preview::Composition::Provider;
     using E=Preview::Contract::ProviderError;
+    TEST(BoundCatalogDrainPolicy, RequiresOwnerReceiptForRetiredCancellationAndBlockedAttempts)
+    {
+        using Failure = Preview::Fault::Failure;
+        using Retirement = P::PhysicalRetirementState;
+        using Receipt = P::Detail::DrainOwnerFailureReceipt;
+        const auto Canceled = std::expected<void, Failure>{std::unexpected(
+            Failure{Preview::Fault::Code::Canceled})};
+        const auto Blocked = std::expected<void, Failure>{std::unexpected(
+            Failure{Preview::Fault::Code::Blocked})};
+        const auto IoError = Failure{Preview::Fault::Code::IoError};
+        const auto IoFailure = std::expected<void, Failure>{std::unexpected(IoError)};
+
+        EXPECT_TRUE(P::Detail::IsRetryableDrainAttempt(
+            Canceled, Receipt{{}, Retirement::Active, false}));
+        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(
+            Canceled, Receipt{{}, Retirement::Retired, false}));
+        EXPECT_TRUE(P::Detail::IsRetryableDrainAttempt(
+            Canceled, Receipt{{}, Retirement::Retired, true}));
+        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(Canceled,
+            Receipt{Failure{Preview::Fault::Code::Canceled}, Retirement::Retired, true}));
+        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(Canceled,
+            Receipt{IoError, Retirement::Retired, true}));
+        EXPECT_TRUE(P::Detail::IsRetryableDrainAttempt(
+            Blocked, Receipt{{}, Retirement::Active, true}));
+        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(
+            Blocked, Receipt{{}, Retirement::Active, false}));
+        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(
+            IoFailure, Receipt{{}, Retirement::Active, true}));
+    }
+
     /** @brief 构造携带有界字节池的真实流接入输入。 */
     [[nodiscard]] auto MakeStreamAcceptInput(Preview::SharedTransmission Inbound,
         Preview::Contract::RequestMetadata Metadata={}) -> Preview::Contract::StreamAcceptInput
@@ -412,10 +444,10 @@ namespace
         {
             Preview::Shadowsocks2022::ClientConfig Config;
             Config.Psk = State->Key;
-            auto [Error, Connection] = co_await Preview::Shadowsocks2022::Connect(State->SsClient, Config,
+            auto Connection = co_await Preview::Shadowsocks2022::Connect(State->SsClient, Config,
                 {Preview::Shadowsocks2022::AddressType::Domain, "echo", 7});
-            State->Result.ClientConnected = Error == Preview::Error::None && bool(Connection);
-            State->SsConnection = std::move(Connection);
+            State->Result.ClientConnected = bool(Connection);
+            if (Connection) State->SsConnection = std::move(*Connection);
         }
         catch (...) { State->Result.Unexpected = std::current_exception(); }
         (void)State->ClientReady.try_send(boost::system::error_code{});
@@ -451,6 +483,8 @@ namespace
             if (Receipt == RetirementReceipt::AdmissionHandlerReturned) AdmissionReturned = true;
             if (Receipt == RetirementReceipt::CarrierDestroyed) CarrierDestroyed = true;
             State->Storage->Collect();
+            // 低层物理回执可能使父 admission ticket 可退休；再请求一次原 executor 清理。
+            State->Storage->Retry();
         }
         State->Result.RetryOnCloseSucceeded = OnCloseSucceeded;
         State->Result.RetryCarrierActivityDrained = ActivityDrained;
@@ -631,8 +665,8 @@ namespace
         EXPECT_TRUE(Result.MaterialReleased);
         EXPECT_TRUE(Result.FailedCarrierRetained);
         EXPECT_FALSE(Result.CatalogPhysicalRetiredAfterCleanup);
-        // 首次失败的 I/O、控制、binding 三槽与健康 wrapper 的 I/O、控制两槽尚待同域重试。
-        EXPECT_EQ(Result.PendingAfterCleanup, 5U);
+        // 首次失败的 I/O、控制、binding 与 admission ticket 四槽，加健康 wrapper 的 I/O、控制两槽。
+        EXPECT_EQ(Result.PendingAfterCleanup, 6U);
         EXPECT_EQ(Result.PendingAfterRetry, 0);
         EXPECT_TRUE(Result.RetryOnCloseSucceeded);
         EXPECT_TRUE(Result.RetryCarrierActivityDrained);

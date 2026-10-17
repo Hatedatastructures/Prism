@@ -13,8 +13,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <span>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -198,6 +201,114 @@ namespace
         return Packet;
     }
 
+    /** @brief 为同代 datagram selection 提供不可变的测试代次 owner。 */
+    class BoundaryTestGeneration final : public Preview::Foundation::GenerationLifetime
+    {
+    public:
+        explicit BoundaryTestGeneration(Preview::GenerationId Id) : Id_(Id) {}
+
+        [[nodiscard]] auto Id() const noexcept -> Preview::GenerationId override
+        {
+            return Id_;
+        }
+
+    private:
+        Preview::GenerationId Id_;
+    };
+
+    /** @brief 按凭据前缀区分旧代既有关联和当前代新关联的 raw ingress。 */
+    class CredentialAssociationIngress final : public Preview::Contract::RawDatagramIngress
+    {
+    public:
+        CredentialAssociationIngress(std::string Key, std::string Session,
+            const bool HasExistingAssociation)
+            : Prefix_(std::move(Key) + "|" + std::move(Session) + "|"),
+              HasExistingAssociation_(HasExistingAssociation)
+        {
+        }
+
+        [[nodiscard]] auto Matches(Preview::Contract::DatagramView Packet) const -> bool override
+        {
+            return MatchesCredential(Packet);
+        }
+
+        [[nodiscard]] auto MatchesExistingAssociation(
+            Preview::Contract::DatagramView Packet) const -> bool override
+        {
+            return HasExistingAssociation_ && MatchesCredential(Packet);
+        }
+
+        [[nodiscard]] auto HasActiveAssociations() const noexcept -> bool override
+        {
+            return HasExistingAssociation_;
+        }
+
+        auto Consume(Preview::Contract::DatagramPacket Packet) -> void override
+        {
+            if (Packet.GenerationUse)
+            {
+                ++NewAssociations;
+                return;
+            }
+            ++ExistingAssociations;
+        }
+
+        auto Close() noexcept -> void override {}
+
+        [[nodiscard]] auto Drain()
+            -> boost::asio::awaitable<std::expected<void, Preview::Fault::Failure>> override
+        {
+            co_return std::expected<void, Preview::Fault::Failure>{};
+        }
+
+        std::size_t ExistingAssociations{0U};
+        std::size_t NewAssociations{0U};
+
+    private:
+        [[nodiscard]] auto MatchesCredential(Preview::Contract::DatagramView Packet) const noexcept
+            -> bool
+        {
+            const std::string_view Payload{
+                reinterpret_cast<const char*>(Packet.Payload.data()), Packet.Payload.size()};
+            return Payload.starts_with(Prefix_);
+        }
+
+        const std::string Prefix_;
+        const bool HasExistingAssociation_;
+    };
+
+    /** @brief 构造普通 UDP 边界包，正文携带测试凭据与会话标识。 */
+    [[nodiscard]] auto MakeCredentialPacket(const std::string_view Payload) -> BoundaryPacket
+    {
+        BoundaryPacket Packet;
+        Packet.Payload.reserve(Payload.size());
+        for (const auto Character : Payload)
+        {
+            Packet.Payload.push_back(static_cast<std::byte>(
+                static_cast<unsigned char>(Character)));
+        }
+        Packet.Classification.Kind = DatagramKind::Ordinary;
+        Packet.Peer = {boost::asio::ip::make_address_v4("127.0.0.1"), 45123};
+        return Packet;
+    }
+
+    /** @brief 将同一代 raw snapshot 与空 QUIC binding 固定为真实 typed selection。 */
+    [[nodiscard]] auto MakeSelection(
+        std::shared_ptr<const Preview::Foundation::GenerationLifetime> Generation,
+        std::shared_ptr<Preview::Foundation::GenerationUseState> UseState,
+        std::shared_ptr<const Preview::Contract::RawDatagramIngressSnapshot> Raw)
+        -> std::shared_ptr<const Preview::Contract::DatagramIngressSelection>
+    {
+        Preview::Contract::RequestMetadata Metadata;
+        Metadata.TaskIdentity.Generation = Generation->Id();
+        auto Quic = std::make_shared<const Preview::Contract::QuicIngressBindingSnapshot>(
+            Preview::Contract::QuicIngressBindingSnapshot::Options{
+                Generation, UseState, std::move(Metadata), {}});
+        return std::make_shared<const Preview::Contract::DatagramIngressSelection>(
+            Preview::Contract::DatagramIngressSelection::Options{
+                std::move(Generation), std::move(UseState), std::move(Raw), std::move(Quic)});
+    }
+
     TEST(BoundaryDispatcher, FallsBackToDatagramWhenNoQuicPacketGatewayConfigured)
     {
         std::size_t DatagramCalls = 0;
@@ -256,6 +367,7 @@ namespace
 
     TEST(BoundaryDispatcher, RetiredCredentialAssociationAndCurrentCredentialBothDispatch)
     {
+        auto Generation = std::make_shared<BoundaryTestGeneration>(Preview::GenerationId{2U});
         auto PreviousUse = std::make_shared<Preview::Foundation::GenerationUseState>();
         auto CurrentUse = std::make_shared<Preview::Foundation::GenerationUseState>();
         auto Previous = std::make_shared<CredentialAssociationIngress>(
@@ -266,14 +378,15 @@ namespace
             Preview::Contract::RawDatagramIngressSnapshot::Options{
                 Preview::GenerationId{2U}, CurrentUse,
                 {{Current, CurrentUse}}, {{Previous, PreviousUse}}});
+        const auto Selection = MakeSelection(Generation, CurrentUse, Ingress);
         std::size_t FallbackCalls = 0U;
         BoundaryDispatcher Dispatcher(BoundaryDispatcher::Options{
             nullptr,
             [&FallbackCalls](BoundaryPacket) { ++FallbackCalls; },
             {}, {}});
 
-        Dispatcher.Dispatch(MakeCredentialPacket("old-key|session-17|old-payload"), Ingress);
-        Dispatcher.Dispatch(MakeCredentialPacket("new-key|session-42|new-payload"), Ingress);
+        Dispatcher.Dispatch(MakeCredentialPacket("old-key|session-17|old-payload"), Selection);
+        Dispatcher.Dispatch(MakeCredentialPacket("new-key|session-42|new-payload"), Selection);
 
         EXPECT_EQ(Previous->ExistingAssociations, 1U);
         EXPECT_EQ(Previous->NewAssociations, 0U);
@@ -282,6 +395,7 @@ namespace
         EXPECT_EQ(PreviousUse->Outstanding(), 0U);
         EXPECT_EQ(CurrentUse->Outstanding(), 0U);
         EXPECT_EQ(FallbackCalls, 0U);
+        EXPECT_EQ(Dispatcher.Snapshot().DatagramPackets, 2U);
     }
 
     TEST(BoundaryDispatcher, GenerationUseLeaseMoveTransfersSingleReservationAndPinsState)

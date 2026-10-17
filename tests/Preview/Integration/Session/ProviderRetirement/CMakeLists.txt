@@ -1,0 +1,4 @@
+AddPreviewTest(ProviderSessionRetirementTest.cpp)
+target_link_libraries(ProviderSessionRetirementTest PRIVATE PreviewRuntime PreviewProtocolsCommon PreviewTestSupport)
+AddPreviewTest(ProviderSessionDrainCoordinatorTest.cpp)
+target_link_libraries(ProviderSessionDrainCoordinatorTest PRIVATE PreviewProtocolsCommon PreviewTestSupport)

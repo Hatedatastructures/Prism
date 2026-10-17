@@ -18,16 +18,22 @@ namespace
     }
     TEST(QuicProvider, Hysteria2ReportsMissingTlsBeforePublication)
     {
-        ProviderTesting::Fixture Fixture;
-        auto Prepared=P::ProviderCatalog::Prepare(Input(Fixture,"hysteria2"),Fixture.Services());
+        ProviderTesting::QuicFixture Fixture;
+        auto Services=Fixture.Services();
+        Services.Quic.Listener.Tls.reset();
+        auto Prepared=P::ProviderCatalog::Prepare(
+            Fixture.Input("hysteria2"),std::move(Services));
         ASSERT_FALSE(Prepared);
         EXPECT_EQ(Prepared.error().Instance,"quic-instance");
         EXPECT_EQ(Prepared.error().Path,"Quic.Tls");
     }
     TEST(QuicProvider, TuicReportsMissingTlsBeforePublication)
     {
-        ProviderTesting::Fixture Fixture;
-        auto Prepared=P::ProviderCatalog::Prepare(Input(Fixture,"tuic"),Fixture.Services());
+        ProviderTesting::QuicFixture Fixture;
+        auto Services=Fixture.Services();
+        Services.Quic.Listener.Tls.reset();
+        auto Prepared=P::ProviderCatalog::Prepare(
+            Fixture.Input("tuic"),std::move(Services));
         ASSERT_FALSE(Prepared);
         EXPECT_EQ(Prepared.error().Instance,"quic-instance");
         EXPECT_EQ(Prepared.error().Path,"Quic.Tls");
@@ -138,6 +144,7 @@ namespace
             *Bound, Factory, External, Native, UseState, Fixture.Socket, Closed, Weak};
         boost::asio::co_spawn(Fixture.Io,Scenario.Run(),[](std::exception_ptr Error){EXPECT_FALSE(Error);});
         Fixture.Io.run();
+        Scenario.Native.reset();
         External.reset();EXPECT_FALSE(Weak.expired());Native.reset();EXPECT_TRUE(Weak.expired());
     }
     TEST(QuicProvider, Hysteria2FactoryConsumesNativeAndReleasesOriginalGeneration)

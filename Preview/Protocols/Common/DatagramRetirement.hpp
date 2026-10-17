@@ -59,6 +59,7 @@ namespace Preview::Protocols
         enum class DeliveryKind : std::uint8_t
         {
             Shutdown,
+            Cancel,
             Seal,
             Retry
         };
@@ -92,12 +93,13 @@ namespace Preview::Protocols
             auto operator()() -> void
             {
                 Invoked = true;
-                if (Kind == DeliveryKind::Shutdown) Owner->BeginShutdown(true);
+                if (Kind == DeliveryKind::Shutdown) Owner->BeginShutdown(false);
+                else if (Kind == DeliveryKind::Cancel) Owner->BeginShutdown(true);
                 else if (Kind == DeliveryKind::Seal) Owner->SealOnStrand();
                 else
                 {
                     const bool WasClosed = Owner->Closed_;
-                    Owner->BeginShutdown(true);
+                    Owner->BeginShutdown(false);
                     Owner->RequestRetirementOnStrand(RetryControls && WasClosed);
                 }
             }
@@ -160,7 +162,7 @@ namespace Preview::Protocols
         /** @brief 只提交托管取消动作；取消信号与 typed controls 在固定 strand 上发出。 */
         auto Cancel() noexcept -> void
         {
-            Dispatch(DeliveryKind::Shutdown, false);
+            Dispatch(DeliveryKind::Cancel, false);
         }
 
         /** @brief 请求最终关闭；实际资源释放只由串行退休状态确认。 */
@@ -232,7 +234,13 @@ namespace Preview::Protocols
                 co_return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
             Owner->Started_ = true;
             if (Owner->Retired_.load(std::memory_order_acquire))
-                co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+            {
+                const auto Cause = Owner->Failure_.Load();
+                if (Cause.Failed()) co_return std::unexpected(Cause);
+                if (Owner->Cancelled_)
+                    co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+                co_return CompletionResult{};
+            }
             if (Owner->Closed_)
             {
                 Owner->RunDone_ = true;
@@ -242,7 +250,9 @@ namespace Preview::Protocols
                 co_await Owner->WaitForRetirement();
                 const auto Cause = Owner->Failure_.Load();
                 if (Cause.Failed()) co_return std::unexpected(Cause);
-                co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+                if (Owner->Cancelled_)
+                    co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+                co_return CompletionResult{};
             }
 
             auto Admission = Owner->RunActivity_->TryBegin();
@@ -472,7 +482,7 @@ namespace Preview::Protocols
             if (!ControlsRequested_ || RetryControls)
             {
                 ControlsRequested_ = true;
-                ControlsAccepted_ = RequestControls();
+                ControlsAccepted_ = RequestControls(Cancelled_);
             }
             if (!ControlsAccepted_)
                 co_return std::unexpected(FirstFailure());
@@ -490,7 +500,10 @@ namespace Preview::Protocols
                 try
                 {
                     const auto Result = co_await CarrierActivity->Drain();
-                    if (!Result)
+                    // 只有独立物理回执已成立时才接受取消；其余失败必须保留首因与 owner。
+                    if (!Result &&
+                        (Result.error().Code != Preview::Fault::Code::Canceled ||
+                         !CarrierActivity->IsRetired()))
                     {
                         DatagramFailure::Preserve(First, Result.error());
                         Record(Result.error());
@@ -538,7 +551,7 @@ namespace Preview::Protocols
             if (!ControlsRequested_)
             {
                 ControlsRequested_ = true;
-                ControlsAccepted_ = RequestControls();
+                ControlsAccepted_ = RequestControls(Cancelled_);
             }
             if (!Started_)
             {
@@ -551,9 +564,9 @@ namespace Preview::Protocols
         }
 
         /** @brief 同步控制结果失败时立即发布首因，显式 Retry 可重新提交 controls。 */
-        [[nodiscard]] auto RequestControls() noexcept -> bool
+        [[nodiscard]] auto RequestControls(const bool CancelRun) noexcept -> bool
         {
-            const auto Result = Pump_->RequestControls();
+            const auto Result = Pump_->RequestControls(CancelRun);
             if (Result) return true;
             Record(Result.error());
             return false;

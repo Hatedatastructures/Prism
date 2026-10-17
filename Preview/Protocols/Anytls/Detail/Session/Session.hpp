@@ -69,14 +69,20 @@ namespace Preview::Anytls::Detail
             if (const auto Found = Root->Streams.find(Value.StreamId); Found != Root->Streams.end())
             {
                 if (!Value.Payload.empty() && !Found->second->Data->try_send(boost::system::error_code{}, std::move(Value.Payload)))
-                { Found->second->PeerFin = true; Found->second->Cancel(); }
+                {
+                    Found->second->MarkInputTermination(StreamState::InputTermination::QueueOverflow);
+                    Found->second->Cancel();
+                }
             }
             else if (Value.StreamId == 0 || Value.StreamId > Root->LastStreamId)
                 co_await Alert(Root, "UnknownStream");
             break;
         case Command::Fin:
             if (const auto Found = Root->Streams.find(Value.StreamId); Found != Root->Streams.end())
-            { Found->second->PeerFin = true; Found->second->Cancel(); }
+            {
+                Found->second->MarkInputTermination(StreamState::InputTermination::PeerFin);
+                Found->second->Cancel();
+            }
             break;
         case Command::HeartRequest:
         {
@@ -93,6 +99,19 @@ namespace Preview::Anytls::Detail
         case Command::SynAck: case Command::ServerSettings: co_await Alert(Root, "InvalidClientCommand"); break;
         }
     }
+
+    /** @brief root 已请求停机时，帧任务自身被取消属于正常收尾。 */
+    inline auto RecordFrameFailure(const std::shared_ptr<State> &Root,
+                                   const Preview::Fault::Failure Failure) -> void
+    {
+        if (Root->Stopping.load(std::memory_order_acquire) &&
+            Failure.Code == Preview::Fault::Code::Canceled)
+        {
+            return;
+        }
+        Root->RecordTerminalFailure(Failure);
+    }
+
     inline auto RunFrames(std::shared_ptr<State> Root) -> Net::awaitable<void>
     {
         try
@@ -107,11 +126,11 @@ namespace Preview::Anytls::Detail
         catch (const boost::system::system_error &Error)
         {
             const auto Native = static_cast<std::error_code>(Error.code());
-            Root->RecordTerminalFailure(Preview::Fault::FromNative(Native));
+            RecordFrameFailure(Root, Preview::Fault::FromNative(Native));
         }
         catch (const std::system_error &Error)
         {
-            Root->RecordTerminalFailure(Preview::Fault::FromNative(Error.code()));
+            RecordFrameFailure(Root, Preview::Fault::FromNative(Error.code()));
         }
         catch (...)
         {

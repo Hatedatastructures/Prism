@@ -1,74 +1,56 @@
 # Preview 部署指南
 
-本页按当前 `PrismPreview` 的入口、配置和停止合同说明部署。构建步骤见[快速开始](getting-started.md)，字段见[配置说明](configuration.md)。当前完整重构仍在实施，各平台和协议的实际验收见[执行状态](../preview-refactor/2026-10-03-preview-no-compat-status.md)。
+本指南说明如何部署一个已为目标平台构建、并与配置版本对应的 `PrismPreview` 程序。构建约束和 Preview 文档入口见 [Preview 总览](../preview/README.md)，字段与路径合同见 [Preview 配置](../preview/configuration.md)，资源关闭责任见[仓库架构](../ARCHITECTURE.md)。本页提供部署步骤，不登记特定平台的构建或运行结果；通过结论应由绑定目标平台、源码 revision、配置和 binary hash 的报告支持。
 
-## 程序与配置布局
+## 准备可回滚的部署包
 
-构建统一使用仓库 `build/`，target 为 `PrismPreview`。Windows 产物在 `build/src/PrismPreview.exe`；Linux 产物为 `build/src/PrismPreview`。依赖运行库按实际编译器/链接结果部署，当前 MinGW target 仅显式设置 `-static-libgcc`，不能假定所有 C++ 运行库已静态链接。
+从同一个已核对的 build/revision 收集可执行文件和其运行资源。将部署配置、证书、私钥及可选运行资源放在权限合适的位置；具体目录布局以打包方式和配置中的资源字段为准。避免直接把正在运行的实例配置指向仓库内可能被构建命令更新的模板。
 
-推荐把部署配置放在独立目录并使用位置参数，避免再次构建时被源模板复制覆盖：
+上线前保存：
 
-```text
-C:\Prism\
-  PrismPreview.exe
-  PreviewConfiguration.json
-  cert.pem
-  key.pem
-  logs\
-```
+- 源码 revision 与工作树状态；
+- `PrismPreview` 和 `PreviewConfiguration.json` 的 SHA-256；
+- 运行平台、运行库、监听地址/端口和 secret reference 名称；
+- 上一版程序与配置的回滚路径。
 
-```powershell
-Set-Location 'C:\Prism'
-.\PrismPreview.exe 'C:\Prism\PreviewConfiguration.json'
-```
+版本号或文件名相同不足以证明 binary 与配置匹配。
 
-证书按配置文件目录解析，日志相对目录按进程工作目录解析。更换工作目录时应核对日志路径。部署用账户应能读取配置/密钥并写入指定日志目录。
+## 前台启动与检查
 
-## Windows 运行
-
-先在前台启动，确认 READY、认证正负例、实际响应内容、Ctrl+C 退出与端口释放。需要后台进程时可以使用 PowerShell，保留进程对象和 stdout/stderr，便于追踪退出原因：
+先用前台方式运行并保留 stdout/stderr。用第一个位置参数显式指定配置路径：
 
 ```powershell
-$PreviewProcess = Start-Process -FilePath 'C:\Prism\PrismPreview.exe' -ArgumentList 'C:\Prism\PreviewConfiguration.json' -WorkingDirectory 'C:\Prism' -WindowStyle Hidden -RedirectStandardOutput 'C:\Prism\preview.stdout.log' -RedirectStandardError 'C:\Prism\preview.stderr.log' -PassThru
+& 'C:\Prism\PrismPreview.exe' 'C:\Prism\config\PreviewConfiguration.json'
 ```
 
-示例路径没有空格。实际含空格的配置路径需要正确引用。后台运行属于普通进程管理；当前 main 未实现 Windows ServiceMain，不能直接用 `sc create` 把该 console 程序当作原生 Windows 服务。后台停机需使用已有的受控进程管理或实际 Operations 命令合同，并核对取消/drain 完成。
-
-## Linux 进程管理示例
-
-在具有可用 C++23 工具链的环境构建并验证对应平台，再安装实际产物。下面仅给出 systemd unit 的配置示例，本轮 Windows 工作区尚未取得 Linux 构建/运行验收：
-
-```ini
-[Unit]
-Description=Prism Preview
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=prism
-Group=prism
-WorkingDirectory=/var/lib/prism
-ExecStart=/usr/local/bin/PrismPreview /etc/prism/PreviewConfiguration.json
-Restart=on-failure
-KillSignal=SIGTERM
-TimeoutStopSec=15
-
-[Install]
-WantedBy=multi-user.target
+```bash
+/usr/local/bin/PrismPreview /etc/prism/PreviewConfiguration.json
 ```
 
-用户、目录、程序、运行库、证书与权限应先实际准备；`Logging.Directory` 可设置为 `/var/log/prism`，日志目录需允许服务用户写入。当前入口注册 SIGINT/SIGTERM，收到停止请求后由应用关闭 owner 并 drain。实际服务超时与 `Shutdown.Timeout` 应配合真实停机验收确认。
+若不传位置参数，程序从 executable 同目录读取 `PreviewConfiguration.json`。相对 Native TLS 证书/私钥路径从配置文件目录解析。将 SecretRef 对应环境变量配置在服务进程的环境中，避免依赖交互式管理员 shell 的临时状态。
 
-## 接入与部署验证
+启动输出包含 TCP 端口、UDP readiness 和 QUIC readiness。将 READY 中报告的状态与本次配置和预期入口逐项比对；已绑定端口不代表对应 UDP/QUIC 协议已经完成真实数据面请求。
 
-默认 SOCKS5 模板使用 `127.0.0.1:1080`。扩大监听地址前配置独立凭据，并只开放实际使用的 TCP/UDP 端口。Operations Endpoint 必须保持 loopback，和代理接入端口分别管理。
+## 进程管理
 
-部署验收应记录程序、配置和源码版本，并按顺序验证：
+在上线服务管理器之前，先验证目标平台可执行文件、运行库、配置资源和自然停机。应用注册 SIGINT 与 SIGTERM；Linux 进程管理器通常可用 SIGTERM 请求收尾。受控环境下配置一个足以覆盖实际 drain 的停止等待时间，并在目标平台观察自然退出及端口释放。
 
-1. 启动输出 READY，核对实际 tcp/udp/quic 端口和状态。
-2. 正确凭据执行固定目标请求并核对字节；错误凭据被拒绝且无后端拨号。
-3. 针对启用协议执行 TCP/UDP、多流、半关闭和取消场景。
-4. 请求停止，等待 drain 与自然退出，确认端口和本轮进程释放。
+Windows 可先以前台控制台实例进行试运行。需要隐藏窗口或托管进程时，使用组织已有的进程管理方式保存 stdout/stderr、PID、启动参数和退出码。当前入口是普通可执行程序；不要仅因它可以在后台运行就把它描述成平台原生服务。
 
-端口探测与一次 HTTP 200 只提供该层观察，完整真实链路证据按执行计划分别保存。性能容量应依据当前源码、配置、相同输入的实测结果确定，旧版性能报告不作为本次 Preview 部署容量承诺。
+任何 systemd/unit 或服务管理器示例都必须使用本机真实部署路径、服务账户和退出预算，并先在目标平台单独验证；本指南不提供未经本机验证的 unit 作为已测试配置。
+
+## 网络与凭据
+
+从 loopback 或受限网段开始部署。只有在确认 protocol binding、credential、主机防火墙和上游路由后，才打开对外监听。Operations 管理端点应与代理接入分别控制访问；不要将就绪输出或日志当作访问控制。
+
+使用 SecretRef 时，将规范化后的 `PRISM_PREVIEW_SECRET_...` 环境变量注入服务进程。Native TLS 证书与私钥应只允许服务账户读取；记录轮转窗口，并按配置页验证相对路径的基准。
+
+## 发布与回滚
+
+1. 在非生产实例以相同平台、配置形状和目标协议启动候选包。
+2. 检查 stderr、READY 端口和各 readiness 字段。
+3. 用独立 client 做认证正负例、固定目标请求、需要的 stream/datagram 场景以及关闭验证。
+4. 保存源码 revision、binary/config hashes、输入、响应和退出信息。
+5. 切换生产流量后观察错误与资源使用；若合同不匹配，恢复上一版程序和配置并重新验证。
+
+构建 target、CTest 映射、外部互操作和运行态检查属于不同证据层；按 [Preview 总览](../preview/README.md)中当前指南执行，不以旧报告或单一 READY 行替代当前部署验收。

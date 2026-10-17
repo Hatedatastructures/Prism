@@ -83,10 +83,16 @@ namespace
     }
 
     auto WaitForReleaseAndMark(const std::shared_ptr<ByteChannel> &Release,
+                               const std::shared_ptr<ByteChannel> &Started,
                                const std::shared_ptr<bool> &Completed) -> Net::awaitable<void>
     {
-        co_await WaitForRelease(Release);
-        *Completed = true;
+        EXPECT_TRUE(Started->try_send(boost::system::error_code{}));
+        co_await Net::this_coro::throw_if_cancelled(false);
+        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+        boost::system::error_code Error;
+        co_await Release->async_receive(Net::bind_cancellation_slot(
+            Net::cancellation_slot{}, Net::redirect_error(Net::use_awaitable, Error)));
+        if (!Error) *Completed = true;
     }
 
     template <typename Signal>

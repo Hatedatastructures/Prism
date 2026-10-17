@@ -25,6 +25,7 @@
 #include <Preview/Composition/Recognition/ProfileBuilder.hpp>
 #include <Preview/Composition/Recognition/CandidateRegistry.hpp>
 #include <Preview/Composition/Recognition/TlsCandidateFactory.hpp>
+#include <Preview/Foundation/Memory/BytePool.hpp>
 #include <TestSupport/Fixtures/StreamFactory.hpp>
 #include <Preview/Runtime/Session.hpp>
 #include <Preview/Runtime/SessionAdmissionTestSupport.hpp>
@@ -39,6 +40,45 @@ namespace
     namespace Net = boost::asio;
     namespace Core = Preview::Recognition;
     namespace Composition = Preview::Composition::Recognition;
+
+    [[nodiscard]] auto MakeCandidateOptions(const Composition::CandidateDefinition &Candidate)
+        -> Composition::CandidateOptions
+    {
+        Composition::CandidateOptions Options;
+        Options.Id = Candidate.Id;
+        Options.Name = Candidate.Name;
+        Options.Priority = Candidate.Priority;
+        Options.Tier = Candidate.Tier;
+        Options.Fallback = Candidate.Fallback;
+        Options.BindingId = Candidate.BindingId;
+        Options.UdpEnabled = Candidate.UdpEnabled;
+        return Options;
+    }
+
+    [[nodiscard]] auto MakeCarrierAccept() -> Composition::CarrierAcceptFn
+    {
+        return [](Core::CarrierAcceptInput Input)
+            -> Net::awaitable<Core::CarrierAcceptResult>
+        {
+            Core::CarrierAcceptResult Result;
+            Result.Transport = std::move(Input.Inbound);
+            co_return Result;
+        };
+    }
+
+    [[nodiscard]] auto RegisterTestCarrier(Composition::CandidateRegistry &Registry,
+        const std::string_view Scheme, std::string Id = {}) -> bool
+    {
+        const auto Descriptor = Preview::Composition::Protocol::ProtocolCatalog::Find(Scheme);
+        if (!Descriptor)
+        {
+            return false;
+        }
+        Composition::CandidateRegistry::CarrierRegistration Registration{
+            Descriptor->Slot(), MakeCarrierAccept(), {}, false};
+        return Registry.RegisterTlsCarrier(Descriptor->Slot(), std::move(Id),
+            std::move(Registration));
+    }
 
     auto MakeBinding(const Composition::CandidateDefinition &Candidate)
         -> std::optional<Composition::CandidateBinding>
@@ -66,14 +106,20 @@ namespace
             co_return Result;
         };
         Binding.Accept = std::make_shared<Preview::Testing::StreamFactory>(
-            [](Preview::SharedTransmission Inbound, Preview::Contract::RequestMetadata)
+            [](Preview::Contract::StreamAcceptInput Input)
                 -> Net::awaitable<Preview::Contract::AcceptOutcome>
             {
                 Preview::Contract::ProtocolDataPlane Plane;
-                Plane.Root = Preview::Contract::StreamDataPlane{std::move(Inbound)};
+                Plane.Root = Preview::Contract::StreamDataPlane{std::move(Input.Inbound)};
                 co_return Plane;
             });
         return Binding;
+    }
+
+    [[nodiscard]] auto MakeHttpCandidateBinding(const Core::CandidateId Id)
+        -> std::optional<Composition::CandidateBinding>
+    {
+        return MakeBinding(Composition::CandidateDefinition{Id, "session-http", "http", 0, 0, false});
     }
 
     auto MakeTlsRouteBinding(const Composition::CandidateDefinition &Candidate,
@@ -90,21 +136,15 @@ namespace
         Options.Fallback = Candidate.Fallback;
         auto Tls = Composition::TlsCandidateFactory::Make(
             std::move(Options),
-            [](Preview::SharedTransmission Inbound)
-                -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
-            {
-                Preview::Recognition::CarrierAcceptResult Result;
-                Result.Transport = std::move(Inbound);
-                co_return Result;
-            });
+            MakeCarrierAccept());
         Composition::CandidateBinding Binding;
         Binding.Spec = std::move(Tls.Spec);
         Binding.Accept = std::make_shared<Preview::Testing::StreamFactory>(
-            [](Preview::SharedTransmission Inbound, Preview::Contract::RequestMetadata)
+            [](Preview::Contract::StreamAcceptInput Input)
                 -> Net::awaitable<Preview::Contract::AcceptOutcome>
             {
                 Preview::Contract::ProtocolDataPlane Plane;
-                Plane.Root = Preview::Contract::StreamDataPlane{std::move(Inbound)};
+                Plane.Root = Preview::Contract::StreamDataPlane{std::move(Input.Inbound)};
                 co_return Plane;
             });
         return Binding;
@@ -311,16 +351,8 @@ TEST(ProfileBootstrap, AppliesRoutePatternAlongsideConfiguredServerNames)
     Config.Routes.emplace_back("route.example", Candidate.Id);
 
     Composition::CandidateRegistry Registry;
-    ASSERT_TRUE(Registry.RegisterConfiguredHttp("http", {}));
-    ASSERT_TRUE(Registry.RegisterCarrier(
-        "ws",
-        [](Preview::SharedTransmission Inbound)
-            -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
-        {
-            Preview::Recognition::CarrierAcceptResult Result;
-            Result.Transport = std::move(Inbound);
-            co_return Result;
-        }));
+    ASSERT_TRUE(Registry.RegisterConfigured("http", MakeBinding));
+    ASSERT_TRUE(RegisterTestCarrier(Registry, "ws"));
 
     std::vector<std::string> FactoryServerNames;
     const auto Result = Composition::ProfileBuilder::Build(
@@ -348,7 +380,9 @@ TEST(ProfileBootstrap, AppliesRoutePatternAlongsideConfiguredServerNames)
     ASSERT_EQ(ParseError, Preview::Error::None);
     EXPECT_EQ(Features.ServerName, "route.example");
     ASSERT_TRUE(Features.HasAlpn);
-    Preview::Recognition::ProbeBuffer Buffer(64 * 1024);
+    auto Bytes = std::make_shared<Preview::Memory::BytePool>(
+        Preview::Memory::BytePoolOptions{64U, 2U});
+    Preview::Recognition::ProbeBuffer Buffer(64 * 1024, std::move(Bytes));
     ASSERT_TRUE(Buffer.Seed(std::span<const std::byte>(Record.data(), Record.size())));
 
     EXPECT_EQ(Handle.Inspect(Buffer.Snapshot()), Core::MatchState::Structural);
@@ -416,11 +450,16 @@ TEST(ProfileBootstrap, BuildsAnyTlsProfileThroughCandidateRegistry)
     Composition::CandidateRegistry Registry;
     Preview::Anytls::ServerConfig AnyTlsConfig;
     AnyTlsConfig.Password = "profile-test-password";
-    ASSERT_TRUE(Registry.RegisterConfiguredAnytls(
-        "anytls",
-        Preview::Anytls::IngressOptions{
-            .Configuration = std::move(AnyTlsConfig),
-            .Streams = {.Egress = Preview::Testing::UnavailableEgress()}}));
+    auto AnyTlsOptions = Preview::Anytls::IngressOptions{
+        .Configuration = std::move(AnyTlsConfig),
+        .Streams = {.Egress = Preview::Testing::UnavailableEgress()}};
+    ASSERT_TRUE(Registry.RegisterConfigured("anytls",
+        [AnyTlsOptions = std::move(AnyTlsOptions)](const auto &Candidate)
+            -> std::optional<Composition::CandidateBinding>
+        {
+            return Composition::CandidateFactory::MakeAnytls(
+                MakeCandidateOptions(Candidate), AnyTlsOptions);
+        }));
 
     const auto Result = Composition::ProfileBuilder::Build(Config, Registry.MakeFactory());
 
@@ -477,15 +516,7 @@ TEST(ProfileBootstrap, PreservesConfiguredOuterSchemeMetadata)
 
     Composition::CandidateRegistry Registry;
     ASSERT_TRUE(Registry.Register("http", MakeBinding));
-    ASSERT_TRUE(Registry.RegisterCarrier(
-        "native",
-        [](Preview::SharedTransmission Inbound)
-            -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
-        {
-            Preview::Recognition::CarrierAcceptResult Result;
-            Result.Transport = std::move(Inbound);
-            co_return Result;
-        }));
+    ASSERT_TRUE(RegisterTestCarrier(Registry, "native"));
 
     const auto Result = Composition::ProfileBuilder::Build(Config, Registry.MakeFactory());
 
@@ -517,17 +548,8 @@ TEST(ProfileBootstrap, DoesNotMergeDifferentOuterMetadata)
     Config.Candidates.push_back(Second);
 
     Composition::CandidateRegistry Registry;
-    ASSERT_TRUE(Registry.RegisterConfiguredHttp("http", {}));
-    ASSERT_TRUE(Registry.RegisterCarrier(
-        "shared-ws",
-        "ws",
-        [](Preview::SharedTransmission Inbound)
-            -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
-        {
-            Preview::Recognition::CarrierAcceptResult Result;
-            Result.Transport = std::move(Inbound);
-            co_return Result;
-        }));
+    ASSERT_TRUE(Registry.RegisterConfigured("http", MakeBinding));
+    ASSERT_TRUE(RegisterTestCarrier(Registry, "ws", "shared-ws"));
 
     const auto Result = Composition::ProfileBuilder::Build(Config, Registry.MakeFactory());
 
@@ -579,7 +601,9 @@ TEST(ProfileBootstrap, RejectsMismatchedCarrierScheme)
 
 TEST(ProfileBootstrap, BuildsProfileIntoOwnedSessionServices)
 {
-    auto Built = Composition::ProfileBuilder::Build(Composition::CandidateFactory::MakeHttp(Preview::Composition::Recognition::CandidateOptions{4}));
+    auto Binding = MakeHttpCandidateBinding(4);
+    ASSERT_TRUE(Binding);
+    auto Built = Composition::ProfileBuilder::Build(std::move(*Binding));
     ASSERT_TRUE(Built);
     auto Services = std::make_shared<Preview::Runtime::SessionServices>();
     Services->Profile = Built->Profile;
@@ -614,7 +638,9 @@ TEST(ProfileBootstrap, RejectsUnsupportedProtocolBeforeFactoryInvocation)
 
 TEST(ProfileBootstrap, ListenerFactoryKeepsRecognitionOwner)
 {
-    auto Built = Composition::ProfileBuilder::Build(Composition::CandidateFactory::MakeHttp(Preview::Composition::Recognition::CandidateOptions{6}));
+    auto Binding = MakeHttpCandidateBinding(6);
+    ASSERT_TRUE(Binding);
+    auto Built = Composition::ProfileBuilder::Build(std::move(*Binding));
     ASSERT_TRUE(Built);
     auto Services = std::make_shared<Preview::Runtime::SessionServices>();
     Services->Profile = Built->Profile;

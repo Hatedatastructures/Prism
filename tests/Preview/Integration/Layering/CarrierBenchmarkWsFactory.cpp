@@ -3,7 +3,7 @@
  * @brief Layering 基准 WebSocket 客户端与服务端工厂绑定实现。
  */
 #include "CarrierBenchmarkWsFactory.hpp"
-#include "../../protocols/Ws/WsFactorySupport.hpp"
+#include "../../Protocols/Ws/WsFactorySupport.hpp"
 
 #include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Protocols/Ws/Ws.hpp>

@@ -15,8 +15,9 @@ namespace Preview::Contract
     /**
      * @brief 协议会话拥有控制流与私有数据报 socket，并负责最终关闭。
      * @details 所有操作在创建会话的 executor 执行；Run 只允许一次，完成表示
-     *          所有子操作已退栈。Cancel 取消解析和 I/O；Close 幂等关闭资源。
-     *          数据报无半关闭。调用方持有 owner 直到 Run 完成。
+     *          所有子操作已退栈。Cancel 明确取消解析和 I/O，Run 保留 Canceled；
+     *          Close 幂等结束会话，也可取消底层等待以唤醒 I/O，但不能仅因此把 Run
+     *          记为显式取消。数据报无半关闭。调用方持有 owner 直到 Run 完成。
      */
     class DatagramSession
     {

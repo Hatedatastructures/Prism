@@ -196,26 +196,36 @@ namespace
             Peers.Server->Close();
             co_return;
         }
-        const auto [ClientStream, ServerStream] = co_await (
-            Peers.Client->OpenBidirectionalStream() && Peers.Server->AcceptBidirectionalStream());
-        EXPECT_TRUE(ClientStream);
-        EXPECT_TRUE(ServerStream);
-        if (!ClientStream || !ServerStream)
+        auto OpenedClientStream = co_await Peers.Client->OpenBidirectionalStream();
+        EXPECT_TRUE(OpenedClientStream);
+        if (!OpenedClientStream)
         {
             Peers.Client->Close();
             Peers.Server->Close();
             co_return;
         }
+        auto ClientStream = std::move(*OpenedClientStream);
+        const std::array<std::byte, 1> Announcement{std::byte{0x5A}};
+        std::error_code WriteError;
+        EXPECT_EQ(co_await ClientStream->Write(Announcement, WriteError), Announcement.size());
+        EXPECT_FALSE(WriteError);
+        auto AcceptedServerStream = co_await Peers.Server->AcceptBidirectionalStream();
+        EXPECT_TRUE(AcceptedServerStream);
+        if (!AcceptedServerStream)
+        {
+            Peers.Client->Close();
+            Peers.Server->Close();
+            co_return;
+        }
+        auto ServerStream = std::move(*AcceptedServerStream);
         std::array<std::byte, 1> Buffer{};
         std::error_code ReadError;
-        auto Reset = [ClientStream]() -> Net::awaitable<bool>
-        {
-            ClientStream->Close();
-            co_return true;
-        };
-        const auto [ReadCount, ResetSent] = co_await (
-            ServerStream->Read(Buffer, ReadError) && Reset());
-        EXPECT_TRUE(ResetSent);
+        EXPECT_EQ(co_await ServerStream->Read(Buffer, ReadError), Announcement.size());
+        EXPECT_FALSE(ReadError);
+        EXPECT_EQ(Buffer, Announcement);
+        EXPECT_TRUE(ClientStream->Close());
+        ReadError.clear();
+        const auto ReadCount = co_await ServerStream->Read(Buffer, ReadError);
         EXPECT_EQ(ReadCount, 0U);
         EXPECT_EQ(ReadError, std::make_error_code(std::errc::connection_reset));
         Peers.Client->Close();
@@ -238,16 +248,15 @@ namespace
             Peers.Server->Close();
             co_return;
         }
-        const auto [ClientStream, ServerStream] = co_await (
-            Peers.Client->OpenBidirectionalStream() && Peers.Server->AcceptBidirectionalStream());
-        EXPECT_TRUE(ClientStream);
-        EXPECT_TRUE(ServerStream);
-        if (!ClientStream || !ServerStream)
+        auto OpenedStreams = co_await OpenAndAcceptBidirectionalStreams(Peers.Client, Peers.Server);
+        EXPECT_TRUE(OpenedStreams);
+        if (!OpenedStreams)
         {
             Peers.Client->Close();
             Peers.Server->Close();
             co_return;
         }
+        auto [ClientStream, ServerStream] = std::move(*OpenedStreams);
 
         std::vector<std::byte> Message(128U * 1024U, std::byte{0x5A});
         auto Started = std::make_shared<Net::experimental::channel<void(boost::system::error_code)>>(
@@ -284,17 +293,15 @@ namespace
             co_return;
         }
 
-        const auto [ClientStream, ServerStream] = co_await (
-            Peers.Client->OpenBidirectionalStream() &&
-            Peers.Server->AcceptBidirectionalStream());
-        EXPECT_TRUE(ClientStream);
-        EXPECT_TRUE(ServerStream);
-        if (!ClientStream || !ServerStream)
+        auto OpenedStreams = co_await OpenAndAcceptBidirectionalStreams(Peers.Client, Peers.Server);
+        EXPECT_TRUE(OpenedStreams);
+        if (!OpenedStreams)
         {
             Peers.Client->Close();
             Peers.Server->Close();
             co_return;
         }
+        auto [ClientStream, ServerStream] = std::move(*OpenedStreams);
         const auto ClientAdapter = std::make_shared<Preview::Quic::StreamAdapter>(
             ClientStream->Executor(), ClientStream);
         const auto ClientActivity = ClientAdapter->Activity();
@@ -316,12 +323,22 @@ namespace
             Peers.Server->Close();
             co_return;
         }
+        const auto ServerClose = ServerStream->Close();
+        EXPECT_TRUE(ServerClose);
+        if (!ServerClose)
+        {
+            Peers.Client->Close();
+            Peers.Server->Close();
+            co_return;
+        }
         const auto [ClientDrain, ServerDrain] = co_await (
             ClientActivity->Drain() && ServerActivity->Drain());
         EXPECT_TRUE(ClientDrain);
         EXPECT_TRUE(ServerDrain);
         EXPECT_TRUE(ClientActivity->IsRetired());
         EXPECT_TRUE(ServerActivity->IsRetired());
+        EXPECT_FALSE(Peers.Client->Health().Closed);
+        EXPECT_FALSE(Peers.Server->Health().Closed);
         if (!ClientDrain || !ServerDrain)
         {
             Peers.Client->Close();
@@ -329,17 +346,15 @@ namespace
             co_return;
         }
 
-        const auto [NextClientStream, NextServerStream] = co_await (
-            Peers.Client->OpenBidirectionalStream() &&
-            Peers.Server->AcceptBidirectionalStream());
-        EXPECT_TRUE(NextClientStream);
-        EXPECT_TRUE(NextServerStream);
-        if (!NextClientStream || !NextServerStream)
+        auto OpenedNextStreams = co_await OpenAndAcceptBidirectionalStreams(Peers.Client, Peers.Server);
+        EXPECT_TRUE(OpenedNextStreams);
+        if (!OpenedNextStreams)
         {
             Peers.Client->Close();
             Peers.Server->Close();
             co_return;
         }
+        auto [NextClientStream, NextServerStream] = std::move(*OpenedNextStreams);
         const auto NextClientClose = NextClientStream->Close();
         const auto NextServerClose = NextServerStream->Close();
         EXPECT_TRUE(NextClientClose);
@@ -390,7 +405,10 @@ TEST(NativeQuicLoopback, StreamAdapterPreservesTypedShutdownFailure)
     EXPECT_EQ(Result->error().Code, Failure.Code);
     EXPECT_EQ(Result->error().Native, NativeError);
     EXPECT_FALSE(Provider->IsClosed());
+    Ioc.restart();
     EXPECT_TRUE(Adapter->Close());
+    EXPECT_GT(Ioc.run(), 0U);
+    EXPECT_TRUE(Provider->IsClosed());
 }
 
 TEST(NativeQuicLoopback, DatagramCancelPinsConnectionUntilQueuedOwnerUnwinds)
@@ -547,8 +565,8 @@ TEST(NativeQuicLoopback, BareAcceptedStreamRetainsChannelExecutorAfterNativeRele
         EXPECT_TRUE(Survivor->IsClosed());
         ASSERT_GT(Context.use_count(), 1);
 
-        const auto ExpectedFailure = Preview::Fault::FromNative(
-            Preview::Quic::Detail::ToStdError(Preview::Error::BrokenPipe));
+        const Preview::Fault::Failure ExpectedFailure{
+            Preview::Fault::Code::Canceled};
         Survivor->Close();
         const auto FirstShutdown = RunShutdownWrite(Survivor, Context->Io);
         ASSERT_TRUE(FirstShutdown.Result.has_value());

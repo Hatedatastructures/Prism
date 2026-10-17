@@ -153,9 +153,15 @@ namespace Preview::Socks5
                 const auto Failure = Admission.error();
                 if (Failure.Code == Preview::Fault::Code::InvalidArgument)
                     co_return std::unexpected(Failure);
+                const auto CloseWasRequested = Retirement_->IsCloseRequested();
                 RequestRetirement();
                 const auto Drain = co_await Retirement_->RunDrain();
                 if (!Drain) co_return std::unexpected(Drain.error());
+                if (!Retirement_->IsCancelled() && CloseWasRequested &&
+                    Failure.Code == Preview::Fault::Code::Canceled)
+                {
+                    co_return std::expected<void, Preview::Fault::Failure>{};
+                }
                 co_return std::unexpected(
                     Preview::Fault::Failure{Preview::Fault::Code::Canceled});
             }
@@ -169,14 +175,22 @@ namespace Preview::Socks5
             }
             catch (const boost::system::system_error& ErrorValue)
             {
-                (void)Retirement_->RecordException(std::current_exception());
                 Result = Preview::Fault::ToCode(ErrorValue.code());
+                if (Result == Preview::Fault::Code::Canceled)
+                {
+                    RequestCancellationRetirement();
+                }
+                else
+                {
+                    (void)Retirement_->RecordException(std::current_exception());
+                }
             }
             catch (...)
             {
                 (void)Retirement_->RecordException(std::current_exception());
                 Result = Preview::Fault::Code::IoError;
             }
+            const auto CloseWasRequested = Retirement_->IsCloseRequested();
             Reservation.Complete();
             RequestRetirement();
             const auto Drain = co_await Retirement_->RunDrain();
@@ -184,6 +198,8 @@ namespace Preview::Socks5
             if (Retirement_->IsCancelled())
                 co_return std::unexpected(
                     Preview::Fault::Failure{Preview::Fault::Code::Canceled});
+            if (CloseWasRequested && Result == Preview::Fault::Code::Canceled)
+                co_return std::expected<void, Preview::Fault::Failure>{};
             if (Preview::Fault::Failed(Result))
                 co_return std::unexpected(Preview::Fault::Failure{Result});
             co_return std::expected<void, Preview::Fault::Failure>{};
@@ -288,6 +304,22 @@ namespace Preview::Socks5
             }
         }
 
+        auto RequestCancellationRetirement() noexcept -> void
+        {
+            if (!Retirement_->IsCloseRequested()) RequestRetirement(true);
+        }
+
+        [[nodiscard]] auto ObserveNativeError(
+            const boost::system::error_code &ErrorCode) noexcept -> Preview::Fault::Code
+        {
+            const auto Code = Preview::Fault::ToCode(ErrorCode);
+            if (Code == Preview::Fault::Code::Canceled)
+                RequestCancellationRetirement();
+            else
+                Retirement_->RecordNative(ErrorCode);
+            return Code;
+        }
+
     private:
         struct ReceiveOptions
         {
@@ -331,7 +363,8 @@ namespace Preview::Socks5
                 const auto Size = co_await RecvGuarded(Receive);
                 if (ErrorCode)
                 {
-                    Retirement_->RecordNative(ErrorCode);
+                    const auto Code = ObserveNativeError(ErrorCode);
+                    if (Code == Preview::Fault::Code::Canceled) co_return Code;
                     co_return Preview::Fault::Code::Success;
                 }
                 if (!Size) co_return Preview::Fault::Code::Success;
@@ -366,7 +399,10 @@ namespace Preview::Socks5
                 co_return Preview::Fault::Code::Canceled;
             if (!Target)
             {
-                Retirement_->RecordFailure(Target.error());
+                if (Target.error().Code == Preview::Fault::Code::Canceled)
+                    RequestCancellationRetirement();
+                else
+                    Retirement_->RecordFailure(Target.error());
                 co_return Target.error().Code;
             }
             boost::system::error_code ErrorCode;
@@ -381,7 +417,11 @@ namespace Preview::Socks5
                 const auto Local = Egress.local_endpoint(ErrorCode);
                 if (ErrorCode || Local.protocol() != Target->protocol())
                 {
-                    Retirement_->RecordNative(ErrorCode);
+                    if (ErrorCode &&
+                        ObserveNativeError(ErrorCode) == Preview::Fault::Code::Canceled)
+                    {
+                        co_return Preview::Fault::Code::Canceled;
+                    }
                     const auto Close = Retirement_->CloseEgress();
                     if (Close.Failed()) co_return Close.Code;
                     ErrorCode.clear();
@@ -390,16 +430,14 @@ namespace Preview::Socks5
             }
             if (ErrorCode)
             {
-                Retirement_->RecordNative(ErrorCode);
-                co_return Preview::Fault::ToCode(ErrorCode);
+                co_return ObserveNativeError(ErrorCode);
             }
             const auto Sent = co_await Egress.async_send_to(
                 Net::buffer(Packet.Payload.data(), Packet.Payload.size()), *Target,
                 Net::redirect_error(Net::use_awaitable, ErrorCode));
             if (ErrorCode)
             {
-                Retirement_->RecordNative(ErrorCode);
-                co_return Preview::Fault::ToCode(ErrorCode);
+                co_return ObserveNativeError(ErrorCode);
             }
             if (Retirement_->IsCloseRequested())
                 co_return Preview::Fault::Code::Canceled;
@@ -414,8 +452,7 @@ namespace Preview::Socks5
                     Net::redirect_error(Net::use_awaitable, ErrorCode));
                 if (ErrorCode)
                 {
-                    Retirement_->RecordNative(ErrorCode);
-                    co_return Preview::Fault::ToCode(ErrorCode);
+                    co_return ObserveNativeError(ErrorCode);
                 }
                 if (Source == *Target)
                 {
@@ -431,8 +468,7 @@ namespace Preview::Socks5
                 Net::redirect_error(Net::use_awaitable, ErrorCode));
             if (ErrorCode)
             {
-                Retirement_->RecordNative(ErrorCode);
-                co_return Preview::Fault::ToCode(ErrorCode);
+                co_return ObserveNativeError(ErrorCode);
             }
             RecvBytes_ += Size;
             Observation_.Transfer(
@@ -485,8 +521,12 @@ namespace Preview::Socks5
             }
             std::array<std::byte, 1> Probe{};
             const auto Result = co_await Tcp->ReadSome(std::span(Probe));
-            if (Result.Failure.Native &&
-                Result.Failure.Code != Preview::Fault::Code::Eof)
+            if (Result.Failure.Code == Preview::Fault::Code::Canceled)
+            {
+                RequestCancellationRetirement();
+            }
+            else if (Result.Failure.Native &&
+                     Result.Failure.Code != Preview::Fault::Code::Eof)
                 Retirement_->RecordFailure(Result.Failure);
             co_return;
         }

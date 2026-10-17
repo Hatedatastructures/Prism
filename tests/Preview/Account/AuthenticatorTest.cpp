@@ -212,10 +212,15 @@ namespace
         Config->Authenticator = Auth;
         auto ServerCoroutine = [Server, State, Config]() -> Net::awaitable<void>
         {
-            auto [ErrorCode, Request, Conn] = co_await Socks5::Accept(Server, *Config);
-            State->ErrorCode = ErrorCode;
-            State->HasConnection = Conn != nullptr;
-            State->ServerConnection = std::move(Conn);
+            const auto Accepted = co_await Socks5::Accept(Server, *Config);
+            if (!Accepted)
+            {
+                State->HandshakeFailure = Accepted.error();
+                co_return;
+            }
+            State->ErrorCode = Error::None;
+            State->HasConnection = Accepted->Connection != nullptr;
+            State->ServerConnection = std::move(Accepted->Connection);
         };
         StartServer(Server->Executor(), ServerCoroutine(), State);
 
@@ -223,20 +228,21 @@ namespace
         ClientConfigValue.EnableAuth = true;
         ClientConfigValue.Username = "alice";
         ClientConfigValue.Password = "s3cret";
-        auto [ErrorCode, Conn] = co_await Socks5::Connect(
+        const auto Connected = co_await Socks5::Connect(Socks5::ConnectParameters{
             Client, ClientConfigValue,
-            Socks5::Address{Socks5::AddressType::Domain, "t.internal", 443});
-        EXPECT_EQ(ErrorCode, Error::None);
-        State->ClientConnection = Conn;
-        if (Conn)
+            Socks5::Address{Socks5::AddressType::Domain, "t.internal", 443}});
+        EXPECT_TRUE(Connected);
+        if (Connected)
         {
-            const auto Closed = Conn->Close();
+            State->ClientConnection = *Connected;
+            const auto Closed = (*Connected)->Close();
             RecordCloseResult(State, Closed);
         }
         const auto Completed = co_await WaitForServer({State, Client, Server});
         EXPECT_TRUE(Completed);
         EXPECT_FALSE(State->Failure);
         EXPECT_EQ(State->ErrorCode, Error::None);
+        EXPECT_FALSE(State->HandshakeFailure.has_value());
         EXPECT_TRUE(State->HasConnection);
     }
 
@@ -251,10 +257,15 @@ namespace
         Config->Authenticator = Auth;
         auto ServerCoroutine = [Server, State, Config]() -> Net::awaitable<void>
         {
-            auto [ErrorCode, Request, Conn] = co_await Socks5::Accept(Server, *Config);
-            State->ErrorCode = ErrorCode;
-            State->HasConnection = Conn != nullptr;
-            State->ServerConnection = std::move(Conn);
+            const auto Accepted = co_await Socks5::Accept(Server, *Config);
+            if (!Accepted)
+            {
+                State->HandshakeFailure = Accepted.error();
+                co_return;
+            }
+            State->ErrorCode = Error::None;
+            State->HasConnection = Accepted->Connection != nullptr;
+            State->ServerConnection = std::move(Accepted->Connection);
         };
         StartServer(Server->Executor(), ServerCoroutine(), State);
 
@@ -262,15 +273,24 @@ namespace
         ClientConfigValue.EnableAuth = true;
         ClientConfigValue.Username = "alice";
         ClientConfigValue.Password = "s3cret";
-        auto [ErrorCode, Conn] = co_await Socks5::Connect(
+        const auto Connected = co_await Socks5::Connect(Socks5::ConnectParameters{
             Client, ClientConfigValue,
-            Socks5::Address{Socks5::AddressType::Domain, "t.internal", 443});
-        EXPECT_NE(ErrorCode, Error::None);
-        State->ClientConnection = Conn;
+            Socks5::Address{Socks5::AddressType::Domain, "t.internal", 443}});
+        EXPECT_FALSE(Connected);
+        if (Connected)
+        {
+            State->ClientConnection = *Connected;
+            const auto Closed = (*Connected)->Close();
+            RecordCloseResult(State, Closed);
+        }
         const auto Completed = co_await WaitForServer({State, Client, Server});
         EXPECT_TRUE(Completed);
         EXPECT_FALSE(State->Failure);
-        EXPECT_EQ(State->ErrorCode, Error::BadAuth);
+        EXPECT_TRUE(State->HandshakeFailure.has_value());
+        if (State->HandshakeFailure)
+        {
+            EXPECT_EQ(State->HandshakeFailure->Code, Preview::Fault::Code::AuthFailed);
+        }
         EXPECT_FALSE(State->HasConnection);
     }
 
@@ -453,6 +473,11 @@ namespace
         ASSERT_TRUE(Result.has_value());
         EXPECT_TRUE(*Result);
         Result->Release();
+        auto Identityless = Auth.Authenticate(Preview::AuthenticationRequest{
+            .Credential = CredentialView::Password("pass")});
+        ASSERT_TRUE(Identityless.has_value());
+        EXPECT_EQ(Identityless->Identity(), "user");
+        Identityless->Release();
         EXPECT_FALSE(Auth.Authenticate(Preview::AuthenticationRequest{
             .Identity = "other", .Credential = CredentialView::Password("pass")}).has_value());
 
@@ -460,6 +485,44 @@ namespace
         EXPECT_FALSE(InspectMatch(Reject, CredentialView::Password("pass")));
         EXPECT_FALSE(Reject.Authenticate(Preview::AuthenticationRequest{
             .Credential = CredentialView::Password("pass")}).has_value());
+    }
+
+    TEST(Authenticator, IdentitylessRequestRejectsAmbiguousCredential)
+    {
+        using Preview::Account::AccountDefinition;
+        using Preview::Account::AccountMaterials;
+        using Preview::Account::AccountStore;
+        using Preview::Account::Credential;
+        using Preview::Account::CredentialMaterial;
+        using Preview::Account::CredentialView;
+        using Preview::AccountId;
+
+        std::vector<CredentialMaterial> Credentials;
+        Credentials.push_back({Preview::Testing::ProviderScope, "user-a",
+            Credential::Password("shared-password")});
+        Credentials.push_back({Preview::Testing::ProviderScope, "user-b",
+            Credential::Password("shared-password")});
+        auto Materials = std::make_shared<const AccountMaterials>(
+            AccountMaterials::CreateRequest{
+                AccountId{7030}, {}, std::move(Credentials)});
+        const AccountDefinition Definition{std::move(Materials), {}};
+        auto Directory = std::make_shared<AccountStore>();
+        ASSERT_TRUE(Publish(*Directory, Definition));
+        Preview::DirectoryAuthenticator Auth(CompileView(*Directory));
+        const auto SharedCredential = Credential::Password("shared-password");
+
+        EXPECT_FALSE(Auth.Authenticate(Preview::AuthenticationRequest{
+            .Credential = SharedCredential.View()}).has_value());
+        auto FirstIdentity = Auth.Authenticate(Preview::AuthenticationRequest{
+            .Identity = "user-a", .Credential = SharedCredential.View()});
+        ASSERT_TRUE(FirstIdentity.has_value());
+        EXPECT_EQ(FirstIdentity->Identity(), "user-a");
+        FirstIdentity->Release();
+        auto SecondIdentity = Auth.Authenticate(Preview::AuthenticationRequest{
+            .Identity = "user-b", .Credential = SharedCredential.View()});
+        ASSERT_TRUE(SecondIdentity.has_value());
+        EXPECT_EQ(SecondIdentity->Identity(), "user-b");
+        SecondIdentity->Release();
     }
 
     TEST(Authenticator, DirectoryRequestReturnsTypedLease)

@@ -1,14 +1,15 @@
 /** @file Quota.hpp
- * @brief 不可变账户额度政策；零表示该业务限制不启用。
+ * @brief 并发使用可选上限；字节字段仍表示可归还的内存预约量。
  */
 #pragma once
 #include <cstdint>
+#include <optional>
 namespace Preview::Account
 {
     struct QuotaPolicy final
     {
-        std::uint32_t MaxConnections{0U};
-        std::uint32_t MaxStreams{0U};
+        std::optional<std::uint32_t> MaxConnections;
+        std::optional<std::uint32_t> MaxStreams;
         std::uint64_t MaxBytes{0U};
     };
 }

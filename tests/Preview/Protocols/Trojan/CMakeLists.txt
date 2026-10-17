@@ -33,5 +33,5 @@ target_link_libraries(CanonicalDatagramWorkspaceTest PRIVATE PreviewIngressContr
 
 # 同一 owner 的正式职责头与行为场景，复用既有 target。
 target_sources(TrojanConnSession PRIVATE
-    ../../protocols/trojan/TrojanConnIoContractTest.cpp
+    ../../Protocols/Trojan/TrojanConnIoContractTest.cpp
 )

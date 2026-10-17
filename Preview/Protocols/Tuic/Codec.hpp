@@ -302,6 +302,8 @@ namespace Preview::Tuic
                 {
                     return Error::BadMessage;
                 }
+                Output.dst = Address{};
+                Output.dst.Type = AddressType::None;
                 ++Off;
             }
             else

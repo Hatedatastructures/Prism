@@ -292,6 +292,11 @@ namespace Preview::Application::BoundaryStartup
         Probe.open(Endpoint.protocol(), Error);
         if (!Error)
         {
+            // 与真实 listener 保持相同选项；预检不能替代后续 listener 的实际 bind。
+            Probe.set_option(Net::ip::tcp::acceptor::reuse_address(true), Error);
+        }
+        if (!Error)
+        {
             Probe.bind(Endpoint, Error);
         }
         if (!Error)

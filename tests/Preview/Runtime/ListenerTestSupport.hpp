@@ -11,6 +11,7 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -23,7 +24,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <exception>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -32,6 +36,7 @@
 #include <vector>
 
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Net/Dialer/Dialer.hpp>
 #include <Preview/Runtime/Listener.hpp>
 #include <Preview/Runtime/SessionAdmissionTestSupport.hpp>
@@ -41,11 +46,137 @@
 #include <Preview/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
+#include <utility>
+
 namespace
 {
 
     namespace Net = boost::asio;
     using Tcp = Net::ip::tcp;
+    using ListenerTestEvents =
+        Net::experimental::concurrent_channel<void(boost::system::error_code)>;
+
+    struct ListenerOperationCompletion final
+    {
+        explicit ListenerOperationCompletion(Net::any_io_executor Executor)
+            : Completed(std::move(Executor), 1)
+        {
+        }
+
+        ListenerTestEvents Completed;
+        std::optional<std::expected<void, Preview::Fault::Failure>> Result;
+    };
+
+    struct ListenerOperationOutcome final
+    {
+        bool TimedOut{false};
+        std::expected<void, Preview::Fault::Failure> Result;
+    };
+
+    struct ListenerTransmissionCloseAttempt final
+    {
+        Preview::Transmission::ControlResult Request;
+        std::shared_ptr<ListenerOperationCompletion> Completion;
+    };
+
+    /** @brief 将 channel 的异步接收转换成可用于测试 deadline race 的有值结果。 */
+    auto ReceiveListenerTestEvent(ListenerTestEvents &Events) -> Net::awaitable<bool>
+    {
+        boost::system::error_code Error;
+        co_await Events.async_receive(Net::redirect_error(Net::use_awaitable, Error));
+        co_return !Error;
+    }
+
+    /** @brief 将 timer 完成转换成有值结果，使两侧 watchdog race 保持 typed。 */
+    auto ExpireListenerTestWatchdog(Net::steady_timer &Watchdog) -> Net::awaitable<bool>
+    {
+        co_await Watchdog.async_wait(Net::use_awaitable);
+        co_return true;
+    }
+
+    /** @brief 在独立协程中运行关闭或 drain，保留真实结果到完成事件。 */
+    [[nodiscard]] auto StartListenerOperation(
+        Net::io_context &IoContext,
+        Net::awaitable<std::expected<void, Preview::Fault::Failure>> Operation)
+        -> std::shared_ptr<ListenerOperationCompletion>
+    {
+        const auto Completion = std::make_shared<ListenerOperationCompletion>(
+            IoContext.get_executor());
+        Net::co_spawn(IoContext.get_executor(), std::move(Operation),
+            [Completion](std::exception_ptr Exception,
+                         std::expected<void, Preview::Fault::Failure> Result)
+            {
+                if (Exception)
+                {
+                    Completion->Result.emplace(std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::GenericError}));
+                }
+                else
+                {
+                    Completion->Result.emplace(std::move(Result));
+                }
+                (void)Completion->Completed.try_send(boost::system::error_code{});
+            });
+        return Completion;
+    }
+
+    /** @brief 有界观察 listener 测试中的独立关闭／回执操作。 */
+    auto WaitForListenerOperationGuarded(
+        Net::io_context &IoContext,
+        const std::shared_ptr<ListenerOperationCompletion> &Completion,
+        std::chrono::steady_clock::duration Timeout)
+        -> Net::awaitable<ListenerOperationOutcome>
+    {
+        if (Completion->Result)
+        {
+            co_return ListenerOperationOutcome{false, *Completion->Result};
+        }
+        using Net::experimental::awaitable_operators::operator||;
+        Net::steady_timer Watchdog(IoContext);
+        Watchdog.expires_after(Timeout);
+        const auto Wait = co_await (
+            ReceiveListenerTestEvent(Completion->Completed) ||
+            ExpireListenerTestWatchdog(Watchdog));
+        if (Wait.index() != 0U || !std::get<0>(Wait))
+        {
+            co_return ListenerOperationOutcome{
+                true, std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Timeout})};
+        }
+        co_return ListenerOperationOutcome{false, *Completion->Result};
+    }
+
+    /** @brief 请求传输关闭并立即开始等待其独立物理关闭回执。 */
+    [[nodiscard]] auto StartListenerTransmissionClose(
+        Net::io_context &IoContext,
+        const Preview::SharedTransmission &Client) -> ListenerTransmissionCloseAttempt
+    {
+        if (!Client)
+        {
+            return {std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument}),
+                    {}};
+        }
+        auto Request = Client->Close();
+        auto Activity = Client->Activity();
+        return {std::move(Request), StartListenerOperation(IoContext, Activity->Drain())};
+    }
+
+    /** @brief 有界等待传输关闭命令及其载体回执都完成。 */
+    auto WaitForListenerTransmissionCloseGuarded(
+        Net::io_context &IoContext,
+        const ListenerTransmissionCloseAttempt &Attempt,
+        std::chrono::steady_clock::duration Timeout)
+        -> Net::awaitable<bool>
+    {
+        if (!Attempt.Completion)
+        {
+            co_return false;
+        }
+        const auto Outcome = co_await WaitForListenerOperationGuarded(
+            IoContext, Attempt.Completion, Timeout);
+        co_return static_cast<bool>(Attempt.Request) &&
+            !Outcome.TimedOut && static_cast<bool>(Outcome.Result);
+    }
 
     // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::TcpEchoServer;

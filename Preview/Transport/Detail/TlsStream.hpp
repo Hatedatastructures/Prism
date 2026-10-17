@@ -39,7 +39,8 @@ namespace Preview::Transport::Detail
         using executor_type = Net::any_io_executor;
         using lowest_layer_type = Preview::Transmission;
         TlsStream(Connector Next, Net::ssl::context& Context)
-            : Next_(std::move(Next)), Executor_(Net::make_strand(Next_.get_executor())), Core_(Context.native_handle(), Executor_), Activity_(std::make_shared<IoActivity>(Executor_)) {}
+            : Next_(std::move(Next)), Executor_(Net::make_strand(Next_.get_executor())), Core_(Context.native_handle(), Executor_),
+              Activity_(std::make_shared<IoActivity>(Executor_, IoActivity::RetirementPolicy::OperationsDrained)) {}
         [[nodiscard]] auto Activity() const noexcept -> std::shared_ptr<Preview::Contract::CarrierActivity> { return Activity_; }
         [[nodiscard]] auto IsIdle() const noexcept -> bool { return Activity_->IsIdle(); }
         [[nodiscard]] auto get_executor() const noexcept -> executor_type { return Executor_; }

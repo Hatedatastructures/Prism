@@ -27,6 +27,7 @@
 #include <Preview/Transport/PadPolicy.hpp>
 #include <Preview/Foundation/Memory/BytePool.hpp>
 #include <Preview/Foundation/Utility/TrafficSink.hpp>
+#include <Preview/Net/Relay/FirstTransferObserver.hpp>
 
 namespace Preview::Runtime
 {
@@ -65,6 +66,8 @@ namespace Preview::Middleware
 
         /// 流量统计 owner；relay 与 detached 数据面只消费这一份 shared sink。
         std::shared_ptr<Preview::Foundation::TrafficSink> Traffic{};
+        /// Session 生命周期轨迹观察者；Net relay 每方向首次写出有效数据时最多通知一次。
+        std::shared_ptr<Preview::Network::Relay::FirstTransferObserver> FirstTransfer{};
         /// 真正worker块池，装饰器只共享现有容量，不创建会话局部最大池。
         std::shared_ptr<Preview::Memory::BytePool> Bytes{};
         /// 当前 Session 的 worker-owned 出站拨号函数；mux 子流必须继承该 owner。

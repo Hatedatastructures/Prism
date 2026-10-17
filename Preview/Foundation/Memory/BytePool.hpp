@@ -5,6 +5,7 @@
 #pragma once
 
 #include <Preview/Foundation/Memory/BytePoolOptions.hpp>
+#include <Preview/Foundation/Memory/BytePoolMetrics.hpp>
 #include <Preview/Foundation/Memory/OwnedBytes.hpp>
 
 #include <cstddef>
@@ -87,6 +88,12 @@ namespace Preview::Memory
         [[nodiscard]] auto BlockSize() const noexcept -> std::size_t
         {
             return State_->BlockSize();
+        }
+
+        /** @brief 在冷快照边界返回容量、使用量、可用量及租约计数的独立值快照。 */
+        [[nodiscard]] auto Snapshot() const noexcept -> BytePoolMetrics
+        {
+            return State_->Metrics();
         }
 
     private:

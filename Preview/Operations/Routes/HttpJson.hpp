@@ -13,6 +13,7 @@
 #include <Preview/Operations/Routes/MetricsJson.hpp>
 #include <Preview/Operations/Routes/StreamJson.hpp>
 #include <Preview/Operations/Routes/ConfigurationResultJson.hpp>
+#include <Preview/Operations/Routes/ManagementJson.hpp>
 
 #include <algorithm>
 #include <array>
@@ -192,7 +193,7 @@ namespace Preview::Operations::HttpDetail
     [[nodiscard]] inline auto AppendHealthFields(JsonWriter &Writer, const HealthSnapshot &Value) -> bool
     {
         return Writer.Append("{") && Writer.Key("status") && Writer.String(HealthStatusName(Value.Status)) &&
-               Writer.Append(",") && Writer.Key("checked_at") && Writer.Decimal(Value.CheckedAt) &&
+               Writer.Append(",") && Writer.Key("checked_at") && AppendUtcTimestamp(Writer, Value.CheckedAt) &&
                Writer.Append(",") && Writer.Key("active") && Writer.Decimal(Value.Active) &&
                Writer.Append(",") && Writer.Key("errors") && Writer.Decimal(Value.Errors) &&
                Writer.Append(",") && Writer.Key("ready") && Writer.Boolean(Value.Ready) &&
@@ -226,7 +227,7 @@ namespace Preview::Operations::HttpDetail
     [[nodiscard]] inline auto AppendGeneration(JsonWriter &Writer, const GenerationSnapshot &Value) -> bool
     {
         return Writer.Append("{") && Writer.Key("id") && AppendId(Writer, Value.Id) &&
-               Writer.Append(",") && Writer.Key("created_at") && Writer.Decimal(Value.CreatedAt) &&
+               Writer.Append(",") && Writer.Key("created_at") && AppendUtcTimestamp(Writer, Value.CreatedAt) &&
                Writer.Append(",") && Writer.Key("active") && Writer.Boolean(Value.Active) &&
                Writer.Append(",") && Writer.Key("retiring") && Writer.Boolean(Value.Retiring) &&
                Writer.Append(",") && Writer.Key("health") && AppendHealth(Writer, Value.Health) &&
@@ -252,18 +253,39 @@ namespace Preview::Operations::HttpDetail
                Writer.Append(",") && Writer.Key("accepting") && Writer.Boolean(Value.Accepting) &&
                Writer.Append(",") && Writer.Key("active_tasks") && Writer.Decimal(Value.ActiveTasks) &&
                Writer.Append(",") && Writer.Key("dropped_events") && Writer.Decimal(Value.DroppedEvents) &&
+               Writer.Append(",") && Writer.Key("queue") && Writer.Append("{") &&
+               Writer.Key("depth") && Writer.Decimal(Value.MailboxDepth) && Writer.Append(",") &&
+               Writer.Key("capacity") && Writer.Decimal(Value.MailboxCapacity) && Writer.Append("}") &&
+               Writer.Append(",") && Writer.Key("tasks") && Writer.Append("{") &&
+               Writer.Key("started") && Writer.Decimal(Value.StartedTasks) && Writer.Append(",") &&
+               Writer.Key("completed") && Writer.Decimal(Value.CompletedTasks) && Writer.Append(",") &&
+               Writer.Key("cancelled") && Writer.Decimal(Value.CancelledTasks) && Writer.Append("}") &&
+               Writer.Append(",") && Writer.Key("dispatch") && Writer.Append("{") &&
+               Writer.Key("accepted") && Writer.Decimal(Value.DispatchAccepted) && Writer.Append(",") &&
+               Writer.Key("full") && Writer.Decimal(Value.DispatchFull) && Writer.Append(",") &&
+               Writer.Key("closed") && Writer.Decimal(Value.DispatchClosed) && Writer.Append(",") &&
+               Writer.Key("unavailable") && Writer.Decimal(Value.DispatchUnavailable) && Writer.Append(",") &&
+               Writer.Key("generation_rejected") && Writer.Decimal(Value.DispatchGenerationRejected) &&
+               Writer.Append("}") && Writer.Append(",") && Writer.Key("commands") && Writer.Append("{") &&
+               Writer.Key("executed") && Writer.Decimal(Value.CommandsExecuted) && Writer.Append(",") &&
+               Writer.Key("failed") && Writer.Decimal(Value.CommandsFailed) && Writer.Append("}") &&
                Writer.Append("}");
     }
 
     [[nodiscard]] inline auto AppendAccount(JsonWriter &Writer, const AccountSnapshot &Value) -> bool
     {
-        return Writer.Append("{") && Writer.Key("id") && AppendId(Writer, Value.Id) &&
-               Writer.Append(",") && Writer.Key("generation") && AppendId(Writer, Value.Generation) &&
-               Writer.Append(",") && Writer.Key("traffic") && AppendOptionalTraffic(Writer, Value.Traffic) &&
-               Writer.Append(",") && Writer.Key("active_sessions") &&
-               Writer.Decimal(Value.ActiveSessions) && Writer.Append(",") && Writer.Key("label") &&
-               Writer.String(Value.Label) && Writer.Append(",") && Writer.Key("revoked") &&
-               Writer.Boolean(Value.Revoked) && Writer.Append("}");
+        if (!Writer.Append("{") || !Writer.Key("id") || !AppendId(Writer, Value.Id) ||
+            !Writer.Append(",") || !Writer.Key("generation") || !AppendId(Writer, Value.Generation) ||
+            !Writer.Append(",") || !Writer.Key("traffic") || !AppendOptionalTraffic(Writer, Value.Traffic) ||
+            !Writer.Append(",") || !Writer.Key("active_sessions") ||
+            !Writer.Decimal(Value.ActiveSessions) || !Writer.Append(",") || !Writer.Key("label") ||
+            !Writer.String(Value.Label) || !Writer.Append(",") || !Writer.Key("revoked") ||
+            !Writer.Boolean(Value.Revoked))
+        {
+            return false;
+        }
+        return (!Value.GroupId || (Writer.Append(",") && Writer.Key("group_id") && Writer.String(*Value.GroupId))) &&
+               Writer.Append("}");
     }
 
     [[nodiscard]] inline auto AppendSession(JsonWriter &Writer, const SessionSnapshot &Value) -> bool
@@ -274,7 +296,10 @@ namespace Preview::Operations::HttpDetail
                Writer.Append(",") && Writer.Key("account") && AppendId(Writer, Value.Account) &&
                Writer.Append(",") && Writer.Key("generation") && AppendId(Writer, Value.Generation) &&
                Writer.Append(",") && Writer.Key("traffic") && AppendOptionalTraffic(Writer, Value.Traffic) &&
-               Writer.Append(",") && Writer.Key("started_at") && Writer.Decimal(Value.StartedAt) &&
+               Writer.Append(",") && Writer.Key("started_at") && AppendUtcTimestamp(Writer, Value.StartedAt) &&
+               Writer.Append(",") && Writer.Key("transport") && Writer.String(Value.Transport) &&
+               Writer.Append(",") && Writer.Key("identity") && Writer.String(Value.Identity) &&
+               Writer.Append(",") && Writer.Key("source_address") && Writer.String(Value.SourceAddress) &&
                Writer.Append(",") && Writer.Key("protocol") && Writer.String(Value.Protocol) &&
                Writer.Append(",") && Writer.Key("target") && Writer.String(Value.Target) &&
                Writer.Append(",") && Writer.Key("active") && Writer.Boolean(Value.Active) &&
@@ -315,8 +340,8 @@ namespace Preview::Operations::HttpDetail
             !Writer.Append(",") || !Writer.Key("parent_task") || !AppendId(Writer, Value.ParentTask) ||
             !Writer.Append(",") || !Writer.Key("status") ||
             !Writer.String(TaskStatusName(Value.Status)) || !Writer.Append(",") ||
-            !Writer.Key("started_at") || !Writer.Decimal(Value.StartedAt) ||
-            !Writer.Append(",") || !Writer.Key("completed_at") || !Writer.Decimal(Value.CompletedAt) ||
+            !Writer.Key("started_at") || !AppendOptionalUtcTimestamp(Writer, Value.StartedAt) ||
+            !Writer.Append(",") || !Writer.Key("completed_at") || !AppendOptionalUtcTimestamp(Writer, Value.CompletedAt) ||
             !Writer.Append(",") || !Writer.Key("cancel_requested") ||
             !Writer.Boolean(Value.CancelRequested) || !Writer.Append(",") ||
             !Writer.Key("cancellable") || !Writer.Boolean(Value.Cancellable) || !Writer.Append(",") ||
@@ -389,6 +414,8 @@ namespace Preview::Operations::HttpDetail
             return AppendPage(Writer, Payload, AppendStream);
         else if constexpr (std::is_same_v<PayloadType, Page<TaskSnapshot>>)
             return AppendPage(Writer, Payload, AppendTask);
+        else if constexpr (std::is_same_v<PayloadType, ManagementPayload>)
+            return AppendManagementPayload(Writer, Payload);
         else return AppendEventPage(Writer, Payload, IncludeDetails);
     }
 

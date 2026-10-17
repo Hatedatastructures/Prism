@@ -83,8 +83,7 @@ namespace
         auto Input = MakeStreamAcceptInput(std::move(Carrier), std::move(Metadata));
         auto Accepted = co_await State->Factory->Accept(std::move(Input));
         if (!Accepted)
-            co_return std::unexpected(Preview::Fault::Failure{
-                Preview::Fault::ToCode(Preview::make_error_code(Accepted.error()))});
+            co_return std::unexpected(Accepted.error());
         State->Inbound = Accepted->Transport();
         State->Account = Accepted->AccountId;
         State->ConnectionsDuringRun = State->Record->Runtime()->ActiveConnections();
@@ -125,7 +124,7 @@ namespace
             ClientConfig.uuid = Config.uuid;
             auto ConnectResult = co_await Preview::Vless::Connect(Preview::Vless::ConnectParameters{
                 Client, ClientConfig,
-                {Preview::Vless::AddressType::Ipv4, "127.0.0.1", 0}, Preview::Vless::Command::Udp});
+                {Preview::Vless::AddressType::Domain, "x", 53}, Preview::Vless::Command::Udp});
             EXPECT_TRUE(ConnectResult);
             if (ConnectResult) EXPECT_TRUE(*ConnectResult);
             if (!ConnectResult || !*ConnectResult)
@@ -138,22 +137,28 @@ namespace
                 co_return;
             }
             auto Connection = std::move(*ConnectResult);
-            const std::array<std::uint8_t, 11> Wire{0, 9, 2, 1, 'x', 0, 53, 'a', 'c', 'c', 't'};
-            std::error_code StreamError;
-            co_await Connection->AsyncWrite(std::as_bytes(std::span(Wire)), StreamError);
+            const std::array<std::uint8_t, 6> Wire{0, 4, 'a', 'c', 'c', 't'};
+            const auto WriteResult = co_await Connection->WriteExact(std::as_bytes(std::span(Wire)));
+            EXPECT_FALSE(WriteResult.Failure.Failed());
+            EXPECT_EQ(WriteResult.Bytes, Wire.size());
+            const auto HalfClose = co_await Connection->WriteShutdown();
+            EXPECT_TRUE(HalfClose);
             std::array<std::uint8_t, 32> Response{};
-            EXPECT_EQ(co_await Connection->AsyncRead(std::as_writable_bytes(std::span(Response)).first(13), StreamError), 13U);
-            EXPECT_EQ(std::string(Response.begin() + 9, Response.begin() + 13), "acct");
+            const auto ReadFailed = co_await Connection->ReadExact(std::span(Response).first(6));
+            EXPECT_FALSE(ReadFailed);
+            EXPECT_EQ(std::string(Response.begin() + 2, Response.begin() + 6), "acct");
             const auto Result = co_await State->Completion->async_receive(Net::use_awaitable);
             EXPECT_EQ(Result.Code, Preview::Fault::Code::Success);
 
-            EXPECT_FALSE(State->Inbound->NextLayer()->IsOpen());
             State->Owner->Close();
-            State->Owner->Close();
+            const auto OwnerRetired = co_await State->Owner->Activity()->Drain();
+            EXPECT_TRUE(OwnerRetired)
+                << (OwnerRetired ? 0 : static_cast<int>(OwnerRetired.error().Code));
             State->Factory->Close();
             const auto Retired = co_await State->Factory->Drain();
-            EXPECT_TRUE(Retired);
+            EXPECT_TRUE(Retired) << (Retired ? 0 : static_cast<int>(Retired.error().Code));
             EXPECT_TRUE(State->Factory->IsRetired());
+            EXPECT_FALSE(State->Inbound->NextLayer()->IsOpen());
             Client->Close();
             Echo->close();
         }
@@ -189,7 +194,7 @@ namespace
             EXPECT_EQ(Sink->Events[CompletedIndex].Up, 0U);
             EXPECT_EQ(Sink->Events[CompletedIndex].Down, 0U);
             EXPECT_EQ(Sink->ObservationFailure, ThrowObservation_);
-            EXPECT_EQ(Environment.Runtime().Shutdown().Status, Preview::Diagnose::SubmissionStatus::Accepted);
+            EXPECT_EQ(Environment.Runtime().Shutdown().Status, Preview::Diagnose::SubmissionStatus::Closed);
             std::ifstream Input(Environment.Configuration().Logging.Directory /
                 Environment.Configuration().Logging.FileName, std::ios::binary);
             const std::string Contents{std::istreambuf_iterator<char>{Input}, std::istreambuf_iterator<char>{}};

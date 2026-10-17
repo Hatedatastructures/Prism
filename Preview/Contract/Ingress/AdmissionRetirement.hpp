@@ -14,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -161,6 +162,7 @@ namespace Preview::Contract
                     PreserveAdmissionFailure(Primary,
                         Preview::Fault::Failure{Preview::Fault::Code::Blocked});
                     Storage_->Retain(shared_from_this());
+                    RequestRetirement();
                     co_return Primary;
                 }
 
@@ -183,24 +185,36 @@ namespace Preview::Contract
                 else
                 {
                     Storage_->Retain(shared_from_this());
-                    RequestRetirement();
+                    if ((RetrySchedule_.load(std::memory_order_acquire) & RetryScheduledFlag) == 0U)
+                    {
+                        RequestRetirement();
+                    }
                 }
                 co_return Primary;
             }
 
             auto RequestRetirement() -> void override
             {
-                if (Retired_.load(std::memory_order_acquire) ||
-                    Scheduled_.exchange(true, std::memory_order_acq_rel))
+                if (Retired_.load(std::memory_order_acquire))
                 {
                     return;
                 }
-                const auto Self = shared_from_this();
-                const auto Posted = Reclaimer_->Post(RetryCommand{Self});
-                if (!Posted)
+                auto State = RetrySchedule_.load(std::memory_order_acquire);
+                for (;;)
                 {
-                    Scheduled_.store(false, std::memory_order_release);
-                    Storage_->Retain(Self);
+                    if (Retired_.load(std::memory_order_acquire)) return;
+                    const bool AlreadyScheduled = (State & RetryScheduledFlag) != 0U;
+                    const bool AttemptInFlight = Running_.load(std::memory_order_acquire);
+                    const auto Desired = (AlreadyScheduled || AttemptInFlight)
+                        ? static_cast<std::uint8_t>(State | RetryScheduledFlag | RetryRequestedFlag)
+                        : RetryScheduledFlag;
+                    if (Desired == State) return;
+                    if (RetrySchedule_.compare_exchange_weak(State, Desired,
+                            std::memory_order_acq_rel, std::memory_order_acquire))
+                    {
+                        if (!AlreadyScheduled) PostRetryCommand();
+                        return;
+                    }
                 }
             }
 
@@ -215,6 +229,38 @@ namespace Preview::Contract
             }
 
         private:
+            static constexpr std::uint8_t RetryScheduledFlag{1U};
+            static constexpr std::uint8_t RetryRequestedFlag{2U};
+
+            auto PostRetryCommand() noexcept -> void
+            {
+                const auto Self = shared_from_this();
+                const auto Posted = Reclaimer_->Post(RetryCommand{Self});
+                if (!Posted)
+                {
+                    RetrySchedule_.store(0U, std::memory_order_release);
+                    Storage_->Retain(Self);
+                }
+            }
+
+            /** @brief 完成重试时交接并发请求；单次失败不自行形成无界重试。 */
+            auto FinishScheduledRetry() noexcept -> void
+            {
+                auto State = RetrySchedule_.load(std::memory_order_acquire);
+                for (;;)
+                {
+                    const bool Retry = !Retired_.load(std::memory_order_acquire) &&
+                        (State & RetryRequestedFlag) != 0U;
+                    const auto Desired = Retry ? RetryScheduledFlag : std::uint8_t{0U};
+                    if (RetrySchedule_.compare_exchange_weak(State, Desired,
+                            std::memory_order_acq_rel, std::memory_order_acquire))
+                    {
+                        if (Retry) PostRetryCommand();
+                        return;
+                    }
+                }
+            }
+
             struct RetryCommand final
             {
                 std::shared_ptr<AdmissionRetirementState> Owner;
@@ -227,7 +273,6 @@ namespace Preview::Contract
                 auto operator()(std::exception_ptr Exception,
                     std::expected<void, Preview::Fault::Failure> Result) noexcept -> void
                 {
-                    Owner->Scheduled_.store(false, std::memory_order_release);
                     if (Exception)
                     {
                         Owner->Storage_->Retain(Owner);
@@ -236,6 +281,7 @@ namespace Preview::Contract
                     {
                         Owner->Storage_->Retain(Owner);
                     }
+                    Owner->FinishScheduledRetry();
                 }
             };
 
@@ -441,7 +487,7 @@ namespace Preview::Contract
             {
                 if (Retired_.load(std::memory_order_acquire))
                 {
-                    Scheduled_.store(false, std::memory_order_release);
+                    FinishScheduledRetry();
                     return;
                 }
                 const auto Self = shared_from_this();
@@ -452,7 +498,7 @@ namespace Preview::Contract
                 }
                 catch (...)
                 {
-                    Scheduled_.store(false, std::memory_order_release);
+                    RetrySchedule_.store(0U, std::memory_order_release);
                     Storage_->Retain(Self);
                 }
             }
@@ -493,7 +539,7 @@ namespace Preview::Contract
             std::optional<ProtocolDataPlane> Plane_;
             Preview::Foundation::GenerationUseLease RootGenerationLease_;
             std::atomic<bool> Running_{false};
-            std::atomic<bool> Scheduled_{false};
+            std::atomic<std::uint8_t> RetrySchedule_{0U};
             std::atomic<bool> Retired_{false};
             std::atomic<bool> MuxRootClaimed_{false};
             bool InboundCancelAttempted_{false};

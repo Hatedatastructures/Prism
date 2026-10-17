@@ -162,7 +162,8 @@ namespace Preview::Account::Detail
                 if (Request.WorkerId >= View->WorkerCount) { return std::unexpected(Failure{Code::InvalidArgument}); }
                 Used = View->Workers[Request.WorkerId].Used;
             }
-            if (View->Limit != 0U && (Used > View->Limit || Request.Units > View->Limit - Used))
+            if (!std::holds_alternative<UnlimitedRatePolicy>(View->Policy) &&
+                (Used > View->Limit || Request.Units > View->Limit - Used))
             {
                 return std::unexpected(MakeFailure(FailureReason::RateLimited));
             }

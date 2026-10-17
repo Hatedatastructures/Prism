@@ -11,6 +11,7 @@
  */
 
 #pragma once
+
 #include <Preview/Contract/Ingress/StreamFactory.hpp>
 #include <Preview/Foundation/Executor/ClosingStorage.hpp>
 
@@ -51,6 +52,7 @@
 #include <Preview/Runtime/ActiveTransports.hpp>
 #include <Preview/Runtime/SessionControl.hpp>
 #include <Preview/Runtime/SessionServices.hpp>
+#include <Preview/Runtime/SessionTraceRing.hpp>
 #include <Preview/Runtime/Session/ClosePolicy.hpp>
 #include <Preview/Runtime/Session/DataPlaneRelay.hpp>
 #include <Preview/Runtime/Session/RecognitionLogging.hpp>
@@ -159,6 +161,12 @@ namespace Preview::Runtime
             Registration_ = std::move(Value);
         }
 
+        /** @brief 在 tracked start 前绑定 worker-local 有界生命周期轨迹 writer。 */
+        auto SetTraceWriter(std::shared_ptr<SessionTraceWriter> Value) noexcept -> void
+        {
+            TraceWriter_ = std::move(Value);
+        }
+
         /**
          * @brief 请求会话取消
          */
@@ -184,44 +192,79 @@ namespace Preview::Runtime
             Preview::SharedTransmission Inbound) -> Net::awaitable<Preview::Fault::Failure>
         {
             Drained_.store(false, std::memory_order_release);
+            if (TraceWriter_)
+            {
+                TraceWriter_->SetTaskIdentity(Control_->CurrentIdentity());
+                TraceWriter_->Record(SessionTraceStage::SessionStarted);
+            }
             co_await Net::this_coro::throw_if_cancelled(false);
             const auto LogState = std::make_shared<SessionLogState>();
             Preview::Fault::Failure Result;
+            auto CancellationReasonAtRunCompletion = SessionCancellationReason::None;
             try
             {
                 Result = co_await RunCore(std::move(Inbound), LogState);
+                CancellationReasonAtRunCompletion = Control_->CancellationReason();
             }
             catch (const boost::system::system_error &Error)
             {
                 Result = Preview::Fault::FromNative(
                     static_cast<std::error_code>(Error.code()));
+                CancellationReasonAtRunCompletion = Control_->CancellationReason();
             }
             catch (const std::system_error &Error)
             {
                 Result = Preview::Fault::FromNative(Error.code());
+                CancellationReasonAtRunCompletion = Control_->CancellationReason();
             }
             catch (const std::bad_alloc &)
             {
                 Result = Preview::Fault::Failure{
                     Preview::Fault::Code::ResourceUnavailable,
                     std::make_error_code(std::errc::not_enough_memory)};
+                CancellationReasonAtRunCompletion = Control_->CancellationReason();
             }
             catch (...)
             {
                 Result = Preview::Fault::Failure{Preview::Fault::Code::GenericError};
+                CancellationReasonAtRunCompletion = Control_->CancellationReason();
             }
             LogState->FinalCode = Result.Code;
             const auto Closed = SessionClosePolicy::CloseAndLog({Control_, Active_, LogState});
             co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
             const auto Delivered = co_await Control_->AwaitDelivery();
             const auto Retired = co_await Active_->Finalize();
-            if (!Closed) co_return Closed.error();
-            if (!Delivered) co_return Delivered.error();
-            if (!Retired) co_return Retired.error();
+            if (!Closed)
+            {
+                RecordClosed(Closed.error());
+                co_return Closed.error();
+            }
+            if (!Delivered)
+            {
+                RecordClosed(Delivered.error());
+                co_return Delivered.error();
+            }
+            if (!Retired)
+            {
+                RecordClosed(Retired.error());
+                co_return Retired.error();
+            }
             const auto ChildTasksDrained = co_await Control_->Drain();
-            if (!ChildTasksDrained) co_return ChildTasksDrained.error();
+            if (!ChildTasksDrained)
+            {
+                RecordClosed(ChildTasksDrained.error());
+                co_return ChildTasksDrained.error();
+            }
             Drained_.store(true, std::memory_order_release);
-            co_return Result;
+            const auto FinalCancellationReason=Control_->CancellationReason();
+            // 只把已在 shutdown 期间观察到的取消视作正常终态，且须通过完整 drain。
+            const auto FinalResult = Result.Code == Preview::Fault::Code::Canceled &&
+                CancellationReasonAtRunCompletion == SessionCancellationReason::Shutdown &&
+                FinalCancellationReason == SessionCancellationReason::Shutdown
+                    ? Preview::Fault::Failure{}
+                    : Result;
+            RecordClosed(FinalResult);
+            co_return FinalResult;
         }
 
         /** @brief 唯一表达关闭交付与 Activity 真实排空均已成功的会话事实。 */
@@ -267,6 +310,7 @@ namespace Preview::Runtime
 
             auto Trace = Services_->ProcessContext;
             const auto Identity = Control_->CurrentIdentity();
+            if (TraceWriter_) TraceWriter_->SetTaskIdentity(Identity);
             if (Identity.WorkerId)
             {
                 Trace = Trace.With(Preview::Diagnose::Fields::Worker, Identity.WorkerId);
@@ -293,6 +337,7 @@ namespace Preview::Runtime
             Run.Services = Services_;
             Run.Registration = &Registration_;
             Run.Control = Control_;
+            Run.TraceWriter = TraceWriter_;
             Run.Active = Active_;
             Run.LogState = LogState;
             Run.Cancellation = Cancellation;
@@ -308,6 +353,7 @@ namespace Preview::Runtime
             Run.SourceIp = Opts_.SourceIp;
             Run.Inbound = std::move(Inbound);
             Run.Logger = SessionSupport::SessionLogWriter{LogState, Profile};
+            Run.Context.FirstTransfer = TraceWriter_;
 
             const auto Installed = SessionClosePolicy::InstallCancelHook(
                 SessionCancellationRequest{
@@ -333,11 +379,20 @@ namespace Preview::Runtime
 
 
     private:
+        auto RecordClosed(const Preview::Fault::Failure &Failure) noexcept -> void
+        {
+            if (TraceWriter_)
+            {
+                TraceWriter_->Record(SessionTraceStage::SessionClosed, Failure.Code);
+            }
+        }
+
         SessionOptions Opts_; ///< 编排选项
         SharedSessionServices Services_; ///< owner-held 服务上下文
         SessionRegistry::Registration Registration_; ///< owner-held registry token
         Preview::Foundation::GenerationUseLease GenerationUse_; ///< admission 到完整 Session drain 的唯一代次预约
         std::shared_ptr<SessionControl> Control_; ///< owner-held 生命周期控制
+        std::shared_ptr<SessionTraceWriter> TraceWriter_; ///< worker-local 有界生命周期轨迹 writer
         std::shared_ptr<ActiveTransports> Active_; ///< 当前传输所有权
         std::atomic<bool> Drained_{false}; ///< Close、Control delivery、Activity Finalize 全部成功
         std::shared_ptr<Preview::Executor::ClosingResource> DeferredCleanup_;

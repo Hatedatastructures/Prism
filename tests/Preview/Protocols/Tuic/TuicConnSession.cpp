@@ -157,7 +157,7 @@ namespace
 
         [[nodiscard]] auto Authenticate(
             const Preview::AuthenticationRequest &Request) const
-            -> Preview::AuthenticationResult override
+            noexcept -> Preview::AuthenticationResult override
         {
             ++Calls_;
             LastKind_ = Request.Credential.Kind();
@@ -264,18 +264,15 @@ namespace
                 }
                 ServerAccepted = true;
                 std::array<std::byte, 64> Buffer{};
-                std::error_code ErrorCode;
-                const auto Count = co_await Connection->async_read_some(
-                    std::span<std::byte>(Buffer),
-                    ErrorCode);
-                if (!ErrorCode && Count > 0)
+                const auto ReadResult = co_await Connection->ReadSome(
+                    std::span<std::byte>(Buffer));
+                if (!ReadResult.Failure.Failed() && ReadResult.Bytes > 0)
                 {
                     const auto EchoBuffer = std::span<const std::byte>(
                         Buffer.data(),
-                        Count);
-                    (void)co_await Connection->async_write_some(
-                        EchoBuffer,
-                        ErrorCode);
+                        ReadResult.Bytes);
+                    const auto WriteResult = co_await Connection->WriteExact(EchoBuffer);
+                    EXPECT_FALSE(WriteResult.Failure.Failed());
                 }
                 Connection->Close();
                 (void)Request;
@@ -302,21 +299,17 @@ namespace
                 co_return;
             }
             const std::string Message = "tuic-Stream";
-            std::error_code ErrorCode;
             const auto MessageBytes =
                 Preview::AsBytes(Preview::AsU8Span(Message));
-            (void)co_await Connection->async_write_some(
-                MessageBytes,
-                ErrorCode);
-            EXPECT_FALSE(ErrorCode);
+            const auto WriteResult = co_await Connection->WriteExact(MessageBytes);
+            EXPECT_FALSE(WriteResult.Failure.Failed());
             std::array<std::byte, 64> Buffer{};
-            const auto Count = co_await Connection->async_read_some(
-                std::span<std::byte>(Buffer),
-                ErrorCode);
-            EXPECT_FALSE(ErrorCode);
+            const auto ReadResult = co_await Connection->ReadSome(
+                std::span<std::byte>(Buffer));
+            EXPECT_FALSE(ReadResult.Failure.Failed());
             Echoed.assign(
                 reinterpret_cast<const char *>(Buffer.data()),
-                Count);
+                ReadResult.Bytes);
             Connection->Close();
             const auto ServerCompleted = co_await ServerDone->async_receive(
                 Net::use_awaitable);

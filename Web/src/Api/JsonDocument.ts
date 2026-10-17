@@ -11,7 +11,8 @@ export type JsonParseResult = Readonly<{ Ok: true; Value: JsonNode }> |
 
 class JsonReader {
     private Offset = 0;
-    public constructor(private readonly Source: string) {}
+    private readonly Source: string;
+    public constructor(Source: string) { this.Source = Source; }
     public Read(): JsonNode {
         const Value = this.Value(0);
         this.Whitespace();

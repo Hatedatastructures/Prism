@@ -14,6 +14,7 @@
 #include <Preview/Protocols/Common/DatagramObservation.hpp>
 #include <Preview/Protocols/Common/ProtocolActivity.hpp>
 #include <Preview/Protocols/Common/DatagramBinding.hpp>
+#include <Preview/Protocols/Vless/Conn.hpp>
 #include <Preview/Protocols/Vless/Types.hpp>
 #include <Preview/Protocols/Vless/UdpCodec.hpp>
 #include <Preview/Protocols/Vless/UdpTunnelFrames.hpp>
@@ -133,18 +134,33 @@ namespace Preview::Vless
             auto Admission = Activity_->TryBegin();
             if (!Admission)
             {
+                if (Closed_ && !Cancelled_ &&
+                    Admission.error().Code == Preview::Fault::Code::Canceled)
+                {
+                    Report();
+                    co_return std::expected<void, Preview::Fault::Failure>{};
+                }
                 RecordFailure(Admission.error());
                 CloseResources();
                 Report();
                 co_return std::unexpected(Admission.error());
             }
             auto Reservation = std::move(*Admission);
-            if (Closed_ || !Stream_)
+            if (!Stream_)
             {
-                RecordFailure({Preview::Fault::Code::Canceled});
+                const Failure Cause{Preview::Fault::Code::InvalidArgument};
+                RecordFailure(Cause);
                 Report();
                 Reservation.Complete();
-                co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+                co_return std::unexpected(Cause);
+            }
+            if (Closed_)
+            {
+                Report();
+                Reservation.Complete();
+                if (Cancelled_)
+                    co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+                co_return std::expected<void, Preview::Fault::Failure>{};
             }
 
             TunnelResult Result;
@@ -168,6 +184,9 @@ namespace Preview::Vless
             {
                 Result = std::unexpected(Failure{Preview::Fault::Code::IoError});
             }
+            if (!Result && Closed_ && !Cancelled_ &&
+                Result.error().Code == Preview::Fault::Code::Canceled)
+                Result = TunnelResult{};
             if (!Result) RecordFailure(Result.error());
 
             Drained_ = true;
@@ -254,31 +273,8 @@ namespace Preview::Vless
             return Stream->Executor();
         }
 
-        auto CancelOnExecutor() noexcept -> void
-        {
-            if (Cancelled_) return;
-            Cancelled_ = true;
-            RecordFailure({Preview::Fault::Code::Canceled});
-            Activity_->Seal();
-            Cancellation_.emit(Net::cancellation_type::all);
-            if (RunState_)
-            {
-                RunState_->ReaderCancellation.emit(Net::cancellation_type::all);
-                RunState_->ReplyCancellation.emit(Net::cancellation_type::all);
-                (void)RunState_->InputEnd.try_send(boost::system::error_code{});
-            }
-            CloseResources();
-        }
-
-        auto CloseOnExecutor() noexcept -> void
-        {
-            if (Started_ && !Drained_ && !Cancelled_)
-            {
-                CancelOnExecutor();
-                return;
-            }
-            CloseResources();
-        }
+        auto CancelOnExecutor() noexcept -> void;
+        auto CloseOnExecutor() noexcept -> void;
 
         auto Execute() -> Net::awaitable<TunnelResult>
         {
@@ -290,6 +286,7 @@ namespace Preview::Vless
             const auto Target = co_await ResolveTarget();
             if (!Target)
             {
+                if (IsCloseCancellation(Target.error())) co_return TunnelResult{};
                 RecordFailure(Target.error());
                 co_return std::unexpected(Target.error());
             }
@@ -352,6 +349,7 @@ namespace Preview::Vless
                     const auto Cause = Frame.error().Cause;
                     State->InputEnded = true;
                     (void)State->InputEnd.try_send(boost::system::error_code{});
+                    if (IsCloseCancellation(Cause)) co_return TunnelResult{};
                     if (Cause.Code != Preview::Fault::Code::Eof)
                     {
                         RecordFailure(Cause);
@@ -380,6 +378,7 @@ namespace Preview::Vless
                 {
                     const auto Cause = Preview::Fault::FromNative(
                         static_cast<std::error_code>(ErrorCode));
+                    if (IsCloseCancellation(Cause)) co_return TunnelResult{};
                     RecordFailure(Cause);
                     State->ReplyCancellation.emit(Net::cancellation_type::all);
                     co_return std::unexpected(Cause);
@@ -410,11 +409,15 @@ namespace Preview::Vless
                     State->ReplyIdle.expires_after(Options_.Services.IdleTimeout);
                 (void)State->FirstSend.try_send(boost::system::error_code{});
             }
-            const Failure Cause{Preview::Fault::Code::Canceled};
-            RecordFailure(Cause);
             State->InputEnded = true;
             (void)State->InputEnd.try_send(boost::system::error_code{});
-            co_return std::unexpected(Cause);
+            if (Cancelled_)
+            {
+                const Failure Cause{Preview::Fault::Code::Canceled};
+                RecordFailure(Cause);
+                co_return std::unexpected(Cause);
+            }
+            co_return TunnelResult{};
         }
 
         auto SendReplies(const std::shared_ptr<UdpTunnelRunState>& State,
@@ -473,6 +476,7 @@ namespace Preview::Vless
                 {
                     const auto Cause = Preview::Fault::FromNative(
                         static_cast<std::error_code>(ReceiveError));
+                    if (IsCloseCancellation(Cause)) co_return TunnelResult{};
                     RecordFailure(Cause);
                     State->ReaderCancellation.emit(Net::cancellation_type::all);
                     co_return std::unexpected(Cause);
@@ -495,6 +499,7 @@ namespace Preview::Vless
                 const auto Written = co_await Frames_.Write(TxFrame_);
                 if (!Written)
                 {
+                    if (IsCloseCancellation(Written.error())) co_return TunnelResult{};
                     RecordFailure(Written.error());
                     State->ReaderCancellation.emit(Net::cancellation_type::all);
                     co_return std::unexpected(Written.error());
@@ -504,9 +509,19 @@ namespace Preview::Vless
                     Size, Preview::Foundation::TrafficObservation::Direction::Download);
             }
 
-            const Failure Cause{Preview::Fault::Code::Canceled};
-            RecordFailure(Cause);
-            co_return std::unexpected(Cause);
+            if (Cancelled_)
+            {
+                const Failure Cause{Preview::Fault::Code::Canceled};
+                RecordFailure(Cause);
+                co_return std::unexpected(Cause);
+            }
+            co_return TunnelResult{};
+        }
+
+        [[nodiscard]] auto IsCloseCancellation(const Failure& Cause) const noexcept -> bool
+        {
+            return Closed_ && !Cancelled_ &&
+                Cause.Code == Preview::Fault::Code::Canceled;
         }
 
         auto RecordFailure(const Failure Value) noexcept -> void
@@ -532,53 +547,7 @@ namespace Preview::Vless
             Reported_ = true;
         }
 
-        auto CloseResources() noexcept -> void
-        {
-            if (Closed_ && CloseResourcesCompleted_.load(std::memory_order_acquire)) return;
-            if (!Closed_)
-            {
-                Activity_->Seal();
-                Closed_ = true;
-                if (RunState_)
-                {
-                    RunState_->ReaderCancellation.emit(Net::cancellation_type::all);
-                    RunState_->ReplyCancellation.emit(Net::cancellation_type::all);
-                    (void)RunState_->InputEnd.try_send(boost::system::error_code{});
-                    RunState_->FirstSend.close();
-                    RunState_->InputEnd.close();
-                }
-            }
-
-            boost::system::error_code ErrorCode;
-            if (Egress_.is_open())
-            {
-                Egress_.cancel(ErrorCode);
-                if (ErrorCode) RecordFailure(Preview::Fault::FromNative(
-                    static_cast<std::error_code>(ErrorCode)));
-                ErrorCode.clear();
-                Egress_.close(ErrorCode);
-                if (ErrorCode) RecordFailure(Preview::Fault::FromNative(
-                    static_cast<std::error_code>(ErrorCode)));
-            }
-            bool CarrierClosed = false;
-            if (Stream_)
-            {
-                try
-                {
-                    const auto Canceled = Stream_->Cancel();
-                    if (!Canceled) RecordFailure(Canceled.error());
-                    const auto Closed = Stream_->Close();
-                    if (!Closed) RecordFailure(Closed.error());
-                    CarrierClosed = Closed.has_value();
-                }
-                catch (...)
-                {
-                    RecordFailure({Preview::Fault::Code::IoError});
-                }
-            }
-            CloseResourcesCompleted_.store(
-                CarrierClosed && !Egress_.is_open(), std::memory_order_release);
-        }
+        auto CloseResources() noexcept -> void;
 
         std::shared_ptr<Conn<>> Stream_;
         UdpTunnelOptions Options_;
@@ -597,3 +566,5 @@ namespace Preview::Vless
         bool Started_{false}, Drained_{false}, Closed_{false}, Cancelled_{false}, Reported_{false};
     };
 } // namespace Preview::Vless
+
+#include <Preview/Protocols/Vless/UdpTunnelRetirement.hpp>

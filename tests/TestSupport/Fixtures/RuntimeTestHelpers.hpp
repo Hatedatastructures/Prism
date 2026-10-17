@@ -33,6 +33,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <variant>
 
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Failure.hpp>
@@ -200,9 +201,16 @@ namespace Preview::Testing
      * @param ErrorCode 错误码输出（超时为 timed_out）
      * @return 实际读取字节数（超时为 0）
      */
-    inline auto TailReadGuarded(const Preview::SharedTransmission &Sock,
-                                  std::span<std::byte> Buffer, std::error_code &ErrorCode)
-        -> net::awaitable<std::size_t>
+    struct TailReadOutcome final
+    {
+        bool TimedOut{false};
+        Preview::IoResult Result{};
+    };
+
+    /** @brief 返回尾部读取的 typed 结果；超时与 peer close 保持可区分。 */
+    inline auto TailReadOutcomeGuarded(const Preview::SharedTransmission &Sock,
+                                       std::span<std::byte> Buffer)
+        -> net::awaitable<TailReadOutcome>
     {
         using boost::asio::experimental::awaitable_operators::operator||;
         net::steady_timer Watchdog(Sock->Executor());
@@ -212,12 +220,23 @@ namespace Preview::Testing
         if (Result.index() == 1)
         {
             (void)Sock->Close();
+            co_return TailReadOutcome{true, {0, {Preview::Fault::Code::Timeout}}};
+        }
+        co_return TailReadOutcome{false, std::get<0>(std::move(Result))};
+    }
+
+    inline auto TailReadGuarded(const Preview::SharedTransmission &Sock,
+                                std::span<std::byte> Buffer, std::error_code &ErrorCode)
+        -> net::awaitable<std::size_t>
+    {
+        const auto Outcome = co_await TailReadOutcomeGuarded(Sock, Buffer);
+        if (Outcome.TimedOut)
+        {
             ErrorCode = std::make_error_code(std::errc::timed_out);
             co_return 0;
         }
-        const auto Read = std::get<0>(std::move(Result));
-        ErrorCode = Preview::Fault::ToNative(Read.Failure);
-        co_return Read.Bytes;
+        ErrorCode = Preview::Fault::ToNative(Outcome.Result.Failure);
+        co_return Outcome.Result.Bytes;
     }
 
     /**

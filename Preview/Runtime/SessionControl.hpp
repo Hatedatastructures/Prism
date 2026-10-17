@@ -7,6 +7,7 @@
 #include <Preview/Runtime/Session/Delivery.hpp>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <optional>
 namespace Preview::Runtime
 {
@@ -16,6 +17,13 @@ namespace Preview::Runtime
     {
         std::size_t Started{0}, Completed{0}, Active{0}, CancelRequests{0}, ErrorCalls{0}, CloseCalls{0};
         bool DrainBlocked{false}, CloseDispatchFailed{false};
+    };
+    /** @brief 会话取消来源，shutdown 仅在完整退休后可归一化为正常结束。 */
+    enum class SessionCancellationReason : std::uint8_t
+    {
+        None,
+        Explicit,
+        Shutdown
     };
     /** @brief control 持有子 registry 与预建命令；错误使用 Failure，父身份只发布一次。
      * @details 取消不代替 drain，CloseOnce 只提交已经安装的动作，无半关闭。
@@ -59,6 +67,7 @@ namespace Preview::Runtime
             std::atomic<std::shared_ptr<IdentityErrorHook>> OnIdentityError;
             std::atomic<std::shared_ptr<MetricsHook>> OnMetrics;
             std::atomic<bool> CancelRequested{false}, Sealed{false}, Closed{false};
+            std::atomic<bool> ExplicitCancelRequested{false}, ShutdownCancelRequested{false};
             std::atomic<bool> SessionRootStarted{false};
             std::atomic<bool> Blocked{false}, CloseDispatchFailed{false};
             Preview::Fault::FailureState ControlFailure;
@@ -316,37 +325,26 @@ namespace Preview::Runtime
             }
             co_return co_await Catalog->ResetAndDrain(std::move(Request));
         }
-        /** @brief 取消只提交预建动作，重复请求无副作用；失败阻断 Drain。 */
+        /** @brief 显式取消；重复请求无副作用，且优先于 shutdown-only 语义。 */
         [[nodiscard]] auto Cancel() -> std::expected<void, Failure>
         {
-            if (State_->CancelRequested.exchange(true))
-            {
-                const auto Failure = State_->ControlFailure.Load();
-                if (Failure.Failed()) return std::unexpected(Failure);
-                if (State_->Blocked.load()) return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
-                return {};
-            }
-            State_->CancelRequests.fetch_add(1);
-            State_->Sealed.store(true);
-            auto Bound = State_->Bound.load();
-            if (!Bound)
-            {
-                const auto Failure = Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument};
-                (void)State_->ControlFailure.TrySet(Failure); MarkBlocked(State_);
-                return std::unexpected(Failure);
-            }
-            (void)Bound->Tasks->Cancel();
-            const auto Delivered = Bound->CancelAction->Submit();
-            if (Bound->Tasks->IsDrainBlocked())
-            {
-                const auto Failure = Preview::Fault::Failure{Preview::Fault::Code::Blocked};
-                (void)State_->ControlFailure.TrySet(Failure);
-                MarkBlocked(State_);
-                return std::unexpected(Failure);
-            }
-            if (!Delivered)
-            { (void)State_->ControlFailure.TrySet(Delivered.error()); MarkBlocked(State_); return Delivered; }
-            return {};
+            State_->ExplicitCancelRequested.store(true, std::memory_order_release);
+            return RequestCancellation();
+        }
+        /** @brief Listener shutdown 取消等待中的操作，并单独记录其停止原因。 */
+        [[nodiscard]] auto CancelForShutdown() -> std::expected<void, Failure>
+        {
+            State_->ShutdownCancelRequested.store(true, std::memory_order_release);
+            return RequestCancellation();
+        }
+        /** @brief 返回当前取消原因；显式取消优先于 shutdown 请求。 */
+        [[nodiscard]] auto CancellationReason() const noexcept -> SessionCancellationReason
+        {
+            if (State_->ExplicitCancelRequested.load(std::memory_order_acquire))
+                return SessionCancellationReason::Explicit;
+            if (State_->ShutdownCancelRequested.load(std::memory_order_acquire))
+                return SessionCancellationReason::Shutdown;
+            return SessionCancellationReason::None;
         }
         /** @brief 读取取消状态；无半关闭、最终关闭或 executor 调度副作用。 */
         [[nodiscard]] auto IsCancelled() const noexcept -> bool
@@ -415,6 +413,44 @@ namespace Preview::Runtime
         /** @brief 读取关闭投递失败事实；失败实物保留于原 owner 和关闭存储。 */
         [[nodiscard]] auto IsCloseDispatchFailed() const noexcept -> bool { return State_->CloseDispatchFailed.load(); }
     private:
+        /** @brief 只投递一次取消；调用方必须先记录取消来源。 */
+        [[nodiscard]] auto RequestCancellation() -> std::expected<void, Failure>
+        {
+            if (State_->CancelRequested.exchange(true))
+            {
+                const auto Failure = State_->ControlFailure.Load();
+                if (Failure.Failed()) return std::unexpected(Failure);
+                if (State_->Blocked.load())
+                    return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+                return {};
+            }
+            State_->CancelRequests.fetch_add(1);
+            State_->Sealed.store(true);
+            auto Bound = State_->Bound.load();
+            if (!Bound)
+            {
+                const auto Failure = Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument};
+                (void)State_->ControlFailure.TrySet(Failure);
+                MarkBlocked(State_);
+                return std::unexpected(Failure);
+            }
+            (void)Bound->Tasks->Cancel();
+            const auto Delivered = Bound->CancelAction->Submit();
+            if (Bound->Tasks->IsDrainBlocked())
+            {
+                const auto Failure = Preview::Fault::Failure{Preview::Fault::Code::Blocked};
+                (void)State_->ControlFailure.TrySet(Failure);
+                MarkBlocked(State_);
+                return std::unexpected(Failure);
+            }
+            if (!Delivered)
+            {
+                (void)State_->ControlFailure.TrySet(Delivered.error());
+                MarkBlocked(State_);
+                return Delivered;
+            }
+            return {};
+        }
         friend class SessionRegistry;
         friend class SessionRegistryTestAccess;
 

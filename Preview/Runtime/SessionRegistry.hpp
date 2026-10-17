@@ -559,7 +559,10 @@ namespace Preview::Runtime
             for (const auto& [Id, Record] : *Current)
             {
                 (void)Id;
-                if (auto Control = Storage::GetActiveControl(Record.Entry)) Control->Cancel();
+                if (auto Control = Storage::GetActiveControl(Record.Entry))
+                {
+                    (void)Control->CancelForShutdown();
+                }
             }
             auto Result = co_await Drain();
             if (!Result) co_return Result;

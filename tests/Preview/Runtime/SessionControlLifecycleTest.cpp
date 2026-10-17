@@ -6,6 +6,7 @@
 #include "SessionLifecycleTestSupport.hpp"
 #include <Preview/Runtime/SessionAdmissionTestSupport.hpp>
 
+#include <array>
 #include <expected>
 
 namespace
@@ -70,6 +71,7 @@ namespace
     {
         Net::io_context &Ioc;
         std::shared_ptr<Preview::Runtime::SessionControl> Control;
+        std::shared_ptr<Net::experimental::channel<void(boost::system::error_code)>> OperationStarted;
         std::shared_ptr<Net::experimental::channel<void(boost::system::error_code)>> Release;
         std::shared_ptr<Net::experimental::channel<void(boost::system::error_code)>> DrainDone;
         std::shared_ptr<DrainOutcome> DrainResult;
@@ -105,8 +107,13 @@ namespace
         auto Owner = std::make_shared<DrainGraceScenario>(std::move(Scenario));
         const auto Started = Owner->Control->Start(
             Preview::Lifecycle::TaskRequest{},
-            WaitForReleaseAndMark(Owner->Release, Owner->OperationCompleted));
+            WaitForReleaseAndMark(
+                Owner->Release, Owner->OperationStarted, Owner->OperationCompleted));
         EXPECT_TRUE(Started);
+        boost::system::error_code StartError;
+        co_await Owner->OperationStarted->async_receive(
+            Net::redirect_error(Net::use_awaitable, StartError));
+        EXPECT_FALSE(StartError);
         const auto Canceled = Owner->Control->Cancel();
         EXPECT_TRUE(Canceled);
         Net::co_spawn(
@@ -267,109 +274,6 @@ namespace
         EXPECT_TRUE(Delivery);
     }
 
-    auto RejectSession(Preview::Contract::StreamAcceptInput)
-        -> Net::awaitable<Preview::Contract::AcceptOutcome>
-    {
-        co_return std::unexpected(Preview::Contract::FailureFromProtocolError(Preview::Error::BadAuth));
-    }
-
-    struct RejectingSessionFactory final
-    {
-        auto operator()(Preview::Runtime::SessionAdmission) const
-            -> std::shared_ptr<Preview::Runtime::Session>
-        {
-            Preview::Runtime::SessionOptions Options;
-            Options.Services->AcceptProtocol = std::make_shared<Preview::Testing::StreamFactory>(
-                RejectSession);
-            return std::make_shared<Preview::Runtime::Session>(std::move(Options));
-        }
-    };
-
-    struct RetainRegistrationState final
-    {
-        Preview::Runtime::TcpListener *Listener{nullptr};
-        std::shared_ptr<ByteChannel> ErrorReady;
-        std::shared_ptr<ByteChannel> MetricsReady;
-        std::atomic<bool> ErrorSawLiveRegistration{false};
-        std::atomic<bool> MetricsSawLiveRegistration{false};
-        Preview::Fault::Failure ReportedFailure{};
-        bool ErrorObserved{false};
-        bool MetricsObserved{false};
-    };
-
-    struct RetainRegistrationErrorHook final
-    {
-        std::shared_ptr<RetainRegistrationState> State;
-
-        auto operator()(std::uint64_t, Preview::Fault::Failure Failure) const
-            -> void
-        {
-            State->ReportedFailure = Failure;
-            State->ErrorSawLiveRegistration.store(
-                State->Listener->Registry().Size() == 1U, std::memory_order_release);
-            (void)State->ErrorReady->try_send(boost::system::error_code{});
-        }
-    };
-
-    struct RetainRegistrationMetricsHook final
-    {
-        std::shared_ptr<RetainRegistrationState> State;
-
-        auto operator()(std::uint64_t, const Preview::Runtime::SessionMetrics &Metrics) const
-            -> void
-        {
-            if (Metrics.CloseCalls == 0U)
-            {
-                return;
-            }
-            State->MetricsSawLiveRegistration.store(
-                State->Listener->Registry().Size() == 1U, std::memory_order_release);
-            (void)State->MetricsReady->try_send(boost::system::error_code{});
-        }
-    };
-
-    struct RetainRegistrationRequest final
-    {
-        Net::io_context *Ioc;
-        Net::any_io_executor Executor;
-        std::shared_ptr<Preview::Runtime::TcpListener> Listener;
-        std::shared_ptr<RetainRegistrationState> State;
-    };
-
-    auto RunRetainRegistration(RetainRegistrationRequest Request)
-        -> Net::awaitable<void>
-    {
-        EXPECT_EQ(co_await Request.Listener->Start(
-                      Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0)),
-                  Preview::Fault::Code::Success);
-        Preview::Network::Dialer::Dialer Dialer(Request.Executor);
-        std::error_code Error;
-        auto Dialed = co_await Dialer.Connect({*Preview::Network::ParseHost("127.0.0.1"), Request.Listener->LocalEndpoint().port()});
-        Preview::SharedTransmission Client;
-        if (Dialed)
-        {
-            Client = std::move(*Dialed);
-            Error.clear();
-        }
-        else
-        {
-            Error = Preview::Fault::ToNative(Dialed.error());
-        }
-        EXPECT_FALSE(Error);
-        if (!Client)
-        {
-            Request.Listener->Stop();
-            co_return;
-        }
-        Request.State->ErrorObserved = co_await WaitForSignalOrTimeout(
-            Request.State->ErrorReady, *Request.Ioc);
-        Request.State->MetricsObserved = co_await WaitForSignalOrTimeout(
-            Request.State->MetricsReady, *Request.Ioc);
-        const auto Shutdown = co_await Request.Listener->Shutdown();
-        EXPECT_TRUE(Shutdown);
-        (void)Client->Close();
-    }
-
 } // namespace
 
 TEST(SessionControlLifecycle, ExposesSubmittedListenerTaskIdentity)
@@ -398,6 +302,7 @@ TEST(SessionControlLifecycle, WorkerAdmissionIdentityStaysWithChildScope)
         Preview::Testing::RunCoro(Ioc, RunWorkerAdmissionIdentity(Control, std::move(Request)));
 
         EXPECT_FALSE(Control->IsCancelled());
+        Ioc.restart();
         const auto Canceled = Control->Cancel();
         EXPECT_TRUE(Canceled);
         EXPECT_TRUE(Control->IsCancelled());
@@ -413,6 +318,7 @@ TEST(SessionControlLifecycle, DrainWaitsPastConfiguredGraceUntilLoserCompletes)
     {
         Net::io_context Ioc;
         auto Control = std::make_shared<Preview::Runtime::SessionControl>(Ioc.get_executor());
+        auto OperationStarted = MakeReleaseChannel(Ioc.get_executor());
         auto Release = MakeReleaseChannel(Ioc.get_executor());
         auto DrainDone = MakeReleaseChannel(Ioc.get_executor());
         auto DrainResult = std::make_shared<DrainOutcome>(
@@ -422,8 +328,8 @@ TEST(SessionControlLifecycle, DrainWaitsPastConfiguredGraceUntilLoserCompletes)
         auto DrainCompleted = std::make_shared<bool>(false);
 
         RunCoro(Ioc, RunDrainGraceScenario(
-            DrainGraceScenario{Ioc, Control, Release, DrainDone, DrainResult, DrainException,
-                OperationCompleted, DrainCompleted}));
+            DrainGraceScenario{Ioc, Control, OperationStarted, Release, DrainDone,
+                DrainResult, DrainException, OperationCompleted, DrainCompleted}));
     }
 
 TEST(SessionControlLifecycle, ThrowingOperationReportsErrorAndDrains)
@@ -461,6 +367,30 @@ TEST(SessionControlLifecycle, NonCooperativeCancelIsSingleShotAndCloseIsExactlyO
         EXPECT_EQ(CloseCalls, 1U);
         EXPECT_EQ(Control->Metrics().CancelRequests, 1U);
         EXPECT_EQ(Control->Metrics().CloseCalls, 1U);
+        EXPECT_EQ(Control->CancellationReason(),
+            Preview::Runtime::SessionCancellationReason::Explicit);
+    }
+
+TEST(SessionControlLifecycle, ExplicitCancelOverridesShutdownOnlyReason)
+    {
+        Net::io_context Ioc;
+        auto Control = std::make_shared<Preview::Runtime::SessionControl>(Ioc.get_executor());
+
+        const auto Shutdown = Control->CancelForShutdown();
+        ASSERT_TRUE(Shutdown);
+        EXPECT_EQ(Control->CancellationReason(),
+            Preview::Runtime::SessionCancellationReason::Shutdown);
+
+        const auto Explicit = Control->Cancel();
+        EXPECT_TRUE(Explicit);
+        EXPECT_EQ(Control->CancellationReason(),
+            Preview::Runtime::SessionCancellationReason::Explicit);
+
+        auto ExplicitFirst = std::make_shared<Preview::Runtime::SessionControl>(Ioc.get_executor());
+        ASSERT_TRUE(ExplicitFirst->Cancel());
+        ASSERT_TRUE(ExplicitFirst->CancelForShutdown());
+        EXPECT_EQ(ExplicitFirst->CancellationReason(),
+            Preview::Runtime::SessionCancellationReason::Explicit);
     }
 
 TEST(SessionRegistryLifecycle, ShutdownCancelsAndDrainsAllRegisteredSessions)
@@ -486,6 +416,10 @@ TEST(SessionRegistryLifecycle, ShutdownCancelsAndDrainsAllRegisteredSessions)
 
         EXPECT_EQ(*FirstCancels, 1U);
         EXPECT_EQ(*SecondCancels, 1U);
+        EXPECT_EQ(FirstControl->CancellationReason(),
+            Preview::Runtime::SessionCancellationReason::Shutdown);
+        EXPECT_EQ(SecondControl->CancellationReason(),
+            Preview::Runtime::SessionCancellationReason::Shutdown);
         EXPECT_EQ(Registry->Size(), 0U);
         FirstRegistration.Reset();
         SecondRegistration.Reset();
@@ -545,39 +479,6 @@ TEST(SessionRegistryLifecycle, ReportsOperationFailureThroughExplicitHooks)
         EXPECT_GT(*MetricCalls, 0U);
         EXPECT_EQ(Control->Metrics().CloseCalls, 1U);
         Registration.Reset();
-    }
-
-TEST(TcpListenerLifecycle, RetainsRegistrationUntilFinalHookDelivery)
-    {
-        Net::io_context Ioc;
-        auto ErrorReady = MakeReleaseChannel(Ioc.get_executor());
-        auto MetricsReady = MakeReleaseChannel(Ioc.get_executor());
-        auto State = std::make_shared<RetainRegistrationState>();
-        State->ErrorReady = ErrorReady;
-        State->MetricsReady = MetricsReady;
-        auto Listener = std::make_shared<Preview::Runtime::TcpListener>(
-            Preview::Runtime::TcpListener::Options{
-            .Executor = Ioc.get_executor(),
-            .Publication = Preview::Testing::Runtime::MakeListenerTestPublication(
-                Preview::GenerationId{1}),
-            .Factory = RejectingSessionFactory{}});
-        State->Listener = Listener.get();
-        Listener->Registry().SetErrorHook(
-            RetainRegistrationErrorHook{State});
-        Listener->Registry().SetMetricsHook(
-            RetainRegistrationMetricsHook{State});
-
-        // RunCoro 完整等待 request；State->Listener 只借用本调用期间的 shared owner。
-        RunCoro(Ioc, RunRetainRegistration(RetainRegistrationRequest{
-                            &Ioc, Ioc.get_executor(), Listener, State}));
-
-        EXPECT_TRUE(State->ErrorObserved);
-        EXPECT_TRUE(State->MetricsObserved);
-        EXPECT_TRUE(State->ErrorSawLiveRegistration.load(std::memory_order_acquire));
-        EXPECT_TRUE(State->MetricsSawLiveRegistration.load(std::memory_order_acquire));
-        EXPECT_EQ(State->ReportedFailure.Code, Preview::Fault::Code::AuthFailed);
-        EXPECT_FALSE(State->ReportedFailure.Native);
-        EXPECT_EQ(Listener->Registry().Size(), 0U);
     }
 
 struct CrossExecutorDeliveryScenario final

@@ -7,6 +7,7 @@
 
 #pragma once
 
+
 #include <Preview/Protocols/Quic/Detail/NativeConnection.hpp>
 
 namespace Preview::Quic::Detail
@@ -56,7 +57,7 @@ namespace Preview::Quic::Detail
         const auto State = StreamIterator->second;
         if (State->PeerStopSending)
         {
-            ErrorCode = State->PeerFailure;
+            ErrorCode = State->PeerWriteFailure;
             co_return 0;
         }
         if (Closed_ || !Conn_ || Data.empty())
@@ -79,9 +80,9 @@ namespace Preview::Quic::Detail
         WritePermitRelease Permit{WritePermit_};
         if (Closed_ || !Conn_ || State->Closed || State->PeerStopSending || State->LocalWriteClosed)
         {
-            if (State->PeerFailure)
+            if (State->PeerWriteFailure)
             {
-                ErrorCode = State->PeerFailure;
+                ErrorCode = State->PeerWriteFailure;
             }
             else
             {
@@ -150,9 +151,9 @@ namespace Preview::Quic::Detail
                 if (FlowError || Closed_ || !Conn_ || State->Closed ||
                     State->PeerStopSending)
                 {
-                    if (State->PeerFailure)
+                    if (State->PeerWriteFailure)
                     {
-                        ErrorCode = State->PeerFailure;
+                        ErrorCode = State->PeerWriteFailure;
                     }
                     else
                     {
@@ -196,9 +197,9 @@ namespace Preview::Quic::Detail
                 if (TimerError || Closed_ || !Conn_ || State->Closed ||
                     State->PeerStopSending)
                 {
-                    if (State->PeerFailure)
+                    if (State->PeerWriteFailure)
                     {
-                        ErrorCode = State->PeerFailure;
+                        ErrorCode = State->PeerWriteFailure;
                     }
                     else
                     {
@@ -228,9 +229,22 @@ namespace Preview::Quic::Detail
         {
             return;
         }
-        if (ngtcp2_conn_extend_max_stream_offset(Conn_, StreamId, Bytes) != 0)
+        const auto Stream = Streams_.find(StreamId);
+        if (Stream != Streams_.end() && Stream->second && !Stream->second->Closed &&
+            ngtcp2_conn_extend_max_stream_offset(Conn_, StreamId, Bytes) != 0)
         {
             CloseOnExecutor();
+            return;
+        }
+        ngtcp2_conn_extend_max_offset(Conn_, Bytes);
+        QueueFlush();
+    }
+
+    inline auto NativeConnection::OnTerminalStreamReadConsumed(
+        const std::size_t Bytes) -> void
+    {
+        if (Closed_ || !Conn_ || Bytes == 0)
+        {
             return;
         }
         ngtcp2_conn_extend_max_offset(Conn_, Bytes);
@@ -387,7 +401,7 @@ namespace Preview::Quic::Detail
         {
             State->PeerReset = true;
             State->PeerApplicationErrorCode = ApplicationErrorCode;
-            State->PeerFailure = std::make_error_code(std::errc::connection_reset);
+            State->PeerReadFailure = std::make_error_code(std::errc::connection_reset);
         }
         else if (!State->Closed && !State->PeerReset && !State->PeerStopSending)
         {

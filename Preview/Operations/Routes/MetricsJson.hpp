@@ -4,6 +4,7 @@
 #include <Preview/Operations/Http/JsonWriter.hpp>
 #include <Preview/Operations/Metrics.hpp>
 #include <Preview/Operations/Routes/TrafficJson.hpp>
+#include <Preview/Operations/Routes/JsonPrimitives.hpp>
 
 #include <optional>
 #include <vector>
@@ -22,7 +23,7 @@ namespace Preview::Operations::HttpDetail
             if (!First && !Writer.Append(",")) return false;
             First = false;
             if (!Writer.Append("{") || !Writer.Key("timestamp") ||
-                !Writer.Decimal(Sample.Timestamp) || !Writer.Append(",") ||
+                !AppendUtcTimestamp(Writer, Sample.Timestamp) || !Writer.Append(",") ||
                 !Writer.Key("traffic") || !AppendTraffic(Writer, Sample.Value) || !Writer.Append("}"))
                 return false;
         }
@@ -154,7 +155,7 @@ namespace Preview::Operations::HttpDetail
         }
         return Writer.Append("{") && Writer.Key("process") && Writer.Decimal(Value.Process.Value()) &&
             Writer.Append(",") && Writer.Key("generation") && Writer.Decimal(Value.Generation.Value()) &&
-            Writer.Append(",") && Writer.Key("checked_at") && Writer.Decimal(Value.CheckedAt) &&
+            Writer.Append(",") && Writer.Key("checked_at") && AppendUtcTimestamp(Writer, Value.CheckedAt) &&
             Writer.Append(",") && Writer.Key("traffic") && AppendTraffic(Writer, Value.Traffic) &&
             Writer.Append(",") && Writer.Key("observations") && AppendObservations(Writer, Value) &&
             Writer.Append(",") && Writer.Key("sample_interval_ms") && Writer.Decimal(Value.SampleIntervalMilliseconds) &&

@@ -43,6 +43,22 @@ namespace Preview::Mux::H2Mux
         [[nodiscard]] auto Run()
             -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
+            struct RunCompletionGuard final
+            {
+                std::shared_ptr<Http2State> State;
+                bool Published{false};
+
+                auto Publish() noexcept -> void
+                {
+                    if (Published) return;
+                    Published = true;
+                    State->RunCompleted.store(true, std::memory_order_release);
+                    (void)State->RunCompletionNotify.try_send(boost::system::error_code{});
+                }
+
+                ~RunCompletionGuard() noexcept { Publish(); }
+            } Completion{State_};
+
             const auto Started = State_->StartRetirementPump();
             if (!Started)
             {
@@ -54,16 +70,16 @@ namespace Preview::Mux::H2Mux
                 try
                 {
                     const auto LoopResult = co_await RunLoop();
-                    if (!LoopResult) State_->RecordFailure(LoopResult.error());
+                    if (!LoopResult) State_->RecordCloseCancellation(LoopResult.error());
                 }
                 catch (const boost::system::system_error &Exception)
                 {
-                    State_->RecordFailure(Preview::Fault::FromNative(
+                    State_->RecordCloseCancellation(Preview::Fault::FromNative(
                         static_cast<std::error_code>(Exception.code())));
                 }
                 catch (const std::system_error &Exception)
                 {
-                    State_->RecordFailure(Preview::Fault::FromNative(Exception.code()));
+                    State_->RecordCloseCancellation(Preview::Fault::FromNative(Exception.code()));
                 }
                 catch (const std::bad_alloc &)
                 {
@@ -73,13 +89,19 @@ namespace Preview::Mux::H2Mux
                 }
                 State_->Close();
             }
-            const auto Drained = co_await State_->Drain();
-            if (!Drained) State_->RecordFailure(Drained.error());
+            (void)co_await State_->Drain();
             co_await Net::dispatch(State_->Strand, Net::use_awaitable);
-            State_->RunCompleted.store(true, std::memory_order_release);
+            Completion.Publish();
             State_->RefreshRetirement();
             const auto Failure = State_->FirstFailure.Load();
             if (Failure.Failed()) co_return std::unexpected(Failure);
+            if (!State_->Retired.load(std::memory_order_acquire))
+            {
+                const auto CloseFailure = State_->CloseCancellation.Load();
+                if (CloseFailure.Failed()) co_return std::unexpected(CloseFailure);
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+            }
             co_return std::expected<void, Preview::Fault::Failure>{};
         }
 
@@ -87,6 +109,24 @@ namespace Preview::Mux::H2Mux
         [[nodiscard]] auto Drain()
             -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
+            const auto Drained = co_await State_->Drain();
+            if (Drained) co_return Drained;
+            co_await Net::dispatch(State_->Strand, Net::use_awaitable);
+            if (State_->FirstFailure.Load().Failed() || !State_->RetirementPumpStarted)
+                co_return Drained;
+            if (State_->RunCompleted.load(std::memory_order_acquire))
+                co_return co_await State_->Drain();
+
+            boost::system::error_code NotifyError;
+            co_await State_->RunCompletionNotify.async_receive(
+                Net::redirect_error(Net::use_awaitable, NotifyError));
+            co_await Net::dispatch(State_->Strand, Net::use_awaitable);
+            if (NotifyError)
+            {
+                co_return std::unexpected(
+                    Preview::Fault::FromNative(static_cast<std::error_code>(NotifyError)));
+            }
+            (void)State_->RunCompletionNotify.try_send(boost::system::error_code{});
             co_return co_await State_->Drain();
         }
 
@@ -115,9 +155,14 @@ namespace Preview::Mux::H2Mux
                  static_cast<std::uint32_t>(MaxAdvertised)}}};
             State_->Session->SendSettings(Settings);
             const auto SettingsFlush = co_await State_->Flush();
+            if (SettingsFlush.CloseCanceled)
+            {
+                State_->RecordCloseCancellation(SettingsFlush.Error);
+                co_return std::expected<void, Preview::Fault::Failure>{};
+            }
             if (!SettingsFlush)
             {
-                co_return std::unexpected(SettingsFlush.error());
+                co_return std::unexpected(SettingsFlush.Error);
             }
             std::array<std::byte, 16 * 1024> Buffer{};
             while (!State_->Closed && State_->Raw && State_->Raw->IsOpen())
@@ -126,8 +171,10 @@ namespace Preview::Mux::H2Mux
                 co_await Net::dispatch(State_->Strand, Net::use_awaitable);
                 if (Part.Failure.Failed())
                 {
-                    if (!State_->Closed && Part.Failure.Code != Preview::Fault::Code::Eof &&
-                        Part.Failure.Code != Preview::Fault::Code::Canceled)
+                    if (Part.Failure.Code == Preview::Fault::Code::Eof) break;
+                    // 仅根 owner 的 Close 会取消 Raw 读；标记先于 strand 上的 Close 发布。
+                    if (Part.Failure.Code != Preview::Fault::Code::Canceled ||
+                        !State_->CloseRequested.load(std::memory_order_acquire))
                         co_return std::unexpected(Part.Failure);
                     break;
                 }
@@ -143,7 +190,15 @@ namespace Preview::Mux::H2Mux
                 }
                 State_->ApplyRefusedStreams();
                 const auto Flushed = co_await State_->Flush();
-                if (!Flushed) co_return std::unexpected(Flushed.error());
+                if (Flushed.CloseCanceled)
+                {
+                    State_->RecordCloseCancellation(Flushed.Error);
+                    break;
+                }
+                if (!Flushed)
+                {
+                    co_return std::unexpected(Flushed.Error);
+                }
             }
             co_return std::expected<void, Preview::Fault::Failure>{};
         }
@@ -172,6 +227,7 @@ namespace Preview::Mux::H2Mux
         auto Close() -> void
         {
             auto State = State_;
+            State->CloseRequested.store(true, std::memory_order_release);
             Net::dispatch(State->Strand, [State] { State->Close(); });
         }
 

@@ -130,11 +130,19 @@ namespace Preview::Account
             (*Slot)->Binding = Entry.Binding;
             (*Slot)->CredentialIndex = Entry.MaterialIndex;
             const auto& Runtime = Entry.Binding->Runtime();
-            auto Connection = Runtime->TryAcquireConnection(Entry.Binding->Policy()->Quota().MaxConnections);
+            const auto Policy = Entry.Binding->ResourcePolicy();
+            if (!Policy) return std::unexpected(Failure{Fault::Code::Forbidden});
+            if (Policy->Settings().Transfer.TrafficBytes &&
+                (!Runtime->Transfer() || !Runtime->Transfer()->AdmissionAllowed()))
+                return std::unexpected(MakeFailure(FailureReason::ByteQuota));
+            auto Connection = Runtime->TryAcquireConnection(Policy->Quota().MaxConnections);
             if (!Connection) { return std::unexpected(Connection.error()); }
             (*Slot)->Admission = std::move(*Connection);
             (*Slot)->Connected.store(true, std::memory_order_release);
-            auto Rate = Entry.Binding->Policy()->Rate()->TryReserve(Request.Rate);
+            auto Input = Request.Rate;
+            if (Input.Now == 0U) Input.Now = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count());
+            auto Rate = Policy->Rate()->TryReserve(Input);
             if (!Rate) { return std::unexpected(Rate.error()); }
             if (!State_->Accepting.load(std::memory_order_acquire)) { return std::unexpected(Failure{Fault::Code::Canceled}); }
             Rate->Commit();
@@ -173,17 +181,26 @@ namespace Preview::Account
             const auto& Index = Snapshot->Indexes[Ordinal_];
             if (!Index) { return std::unexpected(MakeFailure(FailureReason::NotFound)); }
             const Detail::CredentialIndexEntry Key{*Digest, Request.Credential.Kind(), {}, 0U};
+            const Detail::CredentialIndexEntry* Match{};
+            bool PolicyMismatch = false;
             for (const auto& Entry : Detail::CredentialRange(*Index, Key))
             {
                 if (Entry.Kind != Request.Credential.Kind() || Entry.Digest != *Digest) { continue; }
                 const auto& Material = Entry.Binding->Materials()->Credentials()[Entry.MaterialIndex];
                 if (!Material.Credential.Matches(Request.Credential) ||
-                    (!Material.Identity.empty() && !EqualIdentity(Material.Identity, Request.Identity))) { continue; }
-                if (Request.AccountId && Request.AccountId != Entry.Binding->AccountId()) { continue; }
+                    (!Request.Identity.empty() && !Material.Identity.empty() &&
+                     !EqualIdentity(Material.Identity, Request.Identity)) ||
+                    (Request.AccountId && Request.AccountId != Entry.Binding->AccountId())) { continue; }
                 if (Request.RequiredPolicyVersion && Request.RequiredPolicyVersion != Entry.Binding->Policy()->Version())
-                { return std::unexpected(MakeFailure(FailureReason::PolicyMismatch)); }
-                return Entry;
+                {
+                    PolicyMismatch = true;
+                    continue;
+                }
+                if (Match) { return std::unexpected(MakeFailure(FailureReason::InvalidCredential)); }
+                Match = &Entry;
             }
+            if (Match) { return *Match; }
+            if (PolicyMismatch) { return std::unexpected(MakeFailure(FailureReason::PolicyMismatch)); }
             return std::unexpected(MakeFailure(FailureReason::NotFound));
         }
         std::shared_ptr<Detail::AccountStoreState> State_;

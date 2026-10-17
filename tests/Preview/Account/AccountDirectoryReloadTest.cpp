@@ -297,9 +297,9 @@ TEST(PreviewAccountIdentityRegistry, StagedIdentityRollbackDoesNotRevokeLiveRunt
     }
     const auto RuntimeValue = RuntimeRegistry->FindOrCreate(Id, 1U);
     ASSERT_TRUE(RuntimeValue);
-    EXPECT_FALSE(RuntimeValue->IsRevoked());
+    EXPECT_FALSE((*RuntimeValue)->IsRevoked());
     EXPECT_TRUE(RuntimeRegistry->Revoke(Id));
-    EXPECT_TRUE(RuntimeValue->IsRevoked());
+    EXPECT_TRUE((*RuntimeValue)->IsRevoked());
 }
 
 TEST(PreviewAccountIdentityRegistry, CommittedIdentityPreservesManualRuntimeTombstone)

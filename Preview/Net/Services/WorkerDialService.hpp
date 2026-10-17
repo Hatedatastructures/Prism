@@ -35,6 +35,7 @@ namespace Preview::Network::Services
         Preview::Network::Dns::Config Dns;
         std::chrono::milliseconds Timeout{std::chrono::seconds(10)};
         bool EnableIpv6{true};
+        Preview::Network::Dialer::ObservationOwner Observation{};
     };
 
     /**
@@ -47,7 +48,7 @@ namespace Preview::Network::Services
         explicit WorkerDialService(WorkerDialOptions Options)
             : Resolver_(std::make_shared<Preview::Network::Dns::Resolver>(Options.Executor, Options.Dns)),
               Dialer_(Options.Executor,
-                  Preview::Network::Dialer::DialOptions{Options.Timeout, Options.EnableIpv6, Resolver_})
+                  Preview::Network::Dialer::DialOptions{Options.Timeout, Options.EnableIpv6, Resolver_, Options.Observation})
         {
         }
 
@@ -82,6 +83,10 @@ namespace Preview::Network::Services
         {
             return Resolver_;
         }
+
+        /** @brief Worker 启动前绑定进程统计 owner；后续各阶段只发送数值报告。 */
+        auto AttachObservations(Preview::Network::Dialer::ObservationOwner Owner) -> void
+        { Dialer_.AttachObservations(std::move(Owner)); }
 
     private:
         std::shared_ptr<Preview::Network::Dns::Resolver> Resolver_;

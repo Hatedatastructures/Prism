@@ -16,6 +16,7 @@ target_sources(OperationsHttpTest PRIVATE
     ConfigurationOutcomeHttpTest.cpp
     ConfigurationRestartFieldsTest.cpp
     OperationsMetadataTest.cpp
+    ManagementQueryContractTest.cpp
 )
 
 # 同一实际owner的源文件，复用现有target。

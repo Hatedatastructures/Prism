@@ -56,11 +56,11 @@ namespace Preview::Operations::Web
         return {};
     }
 
-    /** @brief 仅正式的七条页面路径可以返回 index；未知资源与 API 保持各自错误。 */
+    /** @brief 仅正式页面路径可以返回 index；未知资源与 API 保持各自错误。 */
     [[nodiscard]] inline auto IsPage(std::string_view Value) noexcept -> bool
     {
-        constexpr std::array Pages{"/", "/workers", "/accounts", "/sessions", "/events", "/configuration",
-            "/operations"};
+        constexpr std::array Pages{"/", "/ingresses", "/workers", "/accounts", "/user-groups",
+            "/sessions", "/events", "/configuration", "/operations"};
         for (const auto Page : Pages)
             if (Value == Page)
                 return true;

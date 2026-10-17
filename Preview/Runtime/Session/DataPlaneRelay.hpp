@@ -191,7 +191,16 @@ namespace Preview::Runtime
         {
             auto &Context = Run.Context;
             Preview::Middleware::Builtin::DialMiddleware Dial(Run.Dial);
+            if (Run.TraceWriter)
+            {
+                Run.TraceWriter->Record(SessionTraceStage::OutboundResolveDialStarted);
+            }
             const auto DialFailure = co_await Dial.Handle(Context.Inbound(), Context);
+            if (Run.TraceWriter)
+            {
+                Run.TraceWriter->Record(SessionTraceStage::OutboundResolveDialCompleted,
+                                        DialFailure.Code);
+            }
             const auto InboundStored = SessionCarrierInstallation::Inbound(*Run.Active, Context.Inbound());
             if (!InboundStored) ReportCarrierInstallationFailure(Run, InboundStored.error());
             if (DialFailure.Failed())
@@ -268,7 +277,15 @@ namespace Preview::Runtime
 
             Preview::Middleware::Builtin::RelayMiddleware Relay(nullptr, Run.RelayIdleTimeout);
             Run.LogState->MarkStage("Relay");
+            if (Run.TraceWriter)
+            {
+                Run.TraceWriter->Record(SessionTraceStage::RelayStarted);
+            }
             const auto RelayFailure = co_await Relay.Handle(Context.Inbound(), Context);
+            if (Run.TraceWriter)
+            {
+                Run.TraceWriter->Record(SessionTraceStage::RelayCompleted, RelayFailure.Code);
+            }
             if (RelayFailure.Failed())
             {
                 Run.Logger.WriteRecognition(SessionSupport::RecognitionLogRequest{

@@ -1,196 +1,269 @@
+import { TimeLink as Link } from '../TimeLink';
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DecodeCommandResponse, VerifyCommandProcess } from '../../Api/OperationsApi';
-import type { CommandEnvelope, CommandStatus } from '../../Api/OperationsApi';
-import { Fail } from '../../Api/Result';
-import type { Result } from '../../Api/Result';
-import { FailureNotice, LoadingState, SectionHeading, StatusBadge } from '../../Components/ResultView';
-import { Remove, useOperationNotice, useOperationTickets } from './OperationStore';
-import type { OperationTicket } from './OperationStore';
-import { HasCapability, useAdminServices } from '../UseOperations';
+import type { ReactNode } from 'react';
+import { Activity, ArrowRight, CheckCheck, Clock3, ListTodo, RefreshCw } from 'lucide-react';
+import { useSearchParams } from 'react-router';
+import { Badge, EmptyState, FormatTime, LoadMoreButton, PageHeader, Panel, QueryState, SectionHeading, StatusBadge, ToneForState } from '../../Components/Ui';
+import { OperationScopeChangedError } from '../../Services/AdminDataSource';
+import type { OperationRecord, OperationScope } from '../../Services/AdminDataSource';
+import { useAdminInfiniteQuery, useAdminServices, useBootstrapIdentity } from '../UseOperations';
 
 export default function OperationsPage(): ReactNode {
+    const [Params, SetParams] = useSearchParams();
     const Services = useAdminServices();
-    const Tickets = useOperationTickets();
-    const Notice = useOperationNotice();
-    const CanRead = HasCapability(Services, 'operations.status');
+    const Bootstrap = useBootstrapIdentity();
+    const CurrentScope: OperationScope | null = Bootstrap.isSuccess && Bootstrap.data
+        ? { ProcessId: Bootstrap.data.ProcessId, Incarnation: Bootstrap.data.Incarnation } : null;
+    const RouteId = Params.get('operation') ?? '';
+    const RouteProcessId = Params.get('process');
+    const RouteIncarnation = Params.get('incarnation');
+    const RouteScope: OperationScope | null = RouteProcessId && RouteIncarnation
+        ? { ProcessId: RouteProcessId, Incarnation: RouteIncarnation } : null;
+    const HasScopeChanged = !!RouteId && !!CurrentScope && !!RouteScope &&
+        (CurrentScope.ProcessId !== RouteScope.ProcessId || CurrentScope.Incarnation !== RouteScope.Incarnation);
+    const ScopeState = !CurrentScope ? Bootstrap.isError ? 'bootstrap-error' : 'bootstrap-pending'
+        : RouteId && !RouteScope ? 'unscoped' : HasScopeChanged ? 'mismatch' : 'match';
+    const Query = useAdminInfiniteQuery('operations', (Source, Page) => CurrentScope
+        ? Source.GetOperations(Page, CurrentScope) : Promise.resolve({ Items: [], NextCursor: '0', HasMore: false }),
+        CurrentScope ? [CurrentScope.ProcessId, CurrentScope.Incarnation] : ['scope-unavailable'], { Refresh: !!CurrentScope });
+    const Operations = Query.data?.pages.flatMap(Page => Page.Items) ?? [];
+    const [SelectionCleared, SetSelectionCleared] = useState(false);
+    const Selected = RouteId ? ScopeState === 'match' ? Operations.find(Operation => Operation.Id === RouteId) : undefined
+        : SelectionCleared ? undefined : Operations[0];
+    const TargetId = RouteId || Selected?.Id || '';
+    const TargetScope = RouteId ? RouteScope : CurrentScope;
+    const [OpenedAt, SetOpenedAt] = useState(() => Date.now());
+    useEffect(() => SetOpenedAt(Date.now()), [TargetId, TargetScope?.ProcessId, TargetScope?.Incarnation]);
+    const StatusQuery = useQuery({ queryKey: ['operations', 'operation-status', TargetId, TargetScope?.ProcessId, TargetScope?.Incarnation],
+        enabled: !!TargetId && ScopeState === 'match' && !!TargetScope,
+        queryFn: () => Services.Data.GetOperationStatus(TargetId, TargetScope!), retry: false, refetchIntervalInBackground: false,
+        refetchInterval: Value => Value.state.error instanceof OperationScopeChangedError ? false
+            : Value.state.data && !['accepted', 'running'].includes(Value.state.data.State) ? false
+                : Date.now() - OpenedAt < 30_000 ? 1000 : 5000 });
+    const ScopeChanged = StatusQuery.error instanceof OperationScopeChangedError;
+    const ListScopeChanged = Query.error instanceof OperationScopeChangedError;
+    useEffect(() => { if (ScopeChanged || ListScopeChanged) void Bootstrap.refetch(); }, [ScopeChanged, ListScopeChanged, Bootstrap.refetch]);
+    const ViewScopeState = ScopeChanged ? 'mismatch' : ScopeState;
+    const StatusRecord = StatusQuery.data?.Id === TargetId ? StatusQuery.data : undefined;
+    const Unverifiable = StatusQuery.data !== undefined && StatusRecord === undefined;
+    const Completed = Operations.filter(Operation => Operation.State === 'completed').length;
+    const InProgress = Operations.filter(Operation => Operation.State === 'accepted' || Operation.State === 'running').length;
+    const Failed = Operations.filter(Operation => ['failed', 'rejected', 'timed_out', 'blocked', 'conflict', 'invalid'].includes(Operation.State)).length;
+
+    const Select = (Id: string): void => {
+        if (!CurrentScope) return;
+        const Next = new URLSearchParams(Params);
+        Next.set('operation', Id); Next.set('process', CurrentScope.ProcessId); Next.set('incarnation', CurrentScope.Incarnation);
+        SetSelectionCleared(false); SetParams(Next, { replace: true });
+    };
+    const ClearSelection = (): void => {
+        const Next = new URLSearchParams(Params);
+        for (const Key of ['operation', 'process', 'incarnation']) Next.delete(Key);
+        SetSelectionCleared(true); SetParams(Next, { replace: true });
+    };
+    const DefaultId = Operations[0]?.Id ?? '';
+    useEffect(() => {
+        if (RouteId || SelectionCleared || !DefaultId || !CurrentScope) return;
+        const Next = new URLSearchParams(Params);
+        Next.set('operation', DefaultId); Next.set('process', CurrentScope.ProcessId); Next.set('incarnation', CurrentScope.Incarnation);
+        SetParams(Next, { replace: true });
+    }, [RouteId, SelectionCleared, DefaultId, CurrentScope?.ProcessId, CurrentScope?.Incarnation, Params, SetParams]);
+    const Detail = Selected ? EnrichOperationTarget(Selected, StatusRecord) : StatusRecord;
+
     return <>
-        <SectionHeading Eyebrow="OPERATIONS" Title="操作中心"
-            Description="这里只跟踪本标签页收到操作编号的命令。刷新后会尝试恢复当前管理进程的操作进度；检测到进程更换后，旧编号会清除。" />
-        {!CanRead && <div className="notice notice-unavailable" role="status">
-            此服务暂不提供操作进度查询。</div>}
-        {Notice.length > 0 && <div className="notice notice-info" role="status">{Notice}</div>}
-        {CanRead && Tickets.length === 0 && Notice.length === 0 && <section className="panel"><div className="panel-body">
-            <div className="empty-state"><span className="empty-mark" aria-hidden="true">—</span>
-                <strong>当前没有已保存的操作编号</strong>
-                <p>提交命令后，只有服务端确认接收并分配操作编号时才会加入这里。</p>
-            </div></div></section>}
-        {CanRead && Tickets.map(Ticket => <OperationCard key={`${Ticket.Process}-${Ticket.Incarnation}-${Ticket.Operation}`}
-            Ticket={Ticket} />)}
+        <PageHeader Title="操作中心"
+            Description="区分已受理、真实完成和结果未知；按完整目标与操作 ID 核对。"
+            Actions={<Badge Tone="accent" Dot>{Services.Mode === 'demo' ? '演示记录' : '当前管理端保留范围'}</Badge>} />
+        <div className="operation-summary-strip" aria-label="操作统计">
+            <OperationMetric Label="近期操作" Value={String(Operations.length)} Icon={<ListTodo size={15} />} />
+            <OperationMetric Label="已完成" Value={String(Completed)} Icon={<CheckCheck size={15} />} />
+            <OperationMetric Label="尚未观测到终态" Value={String(InProgress)} Icon={<Activity size={15} />} />
+            <OperationMetric Label="失败 / 拒绝" Value={String(Failed)} Icon={<Clock3 size={15} />} />
+        </div>
+        <Panel Title="近期操作记录" Subtitle="选择一项核对状态、失败原因和关联身份"
+            Action={<button className="button button-quiet" type="button" disabled={!TargetId} onClick={ClearSelection}>清除选择</button>}>
+            <QueryState Pending={(!CurrentScope && !Bootstrap.isError) || Query.isPending} Error={Bootstrap.error ?? Query.error}
+                Label="操作记录" HasData={!!CurrentScope && Query.data !== undefined}
+                Children={Operations.length === 0 && !TargetId ? <EmptyState Title="暂无操作记录" Detail="提交管理命令后可在这里核对结果。" /> :
+                    <div className="operation-layout">
+                        <div className="operation-list" role="group" aria-label="近期操作">
+                            {Operations.map(Operation => <OperationRow Value={Operation} key={Operation.Id}
+                                Selected={Operation.Id === Selected?.Id} Disabled={!CurrentScope} OnSelect={() => Select(Operation.Id)} />)}
+                            <LoadMoreButton HasMore={Query.hasNextPage ?? false} Busy={Query.isFetchingNextPage}
+                                OnLoad={() => void Query.fetchNextPage()} />
+                        </div>
+                        {ViewScopeState === 'mismatch' ? <div className="notice notice-warning operation-lookup-error" role="status">
+                                <strong>来源实例已变，未查询同号操作</strong>
+                                <p>链接或本次查询来源为 Process {(RouteScope ?? TargetScope)?.ProcessId ?? '未提供'} / Incarnation {(RouteScope ?? TargetScope)?.Incarnation ?? '未提供'}；服务端身份复核检测到变化，此 ID 不会按新实例重新解释。</p>
+                                {CurrentScope && <small>当前页面最近确认的实例：Process {CurrentScope.ProcessId} / Incarnation {CurrentScope.Incarnation}。</small>}
+                                <Link className="button button-secondary" to={CurrentOperationsPath(Params)}>查看当前实例操作列表 <ArrowRight size={12} /></Link>
+                            </div>
+                            : ViewScopeState === 'unscoped' ? <div className="notice notice-warning operation-lookup-error" role="status">
+                                <strong>操作链接未包含来源实例</strong>
+                                <p>该 ID 可能在进程重启后复用。本页不会把它当作原操作查询；列表只展示当前实例保留的记录，来源无法确认。选择一行后会将 URL 绑定到当前实例。</p>
+                            </div>
+                            : ViewScopeState === 'bootstrap-pending' ? <EmptyState Title="正在读取当前实例身份" Detail="确认 Process 与 Incarnation 后才查询操作 ID。" />
+                            : ViewScopeState === 'bootstrap-error' ? <div className="notice notice-warning" role="status"><strong>当前无法核实操作来源</strong><p>{Bootstrap.error?.message ?? '当前实例身份读取失败。'}</p></div>
+                            : Detail ? <OperationDetail Value={Detail} Current={StatusRecord} Scope={TargetScope} Unverifiable={Unverifiable}
+                                LastReadAt={StatusQuery.dataUpdatedAt} Pending={StatusQuery.isPending} Fetching={StatusQuery.isFetching}
+                                Error={StatusQuery.error} OnRefresh={() => { void StatusQuery.refetch(); }} />
+                                : TargetId && Unverifiable ? <div className="notice notice-warning operation-lookup-error" role="status">
+                                    <strong>当前实例没有可验证的此操作记录</strong><p>状态响应未回显请求的操作 ID。记录可能已淘汰或实例已重启；不能推断原操作是否执行。请按目标与时间核对当前列表。</p>
+                                </div>
+                                : TargetId && StatusQuery.error ? <div className="notice notice-warning operation-lookup-error" role="status">
+                                    <strong>当前状态未知</strong><p>{StatusQuery.error.message}。当前实例无法确认原操作是否执行；先核对目标状态，不要重复提交命令。</p>
+                                    <button className="button button-secondary" type="button" disabled={StatusQuery.isFetching} onClick={() => { void StatusQuery.refetch(); }}>
+                                        <RefreshCw size={14} />{StatusQuery.isFetching ? '查询中…' : '重新查询'}
+                                    </button>
+                                </div>
+                                : TargetId ? <div className="operation-lookup-pending">
+                                    <QueryState Pending={StatusQuery.isPending} Error={null} HasData={false} Label="指定操作"
+                                        Children={<EmptyState Title="正在核对指定操作" Detail="先确认当前实例，然后通过原操作 ID 查询；查询失败不会自动重新提交命令。" />} />
+                                    <button className="button button-quiet" type="button" disabled={StatusQuery.isFetching} onClick={() => { void StatusQuery.refetch(); }}>
+                                        <RefreshCw size={14} />{StatusQuery.isFetching ? '查询中…' : '重新查询此操作'}
+                                    </button>
+                                </div> : <EmptyState Title="未选择操作" Detail="从当前操作列表中选择一条记录。" />}
+                    </div>} />
+        </Panel>
+        <div className="notice notice-info operation-retention-note"><Clock3 size={14} />HTTP 超时或记录未命中不能证明命令没有执行。优先查询原操作；结果未知时先核对目标状态。</div>
     </>;
 }
 
-function OperationCard(Input: Readonly<{ Ticket: OperationTicket }>): ReactNode {
-    const Services = useAdminServices();
-    const Ticket = Input.Ticket;
-    const [LastConfirmed, SetLastConfirmed] = useState<CommandEnvelope | null>(null);
-    const [LastConfirmedAt, SetLastConfirmedAt] = useState<string | null>(null);
-    const SameProcess = Ticket.Process === Services.Bootstrap.Process &&
-        Ticket.Incarnation === Services.Bootstrap.Incarnation;
-    const Path = `/Operations/Operations/${Ticket.Operation}`;
-    const Query = useQuery({
-        queryKey: ['operation', Ticket.Process, Ticket.Incarnation, Ticket.Operation],
-        queryFn: async ({ signal }) => {
-            const ResultValue = await Services.Client.Query({ Path, Signal: signal, Decode: DecodeCommandResponse });
-            return ValidateIdentity(ResultValue, Ticket);
-        },
-        enabled: SameProcess,
-        retry: false,
-        refetchInterval: State => PollInterval(State.state.data),
-        refetchIntervalInBackground: false,
-        refetchOnWindowFocus: true,
-    });
-    const OperationUnavailable = Query.data?.Ok === true && Query.data.Value.Status === 'invalid' &&
-        Query.data.Value.Operation === '0';
-    useEffect(() => {
-        const Response = Query.data;
-        if (Response === undefined || !Response.Ok ||
-            (Response.Value.Status === 'invalid' && Response.Value.Operation === '0')) return;
-        SetLastConfirmed(Response.Value);
-        SetLastConfirmedAt(new Date().toLocaleString('zh-CN'));
-    }, [Query.data]);
-    let Tone: 'good' | 'warn' | 'bad' | 'neutral' = 'warn';
-    let Status = '等待首次状态确认';
-    const Command = LastConfirmed || (OperationUnavailable ? null : ReadCommand(Query.data));
-    if (OperationUnavailable && Command === null) Status = '当前无法查询';
-    if (Command !== null) {
-        Status = StatusLabel(Command.Status);
-        Tone = StatusTone(Command.Status);
-    }
-    function Forget(): void {
-        Remove(Ticket.Operation);
-    }
-    return <section className="panel operation-panel">
-        <div className="panel-heading"><div><h2>{Ticket.Label}</h2>
-            <p>{Ticket.Target}</p></div><StatusBadge Label={Status} Tone={Tone} /></div>
-        <div className="panel-body">
-            <dl className="operation-meta">
-                <div><dt>进程编号</dt><dd>{Ticket.Process}</dd></div>
-                <div><dt>操作编号</dt><dd>{Ticket.Operation}</dd></div>
-                <div><dt>本页记录时间</dt><dd>{Ticket.RecordedAt}</dd></div>
-            </dl>
-            {!SameProcess && <div className="notice notice-warn" role="status">
-                当前管理进程与提交操作时不同，已停止查询旧操作。</div>}
-            {SameProcess && Query.isPending && <LoadingState Label="操作终态" />}
-            {SameProcess && Query.isError && <div className="notice notice-unavailable" role="status">
-                <div><strong>{Command === null ? '尚未确认操作状态' : '本次查询失败'}</strong>
-                    <p>{Command === null ? '服务端尚未返回可确认的操作状态。' : '下方保留最近一次成功查询的状态；当前进度仍未知。'}</p></div>
-                <button className="button button-secondary" onClick={() => void Query.refetch()}>
-                    重新查询
-                </button>
-            </div>}
-            {SameProcess && Query.data && !Query.data.Ok && <FailureNotice Failure={Query.data.Failure}
-                Heading={Command === null ? '尚未确认操作状态' : '本次查询失败；保留最近一次确认状态'}
-                OnRetry={() => void Query.refetch()} />}
-            {SameProcess && OperationUnavailable && <div className="notice notice-warn" role="status">
-                <strong>服务端当前未保留此操作的状态</strong>
-                <p>无法据此判断操作是否完成；下方仅保留此前成功查询的状态。</p>
-            </div>}
-            {Command && <CommandDetails Value={Command} />}
-            {Command && LastConfirmedAt !== null && <p className="muted">最近成功查询：{LastConfirmedAt}</p>}
-            {SameProcess && Command === null && !OperationUnavailable && Query.data?.Ok && <div className="notice notice-info" role="status">
-                等待服务端返回当前 Operation 状态。</div>}
-            <button className="button button-secondary" onClick={Forget}>从此列表移除</button>
-        </div>
+function OperationMetric(Input: Readonly<{ Label: string; Value: string; Icon: ReactNode }>): ReactNode {
+    return <div className="operation-summary-cell"><span>{Input.Icon}{Input.Label}</span><strong>{Input.Value}</strong></div>;
+}
+
+function OperationRow(Input: Readonly<{ Value: OperationRecord; Selected: boolean; Disabled: boolean; OnSelect: () => void }>): ReactNode {
+    const Value = Input.Value;
+    return <button className={`operation-record ${Input.Selected ? 'selected' : ''}`} type="button" disabled={Input.Disabled}
+        aria-pressed={Input.Selected} onClick={Input.OnSelect}>
+        <span className="operation-record-head"><strong>{Value.Name}</strong><StatusBadge Label={OperationLabel(Value.State)} Tone={ToneForState(Value.State)} /></span>
+        <p>{Value.Message}</p>
+        <span className="operation-record-meta"><span>{Value.Id}</span><span>目标 {Value.Target}</span><span>{FormatTime(Value.StartedAt, true)}</span></span>
+    </button>;
+}
+
+function EnrichOperationTarget(ListRecord: OperationRecord, DetailRecord: OperationRecord | undefined): OperationRecord {
+    if (!DetailRecord) return ListRecord;
+    const UpdatedAt = DetailRecord.UpdatedAt ?? ListRecord.UpdatedAt;
+    const ProcessId = DetailRecord.ProcessId ?? ListRecord.ProcessId;
+    const WorkerId = DetailRecord.WorkerId ?? ListRecord.WorkerId;
+    const AccountId = DetailRecord.AccountId ?? ListRecord.AccountId;
+    const SessionId = DetailRecord.SessionId ?? ListRecord.SessionId;
+    const StreamId = DetailRecord.StreamId ?? ListRecord.StreamId;
+    const TaskId = DetailRecord.TaskId ?? ListRecord.TaskId;
+    const ParentTaskId = DetailRecord.ParentTaskId ?? ListRecord.ParentTaskId;
+    return {
+        ...ListRecord,
+        ...(ProcessId !== undefined ? { ProcessId } : {}),
+        GenerationId: DetailRecord.GenerationId ?? ListRecord.GenerationId,
+        ...(WorkerId !== undefined ? { WorkerId } : {}),
+        ...(AccountId !== undefined ? { AccountId } : {}),
+        ...(SessionId !== undefined ? { SessionId } : {}),
+        ...(StreamId !== undefined ? { StreamId } : {}),
+        ...(TaskId !== undefined ? { TaskId } : {}),
+        ...(ParentTaskId !== undefined ? { ParentTaskId } : {}),
+        StartedAt: DetailRecord.StartedAt ?? ListRecord.StartedAt,
+        ...(UpdatedAt !== undefined ? { UpdatedAt } : {}),
+    };
+}
+
+function OperationDetail(Input: Readonly<{
+    Value: OperationRecord; Current: OperationRecord | undefined; Scope: OperationScope | null; Unverifiable: boolean; LastReadAt: number;
+    Pending: boolean; Fetching: boolean; Error: Error | null; OnRefresh: () => void;
+}>): ReactNode {
+    const Value = Input.Value;
+    const Verified = Input.Current !== undefined && Input.Error === null;
+    const LastKnown = Input.Current ?? Value;
+    const StatusLabel = Verified && Input.Current ? OperationLabel(Input.Current.State)
+        : Input.Error || Input.Unverifiable ? '当前状态未知' : Input.Pending ? '正在核对' : '尚未核实';
+    const StatusTone = Verified && Input.Current ? ToneForState(Input.Current.State) : ToneForState('unknown');
+    const LastKnownSource = Input.Current ? '最近成功查询' : '操作列表最后记录';
+    const LastKnownTime = Input.Current ? ReadTime(Input.LastReadAt)
+        : Value.UpdatedAt ? '列表所见末次状态事件 ' + FormatTime(Value.UpdatedAt, true) : '列表状态事件时间未提供';
+    const Message = Verified && Input.Current ? Input.Current.Message : LastKnown.Message;
+    const Failure = Verified && Input.Current ? Input.Current.Failure : LastKnown.Failure;
+    const SessionTarget = SessionPath(Value);
+    return <section className="operation-inspector" aria-label="操作详情">
+        <SectionHeading Title={`${Value.Name} · ${Value.Target}`} Detail={`操作 ID ${Value.Id}`} />
+        <QueryState Pending={Input.Pending} Error={null} Label="操作状态" HasData={true}
+            Children={<>
+                <div className="operation-detail-state">
+                    <StatusBadge Label={StatusLabel} Tone={StatusTone} />
+                    <span>{Verified ? '当前状态 · 最近成功读取 ' + ReadTime(Input.LastReadAt)
+                        : LastKnownSource + '：' + OperationLabel(LastKnown.State) + ' · ' + LastKnownTime}</span>
+                    <button className="button button-quiet" type="button" disabled={Input.Fetching}
+                        onClick={Input.OnRefresh}><RefreshCw size={14} />{Input.Fetching ? '查询中…' : '重新查询'}</button>
+                </div>
+                {Input.Error && <div className="notice notice-warning" role="status">
+                    <strong>当前状态查询失败，无法确认操作是否仍在执行。</strong>
+                    <p>{Input.Error.message}。你可以重新查询同一操作；不要重复提交命令。</p>
+                </div>}
+                {Input.Unverifiable && <div className="notice notice-warning" role="status">
+                    <strong>当前实例没有可验证的此操作记录</strong>
+                    <p>状态响应没有回显请求的操作 ID。记录可能已淘汰或实例已重启；这不能证明原操作失败、取消或未执行。</p>
+                </div>}
+                <strong className="operation-message">{Verified ? Message : '最后记录：' + Message}</strong>
+                {Failure && <Badge Tone="danger">{Verified ? '失败原因：' : '最后记录的失败原因：'}{Failure}</Badge>}
+                <dl className="detail-kv">
+                    <div><dt>命令</dt><dd>{Value.Name}</dd></div><div><dt>目标</dt><dd>{Value.Target}</dd></div>
+                    <div><dt>操作 ID</dt><dd>{Value.Id}</dd></div><div><dt>关联 ID</dt><dd>{Value.CorrelationId || '未提供'}</dd></div>
+                    <div><dt>Process</dt><dd>{Value.ProcessId ?? '未提供'}</dd></div>
+                    <div><dt>Process Incarnation</dt><dd>{Input.Scope?.Incarnation ?? '未提供'}</dd></div>
+                    <div><dt>Generation</dt><dd>{Value.GenerationId ?? '未提供'}</dd></div>
+                    <div><dt>Worker</dt><dd>{Value.WorkerId ?? '未提供'}</dd></div>
+                    <div><dt>账户</dt><dd>{Value.AccountId ?? '未提供'}</dd></div>
+                    <div><dt>Session</dt><dd>{Value.SessionId ?? '未提供'}</dd></div>
+                    <div><dt>Stream</dt><dd>{Value.StreamId ?? '未提供'}</dd></div>
+                    <div><dt>Task</dt><dd>{Value.TaskId ?? '未提供'}</dd></div>
+                    <div><dt>Parent Task</dt><dd>{Value.ParentTaskId ?? '未提供'}</dd></div>
+                    <div><dt>受理事件时间</dt><dd>{Value.StartedAt ? FormatTime(Value.StartedAt, true) : '未提供'}</dd></div>
+                    <div><dt>列表所见末次状态事件</dt><dd>{Value.UpdatedAt ? FormatTime(Value.UpdatedAt, true) : '未提供'}</dd></div>
+                </dl>
+                <div className="detail-links">
+                    {Value.WorkerId && Value.ProcessId && Value.GenerationId && <Link to={WorkerPath(Value)}>查看 Worker {Value.WorkerId} 的目标范围 <ArrowRight size={11} /></Link>}
+                    {Value.WorkerId && (!Value.ProcessId || !Value.GenerationId) && <span>Worker {Value.WorkerId} · 缺少 Process/Generation，不能精确跳转</span>}
+                    {Value.AccountId && <Link to={`/accounts?account=${encodeURIComponent(Value.AccountId)}`}>查看当前账户 {Value.AccountId} <ArrowRight size={11} /></Link>}
+                    {Value.SessionId && SessionTarget && <Link to={SessionTarget}>Session {Value.SessionId} <ArrowRight size={11} /></Link>}
+                    {Value.SessionId && !SessionTarget && <span>Session {Value.SessionId} · 完整身份字段不足，无法精确跳转</span>}
+                </div>
+            </>} />
     </section>;
 }
 
-function ValidateIdentity(
-    ResultValue: Result<CommandEnvelope>, Ticket: OperationTicket,
-): Result<CommandEnvelope> {
-    const ProcessResult = VerifyCommandProcess(ResultValue, Ticket.Process, false);
-    if (!ProcessResult.Ok) return ProcessResult;
-    const Value = ProcessResult.Value;
-    if (Value.Status === 'invalid' && Value.Operation === '0') return ProcessResult;
-    if (Value.Operation !== Ticket.Operation) {
-        return Fail({ Kind: 'contract', Message: '状态响应的 Operation ID 与请求不一致',
-            HttpStatus: null, MayHaveExecuted: false });
-    }
-    return ProcessResult;
+function ReadTime(Value: number): string {
+    return Number.isFinite(Value) && Value > 0
+        ? FormatTime(new Date(Value).toISOString(), true) : '读取时间未提供';
 }
 
-function PollInterval(Data: Result<CommandEnvelope> | undefined): number | false {
-    if (Data === undefined) return 1500;
-    if (!Data.Ok) return 4000;
-    if (Data.Value.Status === 'accepted') return 1500;
-    return false;
+function SessionPath(Value: OperationRecord): string | null {
+    if (!Value.SessionId || !Value.ProcessId || !Value.WorkerId || !Value.GenerationId) return null;
+    const Params = new URLSearchParams({
+        session: Value.SessionId, process: Value.ProcessId,
+        identity_worker: Value.WorkerId, generation: Value.GenerationId,
+    });
+    if (Value.AccountId) Params.set('identity_account', Value.AccountId);
+    return '/sessions?' + Params.toString();
 }
 
-function ReadCommand(Data: Result<CommandEnvelope> | undefined): CommandEnvelope | null {
-    if (Data === undefined || !Data.Ok) return null;
-    return Data.Value;
+function WorkerPath(Value: OperationRecord): string {
+    const Params = new URLSearchParams({ worker: Value.WorkerId ?? '', process: Value.ProcessId ?? '', generation: Value.GenerationId ?? '' });
+    return '/workers?' + Params.toString();
 }
 
-function StatusLabel(Status: CommandStatus): string {
-    if (Status === 'accepted') return '处理中';
-    if (Status === 'completed') return '已完成';
-    if (Status === 'rejected') return '已拒绝';
-    if (Status === 'unavailable') return '不可用';
-    if (Status === 'failed') return '失败';
-    if (Status === 'timed_out') return '已超时';
-    if (Status === 'blocked') return '已阻止';
-    if (Status === 'conflict') return '配置版本已变化';
-    if (Status === 'restart_required') return '需要重启';
-    return '无法查询此操作';
+function CurrentOperationsPath(Current: URLSearchParams): string {
+    const Params = new URLSearchParams(Current);
+    for (const Key of ['operation', 'process', 'incarnation']) Params.delete(Key);
+    const Query = Params.toString();
+    return '/operations' + (Query ? '?' + Query : '');
 }
 
-function StatusTone(Status: CommandStatus): 'good' | 'warn' | 'bad' | 'neutral' {
-    if (Status === 'completed') return 'good';
-    if (Status === 'accepted' || Status === 'unavailable' || Status === 'blocked') return 'warn';
-    if (Status === 'failed' || Status === 'timed_out' || Status === 'rejected') return 'bad';
-    return 'neutral';
-}
-
-function CommandDetails(Input: Readonly<{ Value: CommandEnvelope }>): ReactNode {
-    const Value = Input.Value;
-    const Scope: readonly (readonly [string, string | null])[] = [
-        ['Process', Value.Process],
-        ['Generation', Value.Generation], ['Worker', Value.Worker], ['Account', Value.Account],
-        ['Session', Value.Session], ['Stream', Value.Stream], ['Task', Value.Task],
-        ['Parent Task', Value.ParentTask],
-    ];
-    const ActiveScope = Scope.filter(([, Identifier]) => Identifier !== '0' && Identifier !== null);
-    let Failure = '无错误';
-    if (Value.Failure !== null) {
-        Failure = Value.Failure.Code;
-        if (Value.Failure.NativeCategory !== null) Failure += ` · ${Value.Failure.NativeCategory}`;
-        if (Value.Failure.NativeValue !== null) Failure += ` · ${Value.Failure.NativeValue}`;
-    }
-    return <div className="status-detail">
-        <div>服务状态：<strong>{StatusLabel(Value.Status)}</strong></div>
-        <div>服务说明：{Value.Message || '未提供'}</div>
-        <div>错误详情：{Failure}</div>
-        {ActiveScope.length > 0 && <div className="data-grid">
-            {ActiveScope.map(([Label, Identifier]) => <div className="data-cell" key={Label}>
-                <span>{ScopeLabel(Label)}</span><strong className="mono">{Identifier}</strong></div>)}
-        </div>}
-        {ActiveScope.length === 0 && <div>服务端未提供具体资源编号。</div>}
-        {Value.RestartRequiredFields.length > 0 && <div><strong>需要重启的字段</strong>
-            <ul>{Value.RestartRequiredFields.map(Field => <li key={Field}>{Field}</li>)}</ul></div>}
-        {Value.ConfigurationIssues.length > 0 && <div><strong>配置问题</strong>
-            <ul>{Value.ConfigurationIssues.map((Issue, Index) => <li key={`${Issue.Path}-${Index}`}>
-                {Issue.Path || 'Configuration'} · {Issue.Code} · {Issue.Message}</li>)}</ul></div>}
-    </div>;
-}
-
-function ScopeLabel(Value: string): string {
-    if (Value === 'Process') return '进程';
-    if (Value === 'Generation') return '配置版本';
-    if (Value === 'Worker') return 'Worker';
-    if (Value === 'Account') return '账户';
-    if (Value === 'Session') return '会话';
-    if (Value === 'Stream') return 'Stream';
-    if (Value === 'Parent Task') return '父任务';
-    return '任务';
+function OperationLabel(State: OperationRecord['State']): string {
+    const Labels: Readonly<Record<OperationRecord['State'], string>> = {
+        accepted: '已接收', running: '等待终态', completed: '已完成', rejected: '已拒绝', unavailable: '不可用',
+        failed: '失败', timed_out: '超时', blocked: '受阻', restart_required: '需重启', conflict: '版本冲突', invalid: '无效请求',
+        unknown: '结果未知', interrupted: '中断待核对',
+    };
+    return Labels[State];
 }

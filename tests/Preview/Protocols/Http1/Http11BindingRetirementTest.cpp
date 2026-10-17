@@ -11,7 +11,7 @@
 #include <Preview/Protocols/Http1/Binding.hpp>
 #include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <TestSupport/Preview/ProviderBindings.hpp>
-#include "../../protocols/http1/HttpTestSupport.hpp"
+#include "../../Protocols/Http1/HttpTestSupport.hpp"
 
 #include <chrono>
 #include <exception>

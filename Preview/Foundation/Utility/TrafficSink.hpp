@@ -27,8 +27,16 @@ namespace Preview::Foundation
     {
         Bytes,
         Completed,
-        RecognitionLatency
+        RecognitionLatency,
+        ProtocolAssociated,
+        NetworkLatency,
     };
+
+    /** @brief 物理入口归属；未发布归属的路径保持 Unknown，不能推断为 TCP。 */
+    enum class TrafficTransport : std::uint8_t { Unknown, Tcp, Udp, Quic };
+    /** @brief 逻辑计量层级；Mux 子流不得再重复累计根承载字节。 */
+    enum class TrafficPayloadLayer : std::uint8_t { Unknown, LogicalStream, Datagram, MuxStream };
+    enum class NetworkLatencyStage : std::uint8_t { DnsResolution, TcpConnect };
 
     /** @struct TrafficEvent @brief 一次成功字节增量或终结的数值观察；终结不得重复累计已上报的字节。 */
     struct TrafficEvent final
@@ -44,8 +52,14 @@ namespace Preview::Foundation
         TrafficEventKind Kind{TrafficEventKind::Completed};
         /** @brief RecognitionLatency 事件中实际测得的 admission 微秒数。 */
         std::uint64_t DurationMicroseconds{0};
+        std::uint64_t Protocol{0}; ///< ProtocolType numeric identity for association events.
         /** @brief 真实业务终态，观察丢弃及聚合失败另计，不改写此原因。 */
         Preview::Fault::Failure Failure{};
+        std::uint64_t ProtocolInstance{0}; ///< 本代配置协议下标加一；零表示尚未归属。
+        std::uint64_t Ingress{0}; ///< 本代配置入口下标加一；由 Transport 限定身份。
+        TrafficTransport Transport{TrafficTransport::Unknown};
+        TrafficPayloadLayer PayloadLayer{TrafficPayloadLayer::Unknown};
+        NetworkLatencyStage NetworkStage{NetworkLatencyStage::DnsResolution};
     };
 
     /** @brief 一次真实入站 recognition admission 耗时；所有字段均为数值身份。 */

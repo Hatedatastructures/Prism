@@ -18,7 +18,7 @@ namespace
         Net::io_context &Io;
     };
 
-    /// 关闭虚拟流后驱动挂起读，并验证 EOF 收口。
+    /// 先关闭虚拟流再发起读取，验证封止后的准入精确返回 Canceled。
     auto RunCloseRead(CloseReadScenario Scenario) -> Net::awaitable<void>
     {
         auto Stream = std::make_shared<Http2Stream>(Scenario.State, 3);
@@ -91,17 +91,27 @@ namespace
             if (!Opened)
             {
                 ADD_FAILURE() << "failed to open reset streams";
+                co_await DrainHttp2Server(Scenario.Server);
+                Scenario.Guard.Cancel();
                 co_return;
             }
         }
         std::vector<std::byte> Wire;
         if (!Client->Collect(Wire))
         {
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
             co_return;
         }
         const auto WriteResult = co_await Scenario.ClientTransport->WriteSome(
             std::span<const std::byte>(Wire));
         EXPECT_FALSE(WriteResult.Failure.Failed());
+        if (WriteResult.Failure.Failed())
+        {
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
+            co_return;
+        }
 
         for (std::size_t Index = 0; Index < 4; ++Index)
         {
@@ -112,8 +122,8 @@ namespace
             }
             ++Scenario.Accepted;
         }
+        Scenario.Server->Close();
         Scenario.Guard.Cancel();
-        Scenario.Io.stop();
     }
 
     struct ServerCloseReadScenario final
@@ -156,6 +166,9 @@ namespace
         if (!OpenedStream)
         {
             ADD_FAILURE() << "failed to open read stream";
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
+            Scenario.Completed = true;
             co_return;
         }
         const auto ClientStreamId = *OpenedStream;
@@ -165,12 +178,21 @@ namespace
         const auto WriteResult = co_await Scenario.ClientTransport->WriteSome(
             std::span<const std::byte>(Wire));
         EXPECT_FALSE(WriteResult.Failure.Failed());
+        if (WriteResult.Failure.Failed())
+        {
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
+            Scenario.Completed = true;
+            co_return;
+        }
 
         auto Stream = co_await Scenario.Server->AcceptStream();
         EXPECT_TRUE(Stream);
         Scenario.Accepted = static_cast<bool>(Stream);
         if (!Stream)
         {
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
             Scenario.Completed = true;
             co_return;
         }
@@ -191,8 +213,9 @@ namespace
         EXPECT_TRUE(ActivityDrain);
         const auto TerminationDrain = co_await Stream->DrainTerminations();
         EXPECT_TRUE(TerminationDrain);
+        const auto ServerDrain = co_await Scenario.Server->Drain();
+        EXPECT_TRUE(ServerDrain);
         Scenario.Guard.Cancel();
-        Scenario.Io.stop();
     }
 
     struct StreamReadObservation final
@@ -390,7 +413,7 @@ namespace
     }
 }
 
-TEST(H2MuxStreamLifetime, CloseThenReadReturnsEofWithoutCrash)
+TEST(H2MuxStreamLifetime, CloseThenReadReturnsCanceledWithoutCrash)
     {
         Net::io_context Io;
         auto State = MakeState(Io);
@@ -408,7 +431,8 @@ TEST(H2MuxStreamLifetime, CloseThenReadReturnsEofWithoutCrash)
         EXPECT_FALSE(*Guard.Timeouted);
         EXPECT_TRUE(Completed);
         EXPECT_EQ(ReadBytes, 0U);
-        EXPECT_FALSE(ReadError);
+        EXPECT_EQ(ReadError, Preview::Fault::ToNative(
+            Preview::Fault::Failure{Preview::Fault::Code::Canceled}));
     }
 
 TEST(H2MuxStreamLifetime, ShutdownKeepsSharedTransportWritable)
@@ -461,7 +485,11 @@ TEST(H2MuxStreamLifetime, AcceptStreamDeliversAllQueuedStreamsWithoutLoss)
         EXPECT_FALSE(*Guard.Timeouted);
         EXPECT_TRUE(RunResult->Completed);
         EXPECT_FALSE(RunResult->Threw);
-        EXPECT_TRUE(RunResult->Succeeded);
+        EXPECT_TRUE(RunResult->Succeeded)
+            << "H2 服务端 Run 失败，Code="
+            << static_cast<int>(RunResult->Failure.Code)
+            << " Native=" << RunResult->Failure.Native.category().name()
+            << '/' << RunResult->Failure.Native.value();
         EXPECT_TRUE(RunResult->Retired);
         EXPECT_EQ(Accepted, StreamCount);
     }
@@ -496,7 +524,8 @@ TEST(H2MuxStreamLifetime, ServerCloseWakesPendingStreamReadWithEof)
         EXPECT_TRUE(Accepted);
         EXPECT_TRUE(Completed);
         EXPECT_EQ(ReadBytes, 0U);
-        EXPECT_FALSE(ReadError);
+        EXPECT_EQ(ReadError, Preview::Fault::ToNative(
+            Preview::Fault::Failure{Preview::Fault::Code::Eof}));
     }
 
 TEST(H2MuxStreamLifetime, AdmissionWaitsForRemoteAndLocalTerminalAndTrackedIo)

@@ -1,6 +1,7 @@
 /** @file RootSession.hpp @brief generic sing-mux 的正式 MuxSession 与 root lease drain。 */
 #pragma once
 #include <Preview/Protocols/Mux/Detail/Root/RootRetirement.hpp>
+#include <Preview/Protocols/Mux/Detail/Root/RootRunFailure.hpp>
 #include <Preview/Contract/Ingress/MuxRootCreateRequest.hpp>
 #include <Preview/Foundation/Executor/ContextOwner.hpp>
 #include <Preview/Lifecycle/DrainReservation.hpp>
@@ -55,9 +56,17 @@ namespace Preview::Mux::Detail
                 const auto Run = co_await State_->Lifetime.Drain();
                 if (!Run) State_->RecordTerminalFailure(Run.error());
                 const auto Resources = co_await DrainResources(State_);
+                if (State_->ResourcesRetired.load(std::memory_order_acquire))
+                {
+                    const auto Failure = State_->TerminalFailure.Load();
+                    if (Failure.Failed() && Failure.Code != Preview::Fault::Code::Canceled)
+                        co_return std::unexpected(Failure);
+                    co_return std::expected<void, Preview::Fault::Failure>{};
+                }
                 if (!Resources) co_return std::unexpected(Resources.error());
                 if (!Run) co_return std::unexpected(Run.error());
-                co_return std::expected<void, Preview::Fault::Failure>{};
+                co_return std::unexpected(
+                    Preview::Fault::Failure{Preview::Fault::Code::Blocked});
             }
 
         private:
@@ -69,7 +78,8 @@ namespace Preview::Mux::Detail
         class EngineCloseOwner final : public RootEngineControl
         {
         public:
-            explicit EngineCloseOwner(std::shared_ptr<Server> Value) : Server_(std::move(Value)) {}
+            EngineCloseOwner(std::shared_ptr<Server> Value, std::weak_ptr<RootState> Root)
+                : Server_(std::move(Value)), Root_(std::move(Root)) {}
             auto RequestClose() noexcept
                 -> std::expected<void, Preview::Fault::Failure> override
             {
@@ -80,7 +90,8 @@ namespace Preview::Mux::Detail
                 }
                 catch (...)
                 {
-                    return std::unexpected(FailureFromException(std::current_exception()));
+                    return std::unexpected(
+                        RootState::FailureFromException(std::current_exception()));
                 }
             }
             [[nodiscard]] auto IsRetired() const noexcept -> bool override
@@ -109,7 +120,13 @@ namespace Preview::Mux::Detail
                 }
                 else if constexpr (requires(Server &Value) { Value.Session(); })
                 {
-                    const auto Receipt = co_await DrainMuxServerTasks(Server_);
+                    const auto Root = Root_.lock();
+                    if (!Root)
+                    {
+                        co_return std::unexpected(
+                            Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+                    }
+                    const auto Receipt = co_await DrainMuxServerTasks(Root, Server_);
                     Retired_.store(Receipt.Retired, std::memory_order_release);
                     if (Receipt.Failure.Failed())
                         co_return std::unexpected(Receipt.Failure);
@@ -123,6 +140,7 @@ namespace Preview::Mux::Detail
             }
         private:
             std::shared_ptr<Server> Server_;
+            std::weak_ptr<RootState> Root_;
             std::atomic_bool Retired_{false};
         };
 
@@ -178,6 +196,12 @@ namespace Preview::Mux::Detail
             if (!State->Lifetime.Enter())
             {
                 State->Stop();
+                if (State->Stopping.load(std::memory_order_acquire) &&
+                    State->Phase.load(std::memory_order_acquire) !=
+                        RootState::RunPhase::CancellationRequested)
+                {
+                    co_return std::expected<void, Preview::Fault::Failure>{};
+                }
                 co_return std::unexpected(
                     Preview::Fault::Failure{Preview::Fault::Code::Canceled});
             }
@@ -235,7 +259,15 @@ namespace Preview::Mux::Detail
                     Fatal = std::current_exception();
                 }
             }
-            if (!Result) State->RecordTerminalFailure(Result.error());
+            const bool ClosedDuringRun = IsExpectedRootRunCancellation(State, Result);
+            if (ClosedDuringRun) Result = {};
+            else if (!Result) State->RecordTerminalFailure(Result.error());
+            if (State->PublishRunOutcome())
+            {
+                State->ExitStatus.store(Preview::Fault::Code::Canceled);
+                State->RecordTerminalFailure(
+                    Preview::Fault::Failure{Preview::Fault::Code::Canceled});
+            }
 
             co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
             State->Stop();
@@ -249,8 +281,8 @@ namespace Preview::Mux::Detail
             {
                 const auto Context = Preview::Executor::ContextOwner::Find(State->Executor);
                 if (Context && Context->Fatal) Context->Fatal->Publish(Fatal);
-                State->RecordTerminalFailure(FailureFromException(Fatal));
-                if (Result) Result = std::unexpected(FailureFromException(Fatal));
+                State->RecordTerminalFailure(RootState::FailureFromException(Fatal));
+                if (Result) Result = std::unexpected(RootState::FailureFromException(Fatal));
             }
             if (State->ExitStatus.load() == Preview::Fault::Code::Canceled && Result)
             {
@@ -261,33 +293,16 @@ namespace Preview::Mux::Detail
             if (TerminalFailure.Failed()) Result = std::unexpected(TerminalFailure);
             Lifetime.Transfer();
             State->Lifetime.Leave();
-            if (State->ResourcesReadyForFinalization.exchange(false, std::memory_order_acq_rel))
-            {
-                try
-                {
-                    co_await Net::dispatch(State->Executor, Net::use_awaitable);
-                    if (!State->ReleaseResources())
-                    {
-                        const Preview::Fault::Failure Failure{Preview::Fault::Code::Blocked};
-                        State->RecordTerminalFailure(Failure);
-                        if (Result) Result = std::unexpected(Failure);
-                    }
-                }
-                catch (...)
-                {
-                    const auto Failure = FailureFromException(std::current_exception());
-                    State->RecordTerminalFailure(Failure);
-                    if (Result) Result = std::unexpected(Failure);
-                }
-            }
-            co_return Result;
+            co_return co_await FinalizeRootRunResources(State, std::move(Result));
         }
         /** @brief 暴露已有 child/frame/lifetime tree 的唯一协议活动 owner。 */
         [[nodiscard]] auto Activity() const
             -> std::shared_ptr<Preview::Contract::CarrierActivity> override
         { return Activity_; }
+        /** @brief 显式取消根并发布取消结果。 */
         auto Cancel() noexcept -> void override { Activity_->Seal(); State_->RequestCancel(); }
-        auto Close() noexcept -> void override { Activity_->Seal(); State_->RequestCancel(); }
+        /** @brief 正常停止根并取消子活动，不把停止本身记为取消结果。 */
+        auto Close() noexcept -> void override { Activity_->Seal(); State_->Stop(); }
         /** @brief 冷绑定关闭后等本根已开始的正式 Run 真实完成，未开始的已关闭根不产生异步任务。 */
         [[nodiscard]] auto Drain()
             -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
@@ -319,7 +334,7 @@ namespace Preview::Mux::Detail
                 State->StreamCatalogOwner->Disable();
             }
             if (!State->EngineControl)
-                State->EngineControl = std::make_shared<EngineCloseOwner<Server>>(Engine);
+                State->EngineControl = std::make_shared<EngineCloseOwner<Server>>(Engine, State);
             while (!State->Stopping.load())
             {
                 const auto Stream = co_await Engine->AcceptStream();
@@ -357,17 +372,17 @@ namespace Preview::Mux::Detail
             try
             {
                 const auto Result = co_await Server->Run();
-                if (!Result) State->RecordTerminalFailure(Result.error());
+                if (!Result) RecordHttp2RunFailure(State, Result.error());
             }
             catch (const boost::system::system_error &Error)
             {
-                State->RecordTerminalFailure(Preview::Fault::FromNative(
+                RecordHttp2RunFailure(State, Preview::Fault::FromNative(
                     static_cast<std::error_code>(Error.code())));
                 throw;
             }
             catch (const std::system_error &Error)
             {
-                State->RecordTerminalFailure(Preview::Fault::FromNative(Error.code()));
+                RecordHttp2RunFailure(State, Preview::Fault::FromNative(Error.code()));
                 throw;
             }
             catch (...)
@@ -382,7 +397,8 @@ namespace Preview::Mux::Detail
         {
             auto Server = std::make_shared<H2Mux::Http2Server>(State->Inbound, State->Options.MaxStreams);
             if (!State->EngineControl)
-                State->EngineControl = std::make_shared<EngineCloseOwner<H2Mux::Http2Server>>(Server);
+                State->EngineControl = std::make_shared<EngineCloseOwner<H2Mux::Http2Server>>(
+                    Server, State);
             Server->BindIdentity(State->Metadata.TaskIdentity);
             if (State->StreamCatalogOwner &&
                 !State->StreamCatalogOwner->Enable(State->Options.MaxStreams))
@@ -413,7 +429,7 @@ namespace Preview::Mux::Detail
                 {
                     if (const auto Owner = WeakStream.lock())
                     {
-                        return Owner->StartReset(Preview::Http2::ErrorCancel);
+                        return Owner->Cancel();
                     }
                     return std::unexpected(
                         Preview::Fault::Failure{Preview::Fault::Code::Blocked});
@@ -455,41 +471,6 @@ namespace Preview::Mux::Detail
         std::shared_ptr<RootRegistryNode> RegistrationNode_;
         bool CreateCommitted_{false};
 
-        [[nodiscard]] static auto FailureFromException(std::exception_ptr Failure) noexcept
-            -> Preview::Fault::Failure
-        {
-            try
-            {
-                if (Failure) std::rethrow_exception(Failure);
-            }
-            catch (const boost::system::system_error &Error)
-            {
-                return Preview::Fault::FromNative(static_cast<std::error_code>(Error.code()));
-            }
-            catch (const std::system_error &Error)
-            {
-                return Preview::Fault::FromNative(Error.code());
-            }
-            catch (...) { return {Preview::Fault::Code::IoError}; }
-            return {Preview::Fault::Code::IoError};
-        }
-
-        [[nodiscard]] static auto DrainTaskScope(
-            const std::shared_ptr<Preview::Lifecycle::TaskRegistry> &Scope,
-            const std::shared_ptr<RootState> &State)
-            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
-        {
-            std::expected<void, Preview::Fault::Failure> Drained;
-            try { Drained = co_await Scope->Drain(); }
-            catch (...) { Drained = std::unexpected(FailureFromException(std::current_exception())); }
-            if (!Drained) State->RecordTerminalFailure(Drained.error());
-            const auto Stats = Scope->Stats();
-            if (Stats.Active == 0U && !Stats.DrainBlocked)
-                co_return std::expected<void, Preview::Fault::Failure>{};
-            if (!Drained) co_return std::unexpected(Drained.error());
-            co_return std::unexpected(
-                Preview::Fault::Failure{Preview::Fault::Code::Blocked});
-        }
         [[nodiscard]] static auto DrainResources(std::shared_ptr<RootState> State)
             -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
@@ -503,7 +484,7 @@ namespace Preview::Mux::Detail
                 }
                 catch (...)
                 {
-                    const auto Failure = FailureFromException(std::current_exception());
+                    const auto Failure = RootState::FailureFromException(std::current_exception());
                     State->RecordTerminalFailure(Failure);
                     co_return std::unexpected(Failure);
                 }
@@ -519,31 +500,33 @@ namespace Preview::Mux::Detail
             }
             catch (...)
             {
-                const auto Failure = FailureFromException(std::current_exception());
+                const auto Failure = RootState::FailureFromException(std::current_exception());
                 State->RecordTerminalFailure(Failure);
                 co_return std::unexpected(Failure);
             }
             bool ScopesRetired = true;
             try
             {
-                const auto Children = co_await DrainTaskScope(State->Children, State);
+                const auto Children = co_await State->DrainTaskScope(State->Children);
                 if (!Children) ScopesRetired = false;
             }
             catch (...)
             {
                 ScopesRetired = false;
-                State->RecordTerminalFailure(FailureFromException(std::current_exception()));
+                State->RecordTerminalFailure(
+                    RootState::FailureFromException(std::current_exception()));
             }
             State->Loops->Seal();
             try
             {
-                const auto Loops = co_await DrainTaskScope(State->Loops, State);
+                const auto Loops = co_await State->DrainTaskScope(State->Loops);
                 if (!Loops) ScopesRetired = false;
             }
             catch (...)
             {
                 ScopesRetired = false;
-                State->RecordTerminalFailure(FailureFromException(std::current_exception()));
+                State->RecordTerminalFailure(
+                    RootState::FailureFromException(std::current_exception()));
             }
             const auto Engine = co_await DrainRootEngine(State);
             const auto Carrier = co_await DrainRootCarrier(State, Engine.H2Retired);
@@ -587,7 +570,7 @@ namespace Preview::Mux::Detail
             }
             catch (...)
             {
-                const auto Failure = FailureFromException(std::current_exception());
+                const auto Failure = RootState::FailureFromException(std::current_exception());
                 State->RecordTerminalFailure(Failure);
                 co_return std::unexpected(Failure);
             }

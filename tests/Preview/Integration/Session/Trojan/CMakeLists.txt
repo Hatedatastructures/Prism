@@ -8,5 +8,5 @@ target_link_libraries(TrojanUdpE2ETest PRIVATE
 
 # 同一 owner 的正式职责头与行为场景，复用既有 target。
 target_sources(TrojanE2ETest PRIVATE
-    ../../../integration/Session/Trojan/TrojanTrafficIdentityE2ETest.cpp
+    TrojanTrafficIdentityE2ETest.cpp
 )

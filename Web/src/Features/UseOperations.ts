@@ -1,61 +1,68 @@
-import { useMutation } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query';
+import { useOutletContext, useSearchParams } from 'react-router';
 import type { AdminServices } from '../App/AdminServices';
-import type { CommandEnvelope } from '../Api/OperationsApi';
-import { DecodeCommandResponse, VerifyCommandProcess } from '../Api/OperationsApi';
-import { Fail } from '../Api/Result';
-import type { ApiFailure, Result } from '../Api/Result';
-import { Add } from './Operations/OperationStore';
+import type { AdminDataSource, BootstrapSnapshot, CursorPage, PageRequest } from '../Services/AdminDataSource';
 
-export type CommandInput = Readonly<{
-    Path: string; Body: unknown; Label: string; Target: string;
-}>;
+export const BootstrapIdentityQueryKey = ['operations', 'bootstrap-identity'] as const;
 
 export function useAdminServices(): AdminServices {
     return useOutletContext<AdminServices>();
 }
 
-export function HasCapability(Services: AdminServices, Capability: string): boolean {
-    return Services.Bootstrap.Capabilities.includes(Capability);
-}
-
-export function useCommandRunner(): Readonly<{
-    IsPending: boolean;
-    Submit: (Input: CommandInput) => Promise<Result<CommandEnvelope>>;
-    Result: Result<CommandEnvelope> | null;
-}> {
+export function useBootstrapIdentity(): UseQueryResult<BootstrapSnapshot, Error> {
     const Services = useAdminServices();
-    const Mutation = useMutation<Result<CommandEnvelope>, unknown, CommandInput>({
-        mutationFn: async Input => {
-            const ResultValue = await Services.Client.Command({
-                Path: Input.Path, Bootstrap: Services.Bootstrap, Body: Input.Body,
-                Decode: DecodeCommandResponse,
-            });
-            return VerifyCommandProcess(ResultValue, Services.Bootstrap.Process, true);
-        },
-        retry: false,
-        onSuccess: (ResultValue, Input) => RecordAccepted(ResultValue, Input, Services),
-    });
-    async function Submit(Input: CommandInput): Promise<Result<CommandEnvelope>> {
-        try {
-            return await Mutation.mutateAsync(Input);
-        } catch {
-            const Failure: ApiFailure = { Kind: 'network',
-                Message: '命令请求异常；服务端是否接收无法确认，请勿重复提交',
-                HttpStatus: null, MayHaveExecuted: true };
-            return Fail(Failure);
-        }
-    }
-    return { IsPending: Mutation.isPending, Submit, Result: Mutation.data || null };
+    return useQuery({ queryKey: [...BootstrapIdentityQueryKey, Services.Mode], queryFn: () => Services.Data.GetBootstrap({ Fresh: true }),
+        retry: false, staleTime: 0, refetchInterval: Services.Mode === 'live' ? 5_000 : false,
+        refetchIntervalInBackground: false, refetchOnWindowFocus: true });
 }
 
-function RecordAccepted(
-    ResultValue: Result<CommandEnvelope>, Input: CommandInput, Services: AdminServices,
-): void {
-    if (!ResultValue.Ok || ResultValue.Value.Status !== 'accepted' ||
-        ResultValue.Value.Operation === '0') return;
-    Add({ Process: Services.Bootstrap.Process,
-        Incarnation: Services.Bootstrap.Incarnation,
-        Operation: ResultValue.Value.Operation, Label: Input.Label,
-        Target: Input.Target, RecordedAt: new Date().toISOString() });
+export function useAdminQuery<Value>(
+    Name: string,
+    Load: (Source: AdminDataSource) => Promise<Value>,
+    Options: Readonly<{ Enabled?: boolean; Scope?: readonly unknown[] }> = {},
+): UseQueryResult<Value, Error> {
+    const Services = useAdminServices();
+    return useQuery({ queryKey: ['operations', Name, ...(Options.Scope ?? [])], queryFn: () => Load(Services.Data),
+        enabled: Options.Enabled ?? true, retry: false, staleTime: 2_000,
+        refetchInterval: Services.Mode === 'live' ? 5_000 : false, refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true });
+}
+
+export function useAdminInfiniteQuery<Page extends CursorPage<unknown>>(
+    Name: string,
+    Load: (Source: AdminDataSource, PageRequestValue: PageRequest) => Promise<Page>,
+    Scope: readonly unknown[] = [],
+    Options: Readonly<{ Refresh?: boolean }> = {},
+) {
+    const Services = useAdminServices();
+    const [Params] = useSearchParams();
+    const FilteredCollection = ['accounts', 'workers', 'sessions', 'groups', 'ingresses', 'protocols'].includes(Name);
+    const Filter = FilteredCollection ? { Query: Params.get('q') ?? '', State: Params.get('state') ?? '',
+        WorkerId: Name === 'sessions' ? Params.get('worker') ?? '' : '', AccountId: Name === 'sessions' ? Params.get('account') ?? '' : '',
+        Protocol: Name === 'sessions' ? Params.get('protocol') ?? '' : '', Sort: Params.get('sort') ?? '',
+        GroupId: Name === 'accounts' ? Params.get('group') ?? '' : '' } : {};
+    return useInfiniteQuery({
+        queryKey: ['operations', Name, ...Scope, Filter],
+        initialPageParam: '0',
+        queryFn: ({ pageParam }) => Load(Services.Data, { Cursor: pageParam, Limit: 50, ...Filter }),
+        getNextPageParam: PageValue => PageValue.HasMore ? PageValue.NextCursor : undefined,
+        retry: false,
+        staleTime: 2_000,
+        refetchInterval: Services.Mode === 'live' && Options.Refresh !== false ? 5_000 : false,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: Options.Refresh !== false,
+    });
+}
+
+export function useAdminMutation<Input, Value>(
+    Run: (Source: AdminDataSource, Input: Input) => Promise<Value>,
+): UseMutationResult<Value, Error, Input> {
+    const Services = useAdminServices();
+    const QueryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (InputValue: Input) => Run(Services.Data, InputValue),
+        onSuccess: () => QueryClient.invalidateQueries({ queryKey: ['operations'] }),
+        retry: false,
+    });
 }

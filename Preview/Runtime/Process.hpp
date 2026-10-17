@@ -11,6 +11,7 @@
 #include <Preview/Resource/ProcessResources.hpp>
 #include <Preview/Runtime/WorkerGroup.hpp>
 #include <Preview/Runtime/GenerationPublication.hpp>
+#include <Preview/Runtime/SessionTraceModel.hpp>
 #include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Net/Dns/Config.hpp>
 
@@ -134,6 +135,19 @@ namespace Preview::Runtime
         [[nodiscard]] auto Snapshot() const -> std::vector<WorkerSnapshot>
         {
             return WorkerGroup_ ? WorkerGroup_->Snapshot() : std::vector<WorkerSnapshot>{};
+        }
+
+        /** @brief 按值查询当前 Process 的有界 Session 生命周期轨迹。 */
+        [[nodiscard]] auto QuerySessionTrace(const SessionTraceQuery &QueryValue) const
+            -> SessionTraceSnapshot
+        {
+            if (WorkerGroup_)
+            {
+                return WorkerGroup_->QuerySessionTrace(QueryValue);
+            }
+            SessionTraceSnapshot Result;
+            Result.Process = Resources_.Id;
+            return Result;
         }
 
     private:

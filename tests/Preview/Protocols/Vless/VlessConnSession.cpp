@@ -1,6 +1,7 @@
 #include "VlessConnSessionSupport.hpp"
 
 #include <expected>
+#include <optional>
 
 #include <Preview/Foundation/Memory/BytePool.hpp>
 #include <TestSupport/Preview/ProtocolIngressBindings.hpp>
@@ -26,17 +27,17 @@ namespace
         std::vector<std::uint8_t> Wire,
         const Preview::Fault::Code ExpectedCode) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const auto Uuid = TestUuid();
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto ServerStream = ServerMemory;
         const auto ServerDone = SpawnServer(
             IoContext.get_executor(),
             ExpectVlessAcceptFailure(ServerStream, Uuid, ExpectedCode));
         std::error_code ErrorCode;
-        const auto Write = co_await ClientMemory.WriteSome(
+        const auto Write = co_await ClientMemory->WriteSome(
             AsBytes(std::span<const std::uint8_t>(Wire)));
         ErrorCode = Preview::Fault::ToNative(Write.Failure);
-        ClientMemory.Close();
+        (void)ClientMemory->Close();
         const auto ServerCompleted = co_await ServerDone->async_receive(Net::use_awaitable);
         EXPECT_TRUE(ServerCompleted);
         (void)ErrorCode;
@@ -72,23 +73,23 @@ namespace
 
     auto RunConnectAcceptEcho(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const std::string Payload = "vless echo payload";
         const auto Uuid = TestUuid();
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto ServerStream = ServerMemory;
         const auto ServerDone = SpawnServer(
             IoContext.get_executor(), VlessEchoServer(ServerStream, Uuid, Payload));
         auto Wire = BuildRawRequest(Uuid, Vless::Command::Tcp,
                                     MakeAddress(Vless::AddressType::Domain, "example.com", 443));
         Wire.insert(Wire.end(), Payload.begin(), Payload.end());
         std::error_code ErrorCode;
-        const auto Write = co_await ClientMemory.WriteSome(AsBytes(std::span<const std::uint8_t>(Wire)));
+        const auto Write = co_await ClientMemory->WriteSome(AsBytes(std::span<const std::uint8_t>(Wire)));
         ErrorCode = Preview::Fault::ToNative(Write.Failure);
         std::array<std::uint8_t, 2> Response{};
         std::size_t Received = 0;
         while (Received < Response.size())
         {
-            const auto Read = co_await ClientMemory.ReadSome(
+            const auto Read = co_await ClientMemory->ReadSome(
                 AsBytes(std::span<std::uint8_t>(Response).subspan(Received)));
             ErrorCode = Preview::Fault::ToNative(Read.Failure);
             if (ErrorCode || Read.Bytes == 0) break;
@@ -101,12 +102,12 @@ namespace
         while (Received < Payload.size())
         {
             const auto EchoSpan = std::span<std::byte>(Echo).subspan(Received);
-            const auto BytesRead = co_await ClientMemory.async_read_some(EchoSpan, ErrorCode);
-            if (ErrorCode || BytesRead == 0) break;
-            Received += BytesRead;
+            const auto EchoRead = co_await ClientMemory->ReadSome(EchoSpan);
+            if (EchoRead.Failure.Failed() || EchoRead.Bytes == 0) break;
+            Received += EchoRead.Bytes;
         }
         EXPECT_EQ(std::string(reinterpret_cast<const char *>(Echo.data()), Received), Payload);
-        (void)ClientMemory.Close();
+        (void)ClientMemory->Close();
         EXPECT_TRUE(co_await ServerDone->async_receive(Net::use_awaitable));
     }
 
@@ -130,16 +131,16 @@ namespace
 
     auto RunFactoryConnectAcceptIpv4(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const auto Uuid = TestUuid();
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto ServerStream = ServerMemory;
         const auto ServerDone = SpawnServer(
             IoContext.get_executor(), VlessIpv4Accept(ServerStream, Uuid));
         Vless::ClientConfig Config;
         Config.uuid = Uuid;
         const auto Target = MakeAddress(Vless::AddressType::Ipv4, "1.2.3.4", 80);
         auto Result = co_await Vless::Connect(Vless::ConnectParameters{
-            std::make_shared<MemoryStream>(std::move(ClientMemory)), Config, Target});
+            ClientMemory, Config, Target});
         EXPECT_TRUE(Result);
         if (Result) EXPECT_TRUE(*Result);
         if (Result && *Result)
@@ -181,18 +182,18 @@ namespace
 
     auto RunFactoryConnectAcceptPacket(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const auto Uuid = TestUuid();
         const auto Target = MakeAddress(Vless::AddressType::Domain, "example.com", 53);
         constexpr std::string_view Text{"vless standard udp packet"};
         const auto Payload = std::vector<std::uint8_t>(Text.begin(), Text.end());
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto ServerStream = ServerMemory;
         const auto ServerDone = SpawnServer(
             IoContext.get_executor(), VlessPacketEchoServer(ServerStream, Uuid, Payload));
         Vless::ClientConfig Config;
         Config.uuid = Uuid;
         auto Result = co_await Vless::ConnectPacket(
-            std::make_shared<MemoryStream>(std::move(ClientMemory)), Config, Target);
+            ClientMemory, Config, Target);
         EXPECT_TRUE(Result);
         if (!Result)
         {
@@ -226,16 +227,16 @@ namespace
 
     auto RunDirectStreamDgramRejection(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         auto Datagram = std::make_shared<Vless::Dgram<>>(
-            std::make_shared<MemoryStream>(std::move(ClientMemory)));
-        (void)ServerMemory.Close();
+            ClientMemory);
+        (void)ServerMemory->Close();
         std::vector<std::uint8_t> Payload;
         const auto Receive = co_await Datagram->AsyncReceiveDatagram(Payload);
         EXPECT_EQ(Receive.Failure.Code, Preview::Fault::Code::Eof);
         EXPECT_EQ(Receive.WireBytes, 0U);
         (void)Datagram->Close();
-        (void)ServerMemory.Close();
+        (void)ServerMemory->Close();
     }
 
     [[nodiscard]] auto MakeIngressBytePool() -> std::shared_ptr<Preview::Memory::BytePool>
@@ -280,7 +281,7 @@ namespace
 
     auto RunMuxAcceptedByHandler(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const auto Uuid = TestUuid();
         Vless::ServerConfig ServerConfig;
         ServerConfig.uuid = Uuid;
@@ -288,20 +289,53 @@ namespace
             Preview::Testing::ProtocolIngressResources{{},
                 Preview::Testing::MakeProtocolIngressUseState(), IoContext.get_executor()},
             Vless::IngressRoute{});
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
-        auto ServerTask = Net::co_spawn(
-            IoContext.get_executor(), AcceptVlessMux(Handler, ServerStream), Net::use_awaitable);
+        auto ServerStream = ServerMemory;
+        auto ServerOutcome =
+            std::make_shared<std::optional<Preview::Contract::AcceptOutcome>>();
+        const auto ServerDone =
+            std::make_shared<CompletionChannel>(IoContext.get_executor(), 1U);
+        Net::co_spawn(
+            IoContext.get_executor(), AcceptVlessMux(Handler, ServerStream),
+            [ServerOutcome, ServerDone](
+                std::exception_ptr Exception,
+                Preview::Contract::AcceptOutcome Outcome)
+            {
+                if (Exception)
+                {
+                    *ServerOutcome = std::unexpected(
+                        Preview::Contract::InboundAdmission::ExceptionFailure(Exception));
+                }
+                else
+                {
+                    *ServerOutcome = std::move(Outcome);
+                }
+                (void)ServerDone->try_send(boost::system::error_code{}, true);
+            });
         Vless::ClientConfig Config;
         Config.uuid = Uuid;
         const auto Target = MakeAddress(Vless::AddressType::Domain, "example.com", 443);
         auto ConnectResult = co_await Vless::Connect(Vless::ConnectParameters{
-            std::make_shared<MemoryStream>(std::move(ClientMemory)), Config, Target,
+            ClientMemory, Config, Target,
             Vless::Command::Mux});
         EXPECT_TRUE(ConnectResult);
         if (ConnectResult) EXPECT_TRUE(*ConnectResult);
         Vless::SharedConn ClientConnection;
         if (ConnectResult && *ConnectResult) ClientConnection = std::move(*ConnectResult);
-        auto Result = co_await std::move(ServerTask);
+        const auto ServerCompleted = co_await ServerDone->async_receive(Net::use_awaitable);
+        EXPECT_TRUE(ServerCompleted);
+        if (!ServerOutcome->has_value())
+        {
+            if (ClientConnection)
+            {
+                (void)ClientConnection->Close();
+                ClientConnection.reset();
+            }
+            const auto Drained = co_await DrainVlessIngress(Handler);
+            EXPECT_TRUE(Drained);
+            EXPECT_TRUE(Handler->IsRetired());
+            co_return;
+        }
+        auto Result = std::move(**ServerOutcome);
         EXPECT_TRUE(Result);
         if (!Result)
         {
@@ -318,7 +352,12 @@ namespace
         EXPECT_NE(Mux, nullptr);
         if (Mux == nullptr)
         {
-            if (ClientConnection) (void)ClientConnection->Close();
+            if (ClientConnection)
+            {
+                (void)ClientConnection->Close();
+                ClientConnection.reset();
+            }
+            Plane = {};
             const auto Drained = co_await DrainVlessIngress(Handler);
             EXPECT_TRUE(Drained);
             EXPECT_TRUE(Handler->IsRetired());
@@ -326,8 +365,47 @@ namespace
         }
         EXPECT_TRUE(Mux->Session);
         EXPECT_TRUE(Plane.HasTransport());
-        (void)Plane.Transport()->Close();
-        if (ClientConnection) (void)ClientConnection->Close();
+
+        Preview::Contract::MuxRootRequest RootRequest;
+        RootRequest.Lease = std::move(Plane.AccountLease);
+        RootRequest.GenerationUseState = Handler->GenerationUseState();
+        auto RootResult =
+            std::make_shared<std::optional<std::expected<void, Preview::Fault::Failure>>>();
+        const auto RootDone =
+            std::make_shared<CompletionChannel>(IoContext.get_executor(), 1U);
+        Net::co_spawn(
+            IoContext.get_executor(), Mux->Session->Run(std::move(RootRequest)),
+            [RootResult, RootDone](
+                std::exception_ptr Exception,
+                std::expected<void, Preview::Fault::Failure> Outcome)
+            {
+                if (Exception)
+                {
+                    *RootResult = std::unexpected(
+                        Preview::Contract::InboundAdmission::ExceptionFailure(Exception));
+                }
+                else
+                {
+                    *RootResult = std::move(Outcome);
+                }
+                (void)RootDone->try_send(boost::system::error_code{}, true);
+            });
+        if (ClientConnection)
+        {
+            (void)ClientConnection->Close();
+            ClientConnection.reset();
+        }
+        const auto RootCompleted = co_await RootDone->async_receive(Net::use_awaitable);
+        EXPECT_TRUE(RootCompleted);
+        if (RootResult->has_value())
+        {
+            EXPECT_TRUE(**RootResult);
+        }
+        else
+        {
+            ADD_FAILURE() << "Mux root completed without a run result";
+        }
+        Plane = {};
         const auto Drained = co_await DrainVlessIngress(Handler);
         EXPECT_TRUE(Drained);
         EXPECT_TRUE(Handler->IsRetired());
@@ -335,7 +413,7 @@ namespace
 
     auto RunMuxWrongCredential(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const auto Uuid = TestUuid();
         auto WrongUuid = Uuid;
         WrongUuid[0] ^= 0xFF;
@@ -345,17 +423,17 @@ namespace
             Preview::Testing::ProtocolIngressResources{{},
                 Preview::Testing::MakeProtocolIngressUseState(), IoContext.get_executor()},
             Vless::IngressRoute{});
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto ServerStream = ServerMemory;
         auto ServerTask = Net::co_spawn(
             IoContext.get_executor(), AcceptVlessMux(Handler, ServerStream), Net::use_awaitable);
         const auto Wire = BuildRawRequest(
             WrongUuid, Vless::Command::Mux,
             MakeAddress(Vless::AddressType::Domain, "example.com", 443));
         std::error_code ErrorCode;
-        const auto Write = co_await ClientMemory.WriteSome(
+        const auto Write = co_await ClientMemory->WriteSome(
             AsBytes(std::span<const std::uint8_t>(Wire)));
         ErrorCode = Preview::Fault::ToNative(Write.Failure);
-        (void)ClientMemory.Close();
+        (void)ClientMemory->Close();
         auto Result = co_await std::move(ServerTask);
         EXPECT_FALSE(Result);
         if (Result)
@@ -375,9 +453,9 @@ namespace
 
     auto RunMuxDisabled(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const auto Uuid = TestUuid();
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto ServerStream = ServerMemory;
         auto ServerTask = Net::co_spawn(
             IoContext.get_executor(),
             ReadVlessHandshake({ServerStream, Uuid, true, true, false}), Net::use_awaitable);
@@ -385,10 +463,10 @@ namespace
             Uuid, Vless::Command::Mux,
             MakeAddress(Vless::AddressType::Domain, "example.com", 443));
         std::error_code ErrorCode;
-        const auto Write = co_await ClientMemory.WriteSome(
+        const auto Write = co_await ClientMemory->WriteSome(
             AsBytes(std::span<const std::uint8_t>(Wire)));
         ErrorCode = Preview::Fault::ToNative(Write.Failure);
-        (void)ClientMemory.Close();
+        (void)ClientMemory->Close();
         auto Result = co_await std::move(ServerTask);
         EXPECT_FALSE(Result);
         if (Result) co_return;
@@ -409,20 +487,20 @@ namespace
 
     auto RunTcpDisabled(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         const auto Uuid = TestUuid();
-        auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto ServerStream = ServerMemory;
         auto ServerDone = SpawnServer(
             IoContext.get_executor(), ExpectTcpDisabled(ServerStream, Uuid));
         auto Wire = BuildRawRequest(Uuid, Vless::Command::Tcp,
                                     MakeAddress(Vless::AddressType::Domain, "example.com", 443));
         std::error_code ErrorCode;
-        const auto Write = co_await ClientMemory.WriteSome(
+        const auto Write = co_await ClientMemory->WriteSome(
             AsBytes(std::span<const std::uint8_t>(Wire)));
         ErrorCode = Preview::Fault::ToNative(Write.Failure);
-        (void)ClientMemory.Close();
+        (void)ClientMemory->Close();
         std::array<std::uint8_t, 2> Response{};
-        const auto Read = co_await ClientMemory.ReadSome(AsBytes(std::span<std::uint8_t>(Response)));
+        const auto Read = co_await ClientMemory->ReadSome(AsBytes(std::span<std::uint8_t>(Response)));
         ErrorCode = Preview::Fault::ToNative(Read.Failure);
         EXPECT_EQ(Read.Bytes, 0u);
         EXPECT_TRUE(co_await ServerDone->async_receive(Net::use_awaitable));
@@ -457,22 +535,22 @@ namespace
 
     auto RunWriteToClosedPeer(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
-        (void)ServerMemory.Close();
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
+        (void)ServerMemory->Close();
         Vless::ClientConfig Config;
         Config.uuid = TestUuid();
         const auto Target = MakeAddress(Vless::AddressType::Ipv4, "1.1.1.1", 80);
         auto Result = co_await Vless::Connect(Vless::ConnectParameters{
-            std::make_shared<MemoryStream>(std::move(ClientMemory)), Config, Target});
+            ClientMemory, Config, Target});
         EXPECT_FALSE(Result);
         if (!Result) EXPECT_EQ(Result.error().Code, Preview::Fault::Code::ConnectionAborted);
     }
 
     auto RunDecoratorChain(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
         auto Connection = std::make_shared<Vless::Conn<>>(
-            std::make_shared<MemoryStream>(std::move(ClientMemory)), TestUuid());
+            ClientMemory, TestUuid());
         EXPECT_TRUE(Connection->Executor());
         EXPECT_NE(Connection->NextLayer(), nullptr);
         EXPECT_NE(Connection->lowest_layer<MemoryStream>(), nullptr);
@@ -481,13 +559,15 @@ namespace
         const std::string Payload = "passthrough";
         const auto PayloadSpan = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(Payload.data()), Payload.size());
-        std::error_code ErrorCode;
-        co_await Connection->async_write_some(PayloadSpan, ErrorCode);
-        EXPECT_FALSE(ErrorCode);
+        const auto PayloadWrite = co_await Connection->WriteExact(PayloadSpan);
+        EXPECT_FALSE(PayloadWrite.Failure.Failed());
         std::array<std::byte, 64> Buffer{};
-        const auto BytesRead = co_await ServerMemory.async_read_some(Buffer, ErrorCode);
-        EXPECT_EQ(std::string(reinterpret_cast<const char *>(Buffer.data()), BytesRead), Payload);
-        co_await ServerMemory.async_write_some(std::span<const std::byte>(Buffer.data(), 4), ErrorCode);
+        const auto PayloadRead = co_await ServerMemory->ReadSome(Buffer);
+        EXPECT_FALSE(PayloadRead.Failure.Failed());
+        EXPECT_EQ(std::string(reinterpret_cast<const char *>(Buffer.data()), PayloadRead.Bytes), Payload);
+        const auto EchoWrite = co_await ServerMemory->WriteExact(
+            std::span<const std::byte>(Buffer.data(), 4));
+        EXPECT_FALSE(EchoWrite.Failure.Failed());
         std::array<std::uint8_t, 4> Destination{};
         auto ReadFailed = co_await Connection->ReadExact(std::span<std::uint8_t>(Destination));
         EXPECT_FALSE(ReadFailed);

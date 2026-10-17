@@ -125,7 +125,15 @@ namespace
     {
         auto Datagram = std::make_shared<Hysteria2::Dgram<>>(
             MakeMock(IoContext.get_executor()));
-        Datagram->Close();
+        const auto Close = Datagram->Close();
+        EXPECT_TRUE(Close);
+        const auto Activity = Datagram->Activity();
+        EXPECT_TRUE(Activity);
+        if (!Activity) co_return;
+        const auto Drained = co_await Activity->Drain();
+        EXPECT_TRUE(Drained);
+        EXPECT_TRUE(Activity->IsRetired());
+        if (!Drained) co_return;
         const std::string Payload = "x";
         const auto SendError = co_await Datagram->AsyncSendTo(
             MakeHysteria2Address(), AsU8Span(Payload));
@@ -134,7 +142,7 @@ namespace
         std::vector<std::uint8_t> Received;
         const auto ReceiveError =
             co_await Datagram->AsyncReceiveFrom(Source, Received);
-        EXPECT_EQ(ReceiveError, Error::UnexpectedEof);
+        EXPECT_EQ(ReceiveError, Error::IoError);
     }
 
     TEST(Hysteria2DgramErr, SendWriteFail)

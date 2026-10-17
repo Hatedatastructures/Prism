@@ -53,9 +53,11 @@ namespace Preview::Protocols
                     return;
                 }
                 Ticket_->RequestClose();
-                Ticket_->RetainAndRetry();
                 Ticket_->FinishAccept();
                 Reservation_->Complete();
+                Reservation_.reset();
+                Ticket_->RetainAndRetry();
+                Ticket_->CompleteAcceptAttempt();
             }
 
             [[nodiscard]] auto Owner() const noexcept -> std::shared_ptr<Ticket> { return Ticket_; }
@@ -73,6 +75,7 @@ namespace Preview::Protocols
                     FinishProtocol();
                     Reservation_->Complete();
                     Reservation_.reset();
+                    Ticket_->CompleteAcceptAttempt();
                 }
             }
 
@@ -145,9 +148,11 @@ namespace Preview::Protocols
                     Session->RecordFailure(Failure);
                     Session->RequestClose();
                     Session->FinishAccept();
+                    Reservation->Complete();
                     Session->RetainAndRetry();
+                    Session->CompleteAcceptAttempt();
                 }
-                Reservation->Complete();
+                else Reservation->Complete();
                 return std::unexpected(Failure);
             }
             auto UseLease = UseState_->Acquire();
@@ -156,8 +161,9 @@ namespace Preview::Protocols
                 Session->RecordFailure(UseLease.error());
                 Session->RequestClose();
                 Session->FinishAccept();
-                Session->RetainAndRetry();
                 Reservation->Complete();
+                Session->RetainAndRetry();
+                Session->CompleteAcceptAttempt();
                 return std::unexpected(UseLease.error());
             }
             Session->SetUseLease(std::move(*UseLease));
@@ -167,8 +173,9 @@ namespace Preview::Protocols
                 Session->RecordFailure(Failure);
                 Session->RequestClose();
                 Session->FinishAccept();
-                Session->RetainAndRetry();
                 Reservation->Complete();
+                Session->RetainAndRetry();
+                Session->CompleteAcceptAttempt();
                 return std::unexpected(Failure);
             }
             return AcceptAttempt(std::move(Session), std::move(*Reservation));
@@ -226,6 +233,7 @@ namespace Preview::Protocols
                 if (!TicketValue->IsRetired())
                 {
                     TicketValue->RetainForOwnerRetry();
+                    TicketValue->RequestOwnerRetirement();
                 }
             }
             const auto Muxes = Muxes_.load(std::memory_order_acquire);
@@ -247,16 +255,43 @@ namespace Preview::Protocols
             Close();
             co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
             auto First = ProviderRetirementResult{};
+            auto Persistent = ProviderRetirementResult{};
             const auto Historical = DrainFailure_.Load();
-            if (Historical.Failed()) First = std::unexpected(Historical);
+            if (Historical.Failed())
+            {
+                First = std::unexpected(Historical);
+                Persistent = First;
+            }
             const auto Admissions = co_await Admissions_->Drain();
             PreserveExpected(First, Admissions);
+            PreserveExpected(Persistent, Admissions);
             const auto Routes = co_await RouteBindings_->Drain();
             PreserveExpected(First, Routes);
+            PreserveExpected(Persistent, Routes);
+            bool RetryableTicketCancellation = false;
+            bool RetryableMuxCancellation = false;
             const auto Tickets = Tickets_.load(std::memory_order_acquire);
             for (const auto& TicketValue : *Tickets)
             {
                 const auto Result = co_await TicketValue->Drain();
+                if (!Result)
+                {
+                    if (Result.error().Code == Preview::Fault::Code::Canceled)
+                    {
+                        // 本轮结果可能先于自动重试的物理回执返回。
+                        RetryableTicketCancellation = true;
+                        const auto Durable = TicketValue->DrainFailure();
+                        if (Durable.Failed())
+                        {
+                            PreserveExpected(Persistent,
+                                ProviderRetirementResult{std::unexpected(Durable)});
+                        }
+                    }
+                    else
+                    {
+                        PreserveExpected(Persistent, Result);
+                    }
+                }
                 PreserveExpected(First, Result);
             }
             const auto MuxSnapshot = Muxes_.load(std::memory_order_acquire);
@@ -264,10 +299,48 @@ namespace Preview::Protocols
             {
                 const auto Result = co_await Mux->Drain();
                 PreserveExpected(First, Result);
+                if (!Result && Result.error().Code == Preview::Fault::Code::Canceled)
+                {
+                    RetryableMuxCancellation = true;
+                    const auto Durable = Mux->DrainFailure();
+                    if (Durable.Failed())
+                    {
+                        PreserveExpected(Persistent,
+                            ProviderRetirementResult{std::unexpected(Durable)});
+                    }
+                }
+                else
+                {
+                    PreserveExpected(Persistent, Result);
+                }
             }
-            if (!First) DrainFailure_.TrySet(First.error());
-            if (IsPhysicallyRetired())
+            const bool PhysicallyRetired = IsPhysicallyRetired();
+            for (const auto& TicketValue : *Tickets)
             {
+                const auto Durable = TicketValue->DrainFailure();
+                if (Durable.Failed())
+                {
+                    PreserveExpected(Persistent,
+                        ProviderRetirementResult{std::unexpected(Durable)});
+                }
+            }
+            for (const auto& Mux : *MuxSnapshot)
+            {
+                const auto Durable = Mux->DrainFailure();
+                if (Durable.Failed())
+                {
+                    PreserveExpected(Persistent,
+                        ProviderRetirementResult{std::unexpected(Durable)});
+                }
+            }
+            if (PhysicallyRetired)
+            {
+                if ((RetryableTicketCancellation || RetryableMuxCancellation) &&
+                    Persistent && !First &&
+                    First.error().Code == Preview::Fault::Code::Canceled)
+                {
+                    First = ProviderRetirementResult{};
+                }
                 Material_.store({}, std::memory_order_release);
                 Generation_.reset();
                 UseState_.reset();
@@ -276,9 +349,17 @@ namespace Preview::Protocols
             }
             else
             {
-                PreserveExpected(First,
-                    ProviderRetirementResult{std::unexpected(
-                        Preview::Fault::Failure{Preview::Fault::Code::Blocked})});
+                if (First)
+                {
+                    First = std::unexpected(
+                        Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+                    PreserveExpected(Persistent, First);
+                }
+            }
+            if (!Persistent)
+            {
+                DrainFailure_.TrySet(Persistent.error());
+                First = Persistent;
             }
             if (!First)
             {
@@ -294,6 +375,12 @@ namespace Preview::Protocols
                 Admissions_->IsRetired() && RouteBindings_->IsRetired() &&
                 !Material_.load(std::memory_order_acquire) &&
                 IsPhysicallyRetired();
+        }
+
+        /** @brief 已记录的持久关闭错误；可重试 attempt cancellation 不写入此值。 */
+        [[nodiscard]] auto DrainFailure() const noexcept -> Preview::Fault::Failure
+        {
+            return DrainFailure_.Load();
         }
 
     private:

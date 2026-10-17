@@ -56,9 +56,16 @@
             "Recognition": {}
         }
     ],
+    "AccountGroups": [
+        {
+            "Id": "local-users",
+            "Name": "Local users"
+        }
+    ],
     "Accounts": [
         {
             "Id": "local",
+            "GroupId": "local-users",
             "SecretRef": "",
             "Credential": "local-token"
         }

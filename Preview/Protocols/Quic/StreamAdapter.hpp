@@ -109,6 +109,7 @@ namespace Preview::Quic
         /**
          * @brief 流是否已关闭
          * @return 关闭返回 true
+         * @details terminal 状态不表示接收缓存为空；读取方仍以 Read 的结果处理缓存数据和 EOF/reset。
          */
         [[nodiscard]] virtual auto IsClosed() const noexcept -> bool = 0;
     };

@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <system_error>
 #include <utility>
 
@@ -87,19 +88,23 @@ namespace
         std::uint32_t ActiveConnectionsAfter{0};
         std::size_t GenerationUsesBefore{0};
         std::size_t GenerationUsesAfter{0};
+        std::string SetupStage{"NotStarted"};
     };
 
     auto RetainParentLeaseOnCreateFailure(ParentLeaseFailureResult &State)
         -> Net::awaitable<void>
     {
+        State.SetupStage = "AccountRecord";
         auto Directory = Preview::Testing::ProviderAccount(
             Preview::Account::Credential::Token("mux-create-parent"),
             Preview::AccountId{4601}, {.MaxConnections = 1, .MaxStreams = 1});
         State.Record = Directory->Store->FindById(Preview::AccountId{4601});
         if (!State.Record) { State.SetupFailed = true; co_return; }
+        State.SetupStage = "Credential";
         auto Auth = Directory->Credentials.TryAcquire(
             {.Credential = Preview::Account::CredentialView::Token("mux-create-parent")});
         if (!Auth) { State.SetupFailed = true; co_return; }
+        State.SetupStage = "MemoryPair";
         auto [InboundRaw, PeerRaw] = Preview::MakeMemoryPair(co_await Net::this_coro::executor);
         auto Inbound = std::make_shared<Preview::MemoryStream>(std::move(InboundRaw));
         auto Peer = std::make_shared<Preview::MemoryStream>(std::move(PeerRaw));
@@ -108,26 +113,29 @@ namespace
         Plane.ProtocolAuthenticated = true;
         Plane.AccountLease = std::move(*Auth);
         Plane.Root = Preview::Contract::MuxRootDataPlane{Inbound, {}};
+        State.SetupStage = "ParentLease";
         auto ParentLease = Plane.AccountLease.Streams().Acquire();
         if (!ParentLease) { State.SetupFailed = true; co_return; }
+        State.SetupStage = "RetirementPrepare";
         auto Prepared = Preview::Anytls::Detail::TransportRetirement::Prepare();
         if (!Prepared) { State.SetupFailed = true; co_return; }
         auto Retirement = std::move(*Prepared);
         State.WeakRetirement = Retirement;
-        const auto Attached = Retirement->Attach(Inbound, Preview::Account::StreamLease{});
-        if (!Attached ||
-            !Retirement->AttachMuxRootParentStreamLease(std::move(*ParentLease)))
+        State.SetupStage = "RootParentLease";
+        if (!Retirement->AttachMuxRootParentStreamLease(std::move(*ParentLease)))
         {
             State.SetupFailed = true;
             co_return;
         }
+        State.SetupStage = "RequestPrepare";
         auto Request = Preview::Contract::MuxRootCreateRequest::Prepare(
             Retirement, State.UseState, std::move(Plane));
         if (!Request) { State.SetupFailed = true; co_return; }
         Preview::Mux::RootOptions WrongGeneration;
         WrongGeneration.GenerationUseState =
             std::make_shared<Preview::Foundation::GenerationUseState>();
-        const Preview::Mux::NestedRootFactory NestedFactory(WrongGeneration);
+        State.SetupStage = "NestedCreate";
+        Preview::Mux::NestedRootFactory NestedFactory(WrongGeneration);
         const auto Created = NestedFactory.Create(*Request);
         State.CreateRejected = !Created &&
             Created.error().Code == Preview::Fault::Code::InvalidArgument;
@@ -196,7 +204,7 @@ TEST(AnytlsSessionOwner, NestedCreateFailureKeepsParentLeaseUntilPhysicalRetirem
         [&Failure](std::exception_ptr Error) { Failure = Error; });
     Io.run();
     ASSERT_FALSE(Failure);
-    ASSERT_FALSE(Actual.SetupFailed);
+    ASSERT_FALSE(Actual.SetupFailed) << "stage=" << Actual.SetupStage;
     EXPECT_TRUE(Actual.CreateRejected);
     EXPECT_EQ(Actual.ActiveStreamsBefore, 1U);
     EXPECT_EQ(Actual.GenerationUsesBefore, 1U);

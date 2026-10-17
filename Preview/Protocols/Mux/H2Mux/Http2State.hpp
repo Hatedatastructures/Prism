@@ -40,11 +40,29 @@ namespace Preview::Mux::H2Mux
     {
         using FlushChannel = Net::experimental::channel<void(boost::system::error_code)>;
         using DrainChannel = Net::experimental::concurrent_channel<void(boost::system::error_code)>;
+        using RunCompletionChannel = Net::experimental::concurrent_channel<void(boost::system::error_code)>;
         using Failure = Preview::Fault::Failure;
+
+        struct FlushResult final
+        {
+            Failure Error;
+            bool CloseCanceled{false};
+
+            [[nodiscard]] explicit operator bool() const noexcept
+            {
+                return Error.Succeeded();
+            }
+
+            [[nodiscard]] auto operator!() const noexcept -> bool
+            {
+                return Error.Failed();
+            }
+        };
 
         Http2State(Preview::SharedTransmission RawValue, const std::size_t MaxStreamsValue)
             : Strand(RawValue->Executor()), Raw(std::move(RawValue)), MaxStreams(MaxStreamsValue),
-              Notify(Strand, 1), RetirementNotify(Strand, 1), DrainGate(std::make_shared<DrainChannel>(Strand, 1)),
+              Notify(Strand, 1), RetirementNotify(Strand, 1), RunCompletionNotify(Strand, 1),
+              DrainGate(std::make_shared<DrainChannel>(Strand, 1)),
               FlushGate(std::make_shared<FlushChannel>(Strand, 1)),
               Tasks(std::make_shared<Preview::Lifecycle::TaskRegistry>(Strand))
         {
@@ -58,6 +76,7 @@ namespace Preview::Mux::H2Mux
         std::shared_ptr<Preview::Http2::Session> Session;
         Net::experimental::channel<void(boost::system::error_code)> Notify;
         Net::experimental::channel<void(boost::system::error_code)> RetirementNotify;
+        RunCompletionChannel RunCompletionNotify;
         std::shared_ptr<DrainChannel> DrainGate;
         std::shared_ptr<FlushChannel> FlushGate;
         std::deque<std::shared_ptr<Http2Stream>> Incoming;
@@ -66,6 +85,8 @@ namespace Preview::Mux::H2Mux
         std::shared_ptr<Preview::Lifecycle::TaskRegistry> Tasks;
         Preview::Lifecycle::TaskIdentity Identity;
         Preview::Fault::FailureState FirstFailure;
+        Preview::Fault::FailureState CloseCancellation;
+        std::atomic<bool> CloseRequested{false};
         bool Closed{false};
         bool RetirementPumpStarted{false};
         bool TasksDrained{false};
@@ -85,13 +106,14 @@ namespace Preview::Mux::H2Mux
         auto QueueRetirement() -> void;
         auto RetireStream(std::int32_t StreamId, const std::shared_ptr<Http2Stream> &Stream) -> void;
         auto RecordFailure(Failure Value) noexcept -> void;
+        auto RecordCloseCancellation(Failure Value) noexcept -> void;
         [[nodiscard]] auto Drain() -> Net::awaitable<std::expected<void, Failure>>;
         [[nodiscard]] auto DrainStreams() -> Net::awaitable<bool>;
         [[nodiscard]] auto DrainRaw() -> Net::awaitable<bool>;
         auto RefreshRetirement() noexcept -> void;
         [[nodiscard]] auto WriteAll(std::span<const std::byte> Data)
             -> Net::awaitable<std::expected<void, Failure>>;
-        [[nodiscard]] auto Flush() -> Net::awaitable<std::expected<void, Failure>>;
+        [[nodiscard]] auto Flush() -> Net::awaitable<FlushResult>;
         auto Close() -> void;
     };
 }

@@ -58,6 +58,7 @@ namespace Preview::Composition::Provider
         Preview::Mux::Mode Wire{Preview::Mux::Mode::Auto};
         std::shared_ptr<Preview::Mux::RootBinding> Owner;
         Preview::Foundation::GenerationPin Generation;
+        Preview::Fault::Failure DrainFailure_;
 
         auto Close() const noexcept -> void
         {
@@ -90,28 +91,62 @@ namespace Preview::Composition::Provider
             return Preview::Composition::Provider::PhysicalRetirementState::Unknown;
         }
 
+        /** @brief 返回 root registry 已保存的持久首因；不把本轮可重试取消当成历史错误。 */
+        [[nodiscard]] auto DrainFailure() const noexcept
+            -> std::optional<Preview::Fault::Failure>
+        {
+            if (DrainFailure_.Failed()) return DrainFailure_;
+            if (Owner)
+            {
+                const auto Failure = Owner->DrainFailure();
+                if (Failure.Failed()) return Failure;
+            }
+            return {};
+        }
+
         [[nodiscard]] auto Drain()
             -> boost::asio::awaitable<std::expected<void, Preview::Fault::Failure>>
         {
+            if (!Owner)
+            {
+                if (DrainFailure_.Failed()) co_return std::unexpected(DrainFailure_);
+                Generation.reset();
+                co_return std::expected<void, Preview::Fault::Failure>{};
+            }
             if (Owner)
             {
                 const auto Result = co_await Owner->Drain();
+                const bool Retired = Owner->IsRetired();
+                const auto Durable = Owner->DrainFailure();
+                if (Durable.Failed() && (!DrainFailure_.Failed() ||
+                    (DrainFailure_.Code == Preview::Fault::Code::Canceled &&
+                     Durable.Code != Preview::Fault::Code::Canceled)))
+                {
+                    DrainFailure_ = Durable;
+                }
+                else if (!Result && Result.error().Code != Preview::Fault::Code::Canceled &&
+                    (!DrainFailure_.Failed() ||
+                     (DrainFailure_.Code == Preview::Fault::Code::Canceled &&
+                      Result.error().Code != Preview::Fault::Code::Canceled)))
+                {
+                    DrainFailure_ = Result.error();
+                }
                 if constexpr (requires { Owner->IsRetired(); })
                 {
-                    if (Owner->IsRetired())
+                    if (Retired)
                     {
                         Owner.reset();
                         Generation.reset();
                     }
                 }
+                if (DrainFailure_.Failed())
+                    co_return std::unexpected(DrainFailure_);
                 if (!Result)
                 {
+                    if (Result.error().Code == Preview::Fault::Code::Canceled && Retired)
+                        co_return std::expected<void, Preview::Fault::Failure>{};
                     co_return std::unexpected(Result.error());
                 }
-            }
-            if (!Owner)
-            {
-                Generation.reset();
             }
             co_return std::expected<void, Preview::Fault::Failure>{};
         }

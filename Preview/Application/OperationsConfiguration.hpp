@@ -28,6 +28,8 @@ namespace Preview::Application::OperationsConfiguration
     {
         std::string Id;
         std::string SecretRef;
+        std::optional<Configuration::AccountGroupId> GroupId;
+        Preview::Account::PolicyConfiguration Policy;
     };
 
     struct QuicReference final
@@ -59,6 +61,7 @@ namespace Preview::Application::OperationsConfiguration
         std::vector<Preview::Contract::CarrierConfiguration> Carriers;
         std::vector<Preview::Contract::ProtocolBindingConfiguration> ProtocolBindings;
         Configuration::RecognitionConfiguration Recognition{};
+        std::vector<Configuration::AccountGroupConfiguration> AccountGroups;
         std::vector<AccountReference> Accounts;
         std::vector<Configuration::RouteConfiguration> Routes;
         Configuration::DnsConfiguration Dns{};
@@ -66,6 +69,7 @@ namespace Preview::Application::OperationsConfiguration
         Configuration::TraceConfiguration Trace{};
         Configuration::StatisticsConfiguration Statistics{};
         Configuration::OperationsConfiguration Operations{};
+        Configuration::StorageConfiguration Storage{};
         Configuration::HotReloadConfiguration HotReload{};
         Configuration::ShutdownConfiguration Shutdown{};
     };
@@ -115,10 +119,12 @@ namespace Preview::Application::OperationsConfiguration
         Result.Carriers = Source.Carriers;
         Result.ProtocolBindings = Source.ProtocolBindings;
         Result.Recognition = Source.Recognition;
+        Result.AccountGroups = Source.AccountGroups;
         Result.Accounts.reserve(Source.Accounts.size());
         for (const auto &Account : Source.Accounts)
         {
-            Result.Accounts.push_back(AccountReference{Account.Id, Account.SecretRef});
+            Result.Accounts.push_back(AccountReference{Account.Id, Account.SecretRef, Account.GroupId,
+                                                       Account.Policy});
         }
         Result.Routes = Source.Routes;
         Result.Dns = Source.Dns;
@@ -126,26 +132,10 @@ namespace Preview::Application::OperationsConfiguration
         Result.Trace = Source.Trace;
         Result.Statistics = Source.Statistics;
         Result.Operations = Source.Operations;
+        Result.Storage = Source.Storage;
         Result.HotReload = Source.HotReload;
         Result.Shutdown = Source.Shutdown;
         return Result;
-    }
-
-    [[nodiscard]] inline auto SerializePublicConfiguration(
-        const Configuration::PreviewConfiguration &Source)
-        -> std::expected<std::string, Preview::Fault::Failure>
-    {
-        auto Json = glz::write_json(PublicView(Source));
-        if (!Json)
-        {
-            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::ConfigErr});
-        }
-        if (Json->size() > MaxSafeConfigurationBytes)
-        {
-            return std::unexpected(
-                Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
-        }
-        return std::move(*Json);
     }
 
     /** @brief 对同名现存账户与 QUIC protocol 保留当前代拥有的 inline secret。 */
@@ -176,43 +166,14 @@ namespace Preview::Application::OperationsConfiguration
         }
     }
 
-    [[nodiscard]] inline auto MakeQuery(
-        const std::shared_ptr<Preview::Application::Application::RuntimeState> &State,
-        const Preview::Operations::ConfigurationQuery &Query)
-        -> Preview::Operations::QueryResult
-    {
-        if (!State)
-        {
-            return Preview::Operations::QueryResult::Unavailable(Query.Correlation);
-        }
-        const auto Snapshot = State->ActiveGenerationSnapshot();
-        if (!Snapshot || !Snapshot->Generation)
-        {
-            return Preview::Operations::QueryResult::Unavailable(Query.Correlation);
-        }
-        auto Json = SerializePublicConfiguration(Snapshot->Generation->Configuration());
-        if (!Json)
-        {
-            auto Result = Preview::Operations::QueryResult::Unavailable(Query.Correlation);
-            Result.Message = Json.error().Code == Preview::Fault::Code::ResourceUnavailable
-                ? "configuration_snapshot_limit"
-                : "configuration_snapshot_failed";
-            return Result;
-        }
-        Preview::Operations::ConfigurationSnapshot Value;
-        Value.Generation = Snapshot->Id();
-        Value.Reloadable = Snapshot->Generation->Configuration().HotReload.Enabled;
-        Value.Json = std::move(*Json);
-        return Preview::Operations::QueryResult::Configuration(Query.Correlation, std::move(Value));
-    }
-
 } // namespace Preview::Application::OperationsConfiguration
 
 template <>
 struct glz::meta<Preview::Application::OperationsConfiguration::AccountReference>
 {
     using T = Preview::Application::OperationsConfiguration::AccountReference;
-    static constexpr auto value = glz::object("Id", &T::Id, "SecretRef", &T::SecretRef);
+    static constexpr auto value = glz::object("Id", &T::Id, "SecretRef", &T::SecretRef,
+        "GroupId", &T::GroupId, "Policy", &T::Policy);
 };
 
 template <>
@@ -253,6 +214,7 @@ struct glz::meta<Preview::Application::OperationsConfiguration::PublicConfigurat
         "Carriers", &T::Carriers,
         "ProtocolBindings", &T::ProtocolBindings,
         "Recognition", &T::Recognition,
+        "AccountGroups", &T::AccountGroups,
         "Accounts", &T::Accounts,
         "Routes", &T::Routes,
         "Dns", &T::Dns,
@@ -260,6 +222,59 @@ struct glz::meta<Preview::Application::OperationsConfiguration::PublicConfigurat
         "Trace", &T::Trace,
         "Statistics", &T::Statistics,
         "Operations", &T::Operations,
+        "Storage", &T::Storage,
         "HotReload", &T::HotReload,
         "Shutdown", &T::Shutdown);
 };
+
+namespace Preview::Application::OperationsConfiguration
+{
+
+    [[nodiscard]] inline auto SerializePublicConfiguration(
+        const Configuration::PreviewConfiguration &Source)
+        -> std::expected<std::string, Preview::Fault::Failure>
+    {
+        auto Json = glz::write_json(PublicView(Source));
+        if (!Json)
+        {
+            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::ConfigErr});
+        }
+        if (Json->size() > MaxSafeConfigurationBytes)
+        {
+            return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
+        }
+        return std::move(*Json);
+    }
+
+    [[nodiscard]] inline auto MakeQuery(
+        const std::shared_ptr<Preview::Application::Application::RuntimeState> &State,
+        const Preview::Operations::ConfigurationQuery &Query)
+        -> Preview::Operations::QueryResult
+    {
+        if (!State)
+        {
+            return Preview::Operations::QueryResult::Unavailable(Query.Correlation);
+        }
+        const auto Snapshot = State->ActiveGenerationSnapshot();
+        if (!Snapshot || !Snapshot->Generation)
+        {
+            return Preview::Operations::QueryResult::Unavailable(Query.Correlation);
+        }
+        auto Json = SerializePublicConfiguration(Snapshot->Generation->Configuration());
+        if (!Json)
+        {
+            auto Result = Preview::Operations::QueryResult::Unavailable(Query.Correlation);
+            Result.Message = Json.error().Code == Preview::Fault::Code::ResourceUnavailable
+                ? "configuration_snapshot_limit"
+                : "configuration_snapshot_failed";
+            return Result;
+        }
+        Preview::Operations::ConfigurationSnapshot Value;
+        Value.Generation = Snapshot->Id();
+        Value.Reloadable = Snapshot->Generation->Configuration().HotReload.Enabled;
+        Value.Json = std::move(*Json);
+        return Preview::Operations::QueryResult::Configuration(Query.Correlation, std::move(Value));
+    }
+
+} // namespace Preview::Application::OperationsConfiguration

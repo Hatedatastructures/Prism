@@ -26,16 +26,52 @@ namespace Preview::Memory
 
     using ResourcePointer = std::add_pointer_t<Resource>; // 内存资源指针类型，用于在函数间传递内存资源引用
 
+    namespace Detail
+    {
+        /** @brief 仅覆盖当前线程、由 ResourceScope 临时设置的 PMR 资源。 */
+        inline thread_local ResourcePointer ThreadResource{nullptr};
+    }
+
     /**
-     * @brief 获取当前默认内存资源
-     * @details 对 std::pmr::get_default_resource() 的包装。
-     * 如果调用了 System::EnablePooling()，则返回
-     * GlobalPool()，否则返回系统堆分配器。
+     * @brief 在同步调用栈内临时选择线程当前 PMR 资源。
+     * @details 不分配、不加锁；作用域不能跨协程挂起或线程迁移，析构时恢复先前资源。
+     */
+    class ResourceScope final
+    {
+    public:
+        explicit ResourceScope(ResourcePointer Value) noexcept
+            : Previous_(Detail::ThreadResource)
+        {
+            Detail::ThreadResource = Value;
+        }
+
+        ~ResourceScope() noexcept
+        {
+            Detail::ThreadResource = Previous_;
+        }
+
+        ResourceScope(const ResourceScope&) = delete;
+        auto operator=(const ResourceScope&) -> ResourceScope& = delete;
+        ResourceScope(ResourceScope&&) = delete;
+        auto operator=(ResourceScope&&) -> ResourceScope& = delete;
+
+    private:
+        ResourcePointer Previous_;
+    };
+
+    /**
+     * @brief 获取当前线程作用域资源或进程默认 PMR 资源。
+     * @details ResourceScope 生效时返回其临时资源；否则等价于
+     * std::pmr::get_default_resource()。若调用 System::EnablePooling()，默认值为 GlobalPool()。
      * @return 当前默认内存资源指针，永不返回 nullptr
      */
     [[nodiscard]] inline auto CurrentResource()
          -> ResourcePointer
     {
+        if (Detail::ThreadResource)
+        {
+            return Detail::ThreadResource;
+        }
         return std::pmr::get_default_resource();
     }
 

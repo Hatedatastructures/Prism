@@ -20,6 +20,8 @@ namespace Preview::Protocols
      */
     class ProviderMuxRootState : public Preview::Contract::MuxRootCreateOwner
     {
+        friend class ProviderSessionResources;
+
     protected:
         struct RootOwner final
         {
@@ -75,6 +77,13 @@ namespace Preview::Protocols
                 return;
             }
             RootSlot_->Mux = std::move(Session);
+            if (RootSlot_->PendingPlane)
+            {
+                if (auto *Mux = RootSlot_->PendingPlane->Mux())
+                {
+                    Mux->Session = RootSlot_->Mux;
+                }
+            }
             Root_.store(RootSlot_, std::memory_order_release);
             OnMuxRootSessionAttached();
         }

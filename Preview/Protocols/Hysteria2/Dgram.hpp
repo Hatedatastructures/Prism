@@ -3,9 +3,8 @@
  * @brief Hysteria2 UDP 包连接对象（Transmission 装饰器）
  * @details UDP 数据面连接：将底层数据报传输（Unreliable，
  * 或任意包边界的传输）包装为 Hysteria2 逐帧编解码层。
- * 帧格式：[Kind 1B=0x02][SessionID 4B LE][PacketID 4B LE]
- *          [ATYP 1B][ADDR][PORT 2B BE][payload]。
- * 目标地址内嵌于帧内，Session/packet Id 由本对象自增维护。
+ * 内部模式使用自有带类型帧；QUIC 模式使用 Hysteria2 UDPMessage，按 QUIC
+ * datagram 上限分片，并按 Session/Packet ID 重组。目标地址随每个 UDP 消息携带。
  * @note 继承 Preview::Transmission，构造函数传入底层传输（相当于
  * socket 收发的持有者），对齐 Conn 的装饰器链模式。
  */
@@ -17,6 +16,7 @@
 #include <boost/asio/ip/address_v6.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstddef>
@@ -25,6 +25,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -38,6 +39,7 @@
 #include <Preview/Transport/Detail/IoCompletion.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Hysteria2/Codec.hpp>
+#include <Preview/Protocols/Hysteria2/Detail/DatagramFragments.hpp>
 #include <Preview/Protocols/Hysteria2/Types.hpp>
 
 namespace Preview::Hysteria2
@@ -47,8 +49,8 @@ namespace Preview::Hysteria2
      * @class Dgram
      * @brief Hysteria2 UDP 包连接对象（Transmission 装饰器）
      * @details 持有底层数据报传输的独占所有权，对外暴露包级 API
-     * （AsyncSendTo / AsyncReceiveFrom），内部完成逐帧编解码
-     * （Codec.hpp 纯函数）。由工厂（ConnectPacket /
+     * （AsyncSendTo / AsyncReceiveFrom），内部完成逐包编解码与 Hysteria2
+     * UDP 分片重组。由工厂（ConnectPacket /
      * AcceptPacket）创建。
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
@@ -108,10 +110,47 @@ namespace Preview::Hysteria2
             }
             if (StandardWire_)
             {
-                if (!BuildReferenceUdp(Destination, Payload, TxWire_))
+                if (Destination.Host.empty() ||
+                    (Destination.Type != AddressType::Ipv4 &&
+                     Destination.Type != AddressType::Ipv6 &&
+                     Destination.Type != AddressType::Domain))
                 {
                     co_return Error::BadAddress;
                 }
+                const auto DestinationText = AddressText(Destination);
+                if (DestinationText.empty() || DestinationText.size() > 2048U)
+                    co_return Error::BadAddress;
+                Address ParsedDestination;
+                if (!ParseEndpoint(DestinationText, ParsedDestination))
+                {
+                    co_return Error::BadAddress;
+                }
+                if (Payload.size() > Detail::MaxUdpPayloadSize)
+                {
+                    co_return Error::BadLength;
+                }
+                const auto Maximum = Detail::MaxReferenceUdpFragmentPayload(
+                    DestinationText.size());
+                if (!Maximum) co_return Error::BadLength;
+                const auto FragmentCount = Payload.empty() ? 1U :
+                    (Payload.size() + *Maximum - 1U) / *Maximum;
+                if (FragmentCount == 0U || FragmentCount > 255U)
+                    co_return Error::BadLength;
+                const auto Packet = static_cast<std::uint16_t>(PacketId_++);
+                for (std::size_t Index = 0; Index < FragmentCount; ++Index)
+                {
+                    const auto Offset = Index * *Maximum;
+                    const auto Count = (std::min)(*Maximum, Payload.size() - Offset);
+                    const Detail::ReferenceUdpBuildInput Input{
+                        SessionId_, Packet, static_cast<std::uint8_t>(Index),
+                        static_cast<std::uint8_t>(FragmentCount), DestinationText,
+                        Payload.subspan(Offset, Count)};
+                    if (!Detail::BuildReferenceUdpFragment(Input, TxWire_))
+                        co_return Error::BadLength;
+                    const auto Sent = co_await SendWire();
+                    if (Sent != Error::None) co_return Sent;
+                }
+                co_return Error::None;
             }
             else
             {
@@ -123,23 +162,7 @@ namespace Preview::Hysteria2
                 }
                 ++PacketId_;
             }
-            std::size_t Done = 0;
-            while (Done < TxWire_.size())
-            {
-                const auto Part = co_await NextLayer_->WriteSome(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done));
-                const auto N = Part.Bytes;
-                if (Part.Failure.Failed() || N == 0)
-                {
-                    co_return Error::IoError;
-                }
-                if (N > TxWire_.size() - Done)
-                {
-                    co_return Error::BadLength;
-                }
-                Done += N;
-            }
-            co_return Error::None;
+            co_return co_await SendWire();
         }
 
         /**
@@ -161,48 +184,51 @@ namespace Preview::Hysteria2
             {
                 co_return Error::Unsupported;
             }
-            std::array<std::uint8_t, 65536> Datagram{};
-            const auto Part = co_await NextLayer_->ReadSome(
-                AsBytes(std::span<std::uint8_t>(Datagram)));
-            const auto N = Part.Bytes;
-            if (Part.Failure.Failed())
+            while (true)
             {
-                co_return Error::IoError;
-            }
-            if (N == 0)
-            {
-                co_return Error::UnexpectedEof;
-            }
-            if (N > Datagram.size())
-            {
-                co_return Error::BadLength;
-            }
-            if (StandardWire_)
-            {
-                co_return ParseReferenceUdp(
-                    std::span<const std::uint8_t>(Datagram.data(), N),
-                    Source,
-                    Payload);
-            }
-            Message Parsed{};
-            std::size_t Consumed = 0;
-            const auto ParseError = Parse(
-                std::span<const std::uint8_t>(Datagram.data(), N),
-                Parsed,
-                Consumed);
-            if (ParseError != Error::None || Parsed.Type != Message::Kind::Udp || Consumed != N)
-            {
-                if (ParseError != Error::None)
+                std::array<std::uint8_t, 65536> Datagram{};
+                const auto Part = co_await NextLayer_->ReadSome(
+                    AsBytes(std::span<std::uint8_t>(Datagram)));
+                const auto N = Part.Bytes;
+                if (Part.Failure.Failed())
                 {
-                    co_return ParseError;
+                    if (Part.Failure.Code == Preview::Fault::Code::Eof)
+                        co_return Error::UnexpectedEof;
+                    co_return Error::IoError;
                 }
-                co_return Error::BadMessage;
+                if (N == 0) co_return Error::UnexpectedEof;
+                if (N > Datagram.size()) co_return Error::BadLength;
+                const auto Data = std::span<const std::uint8_t>(Datagram.data(), N);
+                if (StandardWire_)
+                {
+                    const auto Fragment = Detail::ParseReferenceUdpFragment(Data);
+                    if (!Fragment) co_return Fragment.error();
+                    auto Packet = Reassembler_.Accept(*Fragment);
+                    if (!Packet) co_return Packet.error();
+                    if (!Packet->has_value()) continue;
+                    auto Complete = std::move(**Packet);
+                    if (!ParseEndpoint(Complete.Address, Source))
+                        co_return Error::BadAddress;
+                    SessionId_ = Complete.SessionId;
+                    Payload = std::move(Complete.Payload);
+                    co_return Error::None;
+                }
+                Message Parsed{};
+                std::size_t Consumed = 0;
+                const auto ParseError = Parse(Data, Parsed, Consumed);
+                if (ParseError != Error::None || Parsed.Type != Message::Kind::Udp ||
+                    Consumed != N)
+                {
+                    if (ParseError != Error::None) co_return ParseError;
+                    co_return Error::BadMessage;
+                }
+                Source = Parsed.dst;
+                Payload.assign(
+                    reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()),
+                    reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()) +
+                        Parsed.payload.size());
+                co_return Error::None;
             }
-            Source = Parsed.dst;
-            Payload.assign(
-                reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()),
-                reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()) + Parsed.payload.size());
-            co_return Error::None;
         }
 
         /** @brief 透传读取（底层数据报原样）；executor 与原域一致。 */
@@ -341,62 +367,6 @@ namespace Preview::Hysteria2
             }
         }
 
-        static auto AppendVarint(typename Memory::template Buffer<std::uint8_t> &Output,
-                                 const std::uint64_t Value) -> void
-        {
-            if (Value <= 63)
-            {
-                Output.push_back(static_cast<std::uint8_t>(Value));
-            }
-            else if (Value <= 16383)
-            {
-                Output.push_back(static_cast<std::uint8_t>((Value >> 8U) | 0x40U));
-                Output.push_back(static_cast<std::uint8_t>(Value));
-            }
-            else if (Value <= 1073741823)
-            {
-                Output.push_back(static_cast<std::uint8_t>((Value >> 24U) | 0x80U));
-                Output.push_back(static_cast<std::uint8_t>(Value >> 16U));
-                Output.push_back(static_cast<std::uint8_t>(Value >> 8U));
-                Output.push_back(static_cast<std::uint8_t>(Value));
-            }
-            else
-            {
-                for (std::size_t Index = 0; Index < 8; ++Index)
-                {
-                    const auto Shift = static_cast<unsigned>((7U - Index) * 8U);
-                    std::uint8_t Prefix = 0;
-                    if (Index == 0)
-                    {
-                        Prefix = 0xC0U;
-                    }
-                    Output.push_back(static_cast<std::uint8_t>((Value >> Shift) | Prefix));
-                }
-            }
-        }
-
-        [[nodiscard]] static auto ReadVarint(std::span<const std::uint8_t> Data, std::size_t &Offset,
-                                             std::uint64_t &Value) -> bool
-        {
-            if (Offset >= Data.size())
-            {
-                return false;
-            }
-            const auto First = Data[Offset];
-            const auto Length = std::size_t{1U} << (First >> 6U);
-            if (Data.size() - Offset < Length)
-            {
-                return false;
-            }
-            Value = First & 0x3FU;
-            for (std::size_t Index = 1; Index < Length; ++Index)
-            {
-                Value = (Value << 8U) | Data[Offset + Index];
-            }
-            Offset += Length;
-            return true;
-        }
-
         [[nodiscard]] static auto AddressText(const Address &AddressValue) -> std::string
         {
             if (AddressValue.Type == AddressType::Ipv6)
@@ -413,47 +383,14 @@ namespace Preview::Hysteria2
             return Result;
         }
 
-        [[nodiscard]] auto BuildReferenceUdp(
-            const Address &Destination,
-            std::span<const std::uint8_t> Payload,
-            typename Memory::template Buffer<std::uint8_t> &Output) -> bool
+        [[nodiscard]] auto SendWire() -> Net::awaitable<Error>
         {
-            if (Destination.Host.empty() ||
-                (Destination.Type != AddressType::Ipv4 &&
-                 Destination.Type != AddressType::Ipv6 &&
-                 Destination.Type != AddressType::Domain))
-            {
-                Output.clear();
-                return false;
-            }
-            const auto DestinationText = AddressText(Destination);
-            if (DestinationText.empty() || DestinationText.size() > 2048)
-            {
-                Output.clear();
-                return false;
-            }
-            Address ParsedAddress;
-            if (!ParseEndpoint(DestinationText, ParsedAddress))
-            {
-                Output.clear();
-                return false;
-            }
-            Output.clear();
-            Output.reserve(8 + DestinationText.size() + Payload.size() + 8);
-            const auto Packet = static_cast<std::uint16_t>(PacketId_);
-            Output.push_back(0);
-            Output.push_back(0);
-            Output.push_back(0);
-            Output.push_back(0);
-            Output.push_back(static_cast<std::uint8_t>(Packet >> 8U));
-            Output.push_back(static_cast<std::uint8_t>(Packet));
-            Output.push_back(0);
-            Output.push_back(1);
-            AppendVarint(Output, DestinationText.size());
-            Output.insert(Output.end(), DestinationText.begin(), DestinationText.end());
-            Output.insert(Output.end(), Payload.begin(), Payload.end());
-            ++PacketId_;
-            return true;
+            const auto Part = co_await NextLayer_->WriteSome(
+                AsBytes(std::span<const std::uint8_t>(TxWire_)));
+            if (Part.Bytes > TxWire_.size()) co_return Error::BadLength;
+            if (Part.Failure.Failed() || Part.Bytes != TxWire_.size())
+                co_return Error::IoError;
+            co_return Error::None;
         }
 
         [[nodiscard]] static auto ParseEndpoint(std::string_view Text, Address &Output) -> bool
@@ -522,41 +459,13 @@ namespace Preview::Hysteria2
             return true;
         }
 
-        [[nodiscard]] static auto ParseReferenceUdp(std::span<const std::uint8_t> Data, Address &Source,
-                                                    std::vector<std::uint8_t> &Payload) -> Error
-        {
-            if (Data.size() < 8)
-            {
-                return Error::NeedMore;
-            }
-            if (Data[6] != 0 || Data[7] != 1)
-            {
-                return Error::BadMessage;
-            }
-            std::size_t Offset = 8;
-            std::uint64_t DestinationLength = 0;
-            if (!ReadVarint(Data, Offset, DestinationLength) || DestinationLength == 0 ||
-                DestinationLength > 2048 || DestinationLength > Data.size() - Offset)
-            {
-                return Error::BadMessage;
-            }
-            const auto Destination = std::string_view(reinterpret_cast<const char *>(Data.data() + Offset),
-                                                      static_cast<std::size_t>(DestinationLength));
-            Offset += static_cast<std::size_t>(DestinationLength);
-            if (!ParseEndpoint(Destination, Source))
-            {
-                return Error::BadAddress;
-            }
-            Payload.assign(Data.begin() + static_cast<std::ptrdiff_t>(Offset), Data.end());
-            return Error::None;
-        }
-
         SharedTransmission NextLayer_; ///< 底层数据报传输（独占所有权）
-        std::uint32_t SessionId_{0};    ///< UDP 会话 ID（测试简化：固定 0）
+        std::uint32_t SessionId_{0};    ///< 最近入站 UDP 关联 ID；响应沿同一关联返回。
         std::uint32_t PacketId_{0};     ///< UDP 包 ID（逐包自增）
-        bool StandardWire_{false};      ///< QUIC provider 使用 sing-quic 标准数据报格式
+        bool StandardWire_{false};      ///< QUIC provider 使用 Hysteria2 UDPMessage wire。
         Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
         typename Memory::template Buffer<std::uint8_t> TxWire_{Mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
+        Detail::ReferenceUdpFragmentReassembler Reassembler_;
     };
 
     /// 包连接共享指针

@@ -5,15 +5,24 @@ import {fileURLToPath} from 'node:url';
 
 const Root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const Directory = path.resolve(process.argv[2] ?? '');
-const Expected = path.resolve(Root, 'build/Web');
+const BuildDirectoryArgument = process.argv[3];
+if (typeof BuildDirectoryArgument !== 'string' || BuildDirectoryArgument.length === 0)
+    throw new Error('资源清单需要显式的二进制构建目录');
+const BuildDirectory = path.resolve(BuildDirectoryArgument);
+const Expected = path.resolve(BuildDirectory, 'Web');
 function SamePath(Left, Right) {
     if (process.platform === 'win32') return Left.toLowerCase() === Right.toLowerCase();
     return Left === Right;
 }
 if (!SamePath(Directory, Expected) || !SamePath(path.resolve(process.cwd()), Root) ||
-    !fs.existsSync(path.join(Root, 'Preview/Application/Startup/Start.hpp')))
-    throw new Error('资源清单只能生成到执行树已有 build/Web');
+    !fs.existsSync(path.join(Root, 'Preview/Application/Startup/Start.hpp')) ||
+    !fs.existsSync(BuildDirectory))
+    throw new Error('资源清单只能生成到指定二进制树的 Web 子目录');
 const CanonicalRoot = fs.realpathSync(Directory);
+const CanonicalBuildDirectory = fs.realpathSync(BuildDirectory);
+if (!SamePath(path.dirname(CanonicalRoot), CanonicalBuildDirectory) ||
+    !SamePath(path.basename(CanonicalRoot), 'Web'))
+    throw new Error('Web 资源目录必须是二进制构建目录的直接子目录');
 const MaxFileBytes = 4 * 1024 * 1024;
 const MaxTotalBytes = 64 * 1024 * 1024;
 const Types = new Map([

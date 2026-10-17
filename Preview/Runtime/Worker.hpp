@@ -17,6 +17,8 @@
 #include <Preview/Runtime/GenerationPublication.hpp>
 #include <Preview/Runtime/WorkerAdmissionReceipt.hpp>
 #include <Preview/Runtime/WorkerDispatchResult.hpp>
+#include <Preview/Runtime/SessionTraceRing.hpp>
+#include <Preview/Runtime/WorkerExecution.hpp>
 
 #include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/post.hpp>
@@ -76,7 +78,7 @@ namespace Preview::Runtime
         GenerationPrepareStatus Status{GenerationPrepareStatus::WorkerUnavailable};
     };
 
-    class Worker final
+    class Worker final : public WorkerSessionTraceOwner
     {
     public:
         using AdmissionReceipt = WorkerAdmissionReceipt;
@@ -92,9 +94,9 @@ namespace Preview::Runtime
         };
 
         Worker() : Worker(Options{}) {}
-
         explicit Worker(Options Value)
-            : Resources_(Preview::Resource::WorkerResources::Options{
+            : WorkerSessionTraceOwner(Value.Process, Value.Id),
+              Resources_(Preview::Resource::WorkerResources::Options{
                   Value.Process, Value.Id, Value.Generation, Value.Dns}),
               Publication_(std::move(Value.Publication)),
               Mailbox_(Detail::Mailbox::Options{Value.MailboxCapacity, Value.Generation, Publication_}),
@@ -109,7 +111,6 @@ namespace Preview::Runtime
             DispatchTarget_->Owner.store(nullptr, std::memory_order_release);
             Stop();
         }
-
         Worker(const Worker &) = delete;
         auto operator=(const Worker &) -> Worker & = delete;
         Worker(Worker &&) = delete;
@@ -255,7 +256,7 @@ namespace Preview::Runtime
             {
                 return;
             }
-            Resources_.IoContext.run();
+            Detail::RunWorkerContext(Resources_);
         }
 
         [[nodiscard]] auto Pump() -> std::size_t
@@ -264,7 +265,7 @@ namespace Preview::Runtime
             {
                 return 0;
             }
-            return Resources_.IoContext.poll();
+            return Detail::PumpWorkerContext(Resources_);
         }
 
         /** @brief 同步封闭准入/mailbox、封止并请求取消；仅尝试退休确认为空的 root scope，不能代替完整 Drain。 */

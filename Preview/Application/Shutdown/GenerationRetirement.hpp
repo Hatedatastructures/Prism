@@ -14,13 +14,17 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/redirect_error.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <cstddef>
 #include <algorithm>
+#include <chrono>
 #include <expected>
 #include <memory>
 #include <optional>
+#include <system_error>
 #include <utility>
 
 namespace Preview::Application::Shutdown::GenerationRetirement
@@ -78,6 +82,139 @@ namespace Preview::Application::Shutdown::GenerationRetirement
             co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
         }
         co_return co_await Owner->DrainOwnedServices();
+    }
+
+    struct SnapshotDrainAttempt final
+    {
+        bool Completed{false};
+        bool PhysicallyRetired{false};
+        ShutdownOutcome Outcome{};
+        std::optional<Failure> DurableFailure;
+    };
+
+    /** @brief 在同一绝对期限内重试可恢复的 drain attempt，直至任务与物理回执都完成。 */
+    [[nodiscard]] inline auto DrainSnapshotUntilRetired(
+        const std::shared_ptr<Application::RuntimeState> &State,
+        const ShutdownDeadline Deadline,
+        const SharedRuntimeGenerationSnapshot &Owner) -> Net::awaitable<SnapshotDrainAttempt>
+    {
+        SnapshotDrainAttempt Attempt;
+        if (!State || !Owner)
+        {
+            Attempt.Completed = true;
+            Attempt.Outcome = std::unexpected(Failure{Preview::Fault::Code::Blocked});
+            co_return Attempt;
+        }
+
+        auto Executor = co_await Net::this_coro::executor;
+        auto RetryTimer = Net::steady_timer(Executor);
+        auto FirstAttemptFailure = std::optional<Failure>{};
+        for (;;)
+        {
+            if (Attempt.Completed)
+            {
+                Attempt.PhysicallyRetired = Owner->PhysicalRetirementComplete();
+                Attempt.DurableFailure = Owner->FirstDrainFailure();
+            }
+            if (Attempt.Completed && Attempt.PhysicallyRetired)
+            {
+                if (Attempt.DurableFailure)
+                {
+                    Attempt.Outcome = std::unexpected(*Attempt.DurableFailure);
+                }
+                else if (FirstAttemptFailure)
+                {
+                    Attempt.Outcome = std::unexpected(*FirstAttemptFailure);
+                }
+                else
+                {
+                    Attempt.Outcome = ShutdownOutcome{};
+                }
+                co_return Attempt;
+            }
+            if (std::chrono::steady_clock::now() >= Deadline)
+            {
+                if (Attempt.DurableFailure)
+                {
+                    Attempt.Outcome = std::unexpected(*Attempt.DurableFailure);
+                }
+                else if (FirstAttemptFailure)
+                {
+                    Attempt.Outcome = std::unexpected(*FirstAttemptFailure);
+                }
+                else if (Attempt.Completed && !Attempt.Outcome)
+                {
+                    // 保留最后一轮 retryable failure，供本次 shutdown 返回，不写入 owner 历史。
+                }
+                else
+                {
+                    Attempt.Outcome = std::unexpected(Failure{
+                        Preview::Fault::Code::Timeout, std::make_error_code(std::errc::timed_out)});
+                }
+                co_return Attempt;
+            }
+
+            auto Operation = DrainSnapshot(Owner);
+            const auto Wait = co_await ShutdownOperation::Await(
+                ShutdownOperation::Request{State, Deadline, std::move(Operation)});
+            Attempt.Completed = Wait.Completed;
+            Attempt.Outcome = Wait.Outcome;
+            if (!Wait.Completed)
+            {
+                Attempt.PhysicallyRetired = false;
+                Attempt.DurableFailure.reset();
+                Attempt.Outcome = std::unexpected(BoundedFailure(Wait));
+                co_return Attempt;
+            }
+            Attempt.PhysicallyRetired = Owner->PhysicalRetirementComplete();
+            Attempt.DurableFailure = Owner->FirstDrainFailure();
+            if (!Wait.Outcome && !Attempt.DurableFailure)
+            {
+                const auto Cause = Wait.Outcome.error();
+                if (Cause.Code != Preview::Fault::Code::Canceled &&
+                    Cause.Code != Preview::Fault::Code::Blocked && !FirstAttemptFailure)
+                {
+                    FirstAttemptFailure = Cause;
+                }
+            }
+            if (Attempt.DurableFailure)
+            {
+                Attempt.Outcome = std::unexpected(*Attempt.DurableFailure);
+            }
+            if (Attempt.PhysicallyRetired)
+            {
+                if (Attempt.DurableFailure)
+                {
+                    Attempt.Outcome = std::unexpected(*Attempt.DurableFailure);
+                }
+                else if (FirstAttemptFailure)
+                {
+                    Attempt.Outcome = std::unexpected(*FirstAttemptFailure);
+                }
+                else if (!Wait.Outcome)
+                {
+                    const auto Code = Wait.Outcome.error().Code;
+                    if (Code == Preview::Fault::Code::Canceled ||
+                        Code == Preview::Fault::Code::Blocked)
+                    {
+                        Attempt.Outcome = ShutdownOutcome{};
+                    }
+                }
+                co_return Attempt;
+            }
+
+            const auto RetryAt = std::min(Deadline,
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(1));
+            RetryTimer.expires_at(RetryAt);
+            boost::system::error_code Error;
+            co_await RetryTimer.async_wait(Net::redirect_error(Net::use_awaitable, Error));
+            if (Error && Error != Net::error::operation_aborted)
+            {
+                Attempt.Outcome = std::unexpected(Preview::Fault::FromNative(
+                    static_cast<std::error_code>(Error)));
+                co_return Attempt;
+            }
+        }
     }
 
     /** @brief 在同一停机 deadline 内等待已经开始的周期 reaper 退出。 */
@@ -176,20 +313,26 @@ namespace Preview::Application::Shutdown::GenerationRetirement
         GenerationRetirementRun &Run,
         const SharedRuntimeGenerationSnapshot &Owner) -> Net::awaitable<void>
     {
-        auto Operation = DrainSnapshot(Owner);
-        const auto Result = co_await ShutdownOperation::Await(
-            ShutdownOperation::Request{Run.Runtime, Run.Deadline, std::move(Operation)});
-        if (!Result.Completed || !Owner->PhysicalRetirementComplete())
+        const auto Attempt = co_await DrainSnapshotUntilRetired(
+            Run.Runtime, Run.Deadline, Owner);
+        if (!Attempt.Completed)
+        {
+            PreserveFirstFailure(Run.FirstFailure, Attempt.Outcome ?
+                Failure{Preview::Fault::Code::Blocked} : Attempt.Outcome.error());
+            co_return;
+        }
+        if (!Attempt.PhysicallyRetired)
         {
             if (!PreserveOwnerFailure(Run.FirstFailure, Run.Runtime, Owner))
             {
-                PreserveFirstFailure(Run.FirstFailure, BoundedFailure(Result));
+                PreserveFirstFailure(Run.FirstFailure, Attempt.Outcome ?
+                    Failure{Preview::Fault::Code::Blocked} : Attempt.Outcome.error());
             }
             co_return;
         }
-        if (!PreserveOwnerFailure(Run.FirstFailure, Run.Runtime, Owner) && !Result.Outcome)
+        if (!PreserveOwnerFailure(Run.FirstFailure, Run.Runtime, Owner) && !Attempt.Outcome)
         {
-            PreserveFirstFailure(Run.FirstFailure, Result.Outcome.error());
+            PreserveFirstFailure(Run.FirstFailure, Attempt.Outcome.error());
         }
         if (!Run.Runtime->GenerationPublisher || !Run.Runtime->GenerationPublisher->Clear())
         {
@@ -214,21 +357,28 @@ namespace Preview::Application::Shutdown::GenerationRetirement
         for (std::size_t Index = 0; Index < Owners.size();)
         {
             const auto Owner = Owners[Index];
-            auto Operation = DrainSnapshot(Owner);
-            const auto Result = co_await ShutdownOperation::Await(
-                ShutdownOperation::Request{Run.Runtime, Run.Deadline, std::move(Operation)});
-            if (!Result.Completed || !Owner->PhysicalRetirementComplete())
+            const auto Attempt = co_await DrainSnapshotUntilRetired(
+                Run.Runtime, Run.Deadline, Owner);
+            if (!Attempt.Completed)
+            {
+                PreserveFirstFailure(Run.FirstFailure, Attempt.Outcome ?
+                    Failure{Preview::Fault::Code::Blocked} : Attempt.Outcome.error());
+                ++Index;
+                continue;
+            }
+            if (!Attempt.PhysicallyRetired)
             {
                 if (!PreserveOwnerFailure(Run.FirstFailure, Run.Runtime, Owner))
                 {
-                    PreserveFirstFailure(Run.FirstFailure, BoundedFailure(Result));
+                    PreserveFirstFailure(Run.FirstFailure, Attempt.Outcome ?
+                        Failure{Preview::Fault::Code::Blocked} : Attempt.Outcome.error());
                 }
                 ++Index;
                 continue;
             }
-            if (!PreserveOwnerFailure(Run.FirstFailure, Run.Runtime, Owner) && !Result.Outcome)
+            if (!PreserveOwnerFailure(Run.FirstFailure, Run.Runtime, Owner) && !Attempt.Outcome)
             {
-                PreserveFirstFailure(Run.FirstFailure, Result.Outcome.error());
+                PreserveFirstFailure(Run.FirstFailure, Attempt.Outcome.error());
             }
             const auto Retired = std::find_if(
                 Owners.begin(), Owners.end(), [&Owner](const auto &Value) { return Value == Owner; });

@@ -289,7 +289,9 @@ namespace Preview::Anytls::Detail
         if (EarlyControlFailure.Failed()) Root->RecordTerminalFailure(EarlyControlFailure);
         if (Completion.Failure)
             Root->RecordTerminalFailure(RelayFailureFromException(Completion.Failure));
-        if (Completion.Relay.Failure.Failed())
+        const bool ExpectedLocalCancellation = Stream->IsExpectedRelayCancellation(
+            Completion.Relay.Failure, Root->Stopping.load(std::memory_order_acquire));
+        if (Completion.Relay.Failure.Failed() && !ExpectedLocalCancellation)
             Root->RecordTerminalFailure(Completion.Relay.Failure);
         try
         {

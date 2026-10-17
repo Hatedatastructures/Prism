@@ -1,5 +1,8 @@
 AddPreviewTest(H2MuxFrameError.cpp)
 target_link_libraries(H2MuxFrameError PRIVATE PreviewProtocolMux PreviewTestSupport)
+AddPreviewTest(H2MuxEngineRetirementTest.cpp)
+target_link_libraries(H2MuxEngineRetirementTest PRIVATE PreviewFoundation PreviewTransport
+    PreviewRuntime PreviewComposition PreviewProtocolHttp2)
 
 AddPreviewTest(MuxH2RootOwnerTest.cpp)
 target_link_libraries(MuxH2RootOwnerTest PRIVATE PreviewProtocolTrojan PreviewProtocolMux)

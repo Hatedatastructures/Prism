@@ -110,7 +110,12 @@ namespace Preview::Account
         {
             if (!Slot_ || !Slot_->Open()) { return std::unexpected(Fault::Failure{Fault::Code::Canceled}); }
             StreamLease Result(Pool_, Slot_);
-            auto Acquired = Slot_->Binding->Runtime()->TryAcquireStream(Slot_->Binding->Policy()->Quota().MaxStreams);
+            const auto Policy = Slot_->Binding->ResourcePolicy();
+            if (!Policy) return std::unexpected(Fault::Failure{Fault::Code::Forbidden});
+            if (Policy->Settings().Transfer.TrafficBytes &&
+                (!Slot_->Binding->Runtime()->Transfer() || !Slot_->Binding->Runtime()->Transfer()->AdmissionAllowed()))
+                return std::unexpected(MakeFailure(FailureReason::ByteQuota));
+            auto Acquired = Slot_->Binding->Runtime()->TryAcquireStream(Policy->Quota().MaxStreams);
             if (!Acquired) { return std::unexpected(Acquired.error()); }
             Result.Quota_ = true;
             const auto Attached = Slot_->TryAttachChild();

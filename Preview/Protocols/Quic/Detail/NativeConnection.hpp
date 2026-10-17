@@ -337,6 +337,9 @@ namespace Preview::Quic::Detail
         auto OnPeerStopSending(std::int64_t StreamId, std::uint64_t ApplicationErrorCode) -> void;
 
     private:
+        /** @brief stream 已终止后仅归还仍存活连接的 MAX_DATA 信用。 */
+        auto OnTerminalStreamReadConsumed(std::size_t Bytes) -> void;
+
         enum class DecodeResult : std::uint8_t
         {
             Accepted,

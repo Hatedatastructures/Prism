@@ -33,6 +33,7 @@ namespace Preview::Quic::Detail
             auto operator=(const Operation&) -> Operation& = delete;
             Operation(Operation&& Other) noexcept
                 : Owner_(std::move(Other.Owner_)), Carrier_(std::move(Other.Carrier_)),
+                  Buffered_(std::exchange(Other.Buffered_, false)),
                   Entered_(std::exchange(Other.Entered_, false))
             {
             }
@@ -41,7 +42,8 @@ namespace Preview::Quic::Detail
                 Carrier_.reset();
                 if (Entered_ && Owner_)
                 {
-                    Owner_->Operations_.Leave();
+                    if (Buffered_) Owner_->BufferedReads_.Leave();
+                    else Owner_->Operations_.Leave();
                 }
             }
             [[nodiscard]] auto Carrier() const noexcept -> std::shared_ptr<void>
@@ -51,12 +53,15 @@ namespace Preview::Quic::Detail
 
         private:
             friend class NativeStreamActivity;
-            Operation(std::shared_ptr<NativeStreamActivity> Owner, std::shared_ptr<void> Carrier)
-                : Owner_(std::move(Owner)), Carrier_(std::move(Carrier)), Entered_(true)
+            Operation(std::shared_ptr<NativeStreamActivity> Owner,
+                      std::shared_ptr<void> Carrier, const bool Buffered = false)
+                : Owner_(std::move(Owner)), Carrier_(std::move(Carrier)),
+                  Buffered_(Buffered), Entered_(true)
             {
             }
             std::shared_ptr<NativeStreamActivity> Owner_;
             std::shared_ptr<void> Carrier_;
+            bool Buffered_{false};
             bool Entered_{false};
         };
 
@@ -96,7 +101,8 @@ namespace Preview::Quic::Detail
             : State_(RequireState(std::move(State))),
               Context_(Preview::Executor::ContextOwner::Find(State_->Executor)),
               Reclaimer_(std::make_shared<Preview::Executor::ExecutorReclaimer>(State_->Executor)),
-              Operations_(Reclaimer_), CloseActions_(Reclaimer_), NativeTerminal_(Reclaimer_)
+              Operations_(Reclaimer_), BufferedReads_(Reclaimer_),
+              CloseActions_(Reclaimer_), NativeTerminal_(Reclaimer_)
         {
             if (!NativeTerminal_.Enter())
             {
@@ -122,6 +128,23 @@ namespace Preview::Quic::Detail
                 return std::unexpected(Failure{Preview::Fault::Code::Canceled});
             }
             return Operation(shared_from_this(), std::move(Carrier));
+        }
+
+        /** @brief native terminal 后只为已接收缓存数据创建读取回执。 */
+        [[nodiscard]] auto BeginBufferedRead(std::shared_ptr<void> Carrier)
+            -> std::expected<Operation, Failure>
+        {
+            if (!Carrier)
+            {
+                return std::unexpected(Failure{Preview::Fault::Code::InvalidArgument});
+            }
+            if ((!NativeTerminalSeen_.load(std::memory_order_acquire) &&
+                    !State_->NativeTerminal.load(std::memory_order_acquire)) ||
+                !BufferedReads_.Enter())
+            {
+                return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+            }
+            return Operation(shared_from_this(), std::move(Carrier), true);
         }
 
         [[nodiscard]] auto BeginClose(std::shared_ptr<void> Carrier)
@@ -155,6 +178,7 @@ namespace Preview::Quic::Detail
         auto Seal() noexcept -> void override
         {
             Operations_.Seal();
+            BufferedReads_.Seal();
         }
 
         [[nodiscard]] auto Executor() const -> boost::asio::any_io_executor override
@@ -168,6 +192,7 @@ namespace Preview::Quic::Detail
                    CloseDelivered_.load(std::memory_order_acquire) &&
                    NativeTerminalSeen_.load(std::memory_order_acquire) &&
                    Operations_.IsSealed() && Operations_.Active() == 0 && !Operations_.IsBlocked() &&
+                   BufferedReads_.IsSealed() && BufferedReads_.Active() == 0 && !BufferedReads_.IsBlocked() &&
                    CloseActions_.IsSealed() && CloseActions_.Active() == 0 && !CloseActions_.IsBlocked() &&
                    NativeTerminal_.IsSealed() && NativeTerminal_.Active() == 0 && !NativeTerminal_.IsBlocked();
         }
@@ -185,6 +210,7 @@ namespace Preview::Quic::Detail
         auto CommitClose() noexcept -> void
         {
             Operations_.Seal();
+            BufferedReads_.Seal();
             CloseAccepted_.store(true, std::memory_order_release);
             CloseActions_.Seal();
         }
@@ -203,6 +229,7 @@ namespace Preview::Quic::Detail
             {
                 Failure_.TrySet(Result.error());
             }
+            BufferedReads_.Seal();
             CloseAccepted_.store(true, std::memory_order_release);
             CloseDelivered_.store(true, std::memory_order_release);
         }
@@ -213,15 +240,16 @@ namespace Preview::Quic::Detail
             {
                 Failure_.TrySet(Reason);
             }
+            const auto FirstTerminal =
+                !NativeTerminalSeen_.exchange(true, std::memory_order_acq_rel);
             Operations_.Seal();
             CloseActions_.Seal();
             CloseAccepted_.store(true, std::memory_order_release);
             CloseDelivered_.store(true, std::memory_order_release);
-            if (NativeTerminalSeen_.exchange(true, std::memory_order_acq_rel))
+            if (FirstTerminal)
             {
-                return;
+                NativeTerminal_.Leave();
             }
-            NativeTerminal_.Leave();
         }
 
     private:
@@ -238,6 +266,7 @@ namespace Preview::Quic::Detail
             {
                 co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
             }
+            Owner->BufferedReads_.Seal();
             const auto Operations = co_await Owner->Operations_.Drain();
             if (!Operations)
             {
@@ -247,6 +276,11 @@ namespace Preview::Quic::Detail
             if (!Close)
             {
                 co_return std::unexpected(Close.error());
+            }
+            const auto BufferedReads = co_await Owner->BufferedReads_.Drain();
+            if (!BufferedReads)
+            {
+                co_return std::unexpected(BufferedReads.error());
             }
             const auto CloseFailure = Owner->Failure_.Load();
             if (CloseFailure.Failed() &&
@@ -285,6 +319,7 @@ namespace Preview::Quic::Detail
         std::shared_ptr<Preview::Executor::ContextOwner> Context_;
         std::shared_ptr<Preview::Executor::ExecutorReclaimer> Reclaimer_;
         Preview::Lifecycle::DrainBarrier Operations_;
+        Preview::Lifecycle::DrainBarrier BufferedReads_;
         Preview::Lifecycle::DrainBarrier CloseActions_;
         Preview::Lifecycle::DrainBarrier NativeTerminal_;
         Preview::Fault::FailureState Failure_;

@@ -221,6 +221,19 @@ namespace Preview::Boundary
                     State_->LastError};
         }
 
+        /** @brief 仅借用原子就绪事实，允许管理 executor 查询，不触碰 socket 或错误对象。 */
+        [[nodiscard]] auto IsReady() const noexcept -> bool
+        {
+            return State_->Ready.load(std::memory_order_acquire) &&
+                   !State_->Closed.load(std::memory_order_acquire);
+        }
+
+        /** @brief 绑定与就绪分别表达；socket 关闭后就绪为 false。 */
+        [[nodiscard]] auto IsBound() const noexcept -> bool
+        {
+            return State_->Bound.load(std::memory_order_acquire);
+        }
+
     private:
         struct State final : Preview::Contract::QuicDatagramSender,
             std::enable_shared_from_this<State>

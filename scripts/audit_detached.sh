@@ -8,7 +8,7 @@
 # 用法：bash scripts/audit_detached.sh [src_dir]
 # 默认 src_dir=src
 #
-# 详见 docs/ARCHITECTURE.md "资源所有权模型"
+# 旧版 src/ 的 L1/L2/L3/PMR 规则见 docs/legacy/prism-architecture.md
 #
 # 退出码：
 #   0 - 无 DANGEROUS（REVIEW 项需人工确认）
@@ -266,7 +266,7 @@ while IFS= read -r f; do
             if [[ "$operation" =~ ^[[:space:]]*(\[[^]]*\]) ]]; then
                 lambda="${BASH_REMATCH[1]}"
                 if printf '%s\n' "$lambda" | grep -qE "$DANGEROUS_PATTERN"; then
-                    printf "❌ DANGEROUS %s:%d\n   capture: %s\n   建议：改为 shared_ptr 捕获或值拷贝，详见 docs/ARCHITECTURE.md\n\n" \
+                    printf "❌ DANGEROUS %s:%d\n   capture: %s\n   建议：改为 shared_ptr 捕获或值拷贝，详见 docs/legacy/prism-architecture.md\n\n" \
                         "$rel_path" "$line" "$lambda" >> "$tmp_danger"
                 else
                     printf "⚠ REVIEW    %s:%d\n   capture: %s\n\n" \
@@ -281,7 +281,7 @@ while IFS= read -r f; do
                     helper_label="operation helper"
                 fi
                 if printf '%s\n' "$operation" | grep -qE "$DANGEROUS_PATTERN"; then
-                    printf "❌ DANGEROUS %s:%d\n   %s: %s\n   建议：改为 shared_ptr 捕获或值拷贝，详见 docs/ARCHITECTURE.md\n\n" \
+                    printf "❌ DANGEROUS %s:%d\n   %s: %s\n   建议：改为 shared_ptr 捕获或值拷贝，详见 docs/legacy/prism-architecture.md\n\n" \
                         "$rel_path" "$line" "$helper_label" "$operation" >> "$tmp_danger"
                 else
                     printf "⚠ REVIEW    %s:%d\n   %s: %s\n\n" \
@@ -309,7 +309,7 @@ echo ""
 
 if [[ "$danger_count" -gt 0 ]]; then
     echo "❌ 发现 $danger_count 处危险 detached 协程捕获，请修复后重试"
-    echo "   参考 docs/ARCHITECTURE.md 中 'detached 协程规则'"
+    echo "   参考 docs/legacy/prism-architecture.md 中的旧版 detached 协程规则"
     exit 1
 fi
 

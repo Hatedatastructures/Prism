@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <exception>
 #include <system_error>
+#include <cstdint>
 #include <vector>
 
 namespace Preview::Anytls::Detail
@@ -42,6 +43,7 @@ namespace Preview::Anytls::Detail
 
     struct StreamState final
     {
+        enum class InputTermination : std::uint8_t { None, PeerFin, QueueOverflow };
         using DataChannel = Net::experimental::channel<void(boost::system::error_code, std::vector<std::byte>)>;
         StreamState(Net::any_io_executor Ex, std::shared_ptr<Preview::Lifecycle::TaskRegistry> Scope)
             : Data(std::make_shared<DataChannel>(Ex, 32)), Tasks(std::move(Scope)) {}
@@ -86,7 +88,27 @@ namespace Preview::Anytls::Detail
         Net::cancellation_signal Cancellation;
         std::exception_ptr CloseFailure;
         Preview::Fault::FailureState ControlFailure;
-        bool PeerFin{false}, FinSent{false};
+        InputTermination InputTermination_{InputTermination::None};
+        bool FinSent{false};
+
+        /** @brief 仅根停机或真实 peer FIN 的取消是正常收尾；队列溢出仍保留失败。 */
+        auto MarkInputTermination(const InputTermination Reason) noexcept -> void
+        {
+            if (InputTermination_ == InputTermination::None) InputTermination_ = Reason;
+        }
+
+        [[nodiscard]] auto IsInputTerminated() const noexcept -> bool
+        {
+            return InputTermination_ != InputTermination::None;
+        }
+
+        [[nodiscard]] auto IsExpectedRelayCancellation(
+            const Preview::Fault::Failure Failure, const bool RootStopping) const noexcept -> bool
+        {
+            if (Failure.Code != Preview::Fault::Code::Canceled) return false;
+            return InputTermination_ == InputTermination::PeerFin ||
+                   (RootStopping && InputTermination_ == InputTermination::None);
+        }
     };
     struct State final : std::enable_shared_from_this<State>
     {

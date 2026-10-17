@@ -1,5 +1,10 @@
 AddPreviewTest(ProviderCatalogTest.cpp)
+AddPreviewTest(AnytlsProviderRetirementTest.cpp)
 AddPreviewTest(QuicProviderTest.cpp)
+target_sources(AnytlsProviderRetirementTest PRIVATE CatalogFixture.hpp)
+target_link_libraries(AnytlsProviderRetirementTest PRIVATE
+    PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition
+    PreviewProtocolAnytls PreviewTestSupport)
 target_link_libraries(QuicProviderTest PRIVATE PreviewComposition)
 target_sources(QuicProviderTest PRIVATE QuicFixture.hpp CatalogFixture.hpp ../../../TestSupport/Preview/QuicFactory.hpp)
 
@@ -129,6 +134,7 @@ add_custom_target(PreviewProviderValidation DEPENDS
     ProfileModelHeaderContractTest
     ProviderAcceptPathTest
     ProviderCatalogTest
+    AnytlsProviderRetirementTest
     RealityCarrierStartupTest
     RealityRecognition
     RecognitionCarrierSelectionTest

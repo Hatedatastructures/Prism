@@ -24,9 +24,11 @@ namespace Preview::Statistics
         Process,
         Worker,
         Account,
+        Protocol,
         Session,
         Stream,
         Task,
+        ProtocolInstance,
     };
 
     enum class Metric : std::uint32_t
@@ -47,6 +49,7 @@ namespace Preview::Statistics
         NumericId Id{0}; ///< 归属 ID；Worker 范围使用 Preview::WorkerId::Value()。
         Metric MetricValue{Metric::Events};
         Preview::SessionId ParentSession{}; ///< Stream 的 wire ID 只在父 session 内唯一；其余范围为空。
+        Preview::GenerationId Generation{}; ///< 协议实例数值下标由 Generation 限定，其余范围为空。
 
         friend constexpr auto operator==(const CounterKey &, const CounterKey &) noexcept -> bool = default;
     };

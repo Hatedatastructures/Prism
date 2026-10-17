@@ -1,31 +1,29 @@
-# Prism 文档
+# Prism 文档索引
 
-当前主线为 Preview。先从用户操作或开发入口进入，构建和运行统一使用 `PrismPreview` 与 `PreviewConfiguration.json`。本文索引更新于 2026-10-08。
+当前产品与源码主线为 Preview。先按你的目标进入用户指南或开发者手册；按日期保存的审计、计划和运行结果只适用于各自记录的源码快照。
 
-## 当前使用与维护
+## 用户指南
 
-- [快速开始](tutorial/getting-started.md)：构建、默认配置、位置参数、就绪和代理请求。
-- [配置说明](tutorial/configuration.md)：严格 PascalCase 字段、协议绑定与 secret 来源。
-- [部署指南](tutorial/deployment.md)：程序与配置布局、进程运行库、停机与部署验证。
-- [故障排查](tutorial/troubleshooting.md)、[常见问题](tutorial/faq.md)。
-- [Preview 开发入口](../Preview/README.md)、[架构说明](ARCHITECTURE.md)。
-- [正式 Account 模块](../Preview/Account/Account.hpp)：认证、记录与 lease 均由当前 Account owner 提供；原 Utility Account README 已随旧目录退役。
-- [Diagnose 使用与实现指南](../Preview/Foundation/Utility/Diagnose/README.md)。
+- [快速开始](tutorial/getting-started.md)：构建、配置路径、启动和发起一次代理请求。
+- [配置说明](tutorial/configuration.md)：字段、凭据、协议绑定与 secret reference。
+- [部署指南](tutorial/deployment.md)：程序、配置、日志与运行目录。
+- [故障排查](tutorial/troubleshooting.md)与[常见问题](tutorial/faq.md)。
 
-## 重构状态与验收
+## Preview 开发者手册
 
-- [当前执行状态](preview-refactor/2026-10-03-preview-no-compat-status.md)：已签收卡、当前卡、剩余责任与验证层级。
-- [10月5日文档同步证据](preview-refactor/2026-10-05-preview-documentation-update.md)：当前入口、教程和历史范围的实际修订与静态核对。
-- [无兼容层执行计划](preview-refactor/2026-10-03-preview-no-compat-execution.md)：代码任务与文档同步卡。
-- [9月28日模块分析台账](preview-refactor/2026-09-28-preview-module-refactor-analysis.md)：问题与迁移计划的历史起点。
-- [10月3日会话执行质量复核](preview-refactor/2026-10-03-preview-session-execution-review.md)：当时已执行与待执行责任。
+- [Preview 文档总入口](preview/README.md)：模块、协议、生命周期和验收资料导航。
+- [架构总览](ARCHITECTURE.md)：模块职责、依赖方向、启动与请求路径。
+- [顶层模块索引](preview/modules/README.md)：13 个非构建 owner 的职责和专题页。
+- [协议目录](preview/protocols/README.md)：`Preview/Protocols/` 下全部 23 个一级目录。
+- [配置与装配](preview/configuration.md)、[启动与请求路径](preview/request-paths.md)、[所有权与生命周期](preview/ownership-and-lifecycle.md)。
+- [构建与分层验收](preview/build-and-validation.md)。
 
-## 历史材料
+## 历史与参考资料
 
-以下文档记录各自当时的设计或测量结果，适用版本以文档日期、源码、配置与 executable hash 为准。当前验收从上面的执行状态进入。
+以下内容保留历史上下文，不作为当前实现或验收结论：
 
-- [9月26日 Diagnose 基线](preview-refactor/2026-09-26-preview-diagnose-baseline.md)与[最终阶段证据](preview-refactor/2026-09-26-preview-diagnose-final-evidence.md)。
-- [9月15日 Preview 证据](PRISM_PREVIEW_EVIDENCE_2026-09-15.md)。
-- [原 Next-Gen 实施计划](NEXTGEN_IMPLEMENTATION_PLAN.md)、[原任务进度](TASK_PROGRESS.md)。
-- [旧版性能报告](performance-report.md)、[ngx 对照与互操作资料](ngx-test-data/INDEX.md)。
-- [Clash 配置示例](clash/config.yaml)与[参考](clash/reference.yaml)：客户端资料，字段不属于 Preview 服务端 JSON schema。
+- [`preview-refactor/`](preview-refactor/)：按日期保存的模块分析、质量审查、迁移计划、任务交接与生产交付记录。每份记录以其工作树、配置、源码和二进制范围为准。
+- [2026-09-15 Preview 证据](PRISM_PREVIEW_EVIDENCE_2026-09-15.md)和[旧版性能报告](performance-report.md)：仅供对应时期结果参考。
+- [旧版 Prism 架构](legacy/prism-architecture.md)：只描述 `include/prism/` 与 `src/prism/`。
+- [旧版任务进度](TASK_PROGRESS.md)、[NextGen 任务资料](NEXTGEN_TASK.md)和 [NGX 对照资料](ngx-test-data/INDEX.md)：不替代 Preview 当前配置或运行状态。
+- [Clash 客户端配置资料](clash/config.yaml)：字段属于客户端资料，不属于 Preview 服务端 JSON schema。

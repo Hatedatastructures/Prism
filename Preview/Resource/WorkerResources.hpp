@@ -12,9 +12,12 @@
 #include <Preview/Foundation/Identifier/Id.hpp>
 #include <Preview/Foundation/Memory/BytePool.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
+#include <Preview/Foundation/Memory/TrackingResource.hpp>
 #include <Preview/Lifecycle/TaskRegistry.hpp>
 #include <Preview/Net/Dns/Config.hpp>
 #include <Preview/Net/Services/WorkerDialService.hpp>
+#include <Preview/Resource/MemorySnapshot.hpp>
+#include <Preview/Resource/WorkerMemoryResourceService.hpp>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -123,7 +126,9 @@ namespace Preview::Resource
 
         explicit WorkerResources(Options Value)
             : Process(Value.Process), Id(Value.Id), Generation(Value.Generation),
-              Execution(Preview::Executor::ContextOwner::Create()), MemoryResource(&Execution->Pool),
+              Execution(Preview::Executor::ContextOwner::Create()),
+              AllocationMetrics(AttachMemoryMetrics(Execution)),
+              MemoryResource(&AllocationMetrics->Tracker()),
               Bytes(std::make_shared<Preview::Memory::BytePool>(Value.Bytes)),
               IoContext(Execution->Io), Scheduler(Net::any_io_executor(IoContext.get_executor())),
               DialService(std::make_shared<Preview::Network::Services::WorkerDialService>(
@@ -151,6 +156,13 @@ namespace Preview::Resource
         [[nodiscard]] auto IsStopping() const noexcept -> bool
         {
             return Stopping.load(std::memory_order_acquire);
+        }
+
+        /** @brief 在冷快照边界返回 worker owner 的 PMR 请求与字节池租约值快照。 */
+        [[nodiscard]] auto MemorySnapshot() const noexcept -> ResourceMemorySnapshot
+        {
+            return ResourceMemorySnapshot{AllocationMetrics->Snapshot(),
+                Bytes ? Bytes->Snapshot() : Preview::Memory::BytePoolMetrics{}};
         }
 
         /**
@@ -188,6 +200,7 @@ namespace Preview::Resource
         Preview::WorkerId Id{};
         Preview::GenerationId Generation{};
         std::shared_ptr<Preview::Executor::ContextOwner> Execution;
+        Preview::Resource::WorkerMemoryResourceService* AllocationMetrics{nullptr};
         Preview::Memory::ResourcePointer MemoryResource{nullptr};
         std::shared_ptr<Preview::Memory::BytePool> Bytes; ///< 唯一worker块池owner；服务和在途租约共享总容量。
         Net::io_context& IoContext;
@@ -199,6 +212,16 @@ namespace Preview::Resource
         WorkerStatistics Stats;
 
     private:
+        /** @brief 将计数器服务注册到实际 executor context；其生命周期覆盖 PMR 资源指针。 */
+        [[nodiscard]] static auto AttachMemoryMetrics(
+            const std::shared_ptr<Preview::Executor::ContextOwner>& Owner)
+            -> Preview::Resource::WorkerMemoryResourceService*
+        {
+            auto* Service = new Preview::Resource::WorkerMemoryResourceService(Owner->Io, &Owner->Pool);
+            Net::add_service<Preview::Resource::WorkerMemoryResourceService>(Owner->Io, Service);
+            return Service;
+        }
+
         /** @brief 跨执行器停止边界保留真实注册表退休结果。 */
         struct EmptyTaskRetirement final
         {

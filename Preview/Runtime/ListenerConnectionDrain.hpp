@@ -51,8 +51,9 @@ namespace Preview::Runtime::Detail
 
     /**
      * @brief 关闭交付后的 admission cleanup owner。
-     * @details CloseAction 自身 Await 成功后才开始 Activity::Drain；已启动 Session
-     *          还需观察完整 SessionAdmissionState，否则失败实物继续保留于 storage。
+     * @details 未启动 Session、terminal failure 会先交付 listener CloseAction 并排空
+     *          transport Activity；活动 Session 则等待其真实 Drained 回执后再执行 listener
+     *          后置退休。失败实物继续保留于 storage。
      */
     class ListenerConnectionDrain final : public Preview::Executor::ClosingResource,
                                           public std::enable_shared_from_this<ListenerConnectionDrain>
@@ -214,6 +215,18 @@ namespace Preview::Runtime::Detail
             {
                 co_await Net::this_coro::throw_if_cancelled(false);
                 co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+                if (Owner->SessionState_ && !Owner->HasTerminalSessionFailure() &&
+                    Owner->SessionState_->Started.load(std::memory_order_acquire) &&
+                    !Owner->SessionState_->Drained.load(std::memory_order_acquire))
+                {
+                    Owner->WaitForSessionDrain();
+                    if (Owner->SessionState_->Drained.load(std::memory_order_acquire) ||
+                        Owner->HasTerminalSessionFailure())
+                    {
+                        Owner->RetryRequested_.store(true, std::memory_order_release);
+                    }
+                    co_return;
+                }
                 if (Owner->CloseAction_)
                 {
                     const auto Submitted = Owner->CloseAction_->Submit();
@@ -251,9 +264,16 @@ namespace Preview::Runtime::Detail
                     }
                 }
                 const auto Activity = Owner->Transport_->Activity();
-                if (!Activity) { Owner->Block({Preview::Fault::Code::InvalidArgument}); co_return; }
+                if (!Activity)
+                {
+                    Owner->Block({Preview::Fault::Code::InvalidArgument});
+                    co_return;
+                }
                 const auto Drained = co_await Activity->Drain();
-                if (!Drained)
+                // 同一传输已有物理退休回执时才接受关闭产生的取消结果。
+                if (!Drained &&
+                    (Drained.error().Code != Preview::Fault::Code::Canceled ||
+                     !Activity->IsRetired()))
                 {
                     if (!Owner->CanDispatch()) Owner->BlockDispatch(Drained.error());
                     else Owner->Block(Drained.error());

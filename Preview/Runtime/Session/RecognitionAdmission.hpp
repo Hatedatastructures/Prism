@@ -53,7 +53,17 @@ namespace Preview::Runtime
             }
             const auto CarrierError = co_await ProbeCarrier(Run);
             if (CarrierError.Failed()) co_return CarrierError;
+            const auto HasRecognition = static_cast<bool>(Run.Profile);
+            if (HasRecognition && Run.TraceWriter)
+            {
+                Run.TraceWriter->Record(SessionTraceStage::RecognitionStarted);
+            }
             const auto RecognitionError = co_await Recognize(Run);
+            if (HasRecognition && Run.TraceWriter)
+            {
+                Run.TraceWriter->Record(SessionTraceStage::RecognitionCompleted,
+                    RecognitionError.Code);
+            }
             if (RecognitionError.Failed()) co_return RecognitionError;
             auto Factory = ResolveFactory(Run);
             if (!Factory) co_return Factory.error();
@@ -66,6 +76,10 @@ namespace Preview::Runtime
             if (Run.Services->NativeTls &&
                 (!Run.Profile || !Run.Profile->HasTlsCandidate()))
             {
+                if (Run.TraceWriter)
+                {
+                    Run.TraceWriter->Record(SessionTraceStage::CarrierProbeStarted);
+                }
                 Run.LogState->MarkStage("CarrierProbe");
                 const auto HandshakeDeadline = std::chrono::steady_clock::now() +
                                                Run.Services->HandshakeTimeout;
@@ -101,12 +115,28 @@ namespace Preview::Runtime
                             "CarrierProbeFailed Outcome={} FaultCode={} Error={}",
                             OutcomeText, FaultText, NativeErrorText);
                     }
+                    if (Run.TraceWriter)
+                    {
+                        Run.TraceWriter->Record(SessionTraceStage::CarrierProbeCompleted, FailureCode);
+                    }
                     co_return Preview::Fault::Failure{FailureCode, ProbeResult.NativeError};
                 }
 
                 Run.Inbound = std::move(ProbeResult.Transport);
                 if (const auto Stored = SessionCarrierInstallation::Inbound(*Run.Active, Run.Inbound); !Stored)
+                {
+                    if (Run.TraceWriter)
+                    {
+                        Run.TraceWriter->Record(SessionTraceStage::CarrierProbeCompleted,
+                                                Stored.error().Code);
+                    }
                     co_return Stored.error();
+                }
+                if (Run.TraceWriter)
+                {
+                    Run.TraceWriter->Record(SessionTraceStage::CarrierProbeCompleted,
+                                            Preview::Fault::Code::Success);
+                }
                 if (ProbeResult.Kind != Preview::Recognition::RawIngressKind::Cleartext)
                 {
                     SessionSupport::RecordClientHello(Run.LogState->Trace,
@@ -352,6 +382,10 @@ namespace Preview::Runtime
             if (Acceptor)
             {
                 Context.ProtocolNameForLog = std::string(Acceptor->Name());
+                if (Run.TraceWriter)
+                {
+                    Run.TraceWriter->Record(SessionTraceStage::ProtocolAcceptStarted);
+                }
                 auto Accepted = co_await Acceptor->Accept(
                     Preview::Contract::StreamAcceptInput{
                         std::move(Context.Inbound()),
@@ -362,6 +396,10 @@ namespace Preview::Runtime
                 if (!Accepted)
                 {
                     const auto Error = Accepted.error().Code;
+                    if (Run.TraceWriter)
+                    {
+                        Run.TraceWriter->Record(SessionTraceStage::ProtocolAcceptCompleted, Error);
+                    }
                     Run.Logger.WriteRecognition(SessionSupport::RecognitionLogRequest{
                         Preview::Diagnose::LogLevel::Warn, "accept", Run.Recognition, Error,
                         Context.ProtocolNameForLog});
@@ -369,9 +407,21 @@ namespace Preview::Runtime
                 }
                 if (!Accepted->HasTransport())
                 {
+                    if (Run.TraceWriter)
+                    {
+                        Run.TraceWriter->Record(SessionTraceStage::ProtocolAcceptCompleted,
+                                                Preview::Fault::Code::IoError);
+                    }
                     co_return Preview::Fault::Failure{Preview::Fault::Code::IoError};
                 }
                 Context.SetDataPlane(std::move(*Accepted));
+                if (Run.TraceWriter)
+                {
+                    Run.TraceWriter->SetAccount(Context.AccountId());
+                    Run.TraceWriter->SetTaskIdentity(Context.TaskIdentity);
+                    Run.TraceWriter->Record(SessionTraceStage::ProtocolAcceptCompleted,
+                                            Preview::Fault::Code::Success);
+                }
                 if (const auto Stored = SessionCarrierInstallation::Inbound(*Run.Active, Context.Inbound()); !Stored)
                     co_return Stored.error();
             }
@@ -381,6 +431,11 @@ namespace Preview::Runtime
             }
             if (Context.ProtocolAuthenticated())
             {
+                if (Run.TraceWriter)
+                {
+                    Run.TraceWriter->Record(SessionTraceStage::AuthenticationConfirmed,
+                                            Preview::Fault::Code::Success);
+                }
                 Run.Logger.WriteAuthenticationInfo(Context);
                 Run.AuthenticationInfoLogged = true;
             }
@@ -396,6 +451,15 @@ namespace Preview::Runtime
                 {
                     Run.Recognition.CandidateName += "+" + Run.Recognition.scheme;
                 }
+            }
+            if (Run.Traffic && Context.DataPlane.Protocol != Preview::Contract::ProtocolType::Unknown)
+            {
+                const auto Identity = Run.Control->CurrentIdentity();
+                Run.Traffic->Report(Preview::Foundation::TrafficEvent{
+                    .Generation = Identity.Generation, .Worker = Identity.WorkerId,
+                    .Session = Identity.SessionId, .Account = Context.DataPlane.AccountId,
+                    .Kind = Preview::Foundation::TrafficEventKind::ProtocolAssociated,
+                    .Protocol = static_cast<std::uint64_t>(Context.DataPlane.Protocol)});
             }
             if (Run.Registration && *Run.Registration)
             {

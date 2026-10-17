@@ -10,5 +10,6 @@ target_link_libraries(AnytlsSessionOwnerTest PRIVATE PreviewProtocolAnytls)
 
 # 同一 owner 的正式职责头与行为场景，复用既有 target。
 target_sources(AnytlsSessionOwnerTest PRIVATE
-    ../../protocols/Anytls/AnytlsHandshakeFailureTest.cpp
+    ../../Protocols/Anytls/AnytlsHandshakeFailureTest.cpp
+    AnytlsCancellationClassificationTest.cpp
 )

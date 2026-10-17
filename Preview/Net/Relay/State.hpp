@@ -3,6 +3,7 @@
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Foundation/Memory/BytePool.hpp>
 #include <Preview/Foundation/Utility/TrafficSink.hpp>
+#include <Preview/Net/Relay/FirstTransferObserver.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <array>
@@ -23,6 +24,7 @@ namespace Preview::Network::Relay
         std::chrono::milliseconds IdleTimeout{0};
         Foundation::TrafficObservation Observation{};
         std::shared_ptr<Memory::BytePool> Bytes;
+        std::shared_ptr<FirstTransferObserver> FirstTransfer;
     };
     /** @brief 实际成功写出字节与领域/原生原因；EOF 半关闭不算业务失败。 */
     struct Result final
@@ -75,6 +77,19 @@ namespace Preview::Network::Relay
         Result Output;
         std::size_t Completed{0};
         bool Closed{false};
+        std::array<bool, 2> FirstTransferReported{};
+
+        /** @brief 首次成功写出有效数据后发送一次方向通知。 */
+        auto ReportFirstTransfer(const std::size_t Direction) noexcept -> void
+        {
+            if (Direction >= FirstTransferReported.size() ||
+                FirstTransferReported[Direction] || !Input.FirstTransfer)
+            {
+                return;
+            }
+            FirstTransferReported[Direction] = true;
+            Input.FirstTransfer->OnFirstTransfer(Direction);
+        }
     private:
         auto CloseCarrier(const SharedTransmission& Carrier, std::size_t Direction) -> void
         {

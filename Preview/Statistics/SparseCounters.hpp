@@ -131,6 +131,7 @@ namespace Preview::Statistics
         [[nodiscard]] auto Hash(CounterKey Key) const noexcept -> std::size_t
         {
             auto Value = Key.Id ^ (Key.ParentSession.Value() * 0x9e3779b97f4a7c15ULL);
+            Value ^= Key.Generation.Value() * 0x94d049bb133111ebULL;
             Value ^= static_cast<std::uint64_t>(Key.ScopeValue) << 48;
             Value ^= static_cast<std::uint64_t>(Key.MetricValue) * 0xbf58476d1ce4e5b9ULL;
             Value ^= Value >> 30; Value *= 0xbf58476d1ce4e5b9ULL;

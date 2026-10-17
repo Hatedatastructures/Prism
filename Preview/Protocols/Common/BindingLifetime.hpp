@@ -227,23 +227,45 @@ namespace Preview::Protocols
                 Activity->Seal();
                 const auto Drained=co_await Activity->Drain();
                 if(!Drained && FirstFailure)FirstFailure=std::unexpected(Drained.error());
-                if (Drained)
+                const auto ActivityRetired = Activity->IsRetired();
+                if (!ActivityRetired)
                 {
-                    if (!FirstFailure) (void)State_->Failure.TrySet(FirstFailure.error());
-                    if (auto Receipt = CloseReceipt_.load(std::memory_order_acquire))
+                    if (FirstFailure)
                     {
-                        Receipt->ConfirmExternalClose();
-                        const auto WrapperDrained = co_await Receipt->Drain();
-                        if (!WrapperDrained)
-                        {
-                            if (FirstFailure) FirstFailure = std::unexpected(WrapperDrained.error());
-                            co_return std::unexpected(FirstFailure.error());
-                        }
+                        FirstFailure = std::unexpected(
+                            Preview::Fault::Failure{Preview::Fault::Code::Blocked});
                     }
-                    // 业务首因留在 State；成功只证明载体和包装层真实排空，可以归还 owner。
-                    co_return Preview::Transmission::ControlResult{};
+                    (void)State_->Failure.TrySet(FirstFailure.error());
+                    co_return std::unexpected(FirstFailure.error());
                 }
-                if(!FirstFailure)co_return std::unexpected(FirstFailure.error());
+
+                if (auto Receipt = CloseReceipt_.load(std::memory_order_acquire))
+                {
+                    Receipt->ConfirmExternalClose();
+                    const auto WrapperDrained = co_await Receipt->Drain();
+                    const auto WrapperActivity = Value->Activity();
+                    const bool WrapperRetired = WrapperActivity && WrapperActivity->IsRetired();
+                    if (!WrapperDrained && FirstFailure)
+                    {
+                        FirstFailure = std::unexpected(WrapperDrained.error());
+                    }
+                    if (!WrapperRetired)
+                    {
+                        if (FirstFailure)
+                        {
+                            FirstFailure = std::unexpected(
+                                Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+                        }
+                        (void)State_->Failure.TrySet(FirstFailure.error());
+                        co_return std::unexpected(FirstFailure.error());
+                    }
+                }
+
+                if (!FirstFailure)
+                {
+                    (void)State_->Failure.TrySet(FirstFailure.error());
+                }
+                // 成功只表示实物与包装层真实退休；历史故障由 BindingLifetime::Drain 保留返回。
                 co_return Preview::Transmission::ControlResult{};
             }
             auto PublishFatal(std::exception_ptr Error,const std::shared_ptr<ClosingSlot>& Slot) noexcept -> void
@@ -346,10 +368,16 @@ namespace Preview::Protocols
             if(!Drained)
             {
                 const auto Failure=State_->Failure.Load();
+                if (IsRetired()) State_->Generation.reset();
                 if(Failure.Failed())co_return std::unexpected(Failure);
                 co_return std::unexpected(Drained.error());
             }
+            const auto Failure = State_->Failure.Load();
             State_->Generation.reset();
+            if (Failure.Failed())
+            {
+                co_return std::unexpected(Failure);
+            }
             co_return std::expected<void,Preview::Fault::Failure>{};
         }
     private:

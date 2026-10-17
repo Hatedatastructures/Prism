@@ -1,6 +1,7 @@
 # Preview Foundation and the standalone Preview target graph.
 
 include(CMake/PreviewBoundary.cmake)
+include(CMake/PrismSqlite.cmake)
 
 function(ConfigurePreviewTarget Target)
     if(NOT "${Target}" MATCHES "^[A-Z][A-Za-z0-9]*$")
@@ -27,6 +28,7 @@ endfunction()
 
 add_library(PreviewFoundation INTERFACE)
 ConfigurePreviewTarget(PreviewFoundation)
+target_link_libraries(PreviewFoundation INTERFACE PrismSqlite)
 target_sources(PreviewFoundation INTERFACE
         Foundation/Error.hpp
         Foundation/ByteSpan.hpp
@@ -725,6 +727,7 @@ target_include_directories(PreviewProtocolHysteria2 INTERFACE ${CMAKE_SOURCE_DIR
 target_sources(PreviewProtocolHysteria2 INTERFACE
         Protocols/Hysteria2/Types.hpp
         Protocols/Hysteria2/Detail/Target.hpp
+        Protocols/Hysteria2/Detail/DatagramFragments.hpp
         Protocols/Hysteria2/Codec.hpp
         Protocols/Hysteria2/Conn.hpp
         Protocols/Hysteria2/Io.hpp
@@ -846,6 +849,7 @@ target_include_directories(PreviewProtocolTuic INTERFACE ${CMAKE_SOURCE_DIR})
 target_sources(PreviewProtocolTuic INTERFACE
         Protocols/Tuic/Types.hpp
         Protocols/Tuic/Detail/Target.hpp
+        Protocols/Tuic/Detail/DatagramPackets.hpp
         Protocols/Tuic/Codec.hpp
         Protocols/Tuic/Conn.hpp
         Protocols/Tuic/ConnSession.hpp
@@ -1328,6 +1332,7 @@ target_sources(PreviewProtocolTrusttunnel INTERFACE
 target_sources(PreviewProtocolVless INTERFACE
     Protocols/Vless/Binding.hpp
     Protocols/Vless/UdpTunnelFrames.hpp
+    Protocols/Vless/UdpTunnelRetirement.hpp
 )
 
 # 同一 owner 的正式职责头与行为场景，复用既有 target。
@@ -1402,6 +1407,7 @@ target_sources(PreviewProtocolsCommon INTERFACE
     Protocols/Common/ProviderBindingLifecycle.hpp
     Protocols/Common/ProviderCredentials.hpp
     Protocols/Common/ProviderMuxRootState.hpp
+    Protocols/Common/ProviderSessionDrainAttempt.hpp
     Protocols/Common/ProviderSessionRetirement.hpp
 )
 
@@ -1498,42 +1504,36 @@ find_program(PreviewNodeExecutable NAMES node REQUIRED)
 find_program(PreviewNpmExecutable NAMES npm.cmd npm REQUIRED)
 add_custom_command(
     OUTPUT "${CMAKE_BINARY_DIR}/Web/catalog.json"
-    COMMAND "${PreviewNpmExecutable}" --prefix "${PROJECT_SOURCE_DIR}/Web" run build
-    COMMAND "${PreviewNodeExecutable}" "${PROJECT_SOURCE_DIR}/scripts/build_preview_web_catalog.mjs" "${CMAKE_BINARY_DIR}/Web"
+    COMMAND "${PreviewNpmExecutable}" --prefix "${PROJECT_SOURCE_DIR}/Web" run build -- --outDir "${CMAKE_BINARY_DIR}/Web"
+    COMMAND "${PreviewNodeExecutable}" "${PROJECT_SOURCE_DIR}/scripts/build_preview_web_catalog.mjs" "${CMAKE_BINARY_DIR}/Web" "${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     DEPENDS
         "${PROJECT_SOURCE_DIR}/Web/index.html"
         "${PROJECT_SOURCE_DIR}/Web/package-lock.json"
         "${PROJECT_SOURCE_DIR}/Web/package.json"
-        "${PROJECT_SOURCE_DIR}/Web/src/Api/ApiClient.ts"
-        "${PROJECT_SOURCE_DIR}/Web/src/Api/Bootstrap.ts"
+        "${PROJECT_SOURCE_DIR}/Web/public/PrismMark.svg"
         "${PROJECT_SOURCE_DIR}/Web/src/Api/ConfigurationDocument.ts"
-        "${PROJECT_SOURCE_DIR}/Web/src/Api/Decimal.ts"
-        "${PROJECT_SOURCE_DIR}/Web/src/Api/Decode.ts"
         "${PROJECT_SOURCE_DIR}/Web/src/Api/JsonDocument.ts"
-        "${PROJECT_SOURCE_DIR}/Web/src/Api/OperationsApi.ts"
-        "${PROJECT_SOURCE_DIR}/Web/src/Api/Result.ts"
         "${PROJECT_SOURCE_DIR}/Web/src/App/AdminServices.ts"
         "${PROJECT_SOURCE_DIR}/Web/src/App/App.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/App/AppShell.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Components/ConfirmAction.tsx"
-        "${PROJECT_SOURCE_DIR}/Web/src/Components/ResultView.tsx"
+        "${PROJECT_SOURCE_DIR}/Web/src/Components/Ui.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/Accounts/AccountsPage.tsx"
-        "${PROJECT_SOURCE_DIR}/Web/src/Features/Configuration/Configuration.css"
-        "${PROJECT_SOURCE_DIR}/Web/src/Features/Configuration/ConfigurationEditor.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/Configuration/ConfigurationPage.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/Events/EventsPage.tsx"
-        "${PROJECT_SOURCE_DIR}/Web/src/Features/Metrics/Metrics.css"
-        "${PROJECT_SOURCE_DIR}/Web/src/Features/Metrics/MetricsPanel.tsx"
-        "${PROJECT_SOURCE_DIR}/Web/src/Features/Operations/OperationStore.ts"
+        "${PROJECT_SOURCE_DIR}/Web/src/Features/Ingresses/IngressesPage.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/Operations/OperationsPage.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/Overview/OverviewPage.tsx"
-        "${PROJECT_SOURCE_DIR}/Web/src/Features/Sessions/SessionResources.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/Sessions/SessionsPage.tsx"
+        "${PROJECT_SOURCE_DIR}/Web/src/Features/UserGroups/UserGroupsPage.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/UseOperations.ts"
         "${PROJECT_SOURCE_DIR}/Web/src/Features/Workers/WorkersPage.tsx"
         "${PROJECT_SOURCE_DIR}/Web/src/Main.tsx"
+        "${PROJECT_SOURCE_DIR}/Web/src/Services/AdminDataSource.ts"
+        "${PROJECT_SOURCE_DIR}/Web/src/Services/DemoAdminDataSource.ts"
         "${PROJECT_SOURCE_DIR}/Web/src/Styles/Theme.css"
+        "${PROJECT_SOURCE_DIR}/Web/README.md"
         "${PROJECT_SOURCE_DIR}/Web/tsconfig.json"
         "${PROJECT_SOURCE_DIR}/Web/vite.config.ts"
         "${PROJECT_SOURCE_DIR}/scripts/build_preview_web_catalog.mjs"

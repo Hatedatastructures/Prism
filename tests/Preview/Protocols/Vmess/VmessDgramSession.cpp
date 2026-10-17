@@ -18,7 +18,17 @@
 
 namespace
 {
-    /** @brief 验证成功的 VMess UDP 请求并关闭 Dgram 与 Conn 两层 owner。 */
+    constexpr std::array<std::size_t, 5> DatagramSizes{1U, 64U, 512U, 1200U, 4096U};
+
+    auto MakeDatagramPayload(const std::size_t Size) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> Payload(Size);
+        for (std::size_t Index = 0; Index < Size; ++Index)
+            Payload[Index] = static_cast<std::uint8_t>((Index * 31U + Size) & 0xFFU);
+        return Payload;
+    }
+
+    /** @brief 验证多尺寸 VMess UDP 往返并关闭 Dgram 与 Conn 两层 owner。 */
     auto RunUdpRoundtripServer(
         const std::shared_ptr<MemoryStream>& Upstream,
         const std::array<std::uint8_t, 16>& Uuid) -> Net::awaitable<bool>
@@ -36,10 +46,18 @@ namespace
         auto Datagram = std::move(AcceptResult->Connection);
         EXPECT_EQ(Request.Cmd, static_cast<std::uint8_t>(Vmess::Command::Udp));
         EXPECT_EQ(Datagram->TransportType(), Preview::Transmission::Type::Udp);
-        std::vector<std::uint8_t> Payload;
-        const auto ReceiveError = co_await Datagram->AsyncReceiveDatagram(Payload);
-        EXPECT_EQ(DatagramStatus(ReceiveError), FaultStatus(Error::None));
-        EXPECT_EQ(std::string(Payload.begin(), Payload.end()), "vmess datagram");
+        for (const auto Size : DatagramSizes)
+        {
+            std::vector<std::uint8_t> Payload;
+            const auto ReceiveError = co_await Datagram->AsyncReceiveDatagram(Payload);
+            EXPECT_EQ(DatagramStatus(ReceiveError), FaultStatus(Error::None));
+            const auto Expected = MakeDatagramPayload(Size);
+            EXPECT_EQ(Payload, Expected);
+            if (DatagramStatus(ReceiveError) != FaultStatus(Error::None)) break;
+            const auto SendError = co_await Datagram->AsyncSendDatagram(Payload);
+            EXPECT_EQ(DatagramStatus(SendError), FaultStatus(Error::None));
+            if (DatagramStatus(SendError) != FaultStatus(Error::None)) break;
+        }
         EXPECT_TRUE(Datagram->Stream());
         const auto CloseReceipts = co_await CloseVmessDatagram(Datagram);
         Preview::Testing::ExpectFixtureCloseReceipt(CloseReceipts.Datagram);
@@ -104,7 +122,7 @@ namespace
         co_return true;
     }
 
-    /** @brief 执行 UDP Dgram 双向帧收发并完整等待两端任务。 */
+    /** @brief 执行多尺寸 UDP Dgram 双向帧收发并完整等待两端任务。 */
     auto RunUdpDgramRoundtrip(Net::io_context& Context) -> Net::awaitable<void>
     {
         auto Pair = MakeVmessTransportPair(Context);
@@ -128,9 +146,18 @@ namespace
             co_return;
         }
         auto Datagram = std::move(*ConnectResult);
-        const std::string Payload = "vmess datagram";
-        const auto SendError = co_await Datagram->AsyncSendDatagram(AsU8(Payload));
-        EXPECT_EQ(DatagramStatus(SendError), FaultStatus(Error::None));
+        for (const auto Size : DatagramSizes)
+        {
+            const auto Payload = MakeDatagramPayload(Size);
+            const auto SendError = co_await Datagram->AsyncSendDatagram(Payload);
+            EXPECT_EQ(DatagramStatus(SendError), FaultStatus(Error::None));
+            if (DatagramStatus(SendError) != FaultStatus(Error::None)) break;
+            std::vector<std::uint8_t> Response;
+            const auto ReceiveError = co_await Datagram->AsyncReceiveDatagram(Response);
+            EXPECT_EQ(DatagramStatus(ReceiveError), FaultStatus(Error::None));
+            EXPECT_EQ(Response, Payload);
+            if (DatagramStatus(ReceiveError) != FaultStatus(Error::None)) break;
+        }
         const auto CloseReceipts = co_await CloseVmessDatagram(Datagram);
         Preview::Testing::ExpectFixtureCloseReceipt(CloseReceipts.Datagram);
         Preview::Testing::ExpectFixtureCloseReceipt(CloseReceipts.Connection);

@@ -50,6 +50,15 @@ namespace
     using CompletionChannel =
         Net::experimental::channel<void(boost::system::error_code, bool)>;
 
+    [[nodiscard]] auto MakeSharedMemoryPair(Net::any_io_executor Executor)
+        -> std::pair<std::shared_ptr<MemoryStream>, std::shared_ptr<MemoryStream>>
+    {
+        auto [First, Second] = MakeMemoryPair(std::move(Executor));
+        return {
+            std::make_shared<MemoryStream>(std::move(First)),
+            std::make_shared<MemoryStream>(std::move(Second))};
+    }
+
     /// 运行协程直至完成（异常重抛）
     template <typename A>
     auto RunCoro(Net::io_context &IoContext, A Coroutine) -> void

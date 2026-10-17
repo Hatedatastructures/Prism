@@ -56,10 +56,29 @@ namespace Preview::Application::Configuration
         using Result = std::expected<PreviewConfiguration, ConfigurationError>;
         using PreparedResult = std::expected<PreparedConfiguration, ConfigurationError>;
         using ValidationResult = ConfigurationValidator::Result;
+        using SerializationResult = std::expected<std::string, ConfigurationError>;
 
         [[nodiscard]] static auto ParseJson(const std::string_view Json) -> Result
         {
             return Parse(ParseRequest{Json, {}});
+        }
+
+        /**
+         * @brief 将完整配置值序列化为独立拥有的 JSON 文本。
+         * @details 调用方负责先按其运行环境校验候选配置，并由应用层完成临时文件写入与原子替换。
+         */
+        [[nodiscard]] static auto SerializeJson(const PreviewConfiguration &Configuration)
+            -> SerializationResult
+        {
+            auto Json = glz::write_json(Configuration);
+            if (!Json)
+            {
+                return std::unexpected(ConfigurationError{
+                    ConfigurationErrorCode::InvalidConfiguration,
+                    {},
+                    glz::format_error(Json.error())});
+            }
+            return std::move(*Json);
         }
 
         /** @brief 校验借用 JSON 缓冲；调用方仍拥有并负责该缓冲的清理。 */

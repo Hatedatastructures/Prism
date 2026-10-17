@@ -11,6 +11,7 @@
 #include <Preview/Statistics/SparseCounters.hpp>
 #include <Preview/Statistics/History.hpp>
 #include <Preview/Runtime/Statistics/RecognitionLatency.hpp>
+#include <Preview/Runtime/Statistics/HistoryCollector.hpp>
 #include <Preview/Runtime/GenerationPublication.hpp>
 
 #include <boost/asio/awaitable.hpp>
@@ -31,6 +32,7 @@
 #include <span>
 #include <system_error>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 namespace Preview::Runtime
@@ -94,7 +96,8 @@ namespace Preview::Runtime
             const auto GenerationRetained = Publication_
                 ? Publication_->Contains(Event.Generation)
                 : Event.Generation == Generation_;
-            if (Sealed_.load(std::memory_order_acquire) || !GenerationRetained ||
+            const auto WorkerOwnedStage = Event.Kind == Preview::Foundation::TrafficEventKind::NetworkLatency;
+            if (Sealed_.load(std::memory_order_acquire) || (!GenerationRetained && !WorkerOwnedStage) ||
                 !Queue.Events.bounded_push(Event))
             {
                 Queue.Dropped.fetch_add(1U, std::memory_order_relaxed);
@@ -217,6 +220,18 @@ namespace Preview::Runtime
                 Counters_.Get({Scope::Stream, Id.Value(), Metric::Errors, Parent})};
         }
 
+        /** @brief 配置实例下标仅在本代唯一，不混合热更新前后同号实例。 */
+        [[nodiscard]] auto ProtocolInstanceValue(Preview::GenerationId Generation, std::uint64_t Instance) const noexcept
+            -> Preview::Statistics::TrafficValue
+        {
+            using Scope = Preview::Statistics::Scope;
+            using Metric = Preview::Statistics::Metric;
+            return {Counters_.Get({Scope::ProtocolInstance, Instance, Metric::UpBytes, {}, Generation}),
+                Counters_.Get({Scope::ProtocolInstance, Instance, Metric::DownBytes, {}, Generation}),
+                Counters_.Get({Scope::ProtocolInstance, Instance, Metric::Events, {}, Generation}),
+                Counters_.Get({Scope::ProtocolInstance, Instance, Metric::Errors, {}, Generation})};
+        }
+
         [[nodiscard]] auto Accepted() const noexcept -> std::uint64_t
         { return Accepted_.load(std::memory_order_relaxed); }
         /** @brief 返回延迟样本入队拒绝数；其值是总 Dropped 的子集。 */
@@ -279,9 +294,25 @@ namespace Preview::Runtime
 
         /** @brief 唯一控制 timer 在真实 Flush 后记录实际累计事实，时间为 Unix 毫秒。 */
         auto Sample(std::uint64_t UnixMilliseconds) noexcept -> void
-        { History_.Append({UnixMilliseconds, Value(Preview::Statistics::Scope::Process, Process_.Value())}); }
+        {
+            History_.Append({UnixMilliseconds, Value(Preview::Statistics::Scope::Process, Process_.Value())});
+            const auto Drops = Dropped();
+            const auto Failures = AggregationFailures();
+            Analysis_.Sample(UnixMilliseconds, {Drops - PreviousHistoryDrops_,
+                Failures - PreviousHistoryFailures_, false});
+            PreviousHistoryDrops_ = Drops;
+            PreviousHistoryFailures_ = Failures;
+        }
         [[nodiscard]] auto History() const -> std::vector<Preview::Statistics::TrafficSample>
         { return History_.Snapshot(); }
+        /** @brief 发布代次时冷配置持久归属；调用者与 Flush 同属控制执行域。 */
+        auto ConfigureHistory(Preview::Statistics::HistoryCatalog Catalog) -> void
+        { Analysis_.Configure(std::move(Catalog)); }
+        [[nodiscard]] auto HistorySnapshot(const Preview::Statistics::HistoryQuery &Request, std::uint64_t Now) const
+            -> Preview::Statistics::HistoryResult { return Analysis_.Query(Request, Now); }
+        [[nodiscard]] auto TakeHistoryBatch() -> std::vector<Preview::Statistics::HistoryRecord>
+        { return Analysis_.TakePersistenceBatch(); }
+        auto RetireHistoryGeneration(std::uint64_t Generation) -> void { Analysis_.RetireGeneration(Generation); }
     private:
         using CounterScope = Preview::Statistics::CounterScope;
 
@@ -395,6 +426,8 @@ namespace Preview::Runtime
                 RecordRetirementFailure(Owner);
                 co_return std::unexpected(Failure{Preview::Fault::Code::Blocked});
             }
+            if (Scope.ScopeValue == Preview::Statistics::Scope::Session)
+                SessionProtocols_.erase(Scope.Id);
             Counters_.Retire(Scope);
             co_return std::expected<void, Failure>{};
         }
@@ -409,28 +442,48 @@ namespace Preview::Runtime
 
         [[nodiscard]] auto Accumulate(const Preview::Foundation::TrafficEvent &Event) noexcept -> bool
         {
+            if (Event.Kind == Preview::Foundation::TrafficEventKind::NetworkLatency)
+                return Analysis_.Record(Event);
+            if (Event.Kind == Preview::Foundation::TrafficEventKind::ProtocolAssociated)
+            {
+                if (Event.Session.Value() == 0U || Event.Protocol == 0U) return false;
+                try { SessionProtocols_.insert_or_assign(Event.Session.Value(),
+                    ProtocolAssociation{Event.Protocol, Event.ProtocolInstance, Event.Ingress, Event.Transport, Event.Account}); }
+                catch (...) { return false; }
+                return true;
+            }
             if (Event.Kind == Preview::Foundation::TrafficEventKind::RecognitionLatency)
             {
-                return RecognitionLatency_.Record(Event.Generation, Event.DurationMicroseconds);
+                const auto Accepted = RecognitionLatency_.Record(Event.Generation, Event.DurationMicroseconds);
+                if (Accepted) ObserveHistory(Event);
+                return Accepted;
             }
             using Scope = Preview::Statistics::Scope;
             using Metric = Preview::Statistics::Metric;
+            auto Protocol = std::uint64_t{0};
+            auto ProtocolInstance = std::uint64_t{0};
+            if (const auto It = SessionProtocols_.find(Event.Session.Value()); It != SessionProtocols_.end())
+            { Protocol = It->second.Type; ProtocolInstance = It->second.Instance; }
+            if (Event.Protocol != 0) Protocol = Event.Protocol;
+            if (Event.ProtocolInstance != 0) ProtocolInstance = Event.ProtocolInstance;
             const std::array Scopes{
                 std::pair{Scope::Process, Process_.Value()}, std::pair{Scope::Worker, Event.Worker.Value()},
                 std::pair{Scope::Account, Event.Account.Value()}, std::pair{Scope::Session, Event.Session.Value()},
-                std::pair{Scope::Stream, Event.Stream.Value()}, std::pair{Scope::Task, Event.Task.Value()}};
-            std::array<Preview::Statistics::CounterKey, 24> Keys{};
-            std::array<std::uint64_t, 24> Deltas{};
+                std::pair{Scope::Stream, Event.Stream.Value()}, std::pair{Scope::Task, Event.Task.Value()},
+                std::pair{Scope::Protocol, Protocol}, std::pair{Scope::ProtocolInstance, ProtocolInstance}};
+            std::array<Preview::Statistics::CounterKey, 32> Keys{};
+            std::array<std::uint64_t, 32> Deltas{};
             std::size_t Size = 0;
             for (const auto &[ScopeValue, Id] : Scopes)
             {
                 if (Id == 0U) continue;
                 Preview::SessionId Parent;
                 if (ScopeValue == Scope::Stream) Parent = Event.Session;
-                Keys[Size++] = {ScopeValue, Id, Metric::UpBytes, Parent};
-                Keys[Size++] = {ScopeValue, Id, Metric::DownBytes, Parent};
-                Keys[Size++] = {ScopeValue, Id, Metric::Events, Parent};
-                Keys[Size++] = {ScopeValue, Id, Metric::Errors, Parent};
+                const auto Generation = ScopeValue == Scope::ProtocolInstance ? Event.Generation : Preview::GenerationId{};
+                Keys[Size++] = {ScopeValue, Id, Metric::UpBytes, Parent, Generation};
+                Keys[Size++] = {ScopeValue, Id, Metric::DownBytes, Parent, Generation};
+                Keys[Size++] = {ScopeValue, Id, Metric::Events, Parent, Generation};
+                Keys[Size++] = {ScopeValue, Id, Metric::Errors, Parent, Generation};
             }
             if (!Counters_.Prepare(std::span{Keys.data(), Size})) return false;
             const auto Terminal = Event.Kind == Preview::Foundation::TrafficEventKind::Completed;
@@ -448,8 +501,31 @@ namespace Preview::Runtime
                 if (!Counters_.CanAdd(Keys[Index], Deltas[Index])) return false;
             for (std::size_t Index = 0; Index < Size; ++Index)
                 if (!Counters_.Add(Keys[Index], Deltas[Index])) return false;
+            ObserveHistory(Event);
             return true;
         }
+
+        auto ObserveHistory(Preview::Foundation::TrafficEvent Event) noexcept -> void
+        {
+            if (const auto It = SessionProtocols_.find(Event.Session.Value()); It != SessionProtocols_.end())
+            {
+                if (Event.Protocol == 0) Event.Protocol = It->second.Type;
+                if (Event.ProtocolInstance == 0) Event.ProtocolInstance = It->second.Instance;
+                if (Event.Ingress == 0) Event.Ingress = It->second.Ingress;
+                if (Event.Transport == Preview::Foundation::TrafficTransport::Unknown) Event.Transport = It->second.Transport;
+                if (!Event.Account) Event.Account = It->second.Account;
+            }
+            (void)Analysis_.Record(Event);
+        }
+
+        struct ProtocolAssociation final
+        {
+            std::uint64_t Type{0};
+            std::uint64_t Instance{0};
+            std::uint64_t Ingress{0};
+            Preview::Foundation::TrafficTransport Transport{Preview::Foundation::TrafficTransport::Unknown};
+            Preview::AccountId Account{};
+        };
 
         Preview::ProcessId Process_;
         Preview::GenerationId Generation_;
@@ -458,7 +534,10 @@ namespace Preview::Runtime
         std::shared_ptr<Preview::Executor::ExecutorReclaimer> ControlReclaimer_;
         std::vector<std::unique_ptr<WorkerQueue>> Queues_;
         Preview::Statistics::SparseCounters Counters_;
+        std::unordered_map<std::uint64_t, ProtocolAssociation> SessionProtocols_;
         Preview::Statistics::TrafficHistory History_;
+        Preview::Runtime::Detail::HistoryCollector Analysis_;
+        std::uint64_t PreviousHistoryDrops_{0}, PreviousHistoryFailures_{0};
         std::atomic<bool> Sealed_{false};
         std::atomic<std::uint64_t> Accepted_{0};
         std::atomic<std::uint64_t> ConsumedObservations_{0};

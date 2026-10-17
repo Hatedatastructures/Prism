@@ -20,8 +20,7 @@
 
 #include <Preview/Account/Credential.hpp>
 #include <Preview/Account/Authenticator.hpp>
-#include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Foundation/Fault/Handling.hpp>
+#include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Middleware/Pipeline.hpp>
 
@@ -74,14 +73,14 @@ namespace Preview::Experiments
          * @brief 执行认证
          * @param Inbound 入站传输（不修改）
          * @param ctx 上下文（成功后写入 identity）
-         * @return success / auth_failed / not_supported
+         * @return 认证成功返回空 Failure；拒绝时保留 AuthFailed 或 NotSupported 领域码。
          */
         auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
-            -> Net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Failure> override
         {
             if (!Auth_)
             {
-                co_return Preview::Fault::Code::NotSupported;
+                co_return Preview::Fault::Failure{Preview::Fault::Code::NotSupported};
             }
             // Context 可能被复用；重新认证前先释放上一次租约，避免失败路径泄漏配额。
             ctx.AccountLease().Release();
@@ -90,7 +89,7 @@ namespace Preview::Experiments
             auto Input = Cred_ ? Cred_(ctx) : std::nullopt;
             if (!Input || !Input->Credential || !Input->Credential->IsValid())
             {
-                co_return Preview::Fault::Code::AuthFailed;
+                co_return Preview::Fault::Failure{Preview::Fault::Code::AuthFailed};
             }
             auto Result = Auth_->Authenticate(Preview::AuthenticationRequest{
                 .AccountId = ctx.AccountId(),
@@ -99,14 +98,14 @@ namespace Preview::Experiments
                 .Rate = {}});
             if (!Result)
             {
-                co_return Preview::Fault::Code::AuthFailed;
+                co_return Preview::Fault::Failure{Preview::Fault::Code::AuthFailed};
             }
             auto Lease = std::move(*Result);
             ctx.Identity() = std::string(Lease.Identity());
             ctx.DisplayIdentity() = std::string(Lease.DisplayIdentity());
             ctx.AccountId() = Lease.AccountId();
             ctx.AccountLease() = std::move(Lease);
-            co_return Preview::Fault::Code::Success;
+            co_return Preview::Fault::Failure{};
         }
 
     private:

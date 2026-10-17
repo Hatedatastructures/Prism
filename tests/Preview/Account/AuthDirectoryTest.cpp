@@ -111,8 +111,8 @@ namespace
 
         Preview::Middleware::Context Context;
         Preview::SharedTransmission Inbound;
-        Preview::Fault::Code Accepted = Preview::Fault::Code::Success;
-        Preview::Fault::Code Rejected = Preview::Fault::Code::Success;
+        Preview::Fault::Failure Accepted;
+        Preview::Fault::Failure Rejected;
         std::exception_ptr Exception;
         Net::co_spawn(IoContext,
             [&]() -> Net::awaitable<void>
@@ -132,8 +132,9 @@ namespace
             });
         IoContext.run();
         ASSERT_FALSE(Exception);
-        EXPECT_EQ(Accepted, Preview::Fault::Code::Success);
-        EXPECT_EQ(Rejected, Preview::Fault::Code::AuthFailed);
+        EXPECT_TRUE(Accepted.Succeeded());
+        EXPECT_EQ(Rejected.Code, Preview::Fault::Code::AuthFailed);
+        EXPECT_TRUE(Rejected.Failed());
         EXPECT_TRUE(Context.Identity().empty());
         EXPECT_FALSE(Context.AccountLease());
         EXPECT_EQ(Directory->FindById(Record.Materials->AccountId())->Runtime()->ActiveConnections(), 0U);

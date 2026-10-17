@@ -5,6 +5,9 @@
 #include <Preview/Application/RuntimeState.hpp>
 #include <Preview/Application/Shutdown.hpp>
 #include <Preview/Foundation/Executor/RunContext.hpp>
+#include <Preview/Foundation/Memory/Container.hpp>
+
+#include <exception>
 
 namespace Preview::Application
 {
@@ -27,11 +30,12 @@ namespace Preview::Application
             !State_->StopCompleted.load(std::memory_order_acquire))
         {
             State_->Io.restart();
-            while (!State_->StopCompleted.load(std::memory_order_acquire))
             {
-                if (State_->Io.run_one() == 0U)
+                Preview::Memory::ResourceScope Scope(State_->Process
+                    ? State_->Process->Resources().MemoryResource : nullptr);
+                while (!State_->StopCompleted.load(std::memory_order_acquire))
                 {
-                    State_->Io.restart();
+                    if (State_->Io.run_one() == 0U) State_->Io.restart();
                 }
             }
         }
@@ -65,7 +69,12 @@ namespace Preview::Application
         }
 
         State_->Running.store(true, std::memory_order_release);
-        const auto Fatal = Preview::Executor::RunContext(State_->Io);
+        std::exception_ptr Fatal;
+        {
+            Preview::Memory::ResourceScope Scope(State_->Process
+                ? State_->Process->Resources().MemoryResource : nullptr);
+            Fatal = Preview::Executor::RunContext(State_->Io);
+        }
         State_->Running.store(false, std::memory_order_release);
         if (Fatal || State_->WorkerFatal.load() || Preview::Executor::FatalState::ProcessPending())
         {
@@ -85,7 +94,12 @@ namespace Preview::Application
         {
             Stop();
             State_->Io.restart();
-            const auto CleanupFatal = Preview::Executor::RunContext(State_->Io);
+            std::exception_ptr CleanupFatal;
+            {
+                Preview::Memory::ResourceScope Scope(State_->Process
+                    ? State_->Process->Resources().MemoryResource : nullptr);
+                CleanupFatal = Preview::Executor::RunContext(State_->Io);
+            }
             if (CleanupFatal)
             {
                 (void)State_->RecordShutdownFailure(
@@ -96,6 +110,15 @@ namespace Preview::Application
         const auto ShutdownOutcome = Shutdown::CheckPublishedShutdownOutcome(State_);
         if (!ShutdownOutcome)
         {
+            const auto &Failure = ShutdownOutcome.error();
+            std::cerr << "PrismPreview shutdown failed code="
+                      << static_cast<unsigned int>(Failure.Code);
+            if (Failure.Native)
+            {
+                std::cerr << " native=" << Failure.Native.category().name()
+                          << ':' << Failure.Native.value();
+            }
+            std::cerr << '\n';
             (void)State_->RecordShutdownFailure(ShutdownOutcome.error());
         }
         Shutdown::FinalizeRuntimeResources(State_);

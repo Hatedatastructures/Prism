@@ -7,6 +7,7 @@
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/udp.hpp>
+#include <boost/asio/post.hpp>
 
 #include <array>
 #include <atomic>
@@ -16,6 +17,8 @@
 #include <utility>
 
 #include <Preview/Protocols/Quic/ConnectionLifecycle.hpp>
+#include <Preview/Protocols/Quic/Detail/NativeConnection.hpp>
+#include <Preview/Protocols/Quic/Detail/NativeConnectionState.hpp>
 #include <Preview/Protocols/Quic/Native.hpp>
 #include <TestSupport/Preview/QuicFactory.hpp>
 
@@ -84,6 +87,86 @@ namespace
         }
     };
 
+    struct TerminalBufferedReadObservation final
+    {
+        std::array<std::byte, 4> FirstBuffer{};
+        std::size_t FirstBytes{0};
+        std::size_t SecondBytes{0};
+        std::error_code FirstError{};
+        std::error_code SecondError{};
+        std::expected<void, Preview::Fault::Failure> CloseResult{};
+        std::expected<void, Preview::Fault::Failure> DrainResult{};
+    };
+
+    struct TerminalBufferedDrainObservation final
+    {
+        bool LateReadRejected{false};
+        bool DrainCompletedWhileReadReserved{false};
+        bool DrainCompleted{false};
+        std::exception_ptr DrainException{};
+        std::expected<void, Preview::Fault::Failure> DrainResult{};
+    };
+
+    auto RunTerminalBufferedRead(
+        std::shared_ptr<Preview::Quic::Detail::NativeStream> Stream,
+        TerminalBufferedReadObservation &Observation)
+        -> boost::asio::awaitable<void>
+    {
+        Observation.FirstBytes = co_await Stream->Read(
+            Observation.FirstBuffer, Observation.FirstError);
+        std::array<std::byte, 1> EofBuffer{};
+        Observation.SecondBytes = co_await Stream->Read(
+            EofBuffer, Observation.SecondError);
+        Observation.CloseResult = Stream->Close();
+        const auto Activity = Stream->Activity();
+        Activity->Seal();
+        Observation.DrainResult = co_await Activity->Drain();
+    }
+
+    auto RunTerminalBufferedDrainBarrier(
+        std::shared_ptr<Preview::Quic::Detail::NativeStream> Stream,
+        TerminalBufferedDrainObservation &Observation)
+        -> boost::asio::awaitable<void>
+    {
+        const auto Executor = co_await boost::asio::this_coro::executor;
+        const auto Activity = std::static_pointer_cast<
+            Preview::Quic::Detail::NativeStreamActivity>(Stream->Activity());
+        {
+            auto ReadLease = Activity->BeginBufferedRead(Stream);
+            if (!ReadLease)
+            {
+                throw std::runtime_error("terminal buffered read lease was rejected");
+            }
+            boost::asio::co_spawn(Executor, Activity->Drain(),
+                [&Observation](std::exception_ptr Error,
+                    std::expected<void, Preview::Fault::Failure> Result)
+                {
+                    Observation.DrainException = std::move(Error);
+                    Observation.DrainResult = std::move(Result);
+                    Observation.DrainCompleted = true;
+                });
+            co_await boost::asio::post(Executor, boost::asio::use_awaitable);
+            Observation.LateReadRejected =
+                !Activity->BeginBufferedRead(Stream).has_value();
+            Observation.DrainCompletedWhileReadReserved = Observation.DrainCompleted;
+        }
+        while (!Observation.DrainCompleted)
+        {
+            co_await boost::asio::post(Executor, boost::asio::use_awaitable);
+        }
+    }
+
+    auto RunReadAfterTerminalClose(
+        std::shared_ptr<Preview::Quic::Detail::NativeStream> Stream,
+        TerminalBufferedReadObservation &Observation)
+        -> boost::asio::awaitable<void>
+    {
+        Observation.FirstBytes = co_await Stream->Read(
+            Observation.FirstBuffer, Observation.FirstError);
+        const auto Activity = Stream->Activity();
+        Observation.DrainResult = co_await Activity->Drain();
+    }
+
 } // namespace
 
 TEST(QuicOwnership, LeaseDrainPinsOwnerBeforeFirstScheduling)
@@ -135,6 +218,124 @@ TEST(QuicOwnership, NativeDrainPinsFacadeBeforeFirstScheduling)
     EXPECT_FALSE(Failure);
     EXPECT_TRUE(Completed);
     EXPECT_TRUE(Weak.expired());
+}
+
+TEST(QuicOwnership, NativeTerminalReadDrainsBufferedBytesBeforeFin)
+{
+    boost::asio::io_context Io;
+    auto State = std::make_shared<Preview::Quic::Detail::StreamState>(
+        Io.get_executor(), 4);
+    State->Received.push_back({std::byte{0x41}, std::byte{0x42}});
+    State->PeerFin = true;
+    State->Closed = true;
+    State->NativeTerminal.store(true, std::memory_order_release);
+    auto Stream = std::make_shared<Preview::Quic::Detail::NativeStream>(
+        std::weak_ptr<Preview::Quic::Detail::NativeConnection>{}, State);
+
+    TerminalBufferedReadObservation Observation;
+    std::exception_ptr Exception;
+    boost::asio::co_spawn(Io, RunTerminalBufferedRead(Stream, Observation),
+        [&Exception](std::exception_ptr Error) { Exception = std::move(Error); });
+    Io.run();
+
+    EXPECT_FALSE(Exception);
+    EXPECT_EQ(Observation.FirstBytes, 2U);
+    EXPECT_EQ(Observation.FirstBuffer[0], std::byte{0x41});
+    EXPECT_EQ(Observation.FirstBuffer[1], std::byte{0x42});
+    EXPECT_FALSE(Observation.FirstError);
+    EXPECT_EQ(Observation.SecondBytes, 0U);
+    EXPECT_FALSE(Observation.SecondError);
+    EXPECT_TRUE(Observation.CloseResult.has_value());
+    ASSERT_TRUE(Observation.DrainResult.has_value());
+    EXPECT_TRUE(Stream->Activity()->IsRetired());
+}
+
+TEST(QuicOwnership, NativeTerminalReadDrainsBufferedBytesBeforeReset)
+{
+    boost::asio::io_context Io;
+    auto State = std::make_shared<Preview::Quic::Detail::StreamState>(
+        Io.get_executor(), 8);
+    State->Received.push_back({std::byte{0x51}, std::byte{0x52}});
+    State->PeerReset = true;
+    State->PeerReadFailure = std::make_error_code(std::errc::connection_reset);
+    State->Closed = true;
+    State->NativeTerminal.store(true, std::memory_order_release);
+    auto Stream = std::make_shared<Preview::Quic::Detail::NativeStream>(
+        std::weak_ptr<Preview::Quic::Detail::NativeConnection>{}, State);
+
+    TerminalBufferedReadObservation Observation;
+    std::exception_ptr Exception;
+    boost::asio::co_spawn(Io, RunTerminalBufferedRead(Stream, Observation),
+        [&Exception](std::exception_ptr Error) { Exception = std::move(Error); });
+    Io.run();
+
+    EXPECT_FALSE(Exception);
+    EXPECT_EQ(Observation.FirstBytes, 2U);
+    EXPECT_EQ(Observation.FirstBuffer[0], std::byte{0x51});
+    EXPECT_EQ(Observation.FirstBuffer[1], std::byte{0x52});
+    EXPECT_FALSE(Observation.FirstError);
+    EXPECT_EQ(Observation.SecondBytes, 0U);
+    EXPECT_EQ(Observation.SecondError, std::make_error_code(std::errc::connection_reset));
+    EXPECT_TRUE(Observation.CloseResult.has_value());
+    ASSERT_TRUE(Observation.DrainResult.has_value());
+    EXPECT_TRUE(Stream->Activity()->IsRetired());
+}
+
+TEST(QuicOwnership, TerminalBufferedReadLeaseBlocksDrainAndDrainRejectsNewReads)
+{
+    boost::asio::io_context Io;
+    const auto Executor = boost::asio::make_strand(Io);
+    auto State = std::make_shared<Preview::Quic::Detail::StreamState>(
+        Executor, 12);
+    State->Closed = true;
+    State->PeerFin = true;
+    State->NativeTerminal.store(true, std::memory_order_release);
+    auto Stream = std::make_shared<Preview::Quic::Detail::NativeStream>(
+        std::weak_ptr<Preview::Quic::Detail::NativeConnection>{}, State);
+
+    TerminalBufferedDrainObservation Observation;
+    std::exception_ptr Exception;
+    boost::asio::co_spawn(Executor, RunTerminalBufferedDrainBarrier(Stream, Observation),
+        [&Exception](std::exception_ptr Error) { Exception = std::move(Error); });
+    Io.run();
+
+    EXPECT_FALSE(Exception);
+    EXPECT_TRUE(Observation.LateReadRejected);
+    EXPECT_FALSE(Observation.DrainCompletedWhileReadReserved);
+    EXPECT_TRUE(Observation.DrainCompleted);
+    EXPECT_FALSE(Observation.DrainException);
+    ASSERT_TRUE(Observation.DrainResult.has_value());
+    EXPECT_TRUE(Stream->Activity()->IsRetired());
+}
+
+TEST(QuicOwnership, TerminalCloseRejectsNewBufferedReads)
+{
+    boost::asio::io_context Io;
+    auto State = std::make_shared<Preview::Quic::Detail::StreamState>(
+        Io.get_executor(), 16);
+    State->Received.push_back({std::byte{0x61}, std::byte{0x62}});
+    State->Closed = true;
+    State->PeerFin = true;
+    State->NativeTerminal.store(true, std::memory_order_release);
+    auto Stream = std::make_shared<Preview::Quic::Detail::NativeStream>(
+        std::weak_ptr<Preview::Quic::Detail::NativeConnection>{}, State);
+
+    const auto CloseResult = Stream->Close();
+    TerminalBufferedReadObservation Observation;
+    std::exception_ptr Exception;
+    boost::asio::co_spawn(Io, RunReadAfterTerminalClose(Stream, Observation),
+        [&Exception](std::exception_ptr Error) { Exception = std::move(Error); });
+    Io.run();
+
+    EXPECT_TRUE(CloseResult.has_value());
+    EXPECT_FALSE(Exception);
+    ASSERT_EQ(Observation.FirstBytes, 0U);
+    EXPECT_EQ(Observation.FirstError, Preview::Fault::ToNative(
+        Preview::Fault::Failure{Preview::Fault::Code::Canceled}));
+    ASSERT_FALSE(State->Received.empty());
+    EXPECT_EQ(State->Received.front().size(), 2U);
+    ASSERT_TRUE(Observation.DrainResult.has_value());
+    EXPECT_TRUE(Stream->Activity()->IsRetired());
 }
 
 TEST(QuicOwnership, ExternalReceiveServersExposeIndependentInjectionState)

@@ -22,6 +22,7 @@
 
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Protocols/Vmess/Codec.hpp>
+#include <Preview/Protocols/Vmess/ChunkMask.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -30,6 +31,37 @@ namespace
     namespace Vmess = Preview::Vmess;
     using Preview::Error;
     using Preview::make_error_code;
+
+    TEST(VmessCodecDeep, ShakeStreamMatchesShake128EmptyVector)
+    {
+        constexpr std::array<std::uint8_t, 32> Expected{
+            0x7F, 0x9C, 0x2B, 0xA4, 0xE8, 0x8F, 0x82, 0x7D,
+            0x61, 0x60, 0x45, 0x50, 0x76, 0x05, 0x85, 0x3E,
+            0xD7, 0x3B, 0x80, 0x93, 0xF6, 0xEF, 0xBC, 0x88,
+            0xEB, 0x1A, 0x6E, 0xAC, 0xFA, 0x66, 0xEF, 0x26};
+        Vmess::ShakeStream Stream(std::span<const std::uint8_t>{});
+        std::array<std::uint8_t, Expected.size()> Actual{};
+        for (std::size_t Offset = 0; Offset < Actual.size(); Offset += 2)
+        {
+            Stream.Take(std::span<std::uint8_t>(Actual).subspan(Offset, 2));
+        }
+        EXPECT_EQ(Actual, Expected);
+    }
+
+    TEST(VmessCodecDeep, ChunkMaskStreamMatchesFourChunkVector)
+    {
+        std::array<std::uint8_t, 16> Seed{};
+        Seed.fill(0x72);
+        constexpr std::array<std::uint8_t, 8> Expected{
+            0xFD, 0x02, 0x82, 0x06, 0x32, 0x55, 0x4E, 0xAF};
+        Vmess::ShakeStream Stream(Seed);
+        std::array<std::uint8_t, Expected.size()> Actual{};
+        for (std::size_t Chunk = 0; Chunk < Actual.size() / 2; ++Chunk)
+        {
+            Stream.Take(std::span<std::uint8_t>(Actual).subspan(Chunk * 2, 2));
+        }
+        EXPECT_EQ(Actual, Expected);
+    }
 
     /**
      * @brief 构造 16 字节 UUID

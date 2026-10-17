@@ -44,29 +44,21 @@ namespace
     auto RunStreamFinRoundtrip(StreamDatagramRequest Request)
         -> Net::awaitable<StreamRoundtripProviders>
     {
-        auto ClientStream = co_await Request.Client->OpenBidirectionalStream();
-        EXPECT_NE(ClientStream, nullptr);
-        if (!ClientStream)
+        auto OpenedClientStream = co_await Request.Client->OpenBidirectionalStream();
+        EXPECT_TRUE(OpenedClientStream);
+        if (!OpenedClientStream)
         {
             Request.Client->Close();
             Request.Server->Close();
             co_return StreamRoundtripProviders{};
         }
+        auto ClientStream = std::move(*OpenedClientStream);
         std::vector<std::byte> Message(128 * 1024, std::byte{0x5A});
         std::vector<std::byte> Received(Message.size());
-        auto AcceptAndRead = [&]() -> Net::awaitable<std::pair<Preview::Quic::SharedStreamProvider, std::size_t>>
-        {
-            auto Stream = co_await Request.Server->AcceptBidirectionalStream();
-            if (!Stream)
-            {
-                co_return std::pair<Preview::Quic::SharedStreamProvider, std::size_t>{nullptr, 0};
-            }
-            const auto Count = co_await ReadExactStream(Stream, std::span<std::byte>(Received));
-            co_return std::pair{std::move(Stream), Count};
-        };
         std::error_code ClientWriteError;
         const auto [ClientWritten, ReceiveResult] = co_await (
-            ClientStream->Write(Message, ClientWriteError) && AcceptAndRead());
+            ClientStream->Write(Message, ClientWriteError) &&
+            AcceptAndReadStream(Request.Server, std::span<std::byte>(Received)));
         auto ServerStream = std::move(ReceiveResult.first);
         const auto ReceivedLength = ReceiveResult.second;
         EXPECT_NE(ServerStream, nullptr);
@@ -164,8 +156,8 @@ namespace
         EXPECT_EQ(co_await ServerDatagram->Receive(DatagramReceived, ErrorCode), Datagram.size());
         EXPECT_FALSE(ErrorCode);
         EXPECT_TRUE(std::equal(Datagram.begin(), Datagram.end(), DatagramReceived.begin()));
-        Streams.Client->Close();
-        Streams.Server->Close();
+        CloseStreamForTest(Streams.Client);
+        CloseStreamForTest(Streams.Server);
         Request.Client->Close();
         Request.Server->Close();
     }
@@ -242,37 +234,44 @@ namespace
         EXPECT_TRUE(Request.Client->ExportKeyingMaterial(ClientExport, Label, "tuic_password"));
         EXPECT_TRUE(Request.Server->ExportKeyingMaterial(ServerExport, Label, "tuic_password"));
         EXPECT_EQ(ClientExport, ServerExport);
-        auto ClientUni = co_await Request.Client->OpenUnidirectionalStream();
-        EXPECT_NE(ClientUni, nullptr);
-        if (!ClientUni) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto OpenedClientUni = co_await Request.Client->OpenUnidirectionalStream();
+        EXPECT_TRUE(OpenedClientUni);
+        if (!OpenedClientUni) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto ClientUni = std::move(*OpenedClientUni);
         std::error_code ErrorCode;
         const std::array<std::byte, 3> ClientMessage{
             std::byte{0x03}, std::byte{0x01}, std::byte{0x02}};
         EXPECT_EQ(co_await ClientUni->Write(ClientMessage, ErrorCode), ClientMessage.size());
         EXPECT_FALSE(ErrorCode);
-        auto ServerUni = co_await Request.Server->AcceptUnidirectionalStream();
-        EXPECT_NE(ServerUni, nullptr);
-        if (!ServerUni) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto AcceptedServerUni = co_await Request.Server->AcceptUnidirectionalStream();
+        EXPECT_TRUE(AcceptedServerUni);
+        if (!AcceptedServerUni) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto ServerUni = std::move(*AcceptedServerUni);
         std::array<std::byte, 8> ServerBuffer{};
         const auto ServerRead = co_await ServerUni->Read(ServerBuffer, ErrorCode);
         EXPECT_FALSE(ErrorCode);
         EXPECT_EQ(ServerRead, ClientMessage.size());
         EXPECT_TRUE(std::equal(ClientMessage.begin(), ClientMessage.end(), ServerBuffer.begin()));
-        auto ServerCreated = co_await Request.Server->OpenUnidirectionalStream();
-        EXPECT_NE(ServerCreated, nullptr);
-        if (!ServerCreated) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto OpenedServerStream = co_await Request.Server->OpenUnidirectionalStream();
+        EXPECT_TRUE(OpenedServerStream);
+        if (!OpenedServerStream) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto ServerCreated = std::move(*OpenedServerStream);
         const std::array<std::byte, 2> ServerMessage{std::byte{0xA5}, std::byte{0x5A}};
         EXPECT_EQ(co_await ServerCreated->Write(ServerMessage, ErrorCode), ServerMessage.size());
         EXPECT_FALSE(ErrorCode);
-        auto ClientReceived = co_await Request.Client->AcceptUnidirectionalStream();
-        EXPECT_NE(ClientReceived, nullptr);
-        if (!ClientReceived) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto AcceptedClientStream = co_await Request.Client->AcceptUnidirectionalStream();
+        EXPECT_TRUE(AcceptedClientStream);
+        if (!AcceptedClientStream) { Request.Client->Close(); Request.Server->Close(); co_return; }
+        auto ClientReceived = std::move(*AcceptedClientStream);
         std::array<std::byte, 8> ClientBuffer{};
         const auto ClientRead = co_await ClientReceived->Read(ClientBuffer, ErrorCode);
         EXPECT_FALSE(ErrorCode);
         EXPECT_EQ(ClientRead, ServerMessage.size());
         EXPECT_TRUE(std::equal(ServerMessage.begin(), ServerMessage.end(), ClientBuffer.begin()));
-        ClientUni->Close(); ServerUni->Close(); ServerCreated->Close(); ClientReceived->Close();
+        CloseStreamForTest(ClientUni);
+        CloseStreamForTest(ServerUni);
+        CloseStreamForTest(ServerCreated);
+        CloseStreamForTest(ClientReceived);
         Request.Client->Close(); Request.Server->Close();
     }
 
@@ -332,7 +331,11 @@ namespace
             {
                 Client->Close();
                 Server->Close();
-            }, [] {}, std::chrono::seconds(5)});
+            }, [Server=Peers.Server, Client=Peers.Client]()
+            {
+                Client->Close();
+                Server->Close();
+            }, std::chrono::seconds(5)});
     }
     TEST(NativeQuicLoopback, DatagramCancelIsOneShotAndKeepsConnectionUsable)
     {
@@ -366,7 +369,12 @@ namespace
                 Client->Close();
                 Server->Close();
                 PacketGate->close();
-            }, [] {}, std::chrono::seconds(5)});
+            }, [Client=Peers.Client, Server=Peers.Server, PacketGate]()
+            {
+                Client->Close();
+                Server->Close();
+                PacketGate->close();
+            }, std::chrono::seconds(5)});
     }
     TEST(NativeQuicLoopback, UnidirectionalStreamsRoundtrip)
     {
@@ -379,6 +387,10 @@ namespace
             {
                 Client->Close();
                 Server->Close();
-            }, [] {}, std::chrono::seconds(5)});
+            }, [Server=Peers.Server, Client=Peers.Client]()
+            {
+                Client->Close();
+                Server->Close();
+            }, std::chrono::seconds(5)});
     }
 } // namespace

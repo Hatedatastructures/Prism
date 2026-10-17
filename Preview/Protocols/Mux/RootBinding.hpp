@@ -128,6 +128,12 @@ namespace Preview::Mux
             return Roots_.IsRetired() && !Options_.load(std::memory_order_acquire);
         }
 
+        /** @brief 返回 registry 内 root 已记录的持久终态首因，不包含可重试 attempt cancellation。 */
+        [[nodiscard]] auto DrainFailure() const noexcept -> Preview::Fault::Failure
+        {
+            return Roots_.DrainFailure();
+        }
+
     private:
         std::atomic<std::shared_ptr<const RootOptions>> Options_;
         Detail::RootRegistry Roots_;

@@ -8,6 +8,7 @@
 
 #pragma once
 
+
 #include <optional>
 
 #include <Preview/Protocols/Quic/Detail/NativeConnection.hpp>
@@ -121,8 +122,13 @@ namespace Preview::Quic::Detail
         auto Reservation = Activity_->BeginOperation(Provider);
         if (!Reservation)
         {
-            ErrorCode = Preview::Fault::ToNative(Reservation.error());
-            return ReturnZero();
+            auto BufferedRead = Activity_->BeginBufferedRead(Provider);
+            if (!BufferedRead)
+            {
+                ErrorCode = Preview::Fault::ToNative(BufferedRead.error());
+                return ReturnZero();
+            }
+            return ReadOwned(std::move(*BufferedRead), Buffer, ErrorCode);
         }
         return ReadOwned(std::move(*Reservation), Buffer, ErrorCode);
     }
@@ -167,15 +173,22 @@ namespace Preview::Quic::Detail
                 {
                     Front.erase(Front.begin(), Front.begin() + static_cast<std::ptrdiff_t>(Length));
                 }
-                if (Length != 0 && Connection)
+                if (Length != 0 && Connection && NativeReservation && *NativeReservation)
                 {
-                    Connection->OnStreamReadConsumed(State->Id, Length);
+                    if (State->NativeTerminal.load(std::memory_order_acquire))
+                    {
+                        Connection->OnTerminalStreamReadConsumed(Length);
+                    }
+                    else
+                    {
+                        Connection->OnStreamReadConsumed(State->Id, Length);
+                    }
                 }
                 co_return Length;
             }
             if (State->PeerReset)
             {
-                ErrorCode = State->PeerFailure;
+                ErrorCode = State->PeerReadFailure;
                 co_return 0;
             }
             if (State->PeerFin)
@@ -252,7 +265,7 @@ namespace Preview::Quic::Detail
         }
         if (State->PeerStopSending)
         {
-            ErrorCode = State->PeerFailure;
+            ErrorCode = State->PeerWriteFailure;
             co_return 0;
         }
         if (State->Closed || State->LocalWriteClosed)
@@ -274,11 +287,13 @@ namespace Preview::Quic::Detail
         }
         if (Activity_->CloseAccepted())
         {
+            Activity_->Seal();
             return {};
         }
         if (State_->NativeTerminal.load(std::memory_order_acquire))
         {
             Activity_->MarkNativeTerminal(State_->StreamCloseFailure);
+            Activity_->Seal();
             return {};
         }
         const auto Connection = Owner_.lock();
@@ -287,6 +302,7 @@ namespace Preview::Quic::Detail
             if (Activity_->CloseAccepted() ||
                 State_->NativeTerminal.load(std::memory_order_acquire))
             {
+                Activity_->Seal();
                 return {};
             }
             return std::unexpected(
@@ -298,12 +314,14 @@ namespace Preview::Quic::Detail
             if (Activity_->CloseAccepted() ||
                 State_->NativeTerminal.load(std::memory_order_acquire))
             {
+                Activity_->Seal();
                 return {};
             }
             return std::unexpected(Reservation.error());
         }
         if (!*Reservation)
         {
+            Activity_->Seal();
             return {};
         }
         NativeConnection::OperationReservation ConnectionReservation{Connection};
@@ -313,6 +331,7 @@ namespace Preview::Quic::Detail
             if (Activity_->CloseAccepted() ||
                 State_->NativeTerminal.load(std::memory_order_acquire))
             {
+                Activity_->Seal();
                 return {};
             }
             return std::unexpected(
@@ -332,6 +351,7 @@ namespace Preview::Quic::Detail
             if (Activity_->CloseAccepted() ||
                 State_->NativeTerminal.load(std::memory_order_acquire))
             {
+                Activity_->Seal();
                 return {};
             }
             return std::unexpected(
@@ -343,6 +363,7 @@ namespace Preview::Quic::Detail
             if (Activity_->CloseAccepted() ||
                 State_->NativeTerminal.load(std::memory_order_acquire))
             {
+                Activity_->Seal();
                 return {};
             }
             return std::unexpected(
@@ -500,7 +521,8 @@ inline auto NativeDatagram::Receive(
             co_return 0;
         }
         std::vector<std::byte> Copy(Buffer.begin(), Buffer.end());
-        co_return co_await Connection->WriteDatagram(std::move(Copy), ErrorCode);
+        const auto Sent = co_await Connection->WriteDatagram(std::move(Copy), ErrorCode);
+        co_return Sent;
     }
 
     inline auto NativeDatagram::Close() -> void

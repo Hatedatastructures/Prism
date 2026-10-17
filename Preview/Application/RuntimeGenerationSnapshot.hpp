@@ -9,6 +9,7 @@
 #include <Preview/Composition/Provider/ProviderCatalog.hpp>
 #include <Preview/Contract/Ingress/DatagramIngressSelection.hpp>
 #include <Preview/Foundation/Fault/Failure.hpp>
+#include <Preview/Foundation/Fault/FailureState.hpp>
 #include <Preview/Foundation/Generation/Lifetime.hpp>
 #include <Preview/Net/Dns/Resolver.hpp>
 #include <Preview/Net/Services/WorkerDialService.hpp>
@@ -86,13 +87,13 @@ namespace Preview::Application
             }
             if (Status == DrainStatus::Drained)
             {
-                if (FirstFailure_)
+                if (const auto Failure = FirstDrainFailure())
                 {
-                    co_return std::unexpected(*FirstFailure_);
+                    co_return std::unexpected(*Failure);
                 }
                 co_return std::expected<void, Preview::Fault::Failure>{};
             }
-            if (!UseState || !UseState->CloseAdmissionIfUnused())
+            if (!UseState)
             {
                 DrainStatus_.store(DrainStatus::Ready, std::memory_order_release);
                 co_return std::unexpected(
@@ -100,22 +101,25 @@ namespace Preview::Application
             }
 
             co_await DrainProviderOwner();
+            if (!UseState->CloseAdmissionIfUnused())
+            {
+                DrainStatus_.store(DrainStatus::Ready, std::memory_order_release);
+                co_return std::unexpected(
+                    FirstDrainFailure().value_or(
+                        Preview::Fault::Failure{Preview::Fault::Code::Blocked}));
+            }
             co_await DrainResolverOwner();
             co_await DrainWorkerDialOwners();
-            if (OutstandingUses() != 0U)
-            {
-                PreserveFirstFailure(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
-            }
             if (!PhysicalRetirementComplete())
             {
                 DrainStatus_.store(DrainStatus::Failed, std::memory_order_release);
-                co_return std::unexpected(FirstFailure_.value_or(
+                co_return std::unexpected(FirstDrainFailure().value_or(
                     Preview::Fault::Failure{Preview::Fault::Code::Blocked}));
             }
             DrainStatus_.store(DrainStatus::Drained, std::memory_order_release);
-            if (FirstFailure_)
+            if (const auto Failure = FirstDrainFailure())
             {
-                co_return std::unexpected(*FirstFailure_);
+                co_return std::unexpected(*Failure);
             }
             co_return std::expected<void, Preview::Fault::Failure>{};
         }
@@ -142,7 +146,16 @@ namespace Preview::Application
         /** @brief 读取该代 Drain 首个历史失败；后续重试不覆盖原 cause。 */
         [[nodiscard]] auto FirstDrainFailure() const -> std::optional<Preview::Fault::Failure>
         {
-            return FirstFailure_;
+            if (!FirstFailure_)
+            {
+                return {};
+            }
+            const auto Failure = FirstFailure_->Load();
+            if (Failure.Failed())
+            {
+                return Failure;
+            }
+            return {};
         }
         Preview::Runtime::SharedSessionServices Session;
         std::shared_ptr<Preview::Composition::Provider::BoundCatalog> Providers;
@@ -157,9 +170,9 @@ namespace Preview::Application
     private:
         auto PreserveFirstFailure(const Preview::Fault::Failure Cause) const -> void
         {
-            if (!FirstFailure_)
+            if (FirstFailure_ && Cause.Failed())
             {
-                FirstFailure_ = Cause;
+                (void)FirstFailure_->TrySet(Cause);
             }
         }
 
@@ -173,17 +186,21 @@ namespace Preview::Application
             }
             Providers->Close();
             const auto Result = co_await Providers->Drain();
-            if (!Result)
+            const auto Receipt = Providers->PhysicalRetirement();
+            const auto Retired = Receipt.Complete();
+            const auto Durable = Providers->DrainFailure();
+            const bool RetryableAttemptFailure = !Result && !Durable &&
+                (Result.error().Code == Preview::Fault::Code::Canceled ||
+                 Result.error().Code == Preview::Fault::Code::Blocked);
+            if (Durable)
+            {
+                PreserveFirstFailure(*Durable);
+            }
+            else if (!Result && !RetryableAttemptFailure)
             {
                 PreserveFirstFailure(Result.error());
             }
-            const auto Receipt = Providers->PhysicalRetirement();
-            const auto Retired = Receipt.Complete();
             ProvidersRetired_.store(Retired, std::memory_order_release);
-            if (!Retired)
-            {
-                PreserveFirstFailure(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
-            }
             co_return;
         }
 
@@ -244,7 +261,8 @@ namespace Preview::Application
             Drained,
         };
 
-        mutable std::optional<Preview::Fault::Failure> FirstFailure_;
+        std::shared_ptr<Preview::Fault::FailureState> FirstFailure_{
+            std::make_shared<Preview::Fault::FailureState>()};
         mutable std::atomic<bool> ProvidersRetired_{false};
         mutable std::atomic<bool> ResolverRetired_{false};
         mutable std::atomic<bool> WorkerDialsRetired_{false};

@@ -238,11 +238,7 @@ namespace Preview::Tuic
                 if (Event_.StreamProvider && !Event_.Carrier)
                     Event_.Carrier = std::make_shared<Preview::Quic::StreamAdapter>(
                         Event_.StreamProvider->Executor(), Event_.StreamProvider);
-                if (Event_.StreamProvider && Event_.StreamProvider->IsClosed())
-                    Owner_->QueueRejectedTransmission(
-                        Event_.Carrier, std::move(*Event_.Reservation));
-                else
-                    Owner_->AdmitAuthentication(Event_.Carrier, std::move(*Event_.Reservation));
+                Owner_->AdmitAuthentication(Event_.Carrier, std::move(*Event_.Reservation));
                 break;
             case InputKind::Exporter:
                 if (!Owner_->Closed_ && !Owner_->ExporterReady_)
@@ -256,11 +252,7 @@ namespace Preview::Tuic
                 if (Event_.StreamProvider && !Event_.Carrier)
                     Event_.Carrier = std::make_shared<Preview::Quic::StreamAdapter>(
                         Event_.StreamProvider->Executor(), Event_.StreamProvider);
-                if (Event_.StreamProvider && Event_.StreamProvider->IsClosed())
-                    Owner_->QueueRejectedTransmission(
-                        Event_.Carrier, std::move(*Event_.Reservation));
-                else
-                    Owner_->AdmitStream(Event_.Carrier, std::move(*Event_.Reservation));
+                Owner_->AdmitStream(Event_.Carrier, std::move(*Event_.Reservation));
                 break;
             case InputKind::Datagram:
                 if (Event_.Provider && Event_.Provider->IsClosed())

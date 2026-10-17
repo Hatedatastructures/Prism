@@ -40,10 +40,8 @@ namespace
 
     struct Result final
     {
-        bool Authenticated{false};
-        bool Settings{false};
-        bool SynAck{false};
-        bool Echo{false};
+        bool Authenticated{false}, Settings{false};
+        bool SynAck{false}, Echo{false};
         bool RootCompleted{false};
         std::size_t TargetReceived{0};
         std::size_t Completed{0};
@@ -177,8 +175,10 @@ namespace
     };
     auto RunRoot(std::shared_ptr<Fixture> State) -> Net::awaitable<void>
     {
+        auto Bytes = std::make_shared<Preview::Memory::BytePool>(
+            Preview::Memory::BytePoolOptions{.BlockCount = 4U});
         Preview::Anytls::IngressFactory Factory({.Configuration = {"task-four-secret"},
-            .Streams = {.Egress = std::make_shared<Egress>(State)}});
+            .Streams = {.Egress = std::make_shared<Egress>(State), .Bytes = Bytes}});
         auto Input = MakeStreamAcceptInput(std::move(State->Server), {});
         const auto UseState = std::make_shared<Preview::Foundation::GenerationUseState>();
         Input.GenerationUseState = UseState;
@@ -410,7 +410,8 @@ namespace
             {
                 Preview::Transport::Detail::ConfigureIo(Operation);
                 std::error_code Error;
-                const auto Count = co_await Input.Owner->ReadPartial(Input.Buffer, Error);
+                const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
+                    Input.Owner->ReadPartial(Input.Buffer, Error), Net::deferred);
                 co_return std::tuple{Preview::IoResult{Count, Preview::Fault::FromNative(Error)}};
             }
         };
@@ -421,7 +422,8 @@ namespace
             {
                 Preview::Transport::Detail::ConfigureIo(Operation);
                 std::error_code Error;
-                const auto Count = co_await Input.Owner->WritePartial(Input.Buffer, Error);
+                const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
+                    Input.Owner->WritePartial(Input.Buffer, Error), Net::deferred);
                 co_return std::tuple{Preview::IoResult{Count, Preview::Fault::FromNative(Error)}};
             }
         };
@@ -514,7 +516,8 @@ namespace
             {
                 Preview::Transport::Detail::ConfigureIo(Operation);
                 std::error_code Error;
-                const auto Count = co_await Input.Owner->ReadPartial(Input.Buffer, Error);
+                const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
+                    Input.Owner->ReadPartial(Input.Buffer, Error), Net::deferred);
                 co_return std::tuple{Preview::IoResult{Count, Preview::Fault::FromNative(Error)}};
             }
         };
@@ -525,7 +528,8 @@ namespace
             {
                 Preview::Transport::Detail::ConfigureIo(Operation);
                 std::error_code Error;
-                const auto Count = co_await Input.Owner->WritePartial(Input.Buffer, Error);
+                const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
+                    Input.Owner->WritePartial(Input.Buffer, Error), Net::deferred);
                 co_return std::tuple{Preview::IoResult{Count, Preview::Fault::FromNative(Error)}};
             }
         };
@@ -594,11 +598,11 @@ namespace
             : Native(std::make_error_code(std::errc::connection_reset)),
               Stream(std::make_shared<NativeWriteFailureTransmission>(std::move(Executor), Native)),
               Tasks(std::make_shared<Preview::Lifecycle::TaskRegistry>(Stream->Executor())),
-              Writer(std::make_shared<Preview::Anytls::FrameWriter>(Stream, Tasks)) {}
+              Writer(std::make_shared<Preview::Anytls::Detail::FrameWriter>(Stream, Tasks)) {}
         std::error_code Native;
         std::shared_ptr<NativeWriteFailureTransmission> Stream;
         std::shared_ptr<Preview::Lifecycle::TaskRegistry> Tasks;
-        std::shared_ptr<Preview::Anytls::FrameWriter> Writer;
+        std::shared_ptr<Preview::Anytls::Detail::FrameWriter> Writer;
         Preview::Anytls::Detail::WriteResult Write;
         bool TasksDrained{false}, CarrierDrained{false}, CloseDelivered{false};
         std::exception_ptr Exception;
@@ -614,7 +618,7 @@ namespace
         Activity->Seal();
         State->CarrierDrained = bool(co_await Activity->Drain());
     }
-    auto WriteOne(std::shared_ptr<Preview::Anytls::FrameWriter> State, std::uint32_t Id)
+    auto WriteOne(std::shared_ptr<Preview::Anytls::Detail::FrameWriter> State, std::uint32_t Id)
         -> Net::awaitable<bool>
     {
         const auto Data = std::as_bytes(std::span(Payload));
@@ -634,7 +638,7 @@ namespace
         WriterState->Owner = Plane->Mux()->Session;
         auto Connection = Plane->Transport();
         WriterState->Tasks = std::make_shared<Preview::Lifecycle::TaskRegistry>(Connection->Executor());
-        auto State = std::make_shared<Preview::Anytls::FrameWriter>(Connection, WriterState->Tasks);
+        auto State = std::make_shared<Preview::Anytls::Detail::FrameWriter>(Connection, WriterState->Tasks);
         const auto Complete = [WriterState](std::exception_ptr Failure, bool Written)
         {
             if (Written) ++WriterState->Writes;
@@ -661,10 +665,10 @@ TEST(AnytlsSessionOwner, FirstTargetFramePreservesLiteralTrailingPayload)
     EXPECT_TRUE(Actual.SynAck);
     EXPECT_EQ(Actual.TargetReceived, Payload.size());
     EXPECT_TRUE(Actual.Echo);
+    ASSERT_TRUE(Actual.RootStatus) << "code=" << static_cast<unsigned>(Actual.RootStatus.error().Code);
     EXPECT_EQ(Actual.Completed, 4);
     EXPECT_FALSE(Actual.Failure);
 }
-
 TEST(AnytlsSessionOwner, FragmentedTargetPreservesLiteralTrailingPayload)
 {
     const auto Actual = Scenario(true);
@@ -673,6 +677,7 @@ TEST(AnytlsSessionOwner, FragmentedTargetPreservesLiteralTrailingPayload)
     EXPECT_TRUE(Actual.SynAck);
     EXPECT_EQ(Actual.TargetReceived, Payload.size());
     EXPECT_TRUE(Actual.Echo);
+    ASSERT_TRUE(Actual.RootStatus) << "code=" << static_cast<unsigned>(Actual.RootStatus.error().Code);
     EXPECT_EQ(Actual.Completed, 4);
     EXPECT_FALSE(Actual.Failure);
 }
@@ -710,7 +715,7 @@ TEST(AnytlsSessionOwner, PendingFrameWriterSendCompletesAfterCloseCancellation)
     auto Underlying = std::make_shared<Preview::MemoryStream>(std::move(ServerRaw));
     auto Pending = std::make_shared<PendingWriter>(Underlying);
     auto Tasks = std::make_shared<Preview::Lifecycle::TaskRegistry>(Io.get_executor());
-    auto Writer = std::make_shared<Preview::Anytls::FrameWriter>(Pending, Tasks);
+    auto Writer = std::make_shared<Preview::Anytls::Detail::FrameWriter>(Pending, Tasks);
     bool Started = false;
     bool Completed = false;
     Preview::Fault::Failure SendFailure;

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <Preview/Application/Configuration/PreviewConfiguration.hpp>
+#include <Preview/Application/Configuration/AccountPolicyJson.hpp>
 
 #include <array>
 
@@ -248,14 +249,26 @@ struct glz::meta<Preview::Contract::CarrierConfiguration>
 };
 
 template <>
+struct glz::meta<Preview::Application::Configuration::AccountGroupConfiguration>
+{
+    using T = Preview::Application::Configuration::AccountGroupConfiguration;
+    static constexpr auto value = glz::object(
+        "Id", &T::Id,
+        "Name", &T::Name,
+        "Policy", &T::Policy);
+};
+
+template <>
 struct glz::meta<Preview::Application::Configuration::AccountConfiguration>
 {
     using T = Preview::Application::Configuration::AccountConfiguration;
     static constexpr auto value = glz::object(
         "Id", &T::Id,
+        "GroupId", &T::GroupId,
         "SecretRef", &T::SecretRef,
         "Credential", &T::Credential,
-        "Credentials", &T::Credentials);
+        "Credentials", &T::Credentials,
+        "Policy", &T::Policy);
 };
 
 template <>
@@ -325,6 +338,14 @@ struct glz::meta<Preview::Application::Configuration::OperationsConfiguration>
 };
 
 template <>
+struct glz::meta<Preview::Application::Configuration::StorageConfiguration>
+{
+    using T = Preview::Application::Configuration::StorageConfiguration;
+    static constexpr auto value = glz::object("Directory", &T::Directory,
+        "HistoryMaxBytes", &T::HistoryMaxBytes);
+};
+
+template <>
 struct glz::meta<Preview::Application::Configuration::HotReloadConfiguration>
 {
     using T = Preview::Application::Configuration::HotReloadConfiguration;
@@ -354,6 +375,7 @@ struct glz::meta<Preview::Application::Configuration::PreviewConfiguration>
         "Carriers", &T::Carriers,
         "ProtocolBindings", &T::ProtocolBindings,
         "Recognition", &T::Recognition,
+        "AccountGroups", &T::AccountGroups,
         "Accounts", &T::Accounts,
         "Secrets", &T::Secrets,
         "Routes", &T::Routes,
@@ -362,6 +384,7 @@ struct glz::meta<Preview::Application::Configuration::PreviewConfiguration>
         "Trace", &T::Trace,
         "Statistics", &T::Statistics,
         "Operations", &T::Operations,
+        "Storage", &T::Storage,
         "HotReload", &T::HotReload,
         "Shutdown", &T::Shutdown);
 };

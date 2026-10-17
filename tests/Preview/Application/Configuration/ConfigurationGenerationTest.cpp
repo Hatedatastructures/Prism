@@ -34,9 +34,9 @@ TEST(PreviewTask3Generation, PinsImmutableGenerationsAcrossSuccessfulReload)
         ASSERT_TRUE(Initial.has_value()) << Initial.error().Message;
 
         GenerationPublication Publication;
-        auto InitialToken = Publication.Prepare({}, *Initial);
+        auto InitialToken = Publication.Prepare({}, *Initial, {});
         ASSERT_TRUE(InitialToken.has_value());
-        ASSERT_TRUE(Publication.Publish(std::move(*InitialToken)));
+        ASSERT_TRUE(Publication.Publish(*InitialToken));
         const auto Pinned = *Initial;
 
         ReloadRequest Request;
@@ -52,10 +52,10 @@ TEST(PreviewTask3Generation, PinsImmutableGenerationsAcrossSuccessfulReload)
         EXPECT_EQ(Publication.Current()->Id(), Preview::GenerationId{1});
         EXPECT_EQ(Pinned->Id(), Preview::GenerationId{1});
         EXPECT_EQ(Pinned->Configuration().Runtime.WorkerCount, 2U);
-        auto CandidateToken = Publication.Prepare(*Initial, *Reloaded);
+        auto CandidateToken = Publication.Prepare(*Initial, *Reloaded, {});
         ASSERT_TRUE(CandidateToken.has_value());
         EXPECT_EQ(Publication.Current()->Id(), Preview::GenerationId{1});
-        ASSERT_TRUE(Publication.Publish(std::move(*CandidateToken)));
+        ASSERT_TRUE(Publication.Publish(*CandidateToken));
         EXPECT_EQ(Publication.Current()->Id(), Preview::GenerationId{2});
         EXPECT_EQ((*Reloaded)->Configuration().Runtime.WorkerCount, 3U);
     }
@@ -70,9 +70,9 @@ TEST(PreviewTask3Generation, ReloadFailurePreservesTheOldGeneration)
         ASSERT_TRUE(Initial.has_value()) << Initial.error().Message;
 
         GenerationPublication Publication;
-        auto InitialToken = Publication.Prepare({}, *Initial);
+        auto InitialToken = Publication.Prepare({}, *Initial, {});
         ASSERT_TRUE(InitialToken.has_value());
-        ASSERT_TRUE(Publication.Publish(std::move(*InitialToken)));
+        ASSERT_TRUE(Publication.Publish(*InitialToken));
         ReloadRequest Request;
         Request.BaseGeneration = (*Initial)->Id();
         Request.Configuration = ParseValid();

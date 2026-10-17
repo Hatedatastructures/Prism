@@ -263,6 +263,7 @@ namespace Preview::Operations
                 }
                 if (Mode == "validate_only") Result.Mode = ReloadMode::ValidateOnly;
                 else if (Mode == "apply") Result.Mode = ReloadMode::Apply;
+                else if (Mode == "apply_and_persist") Result.Mode = ReloadMode::ApplyAndPersist;
                 else return std::unexpected(ReloadDocumentError::Malformed);
             }
             else if (Key == "base_generation")

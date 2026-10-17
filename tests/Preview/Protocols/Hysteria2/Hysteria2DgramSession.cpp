@@ -20,10 +20,10 @@ namespace
     {
         Address Source;
         std::vector<std::uint8_t> Payload;
-        EXPECT_EQ(co_await Request.Datagram->AsyncReceiveFrom(Source, Payload), Error::NotSupported);
+        EXPECT_EQ(co_await Request.Datagram->AsyncReceiveFrom(Source, Payload), Error::Unsupported);
         EXPECT_EQ(co_await Request.Datagram->AsyncSendTo(
             MakeAddress(AddressType::Ipv4, "127.0.0.1", 53),
-            AsU8Span(std::string_view{"payload"})), Error::NotSupported);
+            AsU8Span(std::string_view{"payload"})), Error::Unsupported);
         Request.Datagram->Close();
         Request.Peer->Close();
     }
@@ -36,7 +36,7 @@ namespace
     {
         EXPECT_EQ(co_await Request.Datagram->AsyncSendTo(
             MakeAddress(AddressType::Ipv4, "93.184.216.34", 443),
-            AsU8Span(std::string_view{"payload"})), Error::NotSupported);
+            AsU8Span(std::string_view{"payload"})), Error::Unsupported);
         Request.Datagram->Close();
         Request.Peer->Close();
     }
@@ -70,34 +70,46 @@ namespace
 
     struct InvalidWireRequest final
     {
-        std::shared_ptr<MemoryStream> Client;
-        std::shared_ptr<MemoryStream> Server;
+        std::shared_ptr<MemoryDatagramProvider> ClientProvider;
+        std::shared_ptr<MemoryDatagramProvider> ServerProvider;
         std::vector<std::uint8_t> Wire;
+        Error Expected{Error::BadMessage};
     };
 
-    auto RunInvalidWireServer(std::shared_ptr<MemoryStream> Server) -> Net::awaitable<void>
+    struct InvalidWireServerRequest final
     {
-        auto Datagram = std::make_shared<Dgram>(std::move(Server));
+        std::shared_ptr<Dgram> Datagram;
+        Error Expected;
+    };
+
+    auto RunInvalidWireServer(InvalidWireServerRequest Request) -> Net::awaitable<void>
+    {
         Address Source;
         std::vector<std::uint8_t> Payload;
-        const auto ErrorValue = co_await Datagram->AsyncReceiveFrom(Source, Payload);
-        EXPECT_EQ(ErrorValue, Error::NotSupported);
-        Datagram->Close();
+        const auto ErrorValue = co_await Request.Datagram->AsyncReceiveFrom(Source, Payload);
+        EXPECT_EQ(ErrorValue, Request.Expected);
+        Request.Datagram->Close();
     }
 
     /**
-     * @brief 将非法 Dgram wire 交给服务端并等待 NotSupported 断言完成。
-     * @param Request 内存流两端和完整 wire。
+     * @brief 通过真实数据报 provider 注入非法 wire 并等待解析结果。
+     * @param Request 数据报提供者、完整 wire 和预期错误。
      */
     auto RunInvalidWire(InvalidWireRequest Request) -> Net::awaitable<void>
     {
+        auto Datagram = std::make_shared<Dgram>(
+            std::make_shared<DatagramAdapter>(Request.ServerProvider));
         const auto ServerDone = SpawnServer(
-            Request.Server->Executor(), RunInvalidWireServer(Request.Server));
+            Datagram->Executor(),
+            RunInvalidWireServer(InvalidWireServerRequest{Datagram, Request.Expected}));
         std::error_code ErrorCode;
-        (void)co_await Request.Client->async_write_some(AsBytes(std::span<const std::uint8_t>(Request.Wire)), ErrorCode);
-        Request.Client->Close();
+        const auto Data = AsBytes(std::span<const std::uint8_t>(Request.Wire));
+        const auto Sent = co_await Request.ClientProvider->Send(Data, ErrorCode);
+        EXPECT_FALSE(ErrorCode);
+        EXPECT_EQ(Sent, Data.size());
         const auto ServerCompleted = co_await ServerDone->async_receive(Net::use_awaitable);
         EXPECT_TRUE(ServerCompleted);
+        Request.ClientProvider->Close();
     }
 
     struct PeerClosedRequest final
@@ -116,7 +128,7 @@ namespace
         Address Source;
         std::vector<std::uint8_t> Payload;
         const auto ErrorValue = co_await Request.Datagram->AsyncReceiveFrom(Source, Payload);
-        EXPECT_EQ(ErrorValue, Error::NotSupported);
+        EXPECT_EQ(ErrorValue, Error::Unsupported);
         Request.Datagram->Close();
     }
 }
@@ -175,26 +187,22 @@ TEST(Hysteria2DgramSession, StreamBackedDatagramIsRejected)
     TEST(Hysteria2DgramSession, BadKindRejected)
     {
         Net::io_context IoContext;
-        auto [ClientMemory, ServerMemory] =
-            MakeMemoryPair(IoContext.get_executor());
-        auto Client = std::make_shared<MemoryStream>(std::move(ClientMemory));
-        auto Server = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto [ClientProvider, ServerProvider] =
+            MemoryDatagramProvider::MakePair(IoContext.get_executor());
         const std::vector<std::uint8_t> Wire{0x01, 0, 0, 0, 0, 0, 0, 0, 0};
         RunCoroutine(IoContext, RunInvalidWire(
-            InvalidWireRequest{Client, Server, Wire}));
+            InvalidWireRequest{ClientProvider, ServerProvider, Wire, Error::BadMessage}));
     }
 
     TEST(Hysteria2DgramSession, BadAtypRejected)
     {
         Net::io_context IoContext;
-        auto [ClientMemory, ServerMemory] =
-            MakeMemoryPair(IoContext.get_executor());
-        auto Client = std::make_shared<MemoryStream>(std::move(ClientMemory));
-        auto Server = std::make_shared<MemoryStream>(std::move(ServerMemory));
+        auto [ClientProvider, ServerProvider] =
+            MemoryDatagramProvider::MakePair(IoContext.get_executor());
         // UDP Kind + Session/packet Id(8) + 非法 ATYP
         const auto Wire = BuildReceiveWire(ReceiveWireRequest{0x99, {}, 0, {}});
         RunCoroutine(IoContext, RunInvalidWire(
-            InvalidWireRequest{Client, Server, Wire}));
+            InvalidWireRequest{ClientProvider, ServerProvider, Wire, Error::BadMessage}));
     }
 
     TEST(Hysteria2DgramSession, PeerClosedEof)

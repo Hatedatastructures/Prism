@@ -137,6 +137,32 @@ namespace Preview::Application::Assembly
         std::string_view QuicCredential;
         std::optional<std::size_t> QuicAccount;
     };
+    /** @brief 按稳定组归属编译唯一额度、准入和流量策略，零额度保持有限。 */
+    [[nodiscard]] inline auto CompileAccountPolicy(const Configuration::PreviewConfiguration& ConfigurationValue,
+        const Configuration::AccountConfiguration& Account)
+        -> std::expected<Preview::Account::PolicySettings, StartupError>
+    {
+        Preview::Account::PolicyConfiguration Group;
+        if (Account.GroupId)
+        {
+            const auto Found = std::find_if(ConfigurationValue.AccountGroups.begin(), ConfigurationValue.AccountGroups.end(),
+                [&Account](const auto& Value) { return Value.Id == *Account.GroupId; });
+            if (Found == ConfigurationValue.AccountGroups.end()) return std::unexpected(Startup::MakeStartupError(
+                StartupErrorCode::InvalidConfiguration, "Accounts." + Account.Id + ".GroupId", "账户组不存在"));
+            Group = Found->Policy;
+        }
+        const auto Compiled = Preview::Account::CompilePolicy(Account.Policy, Group);
+        if (!Compiled) return std::unexpected(Startup::MakeStartupError(StartupErrorCode::InvalidConfiguration,
+            "Accounts." + Account.Id + ".Policy", "账户有效策略无效"));
+        Preview::Account::PolicySettings Result;
+        Result.Quota.MaxConnections = Compiled->Connections;
+        Result.Quota.MaxStreams = Compiled->Streams;
+        if (Compiled->AdmissionsPerSecond)
+            Result.Rate = Preview::Account::StrictGlobalRatePolicy{*Compiled->AdmissionsPerSecond, 1000};
+        Result.Transfer = {Compiled->TrafficBytes, Compiled->UploadBytesPerSecond,
+            Compiled->DownloadBytesPerSecond, Compiled->Cycle};
+        return Result;
+    }
     [[nodiscard]] inline auto CompileAccountScopes(const AccountPreparationRequest& Request)
         -> std::expected<std::vector<ScopedProtocol>, StartupError>
     {
@@ -215,7 +241,9 @@ namespace Preview::Application::Assembly
             if (Materials.empty()) continue;
             auto Material = std::make_shared<const Preview::Account::AccountMaterials>(
                 Preview::Account::AccountMaterials::CreateRequest{*Id, Configured.Id, std::move(Materials)});
-            Definitions.push_back({std::move(Material), {}});
+            const auto Policy = CompileAccountPolicy(Request.Generation->Configuration(), Configured);
+            if (!Policy) return std::unexpected(Policy.error());
+            Definitions.push_back({std::move(Material), *Policy});
         }
         return Definitions;
     }

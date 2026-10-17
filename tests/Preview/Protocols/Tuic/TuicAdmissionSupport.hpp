@@ -314,7 +314,13 @@ namespace
 
         [[nodiscard]] auto IsClosed() const noexcept -> bool override
         {
-            return Closed_ || !Transmission_->IsOpen();
+            return Closed_ || PeerFin_ || !Transmission_->IsOpen();
+        }
+
+        /** @brief 模拟对端 FIN 已到达、但流内仍有尚待读取的数据。 */
+        auto MarkPeerFin() noexcept -> void
+        {
+            PeerFin_ = true;
         }
 
     private:
@@ -323,6 +329,7 @@ namespace
         std::shared_ptr<Preview::Testing::Quic::StreamProviderActivity> Activity_;
         std::int64_t StreamId_{0};
         bool Closed_{false};
+        bool PeerFin_{false};
         bool WriteShutdown_{false};
     };
 

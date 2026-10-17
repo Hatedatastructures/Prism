@@ -38,7 +38,9 @@ namespace
     {
         std::shared_ptr<const Preview::Account::AccountBinding> Record;
         std::size_t Dials{0}, FirstStreams{0}, FirstConnections{0}, DialsAfterSecond{0};
-        bool FirstEcho{false}, SecondRejected{false}, ReplacementEcho{false}, RootDone{false};
+        bool FirstEcho{false}, SecondRejected{false}, ReplacementEcho{false};
+        bool RootDone{false}, RootRetired{false}, ProtocolRetired{false};
+        Preview::Fault::Failure RootRunFailure{}, RootDrainFailure{}, ProtocolDrainFailure{};
         std::shared_ptr<Preview::Foundation::GenerationUseState> UseState{
             std::make_shared<Preview::Foundation::GenerationUseState>()};
         std::size_t UsesWithLiveChild{0};
@@ -198,7 +200,20 @@ namespace
         Request.Metadata.TaskIdentity.WorkerId = Preview::WorkerId{23};
         Request.Metadata.TaskIdentity.Generation = Preview::GenerationId{7};
         (void)State->Ready.try_send(boost::system::error_code{});
-        (void)co_await State->Owner->Run(std::move(Request));
+        const auto RunResult = co_await State->Owner->Run(std::move(Request));
+        if (!RunResult) State->RootRunFailure = RunResult.error();
+        const auto Activity = State->Owner->Activity();
+        if (Activity)
+        {
+            const auto Drain = co_await Activity->Drain();
+            if (!Drain) State->RootDrainFailure = Drain.error();
+            State->RootRetired = Activity->IsRetired();
+        }
+        Factory->Close();
+        const auto FactoryDrain = co_await Factory->Drain();
+        if (!FactoryDrain) State->ProtocolDrainFailure = FactoryDrain.error();
+        State->ProtocolRetired = Factory->IsRetired();
+        State->Owner.reset();
         State->RootDone = true;
         (void)State->Done.try_send(boost::system::error_code{});
     }
@@ -251,6 +266,8 @@ namespace
         auto Replacement = co_await Open(State);
         State->ReplacementEcho = Replacement && co_await ReadResponse(Replacement);
         if (Replacement) { (void)Replacement->Close(); }
+        co_await State->Client->Session()->Close();
+        co_await State->Done.async_receive(Net::use_awaitable);
         State->Close();
     }
     auto Scenario() -> Result
@@ -279,7 +296,12 @@ TEST(MuxRootOwner, ActualAuthenticatedChildQuotaRejectsSecondAndReopensAfterDrai
     EXPECT_EQ(State.DialsAfterSecond, 1);
     EXPECT_TRUE(State.ReplacementEcho);
     EXPECT_TRUE(State.RootDone);
-    EXPECT_EQ(State.UsesWithLiveChild, 1U);
+    EXPECT_TRUE(State.RootRetired);
+    EXPECT_TRUE(State.ProtocolRetired);
+    EXPECT_FALSE(State.RootRunFailure.Failed());
+    EXPECT_FALSE(State.RootDrainFailure.Failed());
+    EXPECT_FALSE(State.ProtocolDrainFailure.Failed());
+    EXPECT_EQ(State.UsesWithLiveChild, 2U);
     EXPECT_EQ(State.UseState->Outstanding(), 0U);
     EXPECT_EQ(State.Record->Runtime()->ActiveStreams(), 0);
     EXPECT_EQ(State.Record->Runtime()->ActiveConnections(), 0);

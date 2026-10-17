@@ -8,6 +8,7 @@
 #include <Preview/Account/PolicyVersion.hpp>
 #include <Preview/Account/RateTypes.hpp>
 #include <Preview/Account/Runtime.hpp>
+#include <Preview/Account/Policy.hpp>
 #include <Preview/Contract/Account/AdmissionAuthority.hpp>
 #include <Preview/Foundation/Identifier/Id.hpp>
 
@@ -28,6 +29,7 @@ namespace Preview::Account
     /** @brief 多代 binding 共用的稳定 runtime 登记；撤销事实只由 publication 持有。 */
     class AccountRuntimeRegistry final : public std::enable_shared_from_this<AccountRuntimeRegistry>
     {
+        friend class AccountStore;
         using Failure = Fault::Failure;
         using Code = Fault::Code;
         static constexpr std::size_t MaxRuntimeRecords{4096U};
@@ -65,6 +67,55 @@ namespace Preview::Account
 
         AccountRuntimeRegistry(const AccountRuntimeRegistry &) = delete;
         auto operator=(const AccountRuntimeRegistry &) -> AccountRuntimeRegistry & = delete;
+
+        /** @brief Application 在网络启动前一次性安装正式 publication 读取端口。 */
+        [[nodiscard]] auto AttachPolicySource(std::shared_ptr<PolicySource> Source)
+            -> std::expected<void, Failure>
+        {
+            if (!Source || PolicySource_) return std::unexpected(Failure{Code::InvalidArgument});
+            Mutation Guard(Mutation_);
+            if (!Guard.Acquired()) return std::unexpected(MakeFailure(FailureReason::Busy));
+            PolicySource_ = std::move(Source);
+            for (const auto& Entry : Runtimes_)
+                if (const auto Runtime = Entry.second.lock()) Runtime->AttachPolicySource(PolicySource_);
+            return {};
+        }
+        /** @brief 存储在网络启动前安装；候选 reload 继续共享同一账户预算 owner。 */
+        [[nodiscard]] auto AttachUsagePersistence(std::shared_ptr<UsagePersistence> Persistence,
+            std::string Incarnation) -> std::expected<void, Failure>
+        {
+            if (!Persistence || !PolicySource_ || Persistence_ || Incarnation.empty())
+                return std::unexpected(Failure{Code::InvalidArgument});
+            Persistence_ = std::move(Persistence);
+            Incarnation_ = std::move(Incarnation);
+            for (const auto& Entry : Runtimes_)
+                if (const auto Runtime = Entry.second.lock()) InstallTransfer(Runtime);
+            return {};
+        }
+
+        /** @brief 应用完成正式发布后预热有限额度；停机时在会话退出后结清全部信用。 */
+        [[nodiscard]] auto FlushUsage(const bool Final = false)
+            -> Net::awaitable<std::expected<void, Failure>>
+        {
+            std::vector<std::shared_ptr<AccountRuntime>> Owners;
+            for (const auto& Entry : Runtimes_)
+                if (const auto Runtime = Entry.second.lock()) Owners.push_back(Runtime);
+            for (const auto& Runtime : Owners)
+            {
+                if (!Runtime->Transfer()) continue;
+                if (!Final)
+                {
+                    const auto Read = co_await Runtime->Transfer()->Read();
+                    if (!Read) co_return std::unexpected(Read.error());
+                }
+                else
+                {
+                    const auto Flushed = co_await Runtime->Transfer()->Flush(true);
+                    if (!Flushed) co_return std::unexpected(Flushed.error());
+                }
+            }
+            co_return std::expected<void, Failure>{};
+        }
 
         /** @brief 启动发布器后一次性接入 authority，并补挂启动准备期间创建的 runtime。 */
         [[nodiscard]] auto AttachAdmissionAuthority(
@@ -134,6 +185,7 @@ namespace Preview::Account
             {
                 auto Runtime = std::make_shared<AccountRuntime>(Id, WorkerCount);
                 Runtime->AttachAuthority(Authority_);
+                Runtime->AttachPolicySource(PolicySource_);
                 Runtimes_.emplace(Id, Runtime);
                 return Runtime;
             }
@@ -227,8 +279,17 @@ namespace Preview::Account
         }
 
     private:
+        auto InstallTransfer(const std::shared_ptr<AccountRuntime>& Runtime) -> void
+        {
+            if (!Persistence_ || !PolicySource_ || Runtime->StableKey().empty() || Runtime->Transfer()) return;
+            Runtime->AttachTransfer(std::make_shared<TransferBudget>(TransferBudgetOptions{
+                Runtime->AccountId(), std::string(Runtime->StableKey()), PolicySource_, Persistence_, Incarnation_}));
+        }
         std::map<Preview::AccountId, std::weak_ptr<AccountRuntime>> Runtimes_;
         std::weak_ptr<Preview::Contract::AccountAdmissionAuthority> Authority_;
+        std::shared_ptr<PolicySource> PolicySource_;
+        std::shared_ptr<UsagePersistence> Persistence_;
+        std::string Incarnation_;
         std::atomic<std::uint64_t> NextPolicyVersion_{1U};
         std::atomic_flag Mutation_ = ATOMIC_FLAG_INIT;
         bool Closed_{false};

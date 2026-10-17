@@ -33,6 +33,7 @@ namespace
     using Fixture::ReadUntilClose;
     using Fixture::RunningApplication;
     using Fixture::TemporaryConfiguration;
+    using Fixture::TemporaryConfigurationOptions;
     using Fixture::WaitForResourcesEmpty;
     using Fixture::WriteAll;
     using Fixture::DialFailureTimeout;

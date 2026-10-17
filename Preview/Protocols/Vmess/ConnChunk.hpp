@@ -137,7 +137,7 @@ namespace Preview::Vmess::detail
                 MaxChunkLen + ChunkEncryptor::Overhead);
             while (Done < Buffer.size())
             {
-                const auto Count = (std::min)(MaxChunkLen, Buffer.size() - Done);
+                const auto Count = (std::min)(MaxWriteChunkLen, Buffer.size() - Done);
                 const auto Encoded = Enc_->Seal(
                     Preview::AsU8(Buffer.subspan(Done, Count)), Output);
                 if (Encoded == 0)
@@ -263,6 +263,9 @@ namespace Preview::Vmess::detail
         }
 
     private:
+        /** @brief 为 16 字节 AEAD tag 留出空间，限制单个 stream 密文块至 16 KiB。 */
+        static constexpr std::size_t MaxWriteChunkLen = MaxChunkLen - 16U;
+
         [[nodiscard]] static auto FailureFor(Error Value) noexcept
             -> Preview::Fault::Failure
         {

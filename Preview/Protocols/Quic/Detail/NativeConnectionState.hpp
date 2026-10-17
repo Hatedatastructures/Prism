@@ -76,7 +76,8 @@ namespace Preview::Quic::Detail
         bool PeerStopSending{false};
         std::uint64_t PeerApplicationErrorCode{0};
         std::uint64_t PeerFinalSize{0};
-        std::error_code PeerFailure{};
+        std::error_code PeerReadFailure{};
+        std::error_code PeerWriteFailure{};
         Preview::Fault::Failure StreamCloseFailure{};
         Preview::Fault::Failure LocalWriteFailure{};
         bool Canceled{false};

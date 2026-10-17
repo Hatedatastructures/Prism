@@ -50,6 +50,30 @@ namespace Preview::Composition::Provider
 
     namespace Detail
     {
+        struct DrainOwnerFailureReceipt final
+        {
+            std::optional<Preview::Fault::Failure> DurableFailure;
+            PhysicalRetirementState Retirement{PhysicalRetirementState::Unknown};
+            bool HasDurableFailureSource{false};
+        };
+
+        [[nodiscard]] inline auto IsRetryableDrainAttempt(
+            const std::expected<void, Preview::Fault::Failure>& Result,
+            const DrainOwnerFailureReceipt& Owner) noexcept -> bool
+        {
+            if (Result || Owner.DurableFailure)
+            {
+                return false;
+            }
+            const auto Code = Result.error().Code;
+            if (Code == Preview::Fault::Code::Canceled)
+            {
+                return Owner.Retirement != PhysicalRetirementState::Retired ||
+                    Owner.HasDurableFailureSource;
+            }
+            return Code == Preview::Fault::Code::Blocked && Owner.HasDurableFailureSource;
+        }
+
         template<typename T>
         [[nodiscard]] inline auto OwnerPhysicalRetirement(const std::shared_ptr<T>& Value) noexcept
             -> PhysicalRetirementState
@@ -107,6 +131,28 @@ namespace Preview::Composition::Provider
         [[nodiscard]] auto PhysicalRetirement() const noexcept -> PhysicalRetirementState
         {
             return std::visit([](const auto& Value) { return Detail::OwnerPhysicalRetirement(Value); }, Owner);
+        }
+        /** @brief 返回具体 provider 已记录的持久 drain 首因；不把 attempt cancellation 当历史错误。 */
+        [[nodiscard]] auto DrainFailure() const noexcept
+            -> std::optional<Preview::Fault::Failure>
+        {
+            return std::visit([](const auto& Value) -> std::optional<Preview::Fault::Failure>
+            {
+                if constexpr (requires { Value->DrainFailure(); })
+                {
+                    if (!Value) return {};
+                    const auto Failure = Value->DrainFailure();
+                    if (Failure.Failed()) return Failure;
+                }
+                return {};
+            }, Owner);
+        }
+        [[nodiscard]] auto HasDrainFailureSource() const noexcept -> bool
+        {
+            return std::visit([](const auto& Value)
+            {
+                return requires { Value->DrainFailure(); };
+            }, Owner);
         }
         /**
          * @brief 返回已有 owner 的 typed stream view。
@@ -174,10 +220,12 @@ namespace Preview::Composition::Provider
         /** @brief 移动唯一 entries owner；源对象不再提供此前 pointer/span 的有效期。 */
         BoundCatalog(BoundCatalog&& Other) noexcept
             : Entries_(std::move(Other.Entries_)), Muxes_(std::move(Other.Muxes_)),
-              CarrierOwners_(std::move(Other.CarrierOwners_)), UseState_(std::move(Other.UseState_))
+              CarrierOwners_(std::move(Other.CarrierOwners_)), UseState_(std::move(Other.UseState_)),
+              FirstFailure_(std::move(Other.FirstFailure_))
         {
+            Other.FirstFailure_.reset();
         }
-        /** @brief 先请求当前 owner 关闭，再接管 Other 的 entries；不等待 drain。 */
+        /** @brief 先请求当前 owner 关闭，再接管 Other 的 entries 与首个 Drain 失败；不等待 drain。 */
         auto operator=(BoundCatalog&& Other) noexcept -> BoundCatalog&
         {
             if (this != &Other)
@@ -187,6 +235,8 @@ namespace Preview::Composition::Provider
                 Muxes_ = std::move(Other.Muxes_);
                 CarrierOwners_ = std::move(Other.CarrierOwners_);
                 UseState_ = std::move(Other.UseState_);
+                if (!FirstFailure_) FirstFailure_ = std::move(Other.FirstFailure_);
+                Other.FirstFailure_.reset();
             }
             return *this;
         }
@@ -284,6 +334,12 @@ namespace Preview::Composition::Provider
             }
             return Receipt;
         }
+        /** @brief 已保存的持久 drain 首因；本轮可重试取消单独返回且不写入此值。 */
+        [[nodiscard]] auto DrainFailure() const noexcept
+            -> std::optional<Preview::Fault::Failure>
+        {
+            return FirstFailure_;
+        }
         /**
          * @brief 请求所有具体 binding 关闭。
          * @note noexcept 且不等待；真正 cancellation、half-close 和最终 close 仍由各 protocol
@@ -317,37 +373,75 @@ namespace Preview::Composition::Provider
             -> boost::asio::awaitable<std::expected<void,Preview::Fault::Failure>>
         {
             Close();
-            auto FirstFailure=std::expected<void,Preview::Fault::Failure>{};
+            auto AttemptCancellation = std::optional<Preview::Fault::Failure>{};
             for(auto& Entry:Entries_)
             {
                 const auto Result=co_await std::visit(
                     [](const auto& Owner){return DrainOwner(Owner);},Entry.Owner);
-                if (Entry.PhysicalRetirement() == PhysicalRetirementState::Retired)
+                const auto Durable = Entry.DrainFailure();
+                const auto FailureReceipt = Detail::DrainOwnerFailureReceipt{
+                    Durable, Entry.PhysicalRetirement(), Entry.HasDrainFailureSource()};
+                if (Durable && !FirstFailure_) FirstFailure_ = *Durable;
+                if (Detail::IsRetryableDrainAttempt(Result, FailureReceipt))
                 {
-                    ReleaseOwner(Entry.Owner);
+                    if (!AttemptCancellation) AttemptCancellation = Result.error();
                 }
-                if(!Result && FirstFailure)FirstFailure=std::unexpected(Result.error());
+                else if (!Result && !FirstFailure_)
+                {
+                    FirstFailure_ = Result.error();
+                }
             }
             for (auto& Mux : Muxes_)
             {
                 const auto Result = co_await Mux.Drain();
-                if (!Result && FirstFailure)
+                const auto Durable = Mux.DrainFailure();
+                const auto FailureReceipt = Detail::DrainOwnerFailureReceipt{
+                    Durable, Mux.PhysicalRetirement(), true};
+                if (Durable && !FirstFailure_) FirstFailure_ = *Durable;
+                if (Detail::IsRetryableDrainAttempt(Result, FailureReceipt))
                 {
-                    FirstFailure = std::unexpected(Result.error());
+                    if (!AttemptCancellation) AttemptCancellation = Result.error();
+                }
+                else if (!Result && !FirstFailure_)
+                {
+                    FirstFailure_ = Result.error();
                 }
             }
             for (auto& [Name, Owner] : CarrierOwners_)
             {
                 if (!Owner) continue;
                 const auto Result = co_await Owner->Drain();
-                if (Owner->IsRetired()) Owner.reset();
-                if (!Result && FirstFailure)
+                const bool Retired = Owner->IsRetired();
+                if (Retired) Owner.reset();
+                if (!Result && Result.error().Code == Preview::Fault::Code::Canceled && !Retired)
                 {
-                    FirstFailure = std::unexpected(Result.error());
+                    if (!AttemptCancellation) AttemptCancellation = Result.error();
+                }
+                else if (!Result && !FirstFailure_)
+                {
+                    FirstFailure_ = Result.error();
                 }
                 (void)Name;
             }
-            if(!FirstFailure)co_return std::unexpected(FirstFailure.error());
+            const bool PhysicallyRetired = PhysicalRetirement().Complete();
+            for (const auto& Entry : Entries_)
+            {
+                const auto Durable = Entry.DrainFailure();
+                if (Durable && !FirstFailure_) FirstFailure_ = *Durable;
+            }
+            for (const auto& Mux : Muxes_)
+            {
+                const auto Durable = Mux.DrainFailure();
+                if (Durable && !FirstFailure_) FirstFailure_ = *Durable;
+            }
+            for (auto& Entry : Entries_)
+            {
+                if (Entry.PhysicalRetirement() == PhysicalRetirementState::Retired)
+                    ReleaseOwner(Entry.Owner);
+            }
+            if (FirstFailure_) co_return std::unexpected(*FirstFailure_);
+            if (AttemptCancellation && !PhysicallyRetired)
+                co_return std::unexpected(*AttemptCancellation);
             co_return std::expected<void,Preview::Fault::Failure>{};
         }
     private:
@@ -390,5 +484,6 @@ namespace Preview::Composition::Provider
         std::vector<std::pair<std::string,
             std::shared_ptr<Preview::Contract::CarrierCatalogOwner>>> CarrierOwners_;
         std::shared_ptr<Preview::Foundation::GenerationUseState> UseState_;
+        std::optional<Preview::Fault::Failure> FirstFailure_;
     };
 }

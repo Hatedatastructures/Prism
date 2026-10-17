@@ -52,8 +52,14 @@ namespace Preview::Runtime
                 { auto Result = Active->RequestClose(); if (Result && Log) Log->LogClose(); return Result; });
             if (!Closed) return Closed;
             return Request.Control->AddCancelHook(
-                [Weak = std::weak_ptr<SessionControl>(Request.Control), Signal = Request.Cancellation]
-                { if (auto Control = Weak.lock()) (void)Control->CloseOnce(); (void)Signal->try_send(boost::system::error_code{}); });
+                [Active = Request.Active,
+                 Weak = std::weak_ptr<SessionControl>(Request.Control),
+                 Signal = Request.Cancellation]
+                {
+                    Active->MarkCancelRequested();
+                    if (auto Control = Weak.lock()) (void)Control->CloseOnce();
+                    (void)Signal->try_send(boost::system::error_code{});
+                });
         }
     };
 }

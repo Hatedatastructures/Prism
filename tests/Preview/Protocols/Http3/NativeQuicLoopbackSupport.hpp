@@ -29,6 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <expected>
 #include <functional>
 #include <future>
 #include <memory>
@@ -136,6 +137,10 @@ namespace
         if (State->Failure)
         {
             std::rethrow_exception(State->Failure);
+        }
+        if (State->TimeoutExpired)
+        {
+            throw std::runtime_error("native QUIC loopback watchdog expired");
         }
     }
 
@@ -307,18 +312,79 @@ namespace
         EXPECT_EQ(Received, Payload);
     }
 
+    auto CloseStreamForTest(const Preview::Quic::SharedStreamProvider &Provider) -> void
+    {
+        if (Provider)
+        {
+            const auto Closed = Provider->Close();
+            EXPECT_TRUE(Closed);
+        }
+    }
+
+    [[nodiscard]] auto AcceptAndReadStream(
+        const std::shared_ptr<Preview::Quic::Server> &Server,
+        std::span<std::byte> Buffer)
+        -> Net::awaitable<std::pair<Preview::Quic::SharedStreamProvider, std::size_t>>
+    {
+        const auto Accepted = co_await Server->AcceptBidirectionalStream();
+        if (!Accepted)
+        {
+            co_return std::pair<Preview::Quic::SharedStreamProvider, std::size_t>{nullptr, 0U};
+        }
+        auto Stream = std::move(*Accepted);
+        const auto Count = co_await ReadExactStream(Stream, Buffer);
+        co_return std::pair{std::move(Stream), Count};
+    }
+
+    [[nodiscard]] auto OpenAndAcceptBidirectionalStreams(
+        const std::shared_ptr<Preview::Quic::Client> &Client,
+        const std::shared_ptr<Preview::Quic::Server> &Server)
+        -> Net::awaitable<std::expected<
+            std::pair<Preview::Quic::SharedStreamProvider,
+                      Preview::Quic::SharedStreamProvider>,
+            Preview::Fault::Failure>>
+    {
+        auto Opened = co_await Client->OpenBidirectionalStream();
+        if (!Opened)
+        {
+            co_return std::unexpected(Opened.error());
+        }
+        auto ClientStream = std::move(*Opened);
+        const std::array<std::byte, 1> Announcement{std::byte{0x5A}};
+        std::error_code WriteError;
+        const auto Written = co_await ClientStream->Write(Announcement, WriteError);
+        if (WriteError || Written != Announcement.size())
+        {
+            CloseStreamForTest(ClientStream);
+            const auto Failure = WriteError
+                ? Preview::Fault::FromNative(WriteError)
+                : Preview::Fault::Failure{Preview::Fault::Code::IoError};
+            co_return std::unexpected(Failure);
+        }
+        auto Accepted = co_await Server->AcceptBidirectionalStream();
+        if (!Accepted)
+        {
+            CloseStreamForTest(ClientStream);
+            co_return std::unexpected(Accepted.error());
+        }
+        co_return std::pair{
+            std::move(ClientStream), std::move(*Accepted)};
+    }
+
     auto VerifyBidiAfterDatagramClose(DatagramProviderFollowup Followup) -> Net::awaitable<void>
     {
-        auto ClientStream = co_await Followup.Client->OpenBidirectionalStream();
+        auto OpenedClientStream = co_await Followup.Client->OpenBidirectionalStream();
         if (Followup.TimedOut)
         {
+            if (OpenedClientStream) CloseStreamForTest(*OpenedClientStream);
             co_return;
         }
-        EXPECT_TRUE(ClientStream);
-        if (!ClientStream)
+        EXPECT_TRUE(OpenedClientStream);
+        if (!OpenedClientStream)
         {
             co_return;
         }
+        auto ClientStream = std::move(*OpenedClientStream);
 
         const std::array<std::byte, 1> Payload{std::byte{0xA5}};
         std::array<std::byte, 1> Received{};
@@ -326,43 +392,45 @@ namespace
         const auto Written = co_await ClientStream->Write(Payload, WriteError);
         if (Followup.TimedOut)
         {
-            ClientStream->Close();
+            CloseStreamForTest(ClientStream);
             co_return;
         }
         EXPECT_EQ(Written, Payload.size());
         EXPECT_FALSE(WriteError);
         if (WriteError || Written != Payload.size())
         {
-            ClientStream->Close();
+            CloseStreamForTest(ClientStream);
             co_return;
         }
 
-        auto ServerStream = co_await Followup.Server->AcceptBidirectionalStream();
+        auto AcceptedServerStream = co_await Followup.Server->AcceptBidirectionalStream();
         if (Followup.TimedOut)
         {
-            ClientStream->Close();
+            CloseStreamForTest(ClientStream);
+            if (AcceptedServerStream) CloseStreamForTest(*AcceptedServerStream);
             co_return;
         }
-        EXPECT_TRUE(ServerStream);
-        if (!ServerStream)
+        EXPECT_TRUE(AcceptedServerStream);
+        if (!AcceptedServerStream)
         {
-            ClientStream->Close();
+            CloseStreamForTest(ClientStream);
             co_return;
         }
+        auto ServerStream = std::move(*AcceptedServerStream);
 
         std::error_code ReadError;
         const auto Read = co_await ServerStream->Read(Received, ReadError);
         if (Followup.TimedOut)
         {
-            ClientStream->Close();
-            ServerStream->Close();
+            CloseStreamForTest(ClientStream);
+            CloseStreamForTest(ServerStream);
             co_return;
         }
         EXPECT_EQ(Read, Received.size());
         EXPECT_FALSE(ReadError);
         EXPECT_EQ(Received, Payload);
-        ClientStream->Close();
-        if (ServerStream) ServerStream->Close();
+        CloseStreamForTest(ClientStream);
+        CloseStreamForTest(ServerStream);
     }
 
     struct DatagramLifecycleRequest final
@@ -524,20 +592,22 @@ namespace
         {
             throw std::runtime_error("native handshake failed");
         }
-        auto Outbound = co_await Peers.Client->OpenBidirectionalStream();
-        if (!Outbound)
+        auto OpenedOutbound = co_await Peers.Client->OpenBidirectionalStream();
+        if (!OpenedOutbound)
         {
             throw std::runtime_error("native outbound stream missing");
         }
+        auto Outbound = std::move(*OpenedOutbound);
         const std::array<std::byte, 1> Payload{std::byte{'S'}};
         std::error_code Error;
         EXPECT_EQ(co_await Outbound->Write(Payload, Error), 1U);
         EXPECT_FALSE(Error);
-        Survivor = co_await Peers.Server->AcceptBidirectionalStream();
-        if (!Survivor)
+        auto AcceptedSurvivor = co_await Peers.Server->AcceptBidirectionalStream();
+        if (!AcceptedSurvivor)
         {
             throw std::runtime_error("native accepted stream missing");
         }
+        Survivor = std::move(*AcceptedSurvivor);
         std::array<std::byte, 1> Received{};
         EXPECT_EQ(co_await Survivor->Read(Received, Error), 1U);
         EXPECT_FALSE(Error);

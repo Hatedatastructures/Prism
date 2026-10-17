@@ -4,6 +4,7 @@
 
 #include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Net/Dns/Resolver.hpp>
+#include <Preview/Net/Dialer/Observation.hpp>
 #include <Preview/Net/Target.hpp>
 #include <Preview/Transport/Reliable.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -43,6 +44,7 @@ namespace Preview::Network::Dialer
         std::chrono::milliseconds Timeout{std::chrono::seconds(10)}; ///< 全部候选共享的总预算。
         bool EnableIpv6{true};                                       ///< 关闭时只保留 IPv4 候选。
         std::shared_ptr<Preview::Network::Dns::Resolver> Resolver{}; ///< 域名解析 owner，可为空。
+        ObservationOwner Observation{};
     };
 
     /**
@@ -72,6 +74,9 @@ namespace Preview::Network::Dialer
         [[nodiscard]] auto Connect(Preview::Network::Target Target)
             -> Net::awaitable<std::expected<Preview::SharedTransmission, Preview::Fault::Failure>>;
 
+        /** @brief 冷装配阶段调用，必须先于任何 Connect；不拥有 sink 的最终关闭权。 */
+        auto AttachObservations(ObservationOwner Owner) -> void { Options_.Observation = std::move(Owner); }
+
     private:
         /** @brief 竞速事件：某个候选的完成结果，或总 deadline 到期标记。 */
         struct RaceEvent final
@@ -100,6 +105,7 @@ namespace Preview::Network::Dialer
             std::vector<std::shared_ptr<Attempt>> Attempts;
             std::shared_ptr<EventChannel> Events;
             std::shared_ptr<Net::cancellation_signal> Watch;
+            ObservationOwner Observation;
         };
 
         /** @brief 字面地址直接构造候选；域名只经注入 Resolver，空结果保留解析 cause。 */
@@ -141,7 +147,9 @@ namespace Preview::Network::Dialer
         {
             co_return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::DnsFailed, {}});
         }
+        StageObservation Observation(Options.Observation, Preview::Foundation::NetworkLatencyStage::DnsResolution);
         const auto Addresses = co_await Options.Resolver->AsyncResolve(Domain->View());
+        Observation.Complete(Addresses ? Preview::Fault::Failure{} : Addresses.error());
         if (!Addresses)
         {
             co_return std::unexpected(Addresses.error());
@@ -165,10 +173,13 @@ namespace Preview::Network::Dialer
     inline auto Dialer::RunAttempt(std::shared_ptr<Race> State, const std::size_t Index) -> Net::awaitable<void>
     {
         auto &Value = *State->Attempts[Index];
+        StageObservation Observation(State->Observation, Preview::Foundation::NetworkLatencyStage::TcpConnect);
         boost::system::error_code ConnectError;
         co_await Value.Socket.async_connect(
             State->Candidates[Index],
             Net::bind_cancellation_slot(Value.Signal.slot(), Net::redirect_error(Net::use_awaitable, ConnectError)));
+        Observation.Complete(ConnectError ? Preview::Fault::Failure{Preview::Fault::ToCode(ConnectError), ConnectError}
+            : Preview::Fault::Failure{});
         boost::system::error_code SendError;
         co_await State->Events->async_send(boost::system::error_code{}, RaceEvent{Index, ConnectError, false},
             Net::redirect_error(Net::use_awaitable, SendError));
@@ -224,6 +235,7 @@ namespace Preview::Network::Dialer
         }
 
         auto State = std::make_shared<Race>(Executor_);
+        State->Observation = Options_.Observation;
         State->Candidates = std::move(*Candidates);
         State->Events = std::make_shared<EventChannel>(Executor_, State->Candidates.size() + 1U);
         State->Watch = std::make_shared<Net::cancellation_signal>();

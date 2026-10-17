@@ -74,6 +74,7 @@ namespace Preview::Testing::OperationsHttp
             Token[Index] = static_cast<std::uint8_t>(0x80U + Index);
         }
         Preview::Operations::BootstrapIdentity::Options Options;
+        Options.InstanceKey = "operations-test-instance";
         Options.Process = Preview::ProcessId{1};
         Options.ProcessIncarnation = std::move(Incarnation);
         Options.Token = std::move(Token);

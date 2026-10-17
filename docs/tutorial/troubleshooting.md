@@ -1,57 +1,56 @@
 # Preview 故障排查
 
-先记录源码 revision/工作树、配置路径和 hash、`PrismPreview` binary hash、启动时间和原始错误。字段合同见[配置说明](configuration.md)，当前已验证与未完成责任见[执行状态](../preview-refactor/2026-10-03-preview-no-compat-status.md)。
+先保留原始证据，再改配置或重启。字段含义和可用组合见 [Preview 配置](../preview/configuration.md)，入口及执行步骤见 [Preview 总览](../preview/README.md)，各层责任见[仓库架构](../ARCHITECTURE.md)。本页不把旧日志、历史测试结果或未匹配的 binary 当作当前事实。
 
-## 启动失败
+## 先建立一次故障记录
 
-在终端运行 `build/src/PrismPreview.exe` 或给出配置路径位置参数，查看 stderr 的 `code/path/message`。按 Path 定位：
+记录故障时间、操作系统、源码 revision/工作树状态、可执行文件和配置文件的 SHA-256、完整启动命令、工作目录、stderr/stdout、READY 字段、客户端命令和目标。去除 password、token、私钥和 secret 环境变量值后再分享日志。
 
-| 错误位置或现象 | 先检查 |
-| --- | --- |
-| 配置文件打开失败 | 默认 executable 同目录是否有 PreviewConfiguration.json；位置参数和工作目录 |
-| UnknownField / MissingField / InvalidType | 严格 PascalCase、14 个必填根字段、JSON 值类型；旧版 agent/pool 字段不适用 |
-| Accounts / SecretRef / Generation | 凭据格式、secret reference 与环境变量是否存在；UUID、16-byte PSK 合同 |
-| NativeTls | 相对配置目录的证书/私钥路径、文件读取权限、PEM 格式和匹配关系 |
-| Listeners / Bind | 地址是否属于本机、端口范围及占用、UDP/QUIC 是否共享入口 |
-| Routes | 当前非空 `Routes` 会被 `ConfigurationStartup` 以 `UnsupportedService` 拒绝；保留为空，直到 startup 接线完成 |
-| Logging | 日志目录可写、FileName 是纯文件名、Level 与 RenderMode 名称 |
-| 程序尚未输出业务错误就无法加载 | 实际 MinGW/C++ runtime DLL 与 PATH，而非假定全部静态链接 |
-
-只读检查端口和进程，核对 PID 后再决定操作：
+Windows 上可先执行只读检查：
 
 ```powershell
+Get-FileHash -Algorithm SHA256 'C:\Prism\PrismPreview.exe'
+Get-FileHash -Algorithm SHA256 'C:\Prism\config\PreviewConfiguration.json'
 Get-NetTCPConnection -State Listen -LocalPort 1080 -ErrorAction SilentlyContinue
 Get-Process -Name PrismPreview -ErrorAction SilentlyContinue
-Get-FileHash -Algorithm SHA256 '.\build\src\PrismPreview.exe'
-Get-FileHash -Algorithm SHA256 '.\build\src\PreviewConfiguration.json'
 ```
 
-端口可能属于用户的其他服务，不能只按名称杀进程或删除 `build/tests` 来排查。
+确认 PID/端口归属后再操作进程。端口可能属于其它用户服务，不要按进程名批量结束或清空构建产物。
 
-## 已 READY 但请求失败
+## 程序未启动
 
-核对 READY 中实际端口、客户端代理类型、凭据和目标。默认是 SOCKS5，使用 `socks5h://` 时域名解析发生在代理侧。正确密码与错误密码分别发请求；记录认证结果、后端是否实际 dial、literal payload/response、字节数和关闭结果。
+1. 检查配置路径是否存在、进程账户是否可读，以及命令中的第一个位置参数是否是预期文件。没有参数时程序读取 executable 同目录的 `PreviewConfiguration.json`。
+2. 保存错误代码、JSON path 和完整说明。对照权威配置页检查字段大小写、类型、id 引用、协议能力和 credential 格式。
+3. 检查 Native TLS 证书与私钥是否能从配置文件所在目录找到并由服务账户读取。
+4. 检查监听地址是否属于主机、端口是否已被占用，以及 UDP/QUIC 是否按当前配置合同使用正确 endpoint。
+5. 若进程刚启动即退出，先核对目标平台所需运行库和程序架构；不要由 MinGW 的单个链接选项推断所有依赖都已静态链接。
 
-TLS 场景同时检查协议 binding、carrier、SNI/ALPN、证书和 secret。DNS 场景检查目标域名、当前 Dns.Servers、Timeout 与服务器可达性。TCP listener 可连只说明接入成功，UDP/QUIC 则需要实际数据报/握手证据。
+主入口没有单独 `--check` 参数。运行前的 JSON lint 只说明语法可解析，完整字段与 runtime 装配仍需用匹配 binary 启动验证。
 
-## 日志与观察
+## READY 但客户端失败
 
-临时将 `Logging.Level` 设置为 `Debug`、`Console` 设置为 true；每次修改后重启实际使用这份配置的进程。日志相对目录按进程工作目录解释，结构化输出需要 `RenderMode: Structured`。完整模块说明见 [Diagnose 指南](../../Preview/Foundation/Utility/Diagnose/README.md)。
+按阶段分开检查：
 
-普通日志是有界非阻塞观察，可因竞争或队列容量被丢弃。日志行缺席需与提交/丢弃指标、请求结果一起判断；输出失败不得进入业务错误处理路径。
+| 现象 | 核对方向 |
+| --- | --- |
+| 无法建立 TCP 连接 | READY 中的 `tcp_port`、listener 地址、端口占用、防火墙、client 代理类型 |
+| TCP 已接入但认证拒绝 | Account id、credential 格式、`SecretRef` 是否解析到非空 secret、client 是否使用正确的认证方式 |
+| 认证成功但目标失败 | 请求目标与端口、DNS 设置、路由/出站能力、目标端可达性 |
+| UDP/QUIC 不可用 | READY 中对应的 `udp_ready`/`quic_ready` 等状态、配置是否启用该能力、client 是否发起了真实数据报或 QUIC 会话 |
+| TLS/carrier 握手失败 | carrier binding、SNI/ALPN/path/authority、证书文件位置及实际 wire 模式 |
 
-## 卡住、连接断开或速度下降
+对比一个正确 credential 与一个错误 credential，并记录后端 dial 是否发生、响应内容、读写字节、半关闭与最终关闭结果。只证明 listener 可连接的端口探测不能替代代理请求。
 
-先定位发生阶段：识别/认证、dial、读写、半关闭、child admission、root cancel 或 drain。保留 typed error、线程/任务身份和原始输出，使用有界测试复现。旧版 `pool.max_cache_per_endpoint`、`multiplex.*` 调优片段不属于当前 Preview JSON，不能靠加入未知字段修复。
+## SecretRef 无法解析
 
-比较同源码、配置、payload、并发与目标条件下的直连/代理结果。单次吞吐、Perf label 或 overload 丢弃不足以说明改善；分配、p50/p95/p99、CPU 和内存须按当前性能卡测量。
+入口从 reference 生成变量名：`PRISM_PREVIEW_SECRET_` + 字母大写、数字保留、其它字符替换为下划线。检查服务管理器注入的变量名是否完全匹配、进程环境是否包含变量、值是否为空，以及 reference 规范化后是否与其它名称冲突。不要将变量值打印到排障输出。
 
-## 停机与测试定位
+## 停机或 drain 卡住
 
-前台用 Ctrl+C 请求停止，等待自然退出，再查对应端口和 PID。若有 cancel/drain 错误，保存错误并与强杀清理分别记录。测试只使用已经构建的 binary；先查看当前真实 suite：
+保存当前进程 PID、未完成请求、触发信号、原始错误及端口状态。前台 Ctrl+C 或 SIGTERM 是请求正常退出；等待程序收尾并自然退出后，再核对 listener/QUIC 活动及端口释放。取消命令已接受、一个 stream 收到 FIN 或一次测试进程退出，都不能单独证明所有 owner 已物理退休。
 
-```powershell
-ctest --test-dir build -N -R '^(ConfiguredMuxSession|ProviderAcceptPath|BindingLifetime)\.'
-```
+若不得不强制终止，将它记录为故障隔离操作而非正常关闭证据。保留失败输入和对应 binary/config hash 后，再在安全窗口复现；不要为了重启而打断用户仍在运行的实例。
 
-不能把一个模块的旧绿灯或 factory 通过当作当前 listener 和完整重构通过。发现生产缺陷时同步问题台账 `logs/issues.md`，保留失败输入和版本，再按同一场景验证修复。
+## 测试结果如何解读
+
+源码/CMake 中存在测试 target 仅说明有相应场景。运行某个测试时需确保当前 binary 对应当前源码，并区分配置校验、协议测试、真实 Application/Boundary 请求、外部互操作、压力和性能结果。测试失败时保留完整命令、CTest 名称、原始输出和源码/binary hashes；不要删除、改小测试输入或把历史通过记录移作当前证据。

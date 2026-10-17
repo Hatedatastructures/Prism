@@ -16,11 +16,11 @@ AddPreviewTest(MixedTrialRecognition.cpp)
 target_link_libraries(MixedTrialRecognition PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewProtocolHttp PreviewProtocolSocks5 PreviewProtocolVless PreviewProtocolTrojan PreviewProtocolVmess PreviewProtocolShadowsocks2022 PreviewTestSupport)
 AddPreviewTest(RecognitionCarrierSelectionTest.cpp)
 target_sources(RecognitionCarrierSelectionTest PRIVATE RecognitionCarrierTestSupport.hpp
-    ../../protocols/Ws/WsFactorySupport.hpp)
+    ../../Protocols/Ws/WsFactorySupport.hpp)
 target_link_libraries(RecognitionCarrierSelectionTest PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewProtocolHttp2 PreviewProtocolXhttp PreviewProtocolGun PreviewProtocolReality PreviewProtocolWs PreviewProtocolAnytls PreviewTestSupport)
 AddPreviewTest(RecognitionCarrierProtocolTest.cpp)
 target_sources(RecognitionCarrierProtocolTest PRIVATE RecognitionCarrierTestSupport.hpp
-    ../../protocols/Ws/WsFactorySupport.hpp)
+    ../../Protocols/Ws/WsFactorySupport.hpp)
 target_link_libraries(RecognitionCarrierProtocolTest PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewProtocolHttp2 PreviewProtocolXhttp PreviewProtocolGun PreviewProtocolReality PreviewProtocolWs PreviewProtocolAnytls PreviewTestSupport)
 AddPreviewTest(RealityRecognition.cpp)
 target_link_libraries(RealityRecognition PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewProtocolReality PreviewTestSupport)

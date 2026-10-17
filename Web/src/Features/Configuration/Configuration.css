@@ -1,8 +1,0 @@
-.configuration-body { display: grid; gap: 1rem; }
-.configuration-editor { min-height: 30rem; resize: vertical; font: .85rem/1.6 ui-monospace, Consolas, monospace; tab-size: 2; }
-.configuration-field { display: grid; gap: .5rem; }
-.configuration-diff details { border-top: 1px solid var(--border, #dce7e2); padding: .8rem 0; }
-.configuration-diff summary { cursor: pointer; font-weight: 650; }
-.configuration-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
-.configuration-comparison pre { max-height: 20rem; overflow: auto; font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 720px) { .configuration-comparison { grid-template-columns: minmax(0, 1fr); } .configuration-editor { min-height: 24rem; } }

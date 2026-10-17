@@ -72,7 +72,7 @@ namespace Preview::Operations::HttpDetail
         const bool IncludeDetails) -> bool
     {
         if (!Writer.Append("{") || !Writer.Key("sequence") || !Writer.Decimal(Value.Sequence) ||
-            !Writer.Append(",") || !Writer.Key("timestamp") || !Writer.Decimal(Value.Timestamp) ||
+            !Writer.Append(",") || !Writer.Key("timestamp") || !AppendUtcTimestamp(Writer, Value.Timestamp) ||
             !Writer.Append(",") || !Writer.Key("kind") || !Writer.String(EventKindName(Value.Kind)) ||
             !Writer.Append(",") || !Writer.Key("operation") || !Writer.Decimal(Value.Operation) ||
             !Writer.Append(",") || !Writer.Key("scope") || !Writer.String(EventScopeName(Value.ScopeValue)) ||
@@ -106,7 +106,7 @@ namespace Preview::Operations::HttpDetail
         const Preview::Statistics::EventPage &Page,
         const bool IncludeDetails) -> bool
     {
-        if (!Writer.Append("{\"severity_filter_supported\":false,\"dropped\":") ||
+        if (!Writer.Append("{\"severity_filter_supported\":true,\"dropped\":") ||
             !Writer.Decimal(Page.Dropped) || !Writer.Append(",\"terminal_dropped\":") ||
             !Writer.Decimal(Page.TerminalDropped) || !Writer.Append(",\"overwritten\":") ||
             !Writer.Decimal(Page.Overwritten) || !Writer.Append(",\"items\":["))

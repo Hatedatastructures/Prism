@@ -6,6 +6,7 @@
 #include <Preview/Foundation/Fault/FailureState.hpp>
 #include <Preview/Account/Quota.hpp>
 #include <Preview/Account/Detail/RateLedger.hpp>
+#include <Preview/Account/TransferBudget.hpp>
 #include <Preview/Contract/Account/AdmissionAuthority.hpp>
 #include <Preview/Foundation/Identifier/Id.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -38,6 +39,8 @@ namespace Preview::Account
     class StreamLease;
     class ByteLease;
     class AccountRuntimeRegistry;
+    class PolicySource;
+    class PolicySnapshot;
     namespace Detail { struct RootLeaseSlot; }
 
     /** @brief 区分同一 AccountId 的不同 AccountRuntime owner，不持有 runtime 本身。 */
@@ -98,6 +101,11 @@ namespace Preview::Account
             return static_cast<std::uint32_t>((Admission_.load(std::memory_order_relaxed) >> StreamShift) & CountMask);
         }
         [[nodiscard]] auto UsedBytes() const noexcept -> std::uint64_t { return Bytes_.load(std::memory_order_relaxed); }
+        /** @brief 只返回正式 publication 的策略源，不持有第二份可变策略。 */
+        [[nodiscard]] auto ResourcePolicySource() const noexcept -> std::shared_ptr<PolicySource>
+        { return PolicySource_.lock(); }
+        [[nodiscard]] auto Transfer() const noexcept -> const std::shared_ptr<TransferBudget>& { return Transfer_; }
+        [[nodiscard]] auto StableKey() const noexcept -> std::string_view { return StableKey_; }
 
         using LeaseDrainDeadline = std::chrono::steady_clock::time_point;
         using LeaseDrainOutcome = std::expected<void, Fault::Failure>;
@@ -122,6 +130,7 @@ namespace Preview::Account
         friend class StreamLease;
         friend class ByteLease;
         friend class AccountRuntimeRegistry;
+        friend class AccountStore;
         friend struct Detail::RootLeaseSlot;
 
         auto AttachAuthority(
@@ -129,6 +138,15 @@ namespace Preview::Account
             -> void
         {
             Authority_ = Authority;
+        }
+        auto AttachPolicySource(const std::weak_ptr<PolicySource>& Source) noexcept -> void
+        { PolicySource_ = Source; }
+        auto AttachTransfer(std::shared_ptr<TransferBudget> Budget) noexcept -> void { Transfer_ = std::move(Budget); }
+        auto BindStableKey(const std::string_view Value) -> bool
+        {
+            if (!StableKey_.empty()) return StableKey_ == Value;
+            StableKey_ = Value;
+            return !StableKey_.empty();
         }
 
         [[nodiscard]] static auto WaitForNoActiveConnectionsOwned(
@@ -306,13 +324,13 @@ namespace Preview::Account
         }
 
         /** @brief 连接准入读预约覆盖额度登记至最终 lease commit。 */
-        [[nodiscard]] auto TryAcquireConnection(const std::uint32_t Limit) noexcept
+        [[nodiscard]] auto TryAcquireConnection(const std::optional<std::uint32_t> Limit) noexcept
             -> std::expected<Preview::Contract::AccountAdmissionPermit, Failure>
         {
             return Acquire(Limit, 0U);
         }
         /** @brief child 准入读预约覆盖额度登记至最终 stream commit。 */
-        [[nodiscard]] auto TryAcquireStream(const std::uint32_t Limit) noexcept
+        [[nodiscard]] auto TryAcquireStream(const std::optional<std::uint32_t> Limit) noexcept
             -> std::expected<Preview::Contract::AccountAdmissionPermit, Failure>
         {
             return Acquire(Limit, StreamShift);
@@ -342,7 +360,7 @@ namespace Preview::Account
             }
         }
         auto ReleaseBytes(const std::uint64_t Amount) noexcept -> void { Bytes_.fetch_sub(Amount, std::memory_order_acq_rel); }
-        [[nodiscard]] auto Acquire(const std::uint32_t Limit, const unsigned Shift) noexcept
+        [[nodiscard]] auto Acquire(const std::optional<std::uint32_t> Limit, const unsigned Shift) noexcept
             -> std::expected<Preview::Contract::AccountAdmissionPermit, Failure>
         {
             const auto Authority = Authority_.lock();
@@ -363,7 +381,7 @@ namespace Preview::Account
             for (;;)
             {
                 const auto Count = (State >> Shift) & CountMask;
-                if (Count == CountMask || (Limit != 0U && Count >= Limit))
+                if (Count == CountMask || (Limit && Count >= *Limit))
                 {
                     auto Reason = FailureReason::ConnectionQuota;
                     if (Shift != 0U) { Reason = FailureReason::StreamQuota; }
@@ -377,6 +395,9 @@ namespace Preview::Account
         const AccountRuntimeIdentity Identity_;
         const std::shared_ptr<Detail::RateLedger> Rate_;
         std::weak_ptr<Preview::Contract::AccountAdmissionAuthority> Authority_;
+        std::weak_ptr<PolicySource> PolicySource_;
+        std::string StableKey_;
+        std::shared_ptr<TransferBudget> Transfer_;
         std::atomic<std::uint64_t> Admission_{0U};
         std::atomic<std::uint64_t> Bytes_{0U};
         mutable std::atomic<std::shared_ptr<const DrainSignalList>> DrainSignals_{};

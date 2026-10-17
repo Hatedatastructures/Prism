@@ -12,6 +12,8 @@
 #include <Preview/Foundation/Fault/FailureState.hpp>
 #include <Preview/Foundation/Generation/Lifetime.hpp>
 #include <Preview/Protocols/Common/ProviderMuxRootState.hpp>
+#include <Preview/Protocols/Common/ProviderSessionDrainAttempt.hpp>
+#include <Preview/Protocols/Common/ProviderSessionResources.hpp>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -21,8 +23,8 @@
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
-#include <array>
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <expected>
 #include <memory>
@@ -52,14 +54,12 @@ namespace Preview::Protocols
         ProviderSessionRetirement(Preview::SharedTransmission Inbound,
             std::shared_ptr<const Material> MaterialValue,
             Preview::Foundation::GenerationUseLease UseLease)
-            : Material_(std::move(MaterialValue)), UseLease_(std::move(UseLease)),
+            : Resources_(Inbound), Material_(std::move(MaterialValue)), UseLease_(std::move(UseLease)),
               Executor_(Inbound->Executor()), Context_(Preview::Executor::ContextOwner::Find(Executor_)),
               Storage_(Preview::Executor::ContextOwner::Storage(Executor_)),
               Reclaimer_(std::make_shared<Preview::Executor::ExecutorReclaimer>(
                   Net::make_strand(Executor_)))
         {
-            Tracked_[0].store(std::move(Inbound), std::memory_order_release);
-            TrackedCount_.store(1U, std::memory_order_release);
         }
 
         ProviderSessionRetirement(const ProviderSessionRetirement&) = delete;
@@ -74,24 +74,11 @@ namespace Preview::Protocols
                 return std::unexpected(
                     Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
             }
-            const auto Count = TrackedCount_.load(std::memory_order_acquire);
-            for (std::size_t Index = 0; Index < Count; ++Index)
-            {
-                if (Tracked_[Index].load(std::memory_order_acquire) == Transport)
-                {
-                    return {};
-                }
-            }
-            if (Count >= Tracked_.size())
-            {
-                return std::unexpected(
-                    Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
-            }
-            Tracked_[Count].store(Transport, std::memory_order_release);
-            TrackedCount_.store(Count + 1U, std::memory_order_release);
+            const auto Tracked = Resources_.Track(Transport);
+            if (!Tracked) return std::unexpected(Tracked.error());
             if (CloseRequested_.load(std::memory_order_acquire))
             {
-                CloseTransmission(Transport);
+                RecordDrainAttemptFailure(Resources_.CloseTransport(Transport, true));
             }
             return {};
         }
@@ -118,7 +105,7 @@ namespace Preview::Protocols
             Root_.store(RootSlot_, std::memory_order_release);
             if (CloseRequested_.load(std::memory_order_acquire))
             {
-                CloseRoot(Root_.load(std::memory_order_acquire));
+                Resources_.CloseRootOnly(Root_.load(std::memory_order_acquire));
             }
             return {};
         }
@@ -128,7 +115,7 @@ namespace Preview::Protocols
         {
             if (Failure.Failed())
             {
-                Failure_.TrySet(std::move(Failure));
+                (void)Failure_.TrySet(std::move(Failure));
             }
         }
 
@@ -141,7 +128,16 @@ namespace Preview::Protocols
         /** @brief 只记录关闭、排空或 executor 退休本身的失败。 */
         auto RecordDrainFailure(Preview::Fault::Failure Failure) noexcept -> void
         {
-            if (Failure.Failed()) DrainFailure_.TrySet(std::move(Failure));
+            if (Failure.Failed()) (void)DrainFailure_.TrySet(std::move(Failure));
+        }
+
+        /** @brief 取消 attempt 可重试；最终退休回执决定是否可作为正常 close。 */
+        auto RecordDrainAttemptFailure(Preview::Fault::Failure Failure) noexcept -> void
+        {
+            if (Failure.Code != Preview::Fault::Code::Canceled)
+            {
+                RecordDrainFailure(std::move(Failure));
+            }
         }
 
         /** @brief 绑定唯一 generation-use lease；只在协议 I/O 前调用一次。 */
@@ -152,20 +148,28 @@ namespace Preview::Protocols
 
         /** @brief Accept 返回前标记握手与发布代码已退栈。 */
         auto FinishAccept() noexcept -> void
+        { AcceptFinished_.store(true, std::memory_order_release); }
+
+        /** @brief binding owner 请求关闭；只有 AcceptAttempt 终态后才安排退休。 */
+        auto RequestOwnerRetirement() noexcept -> void
         {
-            AcceptFinished_.store(true, std::memory_order_release);
+            const auto Ready = DrainCoordinator_.SignalOwnerClose();
+            if (Ready) RequestRetirement();
+        }
+
+        /** @brief 协议完成发布或显式 drain 后标记 AcceptAttempt 终态。 */
+        auto CompleteAcceptAttempt() noexcept -> void
+        {
+            const auto Ready = DrainCoordinator_.SignalAcceptAttemptComplete();
+            if (Ready) RequestRetirement();
         }
 
         /** @brief 任意线程请求协议根和 tracked carriers 关闭；不等待或清除实物。 */
         auto RequestClose() noexcept -> void
         {
             CloseRequested_.store(true, std::memory_order_release);
-            CloseRoot(Root_.load(std::memory_order_acquire));
-            const auto Count = TrackedCount_.load(std::memory_order_acquire);
-            for (std::size_t Index = Count; Index > 0U; --Index)
-            {
-                CloseTransmission(Tracked_[Index - 1U].load(std::memory_order_acquire));
-            }
+            const auto Root = Root_.load(std::memory_order_acquire);
+            RecordDrainAttemptFailure(Resources_.Close(Root));
         }
 
         /** @brief 将未完成实物保留到同一个 ClosingStorage，供拥有者继续排空。 */
@@ -187,18 +191,22 @@ namespace Preview::Protocols
         /** @brief 原 executor 重试入口；一次失败不会在协程内无界循环。 */
         auto RequestRetirement() noexcept -> void override
         {
-            if (Retired_.load(std::memory_order_acquire) ||
-                Scheduled_.exchange(true, std::memory_order_acq_rel))
+            if (Retired_.load(std::memory_order_acquire)) return;
+            auto State = RetrySchedule_.load(std::memory_order_acquire);
+            for (;;)
             {
-                return;
-            }
-            const auto Self = this->shared_from_this();
-            const auto Posted = Reclaimer_->Post(RetryCommand{Self});
-            if (!Posted)
-            {
-                Scheduled_.store(false, std::memory_order_release);
-                Storage_->Retain(Self);
-                RecordDrainFailure(Posted.error());
+                if (Retired_.load(std::memory_order_acquire)) return;
+                const bool AlreadyScheduled = (State & RetryScheduledFlag) != 0U;
+                const auto Desired = AlreadyScheduled
+                    ? static_cast<std::uint8_t>(State | RetryRequestedFlag)
+                    : RetryScheduledFlag;
+                if (Desired == State) return;
+                if (RetrySchedule_.compare_exchange_weak(State, Desired,
+                        std::memory_order_acq_rel, std::memory_order_acquire))
+                {
+                    if (!AlreadyScheduled) PostRetryCommand();
+                    return;
+                }
             }
         }
 
@@ -221,51 +229,66 @@ namespace Preview::Protocols
         /** @brief close root，再逐层 drain root activity、Connection/replay 与原 inbound。 */
         [[nodiscard]] auto Drain() -> Net::awaitable<ProviderRetirementResult>
         {
+            const auto Self = this->shared_from_this();
             if (Retired_.load(std::memory_order_acquire))
             {
                 const auto Failure = DrainFailure_.Load();
-                if (Failure.Failed())
-                {
-                    co_return std::unexpected(Failure);
-                }
+                if (Failure.Failed()) co_return std::unexpected(Failure);
                 co_return ProviderRetirementResult{};
             }
-            bool Idle = false;
-            if (!Running_.compare_exchange_strong(Idle, true, std::memory_order_acq_rel))
+            std::optional<Detail::ProviderSessionDrainCoordinator::DrainTurn> DrainOwner;
+            while (!DrainOwner)
             {
-                RecordDrainFailure({Preview::Fault::Code::Blocked});
-                Storage_->Retain(this->shared_from_this());
-                co_return std::unexpected(DrainFailure_.Load());
+                auto Acquired = co_await DrainCoordinator_.Acquire();
+                if (!Acquired) co_return std::unexpected(Acquired.error());
+                if (Acquired->IsOwner()) DrainOwner.emplace(std::move(*Acquired));
+                else
+                {
+                    const auto Joined = Acquired->Outcome();
+                    if (!Joined) co_return std::unexpected(Joined.error());
+                    if (Retired_.load(std::memory_order_acquire))
+                        co_return ProviderRetirementResult{};
+                }
             }
 
-            co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
-            RequestClose();
-            const auto Result = co_await DrainResources(this->shared_from_this());
-            RecordDrainFailure(Result.Error);
-            if (Result.Complete && PhysicalRetirementReady())
+            ProviderRetirementResult Outcome;
+            try
             {
-                ReleaseResources();
+                co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+                RequestClose();
+                const auto Root = Root_.load(std::memory_order_acquire);
+                const auto Result = co_await Resources_.Drain(Root, Executor_);
+                RecordDrainAttemptFailure(Result.Error);
+                const bool PhysicallyReady = Result.Complete && PhysicalRetirementReady();
+                if (PhysicallyReady) ReleaseResources();
+                else if (Result.Error.Code != Preview::Fault::Code::Canceled)
+                    RecordDrainFailure({Preview::Fault::Code::Blocked});
+                if (Retired_.load(std::memory_order_acquire)) Storage_->Collect();
+                else
+                {
+                    Storage_->Retain(Self);
+                    if (!IsRetryScheduled())
+                    {
+                        RequestRetirement();
+                    }
+                }
+                const auto Failure = DrainFailure_.Load();
+                if (Failure.Failed()) Outcome = std::unexpected(Failure);
+                else if (Result.Error.Failed() &&
+                    !(Result.Error.Code == Preview::Fault::Code::Canceled && PhysicallyReady))
+                {
+                    Outcome = std::unexpected(Result.Error);
+                }
             }
-            else
+            catch (...)
             {
-                RecordDrainFailure({Preview::Fault::Code::Blocked});
+                const auto Failure = Preview::Contract::InboundAdmission::ExceptionFailure(
+                    std::current_exception());
+                RecordDrainFailure(Failure);
+                Outcome = std::unexpected(DrainFailure_.Load());
             }
-            Running_.store(false, std::memory_order_release);
-            if (Retired_.load(std::memory_order_acquire))
-            {
-                Storage_->Collect();
-            }
-            else
-            {
-                Storage_->Retain(this->shared_from_this());
-                RequestRetirement();
-            }
-            const auto Failure = DrainFailure_.Load();
-            if (Failure.Failed())
-            {
-                co_return std::unexpected(Failure);
-            }
-            co_return ProviderRetirementResult{};
+            DrainOwner->SetResult(Outcome);
+            co_return Outcome;
         }
 
         /** @brief 清理之前同时核验 root 与每个真实 transmission 的物理 receipt。 */
@@ -275,21 +298,7 @@ namespace Preview::Protocols
             {
                 return false;
             }
-            const auto Root = Root_.load(std::memory_order_acquire);
-            if (Root && !RootRetired(Root))
-            {
-                return false;
-            }
-            const auto Count = TrackedCount_.load(std::memory_order_acquire);
-            for (std::size_t Index = 0; Index < Count; ++Index)
-            {
-                const auto Transport = Tracked_[Index].load(std::memory_order_acquire);
-                if (!Transport || !Transport->Activity() || !Transport->Activity()->IsRetired())
-                {
-                    return false;
-                }
-            }
-            return true;
+            return Resources_.IsRetired(Root_.load(std::memory_order_acquire));
         }
 
     private:
@@ -297,7 +306,7 @@ namespace Preview::Protocols
         {
             if (CloseRequested_.load(std::memory_order_acquire))
             {
-                CloseRoot(Root_.load(std::memory_order_acquire));
+                Resources_.CloseRootOnly(Root_.load(std::memory_order_acquire));
             }
         }
 
@@ -305,14 +314,10 @@ namespace Preview::Protocols
         {
             RequestClose();
             Storage_->Retain(this->shared_from_this());
-            RequestRetirement();
+            if (DrainCoordinator_.SignalMuxRootRetirement()) RequestRetirement();
         }
 
-        struct DrainResult final
-        {
-            bool Complete{true};
-            Preview::Fault::Failure Error{};
-        };
+
 
         struct RetryCommand final
         {
@@ -326,7 +331,6 @@ namespace Preview::Protocols
             auto operator()(std::exception_ptr Exception,
                 ProviderRetirementResult Result) noexcept -> void
             {
-                Owner->Scheduled_.store(false, std::memory_order_release);
                 if (Exception)
                 {
                     Owner->RecordDrainFailure(Preview::Contract::InboundAdmission::ExceptionFailure(
@@ -334,7 +338,7 @@ namespace Preview::Protocols
                 }
                 else if (!Result)
                 {
-                    Owner->RecordDrainFailure(Result.error());
+                    Owner->RecordDrainAttemptFailure(Result.error());
                 }
                 if (Owner->Retired_.load(std::memory_order_acquire))
                 {
@@ -344,186 +348,61 @@ namespace Preview::Protocols
                 {
                     Owner->Storage_->Retain(Owner);
                 }
+                Owner->FinishScheduledRetry();
             }
         };
 
-        static auto PreserveFailure(Preview::Fault::Failure& Primary,
-            const Preview::Fault::Failure& Secondary) noexcept -> void
+        static constexpr std::uint8_t RetryScheduledFlag{0x01U};
+        static constexpr std::uint8_t RetryRequestedFlag{0x02U};
+
+        [[nodiscard]] auto IsRetryScheduled() const noexcept -> bool
         {
-            if (Primary.Succeeded() && Secondary.Failed())
+            return (RetrySchedule_.load(std::memory_order_acquire) & RetryScheduledFlag) != 0U;
+        }
+
+        /** @brief 只由成功认领 schedule 位的调用者投递；失败保留 owner 与 typed cause。 */
+        auto PostRetryCommand() noexcept -> void
+        {
+            const auto Self = this->shared_from_this();
+            const auto Posted = Reclaimer_->Post(RetryCommand{Self});
+            if (!Posted)
             {
-                Primary = Secondary;
+                ClearRetrySchedule();
+                Storage_->Retain(Self);
+                RecordDrainFailure(Posted.error());
             }
         }
 
-        [[nodiscard]] static auto RootRetired(const std::shared_ptr<RootOwner>& Root) noexcept -> bool
+        auto ClearRetrySchedule() noexcept -> void
         {
-            if (Root->Datagram)
+            auto State = RetrySchedule_.load(std::memory_order_acquire);
+            while ((State & RetryScheduledFlag) != 0U)
             {
-                const auto Activity = Root->Datagram->Activity();
-                return Activity && Activity->IsRetired();
-            }
-            if (Root->Mux)
-            {
-                const auto Activity = Root->Mux->Activity();
-                return Root->Mux->IsRetired() && Activity && Activity->IsRetired();
-            }
-            return true;
-        }
-
-        static auto CloseRoot(const std::shared_ptr<RootOwner>& Root) noexcept -> void
-        {
-            if (!Root)
-            {
-                return;
-            }
-            if (Root->Datagram)
-            {
-                Root->Datagram->Cancel();
-                Root->Datagram->Close();
-            }
-            if (Root->Mux)
-            {
-                Root->Mux->Cancel();
-                Root->Mux->Close();
-            }
-        }
-
-        auto CloseTransmission(const Preview::SharedTransmission& Transport) noexcept -> void
-        {
-            if (!Transport)
-            {
-                return;
-            }
-            const auto Cancelled = Transport->Cancel();
-            if (!Cancelled)
-            {
-                RecordDrainFailure(Cancelled.error());
-            }
-            const auto Closed = Transport->Close();
-            if (!Closed)
-            {
-                RecordDrainFailure(Closed.error());
-            }
-        }
-
-        [[nodiscard]] static auto DrainActivity(
-            const std::shared_ptr<Preview::Contract::CarrierActivity>& Activity)
-            -> Net::awaitable<DrainResult>
-        {
-            DrainResult Result;
-            if (!Activity)
-            {
-                Result.Complete = false;
-                Result.Error = {Preview::Fault::Code::Blocked};
-                co_return Result;
-            }
-            Activity->Seal();
-            try
-            {
-                const auto Drained = co_await Activity->Drain();
-                if (!Drained)
+                const auto Desired = static_cast<std::uint8_t>(State & ~RetryScheduledFlag);
+                if (RetrySchedule_.compare_exchange_weak(State, Desired,
+                        std::memory_order_acq_rel, std::memory_order_acquire))
                 {
-                    Result.Error = Drained.error();
+                    return;
                 }
             }
-            catch (...)
-            {
-                Result.Error = Preview::Contract::InboundAdmission::ExceptionFailure(
-                    std::current_exception());
-            }
-            Result.Complete = Activity->IsRetired();
-            co_return Result;
         }
 
-        [[nodiscard]] static auto DrainRoot(const std::shared_ptr<RootOwner>& Root)
-            -> Net::awaitable<DrainResult>
+        /** @brief 用同一原子状态交接完成中的 retry 请求，避免清零和采样之间丢唤醒。 */
+        auto FinishScheduledRetry() noexcept -> void
         {
-            DrainResult Result;
-            if (!Root)
+            auto State = RetrySchedule_.load(std::memory_order_acquire);
+            for (;;)
             {
-                co_return Result;
-            }
-            if (Root->Datagram)
-            {
-                const auto Activity = Root->Datagram->Activity();
-                const auto Drained = co_await DrainActivity(Activity);
-                Result.Complete = Drained.Complete;
-                Result.Error = Drained.Error;
-            }
-            if (Root->Mux)
-            {
-                const auto Activity = Root->Mux->Activity();
-                const auto Drained = co_await DrainActivity(Activity);
-                Result.Complete = Result.Complete && Drained.Complete && Root->Mux->IsRetired();
-                PreserveFailure(Result.Error, Drained.Error);
-                if (!Root->Mux->IsRetired())
+                const bool Retry = !Retired_.load(std::memory_order_acquire) &&
+                    (State & RetryRequestedFlag) != 0U;
+                const auto Desired = Retry ? RetryScheduledFlag : std::uint8_t{0U};
+                if (RetrySchedule_.compare_exchange_weak(State, Desired,
+                        std::memory_order_acq_rel, std::memory_order_acquire))
                 {
-                    PreserveFailure(Result.Error,
-                        Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+                    if (Retry) PostRetryCommand();
+                    return;
                 }
             }
-            co_return Result;
-        }
-
-        [[nodiscard]] static auto DrainTransmission(
-            const Preview::SharedTransmission& Transport) -> Net::awaitable<DrainResult>
-        {
-            DrainResult Result;
-            if (!Transport)
-            {
-                Result.Complete = false;
-                Result.Error = {Preview::Fault::Code::Blocked};
-                co_return Result;
-            }
-            const auto Activity = Transport->Activity();
-            if (!Activity)
-            {
-                Result.Complete = false;
-                Result.Error = {Preview::Fault::Code::Blocked};
-                co_return Result;
-            }
-            Activity->Seal();
-            try
-            {
-                const auto Drained = co_await Activity->Drain();
-                if (!Drained)
-                {
-                    Result.Error = Drained.error();
-                }
-            }
-            catch (...)
-            {
-                Result.Error = Preview::Contract::InboundAdmission::ExceptionFailure(
-                    std::current_exception());
-            }
-            Result.Complete = Activity->IsRetired();
-            co_return Result;
-        }
-
-        [[nodiscard]] static auto DrainResources(const Pointer& Owner)
-            -> Net::awaitable<DrainResult>
-        {
-            co_await Net::dispatch(Owner->Executor_, Net::use_awaitable);
-            co_await Net::this_coro::throw_if_cancelled(false);
-            DrainResult Result;
-            const auto Root = Owner->Root_.load(std::memory_order_acquire);
-            const auto RootResult = co_await DrainRoot(Root);
-            Result.Complete = RootResult.Complete;
-            Result.Error = RootResult.Error;
-            const auto Count = Owner->TrackedCount_.load(std::memory_order_acquire);
-            for (std::size_t Index = Count; Index > 0U; --Index)
-            {
-                const auto Transport = Owner->Tracked_[Index - 1U].load(std::memory_order_acquire);
-                if (Root && Transport == Root->Transport)
-                {
-                    continue;
-                }
-                const auto TransportResult = co_await DrainTransmission(Transport);
-                Result.Complete = Result.Complete && TransportResult.Complete;
-                PreserveFailure(Result.Error, TransportResult.Error);
-            }
-            co_return Result;
         }
 
         auto ReleaseResources() noexcept -> void
@@ -534,15 +413,11 @@ namespace Preview::Protocols
                 return;
             }
             Root_.store({}, std::memory_order_release);
-            for (auto& Transport : Tracked_)
-            {
-                Transport.store({}, std::memory_order_release);
-            }
-            TrackedCount_.store(0U, std::memory_order_release);
-            RootSlot_.reset();
             RootGenerationUseLease_ = {};
-            Material_.store({}, std::memory_order_release);
             UseLease_ = {};
+            Resources_.Release();
+            RootSlot_.reset();
+            Material_.store({}, std::memory_order_release);
             Retired_.store(true, std::memory_order_release);
         }
 
@@ -550,7 +425,7 @@ namespace Preview::Protocols
         {
             if (Retired_.load(std::memory_order_acquire))
             {
-                Scheduled_.store(false, std::memory_order_release);
+                FinishScheduledRetry();
                 return;
             }
             const auto Self = this->shared_from_this();
@@ -560,27 +435,25 @@ namespace Preview::Protocols
             }
             catch (...)
             {
-                Scheduled_.store(false, std::memory_order_release);
+                ClearRetrySchedule();
                 RecordDrainFailure(Preview::Contract::InboundAdmission::ExceptionFailure(
                     std::current_exception()));
                 Storage_->Retain(Self);
             }
         }
 
+        ProviderSessionResources Resources_;
         std::atomic<std::shared_ptr<const Material>> Material_;
         Preview::Foundation::GenerationUseLease UseLease_;
         Net::any_io_executor Executor_;
         std::shared_ptr<Preview::Executor::ContextOwner> Context_;
         std::shared_ptr<Preview::Executor::ClosingStorage> Storage_;
         std::shared_ptr<Preview::Executor::ExecutorReclaimer> Reclaimer_;
-        std::array<std::atomic<Preview::SharedTransmission>, 4> Tracked_{};
-        std::atomic<std::size_t> TrackedCount_{0U};
         Preview::Fault::FailureState Failure_;
         Preview::Fault::FailureState DrainFailure_;
-        std::atomic<bool> AcceptFinished_{false};
-        std::atomic<bool> CloseRequested_{false};
-        std::atomic<bool> Running_{false};
-        std::atomic<bool> Scheduled_{false};
+        std::atomic<bool> AcceptFinished_{false}, CloseRequested_{false};
+        Detail::ProviderSessionDrainCoordinator DrainCoordinator_;
+        std::atomic<std::uint8_t> RetrySchedule_{0U};
         std::atomic<bool> Releasing_{false};
         std::atomic<bool> Retired_{false};
     };

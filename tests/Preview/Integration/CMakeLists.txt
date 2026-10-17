@@ -82,7 +82,7 @@ target_link_libraries(InteropShadowtls PRIVATE PreviewFoundation PreviewTranspor
 
 # WebSocket RFC 6455 外部互操作：Preview 帧连接与独立 Go reference 双向 TCP。
 add_executable(InteropWs InteropWs.cpp)
-target_sources(InteropWs PRIVATE ../protocols/Ws/WsFactorySupport.hpp)
+target_sources(InteropWs PRIVATE ../Protocols/Ws/WsFactorySupport.hpp)
 target_compile_options(InteropWs PRIVATE -g1 -Os)
 target_link_libraries(InteropWs PRIVATE PreviewFoundation PreviewTransport PreviewNet PreviewProtocolWs
         BoostSystemHeaderOnly)

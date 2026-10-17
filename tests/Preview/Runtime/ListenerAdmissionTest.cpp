@@ -5,6 +5,15 @@
 
 #include "ListenerTestSupport.hpp"
 
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/redirect_error.hpp>
+
+#include <chrono>
+#include <exception>
+#include <expected>
+#include <optional>
+#include <variant>
+
 namespace
 {
     struct FullChainState final
@@ -314,7 +323,7 @@ namespace
         {
             State->FactoryCalls.fetch_add(1, std::memory_order_relaxed);
             State->Accepted.store(std::move(Admission.Inbound), std::memory_order_release);
-            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Unavailable});
+            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::ResourceUnavailable});
         }
     };
 

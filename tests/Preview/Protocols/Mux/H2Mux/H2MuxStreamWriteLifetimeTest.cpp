@@ -5,6 +5,8 @@
 
 #include "H2MuxStreamLifetimeTestSupport.hpp"
 
+#include <Preview/Protocols/Mux/Detail/Root/RootChild.hpp>
+
 namespace
 {
 
@@ -51,12 +53,16 @@ namespace
             if (!Opened)
             {
                 ADD_FAILURE() << "failed to open reset streams";
+                co_await DrainHttp2Server(Scenario.Server);
+                Scenario.Guard.Cancel();
                 co_return;
             }
         }
         std::vector<std::byte> Wire;
         if (!Client->Collect(Wire))
         {
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
             co_return;
         }
         const auto WriteResult = co_await Scenario.ClientTransport->WriteSome(
@@ -76,8 +82,8 @@ namespace
         Scenario.Accepted = Streams.size();
         if (Scenario.Accepted != 4)
         {
+            co_await DrainHttp2Server(Scenario.Server);
             Scenario.Guard.Cancel();
-            Scenario.Io.stop();
             co_return;
         }
 
@@ -135,9 +141,8 @@ namespace
             Scenario.FeedFailed = true;
         }
         Scenario.FramesParsed = FrameCount;
-        Scenario.FramesParsed = Received.size();
+        co_await DrainHttp2Server(Scenario.Server);
         Scenario.Guard.Cancel();
-        Scenario.Io.stop();
     }
 
     struct ConcurrentCloseScenario final
@@ -190,12 +195,16 @@ namespace
             if (!Opened)
             {
                 ADD_FAILURE() << "failed to open write streams";
+                co_await DrainHttp2Server(Scenario.Server);
+                Scenario.Guard.Cancel();
                 co_return;
             }
         }
         std::vector<std::byte> Wire;
         if (!Client->Collect(Wire))
         {
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
             co_return;
         }
         const auto WriteResult = co_await Scenario.ClientTransport->WriteSome(
@@ -215,8 +224,8 @@ namespace
         Scenario.Accepted = Streams.size();
         if (Scenario.Accepted != 4)
         {
+            co_await DrainHttp2Server(Scenario.Server);
             Scenario.Guard.Cancel();
-            Scenario.Io.stop();
             co_return;
         }
 
@@ -232,8 +241,8 @@ namespace
         Net::steady_timer Settle(Scenario.ClientTransport->Executor());
         Settle.expires_after(std::chrono::milliseconds(400));
         co_await Settle.async_wait(Net::use_awaitable);
+        co_await DrainHttp2Server(Scenario.Server);
         Scenario.Guard.Cancel();
-        Scenario.Io.stop();
     }
 
     struct CancelSiblingScenario final
@@ -259,12 +268,16 @@ namespace
             if (!Opened)
             {
                 ADD_FAILURE() << "failed to open peer-reset streams";
+                co_await DrainHttp2Server(Scenario.Server);
+                Scenario.Guard.Cancel();
                 co_return;
             }
         }
         std::vector<std::byte> Wire;
         if (!Client->Collect(Wire))
         {
+            co_await DrainHttp2Server(Scenario.Server);
+            Scenario.Guard.Cancel();
             co_return;
         }
         const auto WriteResult = co_await Scenario.ClientTransport->WriteSome(
@@ -284,8 +297,8 @@ namespace
         Scenario.Accepted = Streams.size();
         if (Scenario.Accepted < 2)
         {
+            co_await DrainHttp2Server(Scenario.Server);
             Scenario.Guard.Cancel();
-            Scenario.Io.stop();
             co_return;
         }
 
@@ -298,6 +311,11 @@ namespace
         const auto TerminationDrain = co_await std::static_pointer_cast<Preview::Mux::H2Mux::Http2Stream>(
             Streams[0])->DrainTerminations();
         EXPECT_TRUE(TerminationDrain);
+        Preview::Fault::Failure ChildDrainFailure;
+        const auto ChildActivitiesDrained = co_await Preview::Mux::Detail::DrainRetainedActivity(
+            Streams[0], ChildDrainFailure);
+        EXPECT_TRUE(ChildActivitiesDrained);
+        EXPECT_FALSE(ChildDrainFailure.Failed());
         for (int Index = 0; Index < 4; ++Index)
         {
             co_await Net::post(Streams[1]->Executor(), Net::use_awaitable);
@@ -313,8 +331,8 @@ namespace
                 ++Scenario.SiblingWrites;
             }
         }
+        co_await DrainHttp2Server(Scenario.Server);
         Scenario.Guard.Cancel();
-        Scenario.Io.stop();
     }
 }
 
@@ -439,7 +457,7 @@ TEST(H2MuxStreamLifetime, PartialWriteFailureDrainsPendingReadAndStreamEnd)
     {
         Net::io_context Io;
         auto [ServerRaw, ClientRaw] = Preview::MakeMemoryPair(Io.get_executor());
-        auto State = std::make_shared<WriteFailureScenario>(Io.get_executor());
+        auto State = std::make_shared<WriteFailureScenario>(Io);
         State->Transport = std::make_shared<ScriptedWriteTransmission>(
             std::make_shared<Preview::MemoryStream>(std::move(ServerRaw)));
         State->Client = std::make_shared<Preview::MemoryStream>(std::move(ClientRaw));
@@ -452,6 +470,7 @@ TEST(H2MuxStreamLifetime, PartialWriteFailureDrainsPendingReadAndStreamEnd)
             });
         Io.run();
 
+        EXPECT_FALSE(*State->Guard.Timeouted);
         ASSERT_FALSE(State->Failure);
         ASSERT_TRUE(State->RunCompleted);
         EXPECT_FALSE(State->RunThrew);
@@ -463,7 +482,8 @@ TEST(H2MuxStreamLifetime, PartialWriteFailureDrainsPendingReadAndStreamEnd)
         EXPECT_TRUE(State->WriteError);
         EXPECT_TRUE(State->ReadCompleted);
         EXPECT_EQ(State->ReadBytes, 0U);
-        EXPECT_FALSE(State->ReadError);
+        EXPECT_EQ(State->ReadError, Preview::Fault::ToNative(
+            Preview::Fault::Failure{Preview::Fault::Code::Eof}));
         EXPECT_EQ(State->Transport->Writes(), 3U);
         const auto WeakStream = std::weak_ptr<Preview::Mux::H2Mux::Http2Stream>(State->Stream);
         State->Stream.reset();

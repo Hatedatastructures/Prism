@@ -59,7 +59,9 @@ namespace Preview::Runtime
                 std::shared_ptr<Resource> Owner;
                 Preview::Lifecycle::DrainReservation Reservation;
                 ViewPin(std::shared_ptr<Resource> Resource, Preview::Lifecycle::DrainReservation Lease)
-                    : Owner(std::move(Resource)), Reservation(std::move(Lease)) {}
+                    : Owner(std::move(Resource)), Reservation(std::move(Lease))
+                {
+                }
             };
             struct Delivery final
             {
@@ -140,7 +142,8 @@ namespace Preview::Runtime
             auto Fail(Failure Error, const bool DispatchUnavailable = false) noexcept -> void
             {
                 if (DispatchUnavailable) this->DispatchUnavailable.store(true, std::memory_order_release);
-                if (FailureState.TrySet(Error)) Completion.Block();
+                (void)FailureState.TrySet(Error);
+                Completion.Block();
                 Storage->Retain(shared_from_this());
             }
             [[nodiscard]] auto Error() const noexcept -> Failure
@@ -148,9 +151,21 @@ namespace Preview::Runtime
                 return FailureState.Load();
             }
             auto Close() -> void { Closing.store(true); Views.Seal(); RequestRetirement(); }
+            /** @brief 保存由调用方明确提出的取消意图，最终控制仍在原 executor 执行。 */
+            auto MarkCancelRequested() noexcept -> void
+            {
+                CancelRequested.store(true, std::memory_order_release);
+                RequestRetirement();
+            }
             /** @brief 新输入被拒绝时必须取消既有操作；与仍供 outer 使用的旧 inner 释放不同。 */
             auto Reject() -> void
-            { Closing.store(true); Releasing.store(true); Views.Seal(); RequestRetirement(); }
+            {
+                Rejecting.store(true, std::memory_order_release);
+                Closing.store(true);
+                Releasing.store(true);
+                Views.Seal();
+                RequestRetirement();
+            }
             /** @brief 保留全部已借出的 view；这里只撤销准入，不声明 carrier 或 I/O 退休。 */
             auto Release() -> void { Releasing.store(true); Views.Seal(); RequestRetirement(); }
             auto Execute() -> void
@@ -161,8 +176,7 @@ namespace Preview::Runtime
                     const auto Closed = CloseValue();
                     if (!Closed)
                     {
-                        const bool DispatchUnavailable = !Reclaimer->CanDispatch();
-                        Fail(Closed.error(), DispatchUnavailable);
+                        Fail(Closed.error(), !Reclaimer->CanDispatch());
                         return;
                     }
                 }
@@ -198,7 +212,10 @@ namespace Preview::Runtime
                 // 装饰器仍持旧 inner view 时不能 Seal 公共底层；先等这些真正借用退出。
                 Self->Activity->Seal();
                 auto Operations = co_await Self->Activity->Drain();
-                if (!Operations)
+                // 仅在独立退休回执已成立时接受取消；其余失败继续保留实物。
+                if (!Operations &&
+                    (Operations.error().Code != Preview::Fault::Code::Canceled ||
+                     !Self->Activity->IsRetired()))
                 { Self->Fail(Operations.error(), !Self->Reclaimer->CanDispatch()); co_return; }
                 Self->Value = {};
                 Self->Activity.reset();
@@ -214,27 +231,52 @@ namespace Preview::Runtime
             }
             auto CloseValue() -> std::expected<void, Failure>
             {
-                if (Value.Mux) { Value.Mux->Cancel(); Value.Mux->Close(); }
-                if (Value.Datagram) { Value.Datagram->Cancel(); Value.Datagram->Close(); }
+                if (Value.Mux)
+                {
+                    if (Rejecting.load(std::memory_order_acquire) ||
+                        CancelRequested.load(std::memory_order_acquire))
+                        Value.Mux->Cancel();
+                    Value.Mux->Close();
+                }
+                if (Value.Datagram)
+                {
+                    if (Rejecting.load(std::memory_order_acquire) ||
+                        CancelRequested.load(std::memory_order_acquire))
+                        Value.Datagram->Cancel();
+                    Value.Datagram->Close();
+                }
                 std::expected<void, Failure> Result;
                 if (Value.Inbound)
                 {
-                    const auto Closed = CloseStream(Value.Inbound);
+                    const auto CancelInFlight = Rejecting.load(std::memory_order_acquire) ||
+                        CancelRequested.load(std::memory_order_acquire);
+                    const auto Closed = CloseStream(Value.Inbound, CancelInFlight);
                     if (!Closed) Result = std::unexpected(Closed.error());
                 }
                 if (Value.Outbound)
                 {
-                    const auto Closed = CloseStream(Value.Outbound);
+                    const auto CancelInFlight = Rejecting.load(std::memory_order_acquire) ||
+                        CancelRequested.load(std::memory_order_acquire);
+                    const auto Closed = CloseStream(Value.Outbound, CancelInFlight);
                     if (!Closed && Result) Result = std::unexpected(Closed.error());
                 }
                 return Result;
             }
-            auto CloseStream(const Preview::SharedTransmission& Stream)
+            auto CloseStream(
+                const Preview::SharedTransmission& Stream,
+                const bool CancelInFlight)
                 -> std::expected<void, Failure>
             {
-                const auto Cancel = Stream->Cancel();
+                if (CancelInFlight)
+                {
+                    const auto Cancel = Stream->Cancel();
+                    if (!Cancel)
+                    {
+                        (void)FailureState.TrySet(Cancel.error());
+                        Storage->Retain(shared_from_this());
+                    }
+                }
                 const auto Close = Stream->Close();
-                if (!Cancel) return std::unexpected(Cancel.error());
                 if (!Close) return std::unexpected(Close.error());
                 return {};
             }
@@ -252,6 +294,8 @@ namespace Preview::Runtime
             ActiveTransportSnapshot Value;
             const void* Identity{nullptr};
             std::atomic<bool> Queued{false}, Closing{false}, Releasing{false}, Retiring{false}, Retired{false};
+            std::atomic<bool> Rejecting{false};
+            std::atomic<bool> CancelRequested{false};
             std::atomic<bool> ExecutionProhibited{false}, ContentsReleased{false};
             std::atomic<bool> DispatchUnavailable{false};
             Preview::Fault::FailureState FailureState;
@@ -296,6 +340,15 @@ namespace Preview::Runtime
             if (HasOwner(OwnerKind::Mux)) return RequestCloseOwners(OwnerKind::Mux);
             if (HasOwner(OwnerKind::Datagram)) return RequestCloseOwners(OwnerKind::Datagram);
             return RequestCloseOwners(OwnerKind::Stream);
+        }
+        /** @brief 封止新 owner 并保留显式取消意图，随后仍由预建 close action 投递关闭。 */
+        auto MarkCancelRequested() noexcept -> void
+        {
+            Closing_.store(true, std::memory_order_release);
+            for (auto& Slot : Slots_)
+            {
+                if (auto Value = Slot.load()) Value->MarkCancelRequested();
+            }
         }
         /** @brief 按根 owner 到 stream owner 顺序逐层关闭并排空。
          * @details 调用方须先停止 Store producer 和 carrier 操作；真实 I/O 完成只从 Activity::Drain 得到。
@@ -363,12 +416,11 @@ namespace Preview::Runtime
                 auto Value = Slot.load();
                 if (!Value || Value->OwnerType != Type) continue;
                 auto Retired = co_await Value->Completion.Drain();
-                if (!Retired && Result)
-                {
-                    auto Error = Value->Error();
-                    if (Error.Succeeded()) Error = Retired.error();
-                    Result = std::unexpected(Error);
-                }
+                auto Error = Value->Error();
+                if (!Retired && Error.Succeeded()) Error = Retired.error();
+                if (Error.Code == Preview::Fault::Code::Canceled && Value->IsRetired())
+                    Error = {};
+                if (Error.Failed() && Result) Result = std::unexpected(Error);
             }
             co_return Result;
         }

@@ -215,8 +215,10 @@ namespace
     auto Root(std::shared_ptr<Fixture> State) -> Net::awaitable<void>
     {
         Preview::Trojan::ServerConfig Config;
-        Config.AuthenticatorOwner = std::make_shared<Preview::DirectoryAuthenticator>(State->Directory->Credentials);
-        auto Binding = std::make_shared<Preview::Mux::RootBinding>(Preview::Mux::RootOptions{
+        Config.EnableTcp = true;
+        Config.EnableUdp = false;
+        Config.EnableMux = true;
+        auto MuxBinding = std::make_shared<Preview::Mux::RootBinding>(Preview::Mux::RootOptions{
             .Wire = Preview::Mux::Mode::H2Mux, .Services = {.Egress = std::make_shared<Egress>(State)},
             .GenerationUseState = State->UseState,
             .Observe = [Weak = std::weak_ptr<Fixture>(State)](Preview::Mux::ChildReport Report)
@@ -228,9 +230,27 @@ namespace
                         (void)Value->ChildDone.try_send(boost::system::error_code{});
                 }
             }});
-        Preview::Trojan::IngressFactory Factory({.Configuration = Config, .Mux = Binding});
+        auto Prepared = Preview::Trojan::PrepareProviderBinding(Preview::Trojan::ProviderRequest{
+            .Instance = "mux-h2-root-test",
+            .Authentication = {State->Directory->Generation, State->Directory->Credentials,
+                State->Directory->Authenticator},
+            .Datagrams = {}, .GenerationUseState = State->UseState,
+            .Executor = State->Client->Executor(), .EnableTcp = Config.EnableTcp,
+            .EnableUdp = Config.EnableUdp, .EnableMux = Config.EnableMux});
+        if (!Prepared)
+        {
+            ADD_FAILURE() << "Trojan provider binding preparation failed";
+            co_return;
+        }
+        const auto ProviderBinding = Preview::Trojan::BindProvider(std::move(*Prepared));
+        const auto Factory = ProviderBinding->WithIngress({.Mux = MuxBinding});
+        if (!Factory)
+        {
+            ADD_FAILURE() << "Trojan mux ingress binding failed";
+            co_return;
+        }
         auto Input = MakeStreamAcceptInput(std::move(State->Server));
-        auto Plane = co_await Factory.Accept(std::move(Input));
+        auto Plane = co_await Factory->Accept(std::move(Input));
         State->Authenticated = Plane && bool(Plane->AccountLease);
         if (!Plane) co_return;
         State->Server = Plane->Transport();
@@ -255,7 +275,7 @@ namespace
             ADD_FAILURE() << "session registry rejected the live H2 root identity";
             co_return;
         }
-        State->Registration.emplace(std::move(*Registered));
+        State->Registration.emplace(std::move(Registered));
         if (!State->Control->SetIdentity(Request.Metadata.TaskIdentity) ||
             !State->Control->AttachStreamCatalog(State->Catalog))
         {

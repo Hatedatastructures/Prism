@@ -30,12 +30,12 @@
 #include <expected>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
 namespace Preview::Application::Shutdown
 {
-
     namespace Net = boost::asio;
 
     /** @brief 借用独立管理 controller 并保留其 typed graceful drain 结果。 */
@@ -149,7 +149,8 @@ namespace Preview::Application::Shutdown
                 ShutdownOperation::Request{State, Deadline, std::move(Operation)});
             if (!Result.Completed || !Result.Outcome)
             {
-                if(!FirstFailure)FirstFailure=BoundedDrainFailure(Result);
+                const auto Cause = BoundedDrainFailure(Result);
+                if (!FirstFailure) FirstFailure = Cause;
             }
         }
         if (State->DatagramListener)
@@ -165,7 +166,8 @@ namespace Preview::Application::Shutdown
                 ShutdownOperation::Request{State, Deadline, std::move(Operation)});
             if (!Result.Completed || !Result.Outcome)
             {
-                if(!FirstFailure)FirstFailure=BoundedDrainFailure(Result);
+                const auto Cause = BoundedDrainFailure(Result);
+                if (!FirstFailure) FirstFailure = Cause;
             }
             else
             {
@@ -173,7 +175,7 @@ namespace Preview::Application::Shutdown
             }
             if (State->QuicConnectionRegistry)
             {
-                State->QuicConnectionRegistry->Close();
+                (void)State->QuicConnectionRegistry->Close();
             }
             if (State->QuicPacketGateway)
             {
@@ -189,15 +191,22 @@ namespace Preview::Application::Shutdown
                 ShutdownOperation::Request{State, Deadline, std::move(Operation)});
             if (!Result.Completed || !Result.Outcome)
             {
-                if(!FirstFailure)FirstFailure=BoundedDrainFailure(Result);
+                const auto Cause = BoundedDrainFailure(Result);
+                if (!FirstFailure) FirstFailure = Cause;
             }
         }
         if(State->QuicConnectionRegistry && DatagramDrainSucceeded)
         {
             const auto CloseResult=State->QuicConnectionRegistry->Close();
-            if(!CloseResult && !FirstFailure)FirstFailure=CloseResult.error();
+            if(!CloseResult)
+            {
+                if(!FirstFailure)FirstFailure=CloseResult.error();
+            }
         }
-        if(FirstFailure)co_return std::unexpected(*FirstFailure);
+        if(FirstFailure)
+        {
+            co_return std::unexpected(*FirstFailure);
+        }
         const auto Generations = co_await GenerationRetirement::DrainGenerationSnapshots(State, Deadline);
         if (!Generations)
         {
@@ -246,7 +255,10 @@ namespace Preview::Application::Shutdown
                     State->QuicConnectionRegistry->CanRetryClose())
                 {
                     const auto Retry=State->QuicConnectionRegistry->Close();
-                    if(!Retry)co_return std::unexpected(Retry.error());
+                    if(!Retry)
+                    {
+                        co_return std::unexpected(Retry.error());
+                    }
                 }
                 co_return std::unexpected(State->ShutdownFailure.value_or(
                     Preview::Fault::Failure{Preview::Fault::Code::Blocked}));
@@ -359,7 +371,8 @@ namespace Preview::Application::Shutdown
                 ShutdownOperation::Request{State, Deadline, std::move(Operation)});
             if (!Result.Completed || !Result.Outcome)
             {
-                const auto Cause = MarkShutdownDrainFailed(State, BoundedDrainFailure(Result));
+                const auto Cause = MarkShutdownDrainFailed(
+                    State, BoundedDrainFailure(Result));
                 State->OperationsShutdown.store(ShutdownStage::Failed, std::memory_order_release);
                 co_return std::unexpected(Cause);
             }

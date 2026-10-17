@@ -16,6 +16,12 @@ namespace Preview::Account
         [[nodiscard]] auto Materials() const noexcept -> const std::shared_ptr<const AccountMaterials>& { return Materials_; }
         [[nodiscard]] auto Policy() const noexcept -> const std::shared_ptr<const PolicySnapshot>& { return Policy_; }
         [[nodiscard]] auto Runtime() const noexcept -> const std::shared_ptr<AccountRuntime>& { return Runtime_; }
+        /** @brief 活动资源约束跟随正式发布；独立 store 尚未接发布器时使用其冻结策略。 */
+        [[nodiscard]] auto ResourcePolicy() const noexcept -> std::shared_ptr<const PolicySnapshot>
+        {
+            if (const auto Source = Runtime_->ResourcePolicySource()) return Source->Load(AccountId());
+            return Policy_;
+        }
     private:
         friend class AccountStore;
         struct CreateRequest final

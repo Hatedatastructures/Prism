@@ -7,6 +7,7 @@
 
 #pragma once
 
+
 #include <Preview/Protocols/Quic/Detail/NativeConnection.hpp>
 
 namespace Preview::Quic::Detail
@@ -412,8 +413,7 @@ namespace Preview::Quic::Detail
         {
             EmitLifecycle(Preview::Quic::ServerLifecycleStage::AlpnRejected);
             SignalHandshake(false);
-            CloseOnExecutor();
-            return 0;
+            return NGTCP2_ERR_CALLBACK_FAILURE;
         }
         if (!ExpectedServerName_.empty())
         {
@@ -427,8 +427,7 @@ namespace Preview::Quic::Detail
             {
                 EmitLifecycle(Preview::Quic::ServerLifecycleStage::ServerNameRejected);
                 SignalHandshake(false);
-                CloseOnExecutor();
-                return 0;
+                return NGTCP2_ERR_CALLBACK_FAILURE;
             }
         }
         SignalHandshake(true);

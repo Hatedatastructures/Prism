@@ -5,6 +5,7 @@
 #pragma once
 
 #include <Preview/Application/Configuration/ConfigurationParser.hpp>
+#include <Preview/Application/OperationsConfigurationPersistence.hpp>
 #include <Preview/Application/OperationsConfiguration.hpp>
 #include <Preview/Application/ConfigurationCommandOutcome.hpp>
 #include <Preview/Application/Reload/ConfigurationDifference.hpp>
@@ -46,6 +47,16 @@ namespace Preview::Application::OperationsReload
     using Outcome = Preview::Application::CommandOperationOwner::ShutdownOutcome;
 
     using ReloadWork = Preview::Application::Reload::ReloadWork;
+
+    struct ConfigurationPersistenceLease final
+    {
+        explicit ConfigurationPersistenceLease(std::shared_ptr<RuntimeState> Value) : State(std::move(Value)) {}
+        ~ConfigurationPersistenceLease()
+        {
+            if (State) State->ConfigurationPersistenceActive.store(false, std::memory_order_release);
+        }
+        std::shared_ptr<RuntimeState> State;
+    };
 
 
 
@@ -109,6 +120,38 @@ namespace Preview::Application::OperationsReload
             State, std::move(*Prepared));
     }
 
+    [[nodiscard]] inline auto RunPersistedReload(
+        ReloadWork Work, std::shared_ptr<RuntimeState> State, const std::uint64_t Operation,
+        std::shared_ptr<ConfigurationPersistenceLease> Lease) -> Net::awaitable<Outcome>
+    {
+        (void)Lease;
+        const auto Prepared = co_await Preview::Application::Reload::PrepareGenerationReload(State, Work);
+        if (!Prepared)
+            co_return co_await Preview::Application::Reload::CandidateOwner::Abort(
+                State, std::move(Work.Candidate), Prepared.error());
+        auto Json = Configuration::ConfigurationParser::SerializeJson(
+            Work.Candidate->Generation->Configuration());
+        if (!Json)
+            co_return co_await Preview::Application::Reload::CandidateOwner::Abort(
+                State, std::move(Work.Candidate), Failure{Preview::Fault::Code::InvalidArgument});
+        Configuration::Detail::SensitiveStringWiper JsonWiper(*Json);
+        auto File = Preview::Application::OperationsConfigurationPersistence::FileTransaction::Replace(
+            State->ConfigurationPath, *Json, Operation);
+        if (!File)
+            co_return co_await Preview::Application::Reload::CandidateOwner::Abort(
+                State, std::move(Work.Candidate), File.error());
+        const auto Published = co_await Preview::Application::Reload::PublicationTransaction::PublishPreparedReload(
+            State, std::move(*Prepared));
+        if (!Published)
+        {
+            const auto Restored = File->Rollback();
+            if (!Restored) co_return std::unexpected(Restored.error());
+            co_return Published;
+        }
+        File->Commit();
+        co_return Published;
+    }
+
     [[nodiscard]] inline auto StartReload(
         const std::shared_ptr<RuntimeState> &State,
         const Preview::Operations::ReloadCommand &Command,
@@ -143,6 +186,30 @@ namespace Preview::Application::OperationsReload
             Result.RestartRequiredFields = std::move(RestartFields);
             return Result;
         }
+        std::shared_ptr<ConfigurationPersistenceLease> PersistenceLease;
+        if (Command.Mode == Preview::Operations::ReloadMode::ApplyAndPersist)
+        {
+            if (State->ConfigurationPath.empty())
+            {
+                auto Rejected = Preview::Operations::CommandResult::Rejected(Command.Correlation);
+                Rejected.Message = "configuration_path_unavailable";
+                return Rejected;
+            }
+            bool Expected = false;
+            if (!State->ConfigurationPersistenceActive.compare_exchange_strong(
+                    Expected, true, std::memory_order_acq_rel))
+            {
+                auto Rejected = Preview::Operations::CommandResult::Rejected(Command.Correlation);
+                Rejected.Message = "configuration_persistence_busy";
+                return Rejected;
+            }
+            try { PersistenceLease = std::make_shared<ConfigurationPersistenceLease>(State); }
+            catch (...)
+            {
+                State->ConfigurationPersistenceActive.store(false, std::memory_order_release);
+                return Preview::Operations::CommandResult::Unavailable(Command.Correlation);
+            }
+        }
         auto Candidate = ReloadGenerationPreparation::MakeCandidateSnapshot(State, Current, std::move(*Generation));
         if (!Candidate)
         {
@@ -163,6 +230,18 @@ namespace Preview::Application::OperationsReload
                         State, std::move(*Candidate)), Current->Id()});
         }
         const auto ResultGeneration = (*Candidate)->Id();
+        if (PersistenceLease)
+        {
+            return Preview::Application::CommandOperationOwner::StartScopedCommand(
+                Preview::Application::CommandOperationOwner::ScopedCommandRequest{
+                    State, Completion, Command.Correlation, Deadline,
+                    Preview::Operations::CommandTargetScope{
+                        Preview::Operations::ProcessTargetScope{State->Process->Id()}},
+                    RunPersistedReload(ReloadWork{
+                        std::move(*Candidate), Current->Id(), Command.Correlation, Deadline},
+                        State, Completion.Id().Value(), std::move(PersistenceLease)),
+                    ResultGeneration});
+        }
         return Preview::Application::CommandOperationOwner::StartScopedCommand(
             Preview::Application::CommandOperationOwner::ScopedCommandRequest{
                 State, Completion, Command.Correlation, Deadline,

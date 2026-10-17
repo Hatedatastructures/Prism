@@ -136,6 +136,7 @@ namespace
         std::size_t ReadsDone{0};
         bool OverreportRead{false};
         bool OverreportWrite{false};
+        bool EofOnDrain{false};
         bool Closed{false};
 
     private:
@@ -194,7 +195,9 @@ namespace
             }
             if (ReadPosition_ >= ToRead.size())
             {
-                co_return Preview::IoResult{0, {}};
+                co_return Preview::IoResult{
+                    0, EofOnDrain ? Preview::Fault::Failure{Preview::Fault::Code::Eof}
+                                  : Preview::Fault::Failure{}};
             }
             const auto Count = std::min(Buffer.size(), ToRead.size() - ReadPosition_);
             std::memcpy(Buffer.data(), ToRead.data() + ReadPosition_, Count);
@@ -226,19 +229,6 @@ namespace
         Net::any_io_executor Executor_;
         std::size_t ReadPosition_{0};
     };
-
-    /// 构造服务端握手输入（认证帧 + TCP 目标帧）
-    auto MakeServerHandshakeBytes(const std::string &Password, const Hysteria2::Address &Target)
-        -> std::vector<std::uint8_t>
-    {
-        const auto Auth = Hysteria2::MakeAuthRequest(Password);
-        const std::span<const std::uint8_t> EmptyPayload;
-        const auto Tcp = Hysteria2::BuildTcp(Target, EmptyPayload);
-        std::vector<std::uint8_t> Wire(Auth.begin(), Auth.end());
-        Wire.insert(Wire.end(), Tcp.begin(), Tcp.end());
-        return Wire;
-    }
-
 
     struct WriteCase final
     {
@@ -279,6 +269,7 @@ namespace
         auto Raw = std::make_shared<ScriptedTransmission>(
             Request.IoContext.get_executor());
         Raw->ToRead = std::move(Request.Wire);
+        Raw->EofOnDrain = true;
         auto Connection = std::make_shared<Hysteria2::Conn<>>(Raw, "pw");
         auto [ErrorValue, MessageValue] = co_await Connection->ReadHandshake();
         EXPECT_EQ(ErrorValue, Request.Expected);
@@ -308,12 +299,12 @@ namespace
             Request.IoContext.get_executor());
         Raw->ToRead = std::move(Request.Wire);
         Raw->OverreportRead = Request.Overreport;
-        Raw->WriteFail = Request.FailWrite;
         auto Connection = std::make_shared<Hysteria2::Conn<>>(Raw, "pw");
         const auto Target = MakeAddress(
             Hysteria2::AddressType::Ipv4, "1.2.3.4", 80);
         EXPECT_EQ(co_await Connection->WriteHandshake(Target),
                   Preview::Error::None);
+        Raw->WriteFail = Request.FailWrite;
         if (Request.FailAfterHandshake)
         {
             Raw->ReadFailAt = Raw->ReadsDone + 1;
@@ -342,6 +333,8 @@ namespace
         bool OverreportRead{false};
         bool OverreportWrite{false};
         bool FailRead{false};
+        bool FailWrite{false};
+        bool PassthroughWrite{false};
     };
 
     auto RunDgramCase(DgramCase Request) -> Net::awaitable<void>
@@ -354,10 +347,20 @@ namespace
         Raw->ReadFailAt = Request.FailRead
                               ? 1
                               : std::numeric_limits<std::size_t>::max();
+        Raw->WriteFail = Request.FailWrite;
         auto Datagram = std::make_shared<Hysteria2::Dgram<>>(Raw);
         if (Request.Mode == DatagramMode::Send)
         {
             const std::string Text = "x";
+            if (Request.PassthroughWrite)
+            {
+                const auto Result = co_await Datagram->WriteSome(
+                    std::as_bytes(std::span<const std::uint8_t>(
+                        reinterpret_cast<const std::uint8_t *>(Text.data()), Text.size())));
+                EXPECT_TRUE(Result.Failure.Failed());
+                EXPECT_EQ(Result.Failure.Code, Preview::Fault::Code::IoError);
+                co_return;
+            }
             const auto Target = MakeAddress(
                 Hysteria2::AddressType::Ipv4, "1.2.3.4", 80);
             const auto Payload = std::span<const std::uint8_t>(
@@ -374,25 +377,24 @@ namespace
 
     auto RunPassthrough(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] =
+        auto [ClientValue, ServerValue] =
             Preview::MakeMemoryPair(IoContext.get_executor());
-        auto Stream = std::make_shared<Preview::MemoryStream>(
-            std::move(ClientMemory));
+        auto Stream = std::make_shared<Preview::MemoryStream>(std::move(ClientValue));
+        auto ServerMemory = std::make_shared<Preview::MemoryStream>(std::move(ServerValue));
         auto Connection = std::make_shared<Hysteria2::Conn<>>(Stream, "pw");
         const auto Target = MakeAddress(
             Hysteria2::AddressType::Ipv4, "1.2.3.4", 80);
         EXPECT_EQ(co_await Connection->WriteHandshake(Target),
                   Preview::Error::None);
-        EXPECT_TRUE(ServerMemory.Close());
+        EXPECT_TRUE(ServerMemory->Close());
         std::array<std::byte, 64> Buffer{};
         const auto ReadResult = co_await Connection->ReadSome(Buffer);
         EXPECT_EQ(ReadResult.Bytes, 0u);
-        EXPECT_FALSE(ReadResult.Failure.Failed());
+        EXPECT_EQ(ReadResult.Failure.Code, Preview::Fault::Code::Eof);
         const auto WriteResult = co_await Connection->WriteSome(
             std::span<const std::byte>(Buffer.data(), 4));
         EXPECT_EQ(WriteResult.Bytes, 0u);
-        EXPECT_EQ(Preview::Fault::ToNative(WriteResult.Failure).value(),
-                  static_cast<int>(Net::error::broken_pipe));
+        EXPECT_EQ(WriteResult.Failure.Code, Preview::Fault::Code::ConnectionAborted);
     }
 
     TEST(Hysteria2ConnError, WriteHandshakeAuthSendFail)
@@ -437,7 +439,10 @@ namespace
     TEST(Hysteria2ConnError, ReadHandshakeEofOnTargetAddress)
     {
         Net::io_context IoContext;
-        RunCoroutine(IoContext, RunReadCase({IoContext, {0x01, 0x01, 0xAA}, Preview::Error::IoError}));
+        const auto Auth = Hysteria2::MakeAuthRequest("pw");
+        std::vector<std::uint8_t> Wire(Auth.begin(), Auth.end());
+        Wire.insert(Wire.end(), {0x01, 0x01, 0xAA});
+        RunCoroutine(IoContext, RunReadCase({IoContext, std::move(Wire), Preview::Error::IoError}));
     }
 
     TEST(Hysteria2ConnError, ReadHandshakeRejectsUnknownKindBeforeAddress)
@@ -466,71 +471,55 @@ namespace
     TEST(Hysteria2ConnError, SendDatagramIoError)
     {
         Net::io_context IoContext;
-        const auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        RunCoroutine(IoContext, RunConnDgramCase({IoContext, Wire, Preview::Error::IoError, DatagramMode::Send, false, false, true}));
+        RunCoroutine(IoContext, RunConnDgramCase({IoContext, {}, Preview::Error::IoError, DatagramMode::Send, false, false, true}));
     }
 
     TEST(Hysteria2ConnError, ReceiveDatagramEofOnFrame)
     {
         Net::io_context IoContext;
-        const auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        RunCoroutine(IoContext, RunConnDgramCase({IoContext, Wire, Preview::Error::UnexpectedEof, DatagramMode::Receive}));
+        RunCoroutine(IoContext, RunConnDgramCase({IoContext, {}, Preview::Error::UnexpectedEof, DatagramMode::Receive}));
     }
 
     TEST(Hysteria2ConnError, ReceiveDatagramBadAtyp)
     {
         Net::io_context IoContext;
-        auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        Wire.insert(Wire.end(), {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x99});
+        std::vector<std::uint8_t> Wire{0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x99};
         RunCoroutine(IoContext, RunConnDgramCase({IoContext, std::move(Wire), Preview::Error::BadMessage, DatagramMode::Receive}));
     }
 
     TEST(Hysteria2ConnError, ReceiveDatagramTruncatedIds)
     {
         Net::io_context IoContext;
-        auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        Wire.insert(Wire.end(), {0x02, 1, 2, 3});
+        std::vector<std::uint8_t> Wire{0x02, 1, 2, 3};
         RunCoroutine(IoContext, RunConnDgramCase({IoContext, std::move(Wire), Preview::Error::NeedMore, DatagramMode::Receive}));
     }
 
     TEST(Hysteria2ConnError, ReceiveDatagramTruncatedAtyp)
     {
         Net::io_context IoContext;
-        auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        Wire.insert(Wire.end(), {0x02, 0, 0, 0, 0, 0, 0, 0, 0});
+        std::vector<std::uint8_t> Wire{0x02, 0, 0, 0, 0, 0, 0, 0, 0};
         RunCoroutine(IoContext, RunConnDgramCase({IoContext, std::move(Wire), Preview::Error::NeedMore, DatagramMode::Receive}));
     }
 
     TEST(Hysteria2ConnError, ReceiveDatagramTruncatedPort)
     {
         Net::io_context IoContext;
-        auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        Wire.insert(Wire.end(), {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4});
+        std::vector<std::uint8_t> Wire{0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
         RunCoroutine(IoContext, RunConnDgramCase({IoContext, std::move(Wire), Preview::Error::NeedMore, DatagramMode::Receive}));
     }
 
     TEST(Hysteria2ConnError, ReceiveDatagramPayloadIoError)
     {
         Net::io_context IoContext;
-        auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        Wire.insert(Wire.end(),
-            {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50});
+        std::vector<std::uint8_t> Wire{
+            0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
         RunCoroutine(IoContext, RunConnDgramCase({IoContext, std::move(Wire), Preview::Error::IoError, DatagramMode::Receive, false, true}));
     }
 
     TEST(Hysteria2ConnError, ReceiveDatagramRejectsOverreportedRead)
     {
         Net::io_context IoContext;
-        const auto Wire = MakeServerHandshakeBytes("pw",
-            MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-        RunCoroutine(IoContext, RunConnDgramCase({IoContext, Wire, Preview::Error::BadLength, DatagramMode::Receive, true}));
+        RunCoroutine(IoContext, RunConnDgramCase({IoContext, {}, Preview::Error::BadLength, DatagramMode::Receive, true}));
     }
 
     TEST(Hysteria2ConnError, DgramRejectsOverreportedRead)
@@ -563,7 +552,8 @@ namespace
     TEST(Hysteria2DgramError, SendToIoError)
     {
         Net::io_context IoContext;
-        RunCoroutine(IoContext, RunDgramCase({IoContext, {}, Preview::Error::IoError, DatagramMode::Send}));
+        RunCoroutine(IoContext, RunDgramCase({IoContext, {}, Preview::Error::IoError, DatagramMode::Send,
+                                               false, false, false, true}));
     }
 
     TEST(Hysteria2DgramError, ReceiveTruncatedPort)
@@ -602,6 +592,7 @@ namespace
     {
         Net::io_context IoContext;
         RunCoroutine(IoContext, RunDgramCase({
-            IoContext, {}, Preview::Error::IoError, DatagramMode::Send}));
+            IoContext, {}, Preview::Error::IoError, DatagramMode::Send,
+            false, false, false, true, true}));
     }
 } // namespace

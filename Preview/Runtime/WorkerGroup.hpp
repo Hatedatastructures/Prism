@@ -11,6 +11,7 @@
 #include <Preview/Runtime/GenerationPublication.hpp>
 #include <Preview/Runtime/Worker.hpp>
 #include <Preview/Runtime/WorkerDispatchResult.hpp>
+#include <Preview/Runtime/SessionTraceModel.hpp>
 #include <Preview/Foundation/Executor/ContextOwner.hpp>
 #include <Preview/Foundation/Fault/Failure.hpp>
 #include <Preview/Net/Dns/Config.hpp>
@@ -21,7 +22,9 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 #include <expected>
+#include <iterator>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -318,6 +321,46 @@ namespace Preview::Runtime
                     Result.push_back(WorkerValue->Snapshot());
                 }
             }
+            return Result;
+        }
+
+        /** @brief 合并 worker-local 轨迹页；每个 worker 保留独立游标和丢失计数。 */
+        [[nodiscard]] auto QuerySessionTrace(const SessionTraceQuery &QueryValue) const
+            -> SessionTraceSnapshot
+        {
+            SessionTraceSnapshot Result;
+            Result.Process = Process_;
+            if (QueryValue.Process && QueryValue.Process != Process_)
+            {
+                return Result;
+            }
+            for (const auto &WorkerValue : Workers_)
+            {
+                if (!WorkerValue)
+                {
+                    continue;
+                }
+                auto Local = WorkerValue->TraceRing()->Query(QueryValue);
+                Result.HasMore = Result.HasMore || Local.HasMore;
+                Result.Records.insert(Result.Records.end(),
+                    std::make_move_iterator(Local.Records.begin()),
+                    std::make_move_iterator(Local.Records.end()));
+                Result.Cursors.insert(Result.Cursors.end(), Local.Cursors.begin(), Local.Cursors.end());
+                Result.Loss.insert(Result.Loss.end(), Local.Loss.begin(), Local.Loss.end());
+            }
+            std::sort(Result.Records.begin(), Result.Records.end(),
+                [](const SessionTraceRecord &Left, const SessionTraceRecord &Right)
+                {
+                    if (Left.UtcUnixNanoseconds != Right.UtcUnixNanoseconds)
+                    {
+                        return Left.UtcUnixNanoseconds < Right.UtcUnixNanoseconds;
+                    }
+                    if (Left.Identity.Worker != Right.Identity.Worker)
+                    {
+                        return Left.Identity.Worker < Right.Identity.Worker;
+                    }
+                    return Left.Sequence < Right.Sequence;
+                });
             return Result;
         }
 

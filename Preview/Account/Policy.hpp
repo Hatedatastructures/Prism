@@ -5,12 +5,15 @@
 #include <Preview/Account/Quota.hpp>
 #include <Preview/Account/Rate.hpp>
 #include <Preview/Account/PolicyVersion.hpp>
+#include <Preview/Account/PolicyConfiguration.hpp>
+#include <Preview/Foundation/Identifier/Id.hpp>
 namespace Preview::Account
 {
     struct PolicySettings final
     {
         QuotaPolicy Quota;
         RatePolicy Rate;
+        TransferPolicy Transfer;
     };
     class PolicySnapshot final
     {
@@ -31,5 +34,13 @@ namespace Preview::Account
         const Preview::Account::PolicyVersion Version_;
         const PolicySettings Settings_;
         const std::shared_ptr<const RateLimiter> Rate_;
+    };
+    /** @brief 只读取当前正式发布的策略；实现不得在候选准备阶段改变事实。 */
+    class PolicySource
+    {
+    public:
+        virtual ~PolicySource() = default;
+        [[nodiscard]] virtual auto Load(Preview::AccountId Id) const noexcept
+            -> std::shared_ptr<const PolicySnapshot> = 0;
     };
 }

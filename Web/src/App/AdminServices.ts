@@ -1,5 +1,5 @@
-import type { ApiClient } from '../Api/ApiClient';
-import type { Bootstrap } from '../Api/Bootstrap';
+import type { AdminDataSource } from '../Services/AdminDataSource';
 
-/** @brief 路由页面只消费同源 API client 与当前进程身份。 */
-export type AdminServices = Readonly<{ Client: ApiClient; Bootstrap: Bootstrap }>;
+/** @brief 页面只依赖稳定的前端视图数据端口，不认识后端 DTO。 */
+export type AdminMode = 'demo' | 'live';
+export type AdminServices = Readonly<{ Data: AdminDataSource; Mode: AdminMode }>;

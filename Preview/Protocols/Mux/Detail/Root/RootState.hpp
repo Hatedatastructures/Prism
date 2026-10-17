@@ -16,6 +16,7 @@
 #include <optional>
 #include <functional>
 #include <string_view>
+#include <cstdint>
 #include <vector>
 #include <expected>
 #include <system_error>
@@ -66,6 +67,7 @@ namespace Preview::Mux::Detail
         Preview::Lifecycle::TaskIdentity Identity;
         Preview::Network::Target Target;
         Net::cancellation_signal Cancellation;
+        std::atomic_bool NormalCloseCancellation{false};
         std::function<void()> Reject;
         std::function<std::expected<void, Preview::Fault::Failure>()> Reset;
         std::function<Net::awaitable<std::expected<void, Preview::Fault::Failure>>()> Finish;
@@ -75,6 +77,14 @@ namespace Preview::Mux::Detail
     };
     struct RootState final : std::enable_shared_from_this<RootState>
     {
+        enum class RunPhase : std::uint8_t
+        {
+            AcceptingCancellation,
+            CancellationRequested,
+            OutcomePublished,
+            ResourcesRetired
+        };
+
         struct ChildRetirementSlot final
         {
             std::shared_ptr<ChildState> Retained;
@@ -133,9 +143,13 @@ namespace Preview::Mux::Detail
             Child->Root.reset();
             Slot.Retained = std::move(Child);
         }
-        /** @brief executor 上停止 admission、取消每 child 及 frame；根不进入自己的 child scope。 */
+        /** @brief 仅在取消阶段设置或补齐终态；结果发布或退休后不覆盖。 */
         auto RequestCancel() noexcept -> void
         {
+            auto Expected = RunPhase::AcceptingCancellation;
+            if (!Phase.compare_exchange_strong(Expected, RunPhase::CancellationRequested,
+                    std::memory_order_acq_rel) &&
+                Expected != RunPhase::CancellationRequested) return;
             ExitStatus.store(Preview::Fault::Code::Canceled);
             if (Started.load(std::memory_order_acquire))
             {
@@ -143,17 +157,76 @@ namespace Preview::Mux::Detail
             }
             Stop();
         }
+        [[nodiscard]] auto IsClosingNormally() const noexcept -> bool
+        {
+            const auto Current = Phase.load(std::memory_order_acquire);
+            return Stopping.load(std::memory_order_acquire) &&
+                Current != RunPhase::CancellationRequested &&
+                Current != RunPhase::ResourcesRetired;
+        }
+        [[nodiscard]] auto IsExpectedRetirementCancellation(
+            const Preview::Fault::Failure &Failure, bool Retired) const noexcept -> bool
+        {
+            return IsClosingNormally() && Retired &&
+                Failure.Code == Preview::Fault::Code::Canceled;
+        }
+        /** @brief 原子发布 Run 结果；返回 true 表示此前取消请求已胜出。 */
+        [[nodiscard]] auto PublishRunOutcome() noexcept -> bool
+        {
+            auto Expected = RunPhase::AcceptingCancellation;
+            if (Phase.compare_exchange_strong(Expected, RunPhase::OutcomePublished,
+                std::memory_order_acq_rel)) return false;
+            return Expected == RunPhase::CancellationRequested;
+        }
         /** @brief 保存根 Run 子任务最先返回的 typed 首因及 Native。 */
         auto RecordTerminalFailure(Preview::Fault::Failure Failure) noexcept -> void
         {
             const auto Stored = TerminalFailure.TrySet(Failure);
             (void)Stored;
         }
+        [[nodiscard]] static auto FailureFromException(std::exception_ptr Failure) noexcept
+            -> Preview::Fault::Failure
+        {
+            try
+            {
+                if (Failure) std::rethrow_exception(Failure);
+            }
+            catch (const boost::system::system_error &Error)
+            {
+                return Preview::Fault::FromNative(static_cast<std::error_code>(Error.code()));
+            }
+            catch (const std::system_error &Error)
+            {
+                return Preview::Fault::FromNative(Error.code());
+            }
+            catch (...) { return {Preview::Fault::Code::IoError}; }
+            return {Preview::Fault::Code::IoError};
+        }
+        [[nodiscard]] auto DrainTaskScope(
+            const std::shared_ptr<Preview::Lifecycle::TaskRegistry> &Scope)
+            -> Net::awaitable<std::expected<void, Preview::Fault::Failure>>
+        {
+            std::expected<void, Preview::Fault::Failure> Drained;
+            try { Drained = co_await Scope->Drain(); }
+            catch (...) { Drained = std::unexpected(FailureFromException(std::current_exception())); }
+            const auto Stats = Scope->Stats();
+            const bool PhysicallyRetired = Stats.Active == 0U && !Stats.DrainBlocked;
+            const bool ExpectedCancellation = IsClosingNormally() && !Drained &&
+                Drained.error().Code == Preview::Fault::Code::Canceled && PhysicallyRetired;
+            if (!Drained && !ExpectedCancellation)
+                RecordTerminalFailure(Drained.error());
+            if (PhysicallyRetired)
+                co_return std::expected<void, Preview::Fault::Failure>{};
+            if (!Drained) co_return std::unexpected(Drained.error());
+            co_return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+        }
         auto ReleaseResources() -> bool
         {
             if (ResourcesRetired.load()) return true;
             if (Lifetime.Active() != 0U || Lifetime.IsBlocked() ||
                 HasOutstandingChildRetirement()) return false;
+            Phase.store(RunPhase::ResourcesRetired, std::memory_order_release);
             Admission = {};
             Lease.Release();
             ParentStreamLease.Release();
@@ -204,13 +277,19 @@ namespace Preview::Mux::Detail
         auto StopOnExecutor() noexcept -> void
         {
             Stopping.store(true);
-            (void)Children->Cancel();
-            if (EngineControl)
+            const bool H2Closing = EngineControl && SelectedWire == Mode::H2Mux;
+            if (H2Closing)
             {
                 const auto Closed = EngineControl->RequestClose();
                 if (!Closed) RecordTerminalFailure(Closed.error());
             }
-            else
+            (void)Children->Cancel();
+            if (EngineControl && !H2Closing)
+            {
+                const auto Closed = EngineControl->RequestClose();
+                if (!Closed) RecordTerminalFailure(Closed.error());
+            }
+            else if (!EngineControl)
             {
                 try
                 {
@@ -253,6 +332,7 @@ namespace Preview::Mux::Detail
             std::shared_ptr<Preview::Contract::Ingress::StreamResetOwner>> StreamResetOwners;
         Mode SelectedWire{Mode::Auto};
         std::atomic_bool Started{false}, Stopping{false};
+        std::atomic<RunPhase> Phase{RunPhase::AcceptingCancellation};
         std::atomic_bool ResourcesRetired{false};
         std::atomic_bool ResourcesReadyForFinalization{false};
         std::atomic<Preview::Fault::Code> ExitStatus{Preview::Fault::Code::Success};
@@ -286,7 +366,9 @@ namespace Preview::Mux::Detail
         const std::shared_ptr<RootState> &Root) noexcept -> void
     {
         if (Result) return;
-        if (Root) Root->RecordTerminalFailure(Result.error());
+        if (Root && !(Root->IsClosingNormally() &&
+            Result.error().Code == Preview::Fault::Code::Canceled))
+            Root->RecordTerminalFailure(Result.error());
         if (Owner) (void)Owner->TrySet(Result.error());
     }
 
@@ -297,7 +379,9 @@ namespace Preview::Mux::Detail
     {
         if (!Exception) return;
         const auto Failure = ControlFailureFromException(std::move(Exception));
-        if (Root) Root->RecordTerminalFailure(Failure);
+        if (Root && !(Root->IsClosingNormally() &&
+            Failure.Code == Preview::Fault::Code::Canceled))
+            Root->RecordTerminalFailure(Failure);
         if (Owner) (void)Owner->TrySet(Failure);
     }
 
@@ -316,6 +400,8 @@ namespace Preview::Mux::Detail
 
     inline auto ChildState::Cancel() noexcept -> void
     {
+        if (Root && Root->IsClosingNormally())
+            NormalCloseCancellation.store(true, std::memory_order_release);
         Cancellation.emit(Net::cancellation_type::all);
         if (Root && Root->StreamCatalogOwner)
         {

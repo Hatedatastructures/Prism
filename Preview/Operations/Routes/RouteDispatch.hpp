@@ -15,6 +15,7 @@
 #include <Preview/Operations/Routes/ScopedCollectionRoutes.hpp>
 #include <Preview/Operations/Routes/QueryPageParser.hpp>
 #include <Preview/Operations/Routes/GetCollectionRoute.hpp>
+#include <Preview/Operations/Routes/ManagementRoutes.hpp>
 
 #include <array>
 #include <atomic>
@@ -159,6 +160,8 @@ namespace Preview::Operations::RouteDispatch
                                            const Preview::RequestId Correlation)
         -> std::expected<RouteValue, RouteFailure>
     {
+        if (auto Management = MakeManagementGetRoute(Parts, Correlation))
+            return std::move(*Management);
         if (Parts.SegmentCount == 5U && Parts.Segments[0] == "Operations" &&
             Parts.Segments[1] == "Processes" && Parts.Segments[3] == "Generations")
         {

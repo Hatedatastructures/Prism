@@ -14,6 +14,7 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 namespace Preview::Transport::Detail
 {
@@ -34,6 +35,15 @@ namespace Preview::Transport::Detail
      * @note IsIdle 只读 DrainBarrier 与失败状态，不证明并发发起已停止，也不替代 Drain。
      */    class IoActivity final : public Preview::Contract::CarrierActivity
     {
+    public:
+        /** @brief 关闭 owner 需真实回执；操作型仍等待已明确受理的关闭交付。 */
+        enum class RetirementPolicy : std::uint8_t
+        {
+            CloseReceiptRequired,
+            OperationsDrained,
+        };
+
+    private:
         static constexpr std::size_t Capacity = 64, ControlCapacity = 65;
         using Signal = boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>;
         struct Slot final
@@ -45,13 +55,15 @@ namespace Preview::Transport::Detail
         };
         struct State final : Preview::Executor::ClosingResource, std::enable_shared_from_this<State>
         {
-            explicit State(boost::asio::any_io_executor Executor)
-                : Context(Preview::Executor::ContextOwner::Find(Executor)),
+            explicit State(boost::asio::any_io_executor Executor, RetirementPolicy Policy)
+                : RequiresCloseReceipt(Policy != RetirementPolicy::OperationsDrained),
+                  Context(Preview::Executor::ContextOwner::Find(Executor)),
                   Storage(Preview::Executor::ContextOwner::Storage(Executor)),
                   Reclaimer(std::make_shared<Preview::Executor::ExecutorReclaimer>(std::move(Executor))),
                   Barrier(Reclaimer), DrainChanges(Reclaimer->Executor(), 1),
                   DrainNotificationAvailable(Preview::Lifecycle::Detail::DrainNotification::Bind(Reclaimer->Executor()))
             { for (auto& Entry : Slots) Entry.Returned = std::make_unique<Signal>(Reclaimer->Executor(), 1); }
+            const bool RequiresCloseReceipt;
             std::shared_ptr<Preview::Executor::ContextOwner> Context;
             std::shared_ptr<Preview::Executor::ClosingStorage> Storage;
             std::shared_ptr<Preview::Executor::ExecutorReclaimer> Reclaimer;
@@ -62,10 +74,22 @@ namespace Preview::Transport::Detail
             /** @brief 原域回收的独立分配材料，不借用用户erased handler的raw impl代理。 */
             std::allocator<std::byte> CleanupMemory;
             std::atomic<bool> Blocked{false}, Unrecoverable{false};
-            std::atomic<std::size_t> KnownControlFailures{0}, ControlRetriesInFlight{0};
-            std::atomic<bool> CloseDelivered{false};
+            std::atomic<std::size_t> KnownControlFailures{0}, KnownCloseControlFailures{0};
+            std::atomic<std::size_t> ControlRetriesInFlight{0};
+            std::atomic<bool> CloseAccepted{false}, CloseDelivered{false};
             std::atomic<std::size_t> DrainWaiters{0};
             Preview::Fault::FailureState Failure;
+            [[nodiscard]] auto ClosePending() const noexcept -> bool
+            {
+                return CloseAccepted.load(std::memory_order_acquire) &&
+                    !CloseDelivered.load(std::memory_order_acquire);
+            }
+            [[nodiscard]] auto HasReportableControlFailure() const noexcept -> bool
+            {
+                return KnownControlFailures.load(std::memory_order_acquire) != 0 &&
+                    (!ClosePending() ||
+                     KnownCloseControlFailures.load(std::memory_order_acquire) != 0);
+            }
             auto NotifyDrainState() noexcept -> void
             {
                 if (DrainWaiters.load(std::memory_order_acquire) == 0 ||
@@ -74,7 +98,7 @@ namespace Preview::Transport::Detail
             }
             auto Fail(Preview::Fault::Failure Error = {Preview::Fault::Code::Blocked}) noexcept -> void
             {
-                Failure.TrySet(Error);
+                (void)Failure.TrySet(Error);
                 Unrecoverable.store(true, std::memory_order_release);
                 Blocked.store(true, std::memory_order_release);
                 Barrier.Block();
@@ -82,25 +106,38 @@ namespace Preview::Transport::Detail
                 NotifyDrainState();
             }
             /** @brief 记录一个命令的首次正式失败；重复失败不重复计算预约。 */
-            auto RecordControlFailure(Preview::Fault::Failure Error, bool NewForCommand) noexcept -> void
+            auto RecordControlFailure(Preview::Fault::Failure Error, bool NewForCommand,
+                bool IsClose) noexcept -> void
             {
-                if (NewForCommand) KnownControlFailures.fetch_add(1, std::memory_order_acq_rel);
+                if (NewForCommand)
+                {
+                    KnownControlFailures.fetch_add(1, std::memory_order_acq_rel);
+                    if (IsClose)
+                        KnownCloseControlFailures.fetch_add(1, std::memory_order_acq_rel);
+                }
                 if (Unrecoverable.load(std::memory_order_acquire))
                 {
                     Fail(Error);
                     return;
                 }
-                Failure.TrySet(Error);
+                (void)Failure.TrySet(Error);
                 Blocked.store(true, std::memory_order_release);
                 Storage->Retain(shared_from_this());
                 NotifyDrainState();
             }
             /** @brief 仅真实成功的同一命令重试可解除其失败预约。 */
-            auto ResolveControlFailure() noexcept -> void
+            auto ResolveControlFailure(bool IsClose) noexcept -> void
             {
                 auto Count = KnownControlFailures.load(std::memory_order_acquire);
                 while (Count != 0 && !KnownControlFailures.compare_exchange_weak(
                     Count, Count - 1, std::memory_order_acq_rel, std::memory_order_acquire)) {}
+                if (IsClose)
+                {
+                    auto CloseCount = KnownCloseControlFailures.load(std::memory_order_acquire);
+                    while (CloseCount != 0 && !KnownCloseControlFailures.compare_exchange_weak(
+                        CloseCount, CloseCount - 1, std::memory_order_acq_rel,
+                        std::memory_order_acquire)) {}
+                }
                 NotifyDrainState();
                 if (CloseDelivered.load(std::memory_order_acquire) &&
                     KnownControlFailures.load(std::memory_order_acquire) == 0)
@@ -110,6 +147,13 @@ namespace Preview::Transport::Detail
             auto RecordCloseDelivered() noexcept -> void
             {
                 CloseDelivered.store(true, std::memory_order_release);
+                NotifyDrainState();
+            }
+            /** @brief 关闭已受理但尚未在原域交付时，Drain 不得提前返回成功。 */
+            /** @brief 关闭已明确受理；即使操作型活动也必须等该命令实际交付。 */
+            auto RecordCloseAccepted() noexcept -> void
+            {
+                CloseAccepted.store(true, std::memory_order_release);
                 NotifyDrainState();
             }
             /** @brief 登记同一控制命令的重试飞行，Drain 等待其真实 handler 回执。 */
@@ -129,7 +173,8 @@ namespace Preview::Transport::Detail
             auto RequestRetirement() -> void override {}
             [[nodiscard]] auto IsRetired() const noexcept -> bool override
             {
-                return CloseDelivered.load(std::memory_order_acquire) &&
+                return (!RequiresCloseReceipt || CloseDelivered.load(std::memory_order_acquire)) &&
+                    !ClosePending() &&
                     !Unrecoverable.load(std::memory_order_acquire) &&
                     ControlRetriesInFlight.load(std::memory_order_acquire) == 0 &&
                     Barrier.Active() == 0 && HasNoUsedSlots();
@@ -193,7 +238,9 @@ namespace Preview::Transport::Detail
             std::size_t Index_;
             bool Returned_{false};
         };
-        explicit IoActivity(boost::asio::any_io_executor Executor) : State_(std::make_shared<State>(std::move(Executor))) {}
+        explicit IoActivity(boost::asio::any_io_executor Executor,
+            RetirementPolicy Policy = RetirementPolicy::CloseReceiptRequired)
+            : State_(std::make_shared<State>(std::move(Executor), Policy)) {}
         /** @brief 实际载体/TLS引擎owner一次接入；回收独立于用户allocator，数据槽严格限制64。 */
         [[nodiscard]] auto TryAcquire(std::shared_ptr<void> Carrier)
             -> std::expected<Operation, Preview::Fault::Failure>
@@ -202,18 +249,25 @@ namespace Preview::Transport::Detail
         [[nodiscard]] auto TryAcquireControl(std::shared_ptr<void> Carrier)
             -> std::expected<Operation, Preview::Fault::Failure>
         { return Acquire(std::move(Carrier), Range{Capacity, Capacity + ControlCapacity}); }
+        /** @brief 已知可重试控制失败后仍允许独立最终关闭预约。 */
+        [[nodiscard]] auto TryAcquireCloseControl(std::shared_ptr<void> Carrier)
+            -> std::expected<Operation, Preview::Fault::Failure>
+        { return Acquire(std::move(Carrier), Range{Capacity, Capacity + ControlCapacity}, true); }
         auto Block(Preview::Fault::Failure Failure = {Preview::Fault::Code::Blocked}) noexcept -> void { State_->Fail(Failure); }
         /** @brief 保留实际控制 handler 的正式失败；调用方为同一命令只登记首次失败。 */
-        auto RecordControlFailure(Preview::Fault::Failure Failure, bool NewForCommand) noexcept -> void
-        { State_->RecordControlFailure(Failure, NewForCommand); }
+        auto RecordControlFailure(Preview::Fault::Failure Failure, bool NewForCommand,
+            bool IsClose) noexcept -> void
+        { State_->RecordControlFailure(Failure, NewForCommand, IsClose); }
         /** @brief 仅实际成功的同命令重试解除失败预约，不影响其他控制命令。 */
-        auto ResolveControlFailure() noexcept -> void { State_->ResolveControlFailure(); }
+        auto ResolveControlFailure(bool IsClose) noexcept -> void
+        { State_->ResolveControlFailure(IsClose); }
         /** @brief 登记同一控制 owner 正在重试。 */
         auto BeginControlRetry() noexcept -> void { State_->BeginControlRetry(); }
         /** @brief 重试 handler 退栈后发布完成通知。 */
         auto EndControlRetry() noexcept -> void { State_->EndControlRetry(); }
         /** @brief 确认关闭已在原 executor 成功交付；资源仍须等实际 I/O 与 completion 全部退栈。 */
         auto RecordCloseDelivered() noexcept -> void { State_->RecordCloseDelivered(); }
+        auto RecordCloseAccepted() noexcept -> void { State_->RecordCloseAccepted(); }
         /** @brief 仅供原域排他冷移交判定，不替代Drain或允许并发发起新操作。 */
         [[nodiscard]] auto IsIdle() const noexcept -> bool
         { return State_->Barrier.Active() == 0 && !State_->Barrier.IsBlocked() &&
@@ -236,13 +290,13 @@ namespace Preview::Transport::Detail
                 const auto Failure = Owner->Failure.Load();
                 const auto RetryInFlight = Owner->ControlRetriesInFlight.load(std::memory_order_acquire) != 0;
                 if (Owner->Unrecoverable.load(std::memory_order_acquire) ||
-                    (!RetryInFlight && Owner->KnownControlFailures.load(std::memory_order_acquire) != 0))
+                    (!RetryInFlight && Owner->HasReportableControlFailure()))
                 {
                     if (Failure.Failed()) Result = std::unexpected(Failure);
                     else Result = std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
                     break;
                 }
-                if (!RetryInFlight && Owner->Barrier.Active() == 0)
+                if (!RetryInFlight && Owner->Barrier.Active() == 0 && !Owner->ClosePending())
                 {
                     if (!Owner->CloseDelivered.load(std::memory_order_acquire) && Failure.Failed())
                         Result = std::unexpected(Failure);
@@ -264,8 +318,8 @@ namespace Preview::Transport::Detail
                 const bool RetryPending =
                     Owner->ControlRetriesInFlight.load(std::memory_order_acquire) != 0;
                 if (Owner->Unrecoverable.load(std::memory_order_acquire) ||
-                    (!RetryPending && Owner->KnownControlFailures.load(std::memory_order_acquire) != 0) ||
-                    (!RetryPending && Owner->Barrier.Active() == 0))
+                    (!RetryPending && Owner->HasReportableControlFailure()) ||
+                    (!RetryPending && Owner->Barrier.Active() == 0 && !Owner->ClosePending()))
                     continue;
                 if (!Owner->Reclaimer->CanDispatch()) continue;
                 boost::system::error_code Error;
@@ -283,15 +337,27 @@ namespace Preview::Transport::Detail
             co_return Result;
         }
         struct Range final { std::size_t Begin, End; };
-        [[nodiscard]] auto Acquire(std::shared_ptr<void> Carrier, Range Slots)
+        [[nodiscard]] auto Acquire(
+            std::shared_ptr<void> Carrier, Range Slots,
+            const bool AllowKnownControlFailure = false)
             -> std::expected<Operation, Preview::Fault::Failure>
         {
             if (!Carrier) return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::InvalidArgument});
-            if (State_->Blocked.load(std::memory_order_acquire)) return std::unexpected(State_->Failure.Load());
+            const auto CanPassKnownFailure = AllowKnownControlFailure &&
+                !State_->Unrecoverable.load(std::memory_order_acquire);
+            if (State_->Blocked.load(std::memory_order_acquire) && !CanPassKnownFailure)
+                return std::unexpected(State_->Failure.Load());
             if (!State_->Barrier.Enter())
             {
                 State_->NotifyDrainState();
                 return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::Canceled});
+            }
+            if (State_->Blocked.load(std::memory_order_acquire) &&
+                (State_->Unrecoverable.load(std::memory_order_acquire) || !AllowKnownControlFailure))
+            {
+                State_->Barrier.Leave();
+                State_->NotifyDrainState();
+                return std::unexpected(State_->Failure.Load());
             }
             for (std::size_t Index = Slots.Begin; Index < Slots.End; ++Index)
             {

@@ -246,6 +246,9 @@ namespace Preview::Account
             }
             auto Runtime = RuntimeFor(Definition.Materials->AccountId());
             if (!Runtime) { return std::unexpected(Runtime.error()); }
+            if (!(*Runtime)->BindStableKey(Definition.Materials->DisplayIdentity()))
+                return std::unexpected(Failure{Code::InvalidArgument});
+            RuntimeRegistry_->InstallTransfer(*Runtime);
             std::shared_ptr<const RateLimiter> Previous;
             for (const auto& Binding : Base->Bindings)
             { if (Binding->AccountId() == Definition.Materials->AccountId()) { Previous = Binding->Policy()->Rate(); break; } }

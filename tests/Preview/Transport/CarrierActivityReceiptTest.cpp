@@ -2,18 +2,42 @@
 #include <Preview/Protocols/Common/ProtocolActivity.hpp>
 #include <Preview/Transport/Detail/ActivityGroup.hpp>
 #include <Preview/Transport/Detail/ForwardActivity.hpp>
+#include <Preview/Transport/Detail/IoActivity.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <gtest/gtest.h>
+#include <cstddef>
 #include <exception>
 #include <memory>
 #include <optional>
 #include <system_error>
+#include <vector>
 
 namespace
 {
     namespace Net = boost::asio;
     using Result = std::expected<void, Preview::Fault::Failure>;
+    /** @brief 证明组合器拒绝 Drain 成功但无物理退休回执的成员。 */
+    class DrainOnlyActivity final : public Preview::Contract::CarrierActivity
+    {
+    public:
+        explicit DrainOnlyActivity(Net::any_io_executor Executor,
+            Preview::Fault::Failure Failure = {}) : Executor_(std::move(Executor)), Failure_(Failure) {}
+        auto Seal() noexcept -> void override { ++SealCalls; }
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override { return Executor_; }
+        [[nodiscard]] auto IsRetired() const noexcept -> bool override { return false; }
+        [[nodiscard]] auto Drain() -> Net::awaitable<Result> override
+        {
+            ++DrainCalls;
+            Seal();
+            if (Failure_.Failed()) co_return std::unexpected(Failure_);
+            co_return Result{};
+        }
+        std::size_t SealCalls{0}, DrainCalls{0};
+    private:
+        Net::any_io_executor Executor_;
+        Preview::Fault::Failure Failure_;
+    };
     /** @brief 注入历史结果但不伪造底层 ProtocolActivity 的物理回执。 */
     class HistoricalActivity final : public Preview::Contract::CarrierActivity
     {
@@ -97,6 +121,53 @@ TEST(CarrierActivityReceipt, UnknownChildBlocksRetirementAndRemainingChildStillD
     EXPECT_TRUE(Last->IsRetired());
 }
 
+/** @brief 组合Drain不能把成员缺少的物理退休回执折叠为成功。 */
+TEST(CarrierActivityReceipt, GroupDrainRejectsSuccessWithoutRetirement)
+{
+    Net::io_context Io;
+    auto Parent = std::make_shared<Preview::Protocols::ProtocolActivity>(Io.get_executor());
+    auto Child = std::make_shared<DrainOnlyActivity>(Io.get_executor());
+    auto Group = std::make_shared<Preview::Transport::Detail::ActivityGroup>(Parent,
+        std::vector<std::shared_ptr<Preview::Contract::CarrierActivity>>{Child});
+    const auto Outcome = Drain(Io, Group);
+    ASSERT_FALSE(Outcome);
+    EXPECT_EQ(Outcome.error().Code, Preview::Fault::Code::Blocked);
+    EXPECT_FALSE(Group->IsRetired());
+}
+
+/** @brief 未退休的 Parent 仍可启动子 I/O，Group 必须先保留 Child 准入。 */
+TEST(CarrierActivityReceipt, ParentWithoutRetirementKeepsChildrenUnsealed)
+{
+    Net::io_context Io;
+    auto Parent = std::make_shared<DrainOnlyActivity>(Io.get_executor());
+    auto Child = std::make_shared<DrainOnlyActivity>(Io.get_executor());
+    auto Group = std::make_shared<Preview::Transport::Detail::ActivityGroup>(Parent,
+        std::vector<std::shared_ptr<Preview::Contract::CarrierActivity>>{Child});
+    const auto Outcome = Drain(Io, Group);
+    ASSERT_FALSE(Outcome);
+    EXPECT_EQ(Outcome.error().Code, Preview::Fault::Code::Blocked);
+    EXPECT_EQ(Parent->DrainCalls, 1U);
+    EXPECT_EQ(Child->SealCalls, 0U);
+    EXPECT_EQ(Child->DrainCalls, 0U);
+}
+
+/** @brief Parent 未退休且报告首因时保留该错误，并让 Child 继续准入。 */
+TEST(CarrierActivityReceipt, ParentFailureWithoutRetirementPreservesCause)
+{
+    Net::io_context Io;
+    const auto Native = std::make_error_code(std::errc::connection_aborted);
+    auto Parent = std::make_shared<DrainOnlyActivity>(
+        Io.get_executor(), Preview::Fault::FromNative(Native));
+    auto Child = std::make_shared<DrainOnlyActivity>(Io.get_executor());
+    auto Group = std::make_shared<Preview::Transport::Detail::ActivityGroup>(Parent,
+        std::vector<std::shared_ptr<Preview::Contract::CarrierActivity>>{Child});
+    const auto Outcome = Drain(Io, Group);
+    ASSERT_FALSE(Outcome);
+    EXPECT_EQ(Outcome.error().Native, Native);
+    EXPECT_EQ(Child->SealCalls, 0U);
+    EXPECT_EQ(Child->DrainCalls, 0U);
+}
+
 TEST(CarrierActivityReceipt, ForwardedCloseDrainsChildDespiteHistoricalParentFailure)
 {
     Net::io_context Io;
@@ -111,5 +182,106 @@ TEST(CarrierActivityReceipt, ForwardedCloseDrainsChildDespiteHistoricalParentFai
     ASSERT_FALSE(Outcome);
     EXPECT_EQ(Outcome.error().Native, Native);
     EXPECT_EQ(Child->DrainCalls, 1U);
+    EXPECT_TRUE(Forward->IsRetired());
+}
+
+/** @brief 已受理的关闭尚未交付时，成功 Drain 必须等待关闭回执。 */
+TEST(CarrierActivityReceipt, AcceptedCloseWaitsForDeliveryBeforeSuccessfulDrain)
+{
+    Net::io_context Io;
+    auto Activity = std::make_shared<Preview::Transport::Detail::IoActivity>(Io.get_executor());
+    Activity->RecordCloseAccepted();
+    Activity->Seal();
+    std::optional<Result> Outcome;
+    std::exception_ptr Exception;
+    bool RetiredAtReturn = false;
+    Net::co_spawn(Io, Activity->Drain(), [&](std::exception_ptr Error, Result Value)
+    {
+        Exception = std::move(Error);
+        Outcome.emplace(std::move(Value));
+        RetiredAtReturn = Activity->IsRetired();
+    });
+    ASSERT_EQ(Io.run_one(), 1U);
+    EXPECT_FALSE(Outcome.has_value());
+    EXPECT_FALSE(Activity->IsRetired());
+    Activity->RecordCloseDelivered();
+    Io.run();
+    EXPECT_EQ(Exception, nullptr);
+    ASSERT_TRUE(Outcome.has_value());
+    EXPECT_TRUE(*Outcome);
+    EXPECT_TRUE(RetiredAtReturn);
+}
+
+/** @brief 只排空借用层操作时，不要求它执行或等待底层关闭。 */
+TEST(CarrierActivityReceipt, DrainWithoutCloseRequestDoesNotWaitForCloseReceipt)
+{
+    Net::io_context Io;
+    auto Activity = std::make_shared<Preview::Transport::Detail::IoActivity>(Io.get_executor());
+    Activity->Seal();
+    const auto Outcome = Drain(Io, Activity);
+    ASSERT_TRUE(Outcome);
+    EXPECT_FALSE(Activity->IsRetired());
+}
+
+/** @brief TLS操作活动等全部预约退栈即可退休，不需要伪造底层关闭回执。 */
+TEST(CarrierActivityReceipt, OperationsDrainedActivityWaitsForOperationsAndRetires)
+{
+    Net::io_context Io;
+    using ActivityType = Preview::Transport::Detail::IoActivity;
+    auto Activity = std::make_shared<ActivityType>(Io.get_executor(),
+        ActivityType::RetirementPolicy::OperationsDrained);
+    auto Acquired = Activity->TryAcquire(std::make_shared<int>(1));
+    ASSERT_TRUE(Acquired);
+    std::optional<ActivityType::Operation> Operation{std::move(*Acquired)};
+    Activity->Seal();
+    std::optional<Result> Outcome;
+    std::exception_ptr Exception;
+    Net::co_spawn(Io, Activity->Drain(), [&](std::exception_ptr Error, Result Value)
+    {
+        Exception = std::move(Error);
+        Outcome.emplace(std::move(Value));
+    });
+    ASSERT_EQ(Io.run_one(), 1U);
+    EXPECT_FALSE(Outcome.has_value());
+    EXPECT_FALSE(Activity->IsRetired());
+    Operation->Returned();
+    Operation.reset();
+    Io.run();
+    EXPECT_EQ(Exception, nullptr);
+    ASSERT_TRUE(Outcome.has_value());
+    EXPECT_TRUE(*Outcome);
+    EXPECT_TRUE(Activity->IsRetired());
+}
+
+
+/** @brief 转交关闭的 child 回执未到时，ForwardActivity 不得宣称整条链退休。 */
+TEST(CarrierActivityReceipt, ForwardedChildWaitsForAcceptedCloseDelivery)
+{
+    Net::io_context Io;
+    auto Parent = std::make_shared<Preview::Transport::Detail::IoActivity>(Io.get_executor());
+    auto Child = std::make_shared<Preview::Transport::Detail::IoActivity>(Io.get_executor());
+    Parent->RecordCloseAccepted();
+    Parent->Seal();
+    Parent->RecordCloseDelivered();
+    Child->RecordCloseAccepted();
+    Child->Seal();
+    auto Forward = std::make_shared<Preview::Transport::Detail::ForwardActivity>(Parent, Child);
+    Forward->RequireChildDrain();
+    std::optional<Result> Outcome;
+    std::exception_ptr Exception;
+    Net::co_spawn(Io, Forward->Drain(), [&](std::exception_ptr Error, Result Value)
+    {
+        Exception = std::move(Error);
+        Outcome.emplace(std::move(Value));
+    });
+    ASSERT_EQ(Io.run_one(), 1U);
+    EXPECT_FALSE(Outcome.has_value());
+    EXPECT_TRUE(Parent->IsRetired());
+    EXPECT_FALSE(Child->IsRetired());
+    Child->RecordCloseDelivered();
+    Io.run();
+    EXPECT_EQ(Exception, nullptr);
+    ASSERT_TRUE(Outcome.has_value());
+    EXPECT_TRUE(*Outcome);
     EXPECT_TRUE(Forward->IsRetired());
 }

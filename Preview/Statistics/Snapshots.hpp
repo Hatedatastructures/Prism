@@ -103,6 +103,18 @@ namespace Preview::Statistics
         bool Accepting{false};
         std::uint64_t ActiveTasks{0};
         std::uint64_t DroppedEvents{0};
+        std::uint64_t MailboxDepth{0};
+        std::uint64_t MailboxCapacity{0};
+        std::uint64_t StartedTasks{0};
+        std::uint64_t CompletedTasks{0};
+        std::uint64_t CancelledTasks{0};
+        std::uint64_t DispatchAccepted{0};
+        std::uint64_t DispatchFull{0};
+        std::uint64_t DispatchClosed{0};
+        std::uint64_t DispatchUnavailable{0};
+        std::uint64_t DispatchGenerationRejected{0};
+        std::uint64_t CommandsExecuted{0};
+        std::uint64_t CommandsFailed{0};
     };
 
     struct AccountSnapshot final
@@ -112,6 +124,7 @@ namespace Preview::Statistics
         std::optional<TrafficValue> Traffic{};
         std::uint64_t ActiveSessions{0};
         std::string Label{};
+        std::optional<std::string> GroupId{};
         bool Revoked{false};
     };
 
@@ -124,6 +137,9 @@ namespace Preview::Statistics
         Preview::GenerationId Generation{};
         std::optional<TrafficValue> Traffic{};
         std::uint64_t StartedAt{0};
+        std::string Identity{};
+        std::string SourceAddress{};
+        std::string Transport{"tcp"};
         std::string Protocol{};
         std::string Target{};
         bool Active{false};

@@ -12,7 +12,7 @@
  *          根因是 `co_spawn(State->Strand, CloseOnStrand(std::move(State), ...))`
  *          的实参求值顺序未指定：GCC 自右向左求值，先把 State 置空，
  *          再对空指针取 Strand。本文件锁定两条不变量：
- *          1) `Close()` 在任何状态下都不得崩溃，且后续读返回 EOF；
+ *          1) `Close()` 在任何状态下都不得崩溃，后续读按已封止的 I/O 准入返回 Canceled；
  *          2) 服务端关闭会话时必须唤醒已注册流的挂起读，以 EOF 收口。
  */
 
@@ -48,6 +48,47 @@ namespace
     namespace Net = boost::asio;
     using Preview::Mux::H2Mux::Http2State;
     using Preview::Mux::H2Mux::Http2Stream;
+
+    /// 看门狗：仅解除挂死；正常收尾取消计时后不触发。
+    struct Watchdog final
+    {
+        std::shared_ptr<Net::steady_timer> Timer;
+        std::shared_ptr<bool> Timeouted{std::make_shared<bool>(false)};
+
+        explicit Watchdog(Net::io_context &Io, std::chrono::milliseconds Budget)
+            : Timer(std::make_shared<Net::steady_timer>(Io.get_executor()))
+        {
+            auto TimeoutedFlag = Timeouted;
+            auto TimerValue = Timer;
+            auto *IoPtr = &Io;
+            Timer->expires_after(Budget);
+            Timer->async_wait(
+                [TimeoutedFlag, TimerValue, IoPtr](const boost::system::error_code &Error)
+                {
+                    if (Error == Net::error::operation_aborted)
+                    {
+                        return;
+                    }
+                    *TimeoutedFlag = true;
+                    IoPtr->stop();
+                });
+        }
+
+        auto Cancel() const -> void
+        {
+            Timer->cancel();
+        }
+    };
+
+    /** @brief 关闭 H2 服务端并等待 Run 内部完成唯一根、子流及 carrier 排空。 */
+    auto DrainHttp2Server(
+        const std::shared_ptr<Preview::Mux::H2Mux::Http2Server> &Server)
+        -> Net::awaitable<void>
+    {
+        Server->Close();
+        const auto Drained = co_await Server->Drain();
+        EXPECT_TRUE(Drained);
+    }
 
     struct ServerRunObservation final
     {
@@ -244,8 +285,9 @@ namespace
 
     struct WriteFailureScenario final
     {
-        explicit WriteFailureScenario(Net::any_io_executor Ex)
-            : ServerDone(Ex, 1), ReadDone(Ex, 1)
+        explicit WriteFailureScenario(Net::io_context &Io)
+            : ServerDone(Io.get_executor(), 1), ReadDone(Io.get_executor(), 1),
+              Guard(Io, std::chrono::seconds(5))
         {
         }
 
@@ -254,6 +296,7 @@ namespace
         std::shared_ptr<Preview::Mux::H2Mux::Http2Stream> Stream;
         std::shared_ptr<ScriptedWriteTransmission> Transport;
         Net::experimental::channel<void(boost::system::error_code)> ServerDone, ReadDone;
+        Watchdog Guard;
         std::exception_ptr Failure;
         Preview::Fault::Failure RunFailure{};
         bool RunCompleted{false};
@@ -271,6 +314,15 @@ namespace
         State->ReadError = Preview::Fault::ToNative(Result.Failure);
         State->ReadCompleted = true;
         (void)State->ReadDone.try_send(boost::system::error_code{});
+    }
+
+    auto CloseWriteFailureServer(std::shared_ptr<WriteFailureScenario> State)
+        -> Net::awaitable<void>
+    {
+        State->Server->Close();
+        co_await State->ServerDone.async_receive(Net::use_awaitable);
+        const auto Drained = co_await State->Server->Drain();
+        EXPECT_TRUE(Drained);
     }
 
     auto RunWriteFailureScenario(std::shared_ptr<WriteFailureScenario> State) -> Net::awaitable<void>
@@ -292,14 +344,31 @@ namespace
             Preview::Http2::HeaderList{{":method", "CONNECT"}}, false);
         if (!Opened)
         {
+            co_await CloseWriteFailureServer(State);
+            State->Guard.Cancel();
             co_return;
         }
         std::vector<std::byte> Wire;
-        if (!ClientSession->Collect(Wire)) co_return;
+        if (!ClientSession->Collect(Wire))
+        {
+            co_await CloseWriteFailureServer(State);
+            State->Guard.Cancel();
+            co_return;
+        }
         const auto WriteResult = co_await State->Client->WriteExact(Wire);
-        if (WriteResult.Failure.Failed()) co_return;
+        if (WriteResult.Failure.Failed())
+        {
+            co_await CloseWriteFailureServer(State);
+            State->Guard.Cancel();
+            co_return;
+        }
         State->Stream = co_await State->Server->AcceptStream();
-        if (!State->Stream) co_return;
+        if (!State->Stream)
+        {
+            co_await CloseWriteFailureServer(State);
+            State->Guard.Cancel();
+            co_return;
+        }
         Net::co_spawn(State->Stream->Executor(), ReadPending(State), Net::detached);
         for (int Index = 0; Index < 4; ++Index)
         {
@@ -319,6 +388,7 @@ namespace
         EXPECT_TRUE(ActivityDrain);
         const auto TerminationDrain = co_await State->Stream->DrainTerminations();
         EXPECT_TRUE(TerminationDrain);
+        State->Guard.Cancel();
     }
 
     /// 构造仅含内存传输与 HTTP/2 会话的 H2 服务端状态
@@ -331,37 +401,6 @@ namespace
             std::make_shared<Preview::Http2::Session>(State->Strand, true);
         return State;
     }
-
-    /// 看门狗：仅用于解除挂死；正常收尾会先取消它，Timeouted 保持 false
-    struct Watchdog final
-    {
-        std::shared_ptr<Net::steady_timer> Timer;
-        std::shared_ptr<bool> Timeouted{std::make_shared<bool>(false)};
-
-        explicit Watchdog(Net::io_context &Io, std::chrono::milliseconds Budget)
-            : Timer(std::make_shared<Net::steady_timer>(Io.get_executor()))
-        {
-            auto TimeoutedFlag = Timeouted;
-            auto TimerValue = Timer;
-            auto *IoPtr = &Io;
-            Timer->expires_after(Budget);
-            Timer->async_wait(
-                [TimeoutedFlag, TimerValue, IoPtr](const boost::system::error_code &Error)
-                {
-                    if (Error == Net::error::operation_aborted)
-                    {
-                        return;
-                    }
-                    *TimeoutedFlag = true;
-                    IoPtr->stop();
-                });
-        }
-
-        auto Cancel() const -> void
-        {
-            Timer->cancel();
-        }
-    };
 
     auto CloseAndDrain(Net::io_context &Io, Preview::SharedTransmission Carrier) -> bool
     {

@@ -44,7 +44,7 @@ namespace Preview::Quic::Detail
         -> Preview::Fault::Failure
     {
         return Preview::Fault::FromNative(
-            State.PeerFailure ? State.PeerFailure
+            State.PeerWriteFailure ? State.PeerWriteFailure
                               : std::make_error_code(std::errc::connection_reset));
     }
 
@@ -457,7 +457,7 @@ namespace Preview::Quic::Detail
         State.PeerReset = true;
         State.PeerFinalSize = FinalSize;
         State.PeerApplicationErrorCode = ApplicationErrorCode;
-        State.PeerFailure = std::make_error_code(std::errc::connection_reset);
+        State.PeerReadFailure = std::make_error_code(std::errc::connection_reset);
         (void)State.Notify.try_send(boost::system::error_code{});
     }
 
@@ -472,9 +472,9 @@ namespace Preview::Quic::Detail
         auto &State = *It->second;
         State.PeerStopSending = true;
         State.PeerApplicationErrorCode = ApplicationErrorCode;
-        State.PeerFailure = std::make_error_code(std::errc::broken_pipe);
+        State.PeerWriteFailure = std::make_error_code(std::errc::broken_pipe);
         State.LocalWriteClosed = true;
-        State.LocalWriteFailure = Preview::Fault::FromNative(State.PeerFailure);
+        State.LocalWriteFailure = Preview::Fault::FromNative(State.PeerWriteFailure);
         (void)State.Notify.try_send(boost::system::error_code{});
         (void)State.FinAcknowledgedNotify.try_send(boost::system::error_code{});
         (void)FlowNotify_.try_send(boost::system::error_code{});

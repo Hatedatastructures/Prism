@@ -1,44 +1,23 @@
-# Prism Preview 本机管理页面
+# Prism 运维控制台
 
-本目录保存正式管理界面的 React、TypeScript 与样式源码。当前授权工作树为 `C:\Users\C1373\.codex\worktrees\preview-quality\Prism`，页面源码位于该工作树的 `Web/`。
+默认读取同源 `/Operations/*` 的 API v2；明确选择 `/?source=demo` 可以预览本页演示夹具。演示模式顶部持续显示提示，失败不会触发演示回退。`VITE_OPERATIONS_MODE=demo` 仅用于明确的开发或验收资源构建。
 
-## 页面能力
+## 检查与浏览器测试
 
-- 概览展示当前进程的健康、入口就绪状态、Worker 当前页统计和真实统计数据。
-- Worker 页面查看运行状态与流量，并在服务发布该能力时请求优雅排空。
-- 账户页面查看撤销状态和统计数据；撤销确认会区分保留现有会话或同时关闭会话。
-- 会话页面按当前进程列出 Session，并在选择后读取对应 Stream 与 Task；取消、重置等命令会先显示具体目标并要求确认。
-- 事件页面按服务端游标读取当前保留窗口，呈现事件缺口、丢弃计数及真实操作状态。服务端不支持的跨页筛选会明确显示为不可用。
-- 统计页面呈现真实累计值、已采样历史和识别延迟。延迟单位为微秒，百分位数是直方图桶下界近似值，最大值为实测值；未采到样本时保持空值，不补零。统计 collector 未安装时，Worker、Account 与 Session 流量显示为“未采集”；指标查询不可用时不会构造零值。
-- 配置页面保留草稿并展示差异；只有当前配置版本下同一配置草稿的 ValidateOnly 操作得到完成确认后，才允许应用。服务端返回需重启的变更时，页面显示受影响字段，不会当作热更新成功。
-- 操作中心恢复当前管理进程已取得编号的操作。进程更换、进度查询失败、操作记录不再保留及浏览器会话存储不可用时，页面会保留其能确认的事实并标出未知状态。
+- `npm run check`：TypeScript 严格检查。
+- `npm test`：Node 原生行为测试，验证实际 wire 形状、64 位保真、配置往返、操作请求和统计口径。
+- `npm run test:e2e -- --project=edge-2265`：对已经运行的服务执行浏览器验收；配置不会自行启停服务器。`PRISM_WEB_URL` 可指向专用验收实例。
+- 六个固定视口为 2265×1244、1920×1080、1440×900、1280×800、768×1024、390×844，DPR=1。测试包含 Edge 与 Chromium 项目；运行前安装对应浏览器。结果写入仓库 `build/WebQa/`。
+- 正式资源由 CMake 的 `PrismWeb` target 生成。构建遵守根 AGENTS 的同意、目录与时间线程要求。
 
-页面按 Bootstrap 声明的能力控制入口。命令需要明确确认；页面不会自动重发命令。命令响应丢失且没有取得可查询操作编号时，会明确显示结果未知，不能通过不存在的编号确认结果。
+## 当前接线边界
 
-## 运行入口与访问约束
+Bootstrap 只接受 API v2。命令 token 只在 datasource 的私有内存中，不写 Query 缓存、URL、localStorage 或日志。每次 POST 使用幂等标识和启动 incarnation；无正文的 Drain/Revoke/Cancel/Reset 不发送空 JSON。Reload 使用编辑时固定的 `base_generation`，保留原始 JSON 整数 token。
 
-正式页面由 Preview 的 Operations HTTP 服务提供。当前 `Preview/Application/Configuration/PreviewConfiguration.json` 将 Operations 绑定到 `127.0.0.1:9090`；构建运行时页面资源目录为 `build/Web`，目录清单也由 Preview CMake 构建流程生成。使用已构建的 `PrismPreview` 和对应的 `build/src/PreviewConfiguration.json` 后，从同一地址打开：
+正式部署使用管理端同源资源。开发代理仅在请求 Origin 与实际本机 Host 同源、且目标为固定 loopback HTTP 后端时映射 Origin；外部来源、畸形 Origin、带凭据来源与任意远端目标不会被提升为可信请求。此校验由 `scripts/ProxyOrigin.ts` 和对应行为测试覆盖，不放宽 C++ 管理端安全校验。修改开发配置会让既有 Vite 自动重载，本次没有手工终止或替换用户的 Node 进程。HTTP 请求形状和代理检查由确定性测试验证，不能据此声称生产后端操作已经联调。
 
-```text
-http://127.0.0.1:9090/
-```
+当前后端仍在独立任务中修改。前端只使用 Bootstrap 公布的能力：`history.read`、`accounts.usage.read`、`accounts.usage.adjust`、`search.read`、`accounts.policy.write` 等未提供时明确说明不可用。未公布 `<collection>.filter` 时，搜索/状态仅筛选已载入记录，不发送被后端忽略或拒绝的参数。Events 的 process/generation 筛选同样受能力约束，并在已载入窗口核对身份。
 
-Bootstrap API 地址为同源的 `/Operations/Bootstrap`。命令凭据只由页面 API 客户端保存在内存并随同源 Bearer 请求发送；页面不把凭据写入浏览器存储、日志或界面。客户端仅允许本机 loopback HTTP 同源访问，不配置跨源代理或 CORS fallback。Vite 开发服务器的地址不是正式 API 入口。
+旧账户 `active_sessions` 当前表示根连接租约，页面据此标记；独立活动 Session 数不可从这一字段推导。旧协议记录可能共享类型计数，页面标记共享覆盖；新增 `kind=type/instance` 后按类型行计算分布，不能把实例数据重复相加。
 
-## 检查与构建
-
-需要 Node.js `>=24.14.1`。在 `Web/` 目录执行：
-
-```powershell
-npm ci
-npm run check
-npm run build
-```
-
-`npm run check` 执行 `tsc --noEmit`。`npm run build` 先运行同一类型检查，再由 Vite 生成页面资源到工作树根目录的 `build/Web`。Preview 的 CMake `PrismWeb` 目标会生成该目录的正式 catalog；`PrismPreview` 依赖此目标，运行时从可执行文件对应的 `build/Web` 读取完整性校验后的资源。
-
-## 验收记录
-
-本次 ProductionWeb99 源码检查覆盖实际 Operations API 解码、进程与配置版本范围、命令状态、空统计值、页面加载错误恢复、键盘操作与窄屏表格访问。`npm run check` 已通过。
-
-Root 的 C6Production100Build 于 2026-10-14 20:07 上海时间完成：PrismPreview 编译链接成功，其 PrismWeb 依赖的类型检查、Vite bundle 和 catalog 生成通过；14 个页面资源的大小和 SHA-256 已逐项核对。按用户要求，当前版本尚未启动 Main、浏览器或测试，生产阶段现已停止，等待用户测试。完整路径、启动命令和证据见 [生产交付记录](/C:/Users/C1373/.codex/worktrees/preview-quality/Prism/docs/preview-refactor/2026-10-14-preview-production-delivery.md)。
+可靠额度执行、30 天持久历史、所有协议预算覆盖、持久操作幂等与动态健康，需要后端正式装配并分别验收。前端能力面板和演示夹具不能替代这些验收。

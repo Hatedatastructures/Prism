@@ -1,6 +1,7 @@
 /** @file Http2Dispatch.hpp @brief H2Mux HTTP/2 admission、stream retirement 与唯一 FlushGate writer。 */
 #pragma once
 #include <Preview/Protocols/Mux/H2Mux/Http2Stream.hpp>
+#include <Preview/Protocols/Mux/H2Mux/Http2StreamControl.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <algorithm>
@@ -141,11 +142,18 @@ namespace Preview::Mux::H2Mux
                 if (Iterator == Streams.end()) break;
                 const auto StreamId = Iterator->first;
                 const auto Stream = Iterator->second;
-                const auto Activity = co_await Stream->Activity()->Drain();
+                const auto StreamActivity = Stream->Activity();
+                const auto Activity = co_await StreamActivity->Drain();
                 co_await Net::dispatch(Strand, Net::use_awaitable);
                 if (!Activity)
                 {
                     Stream->MarkRetirementFailed(Activity.error());
+                    continue;
+                }
+                if (!StreamActivity->IsRetired())
+                {
+                    Stream->MarkRetirementFailed(
+                        Preview::Fault::Failure{Preview::Fault::Code::Blocked});
                     continue;
                 }
                 const auto EndDrain = co_await Stream->DrainTerminations();
@@ -188,17 +196,25 @@ namespace Preview::Mux::H2Mux
 
     inline auto Http2State::RecordFailure(const Failure Value) noexcept -> void
     {
-        if (Value.Failed())
+        if (Value.Failed()) (void)FirstFailure.TrySet(Value);
+    }
+
+    inline auto Http2State::RecordCloseCancellation(const Failure Value) noexcept -> void
+    {
+        if (Value.Code != Preview::Fault::Code::Canceled ||
+            !CloseRequested.load(std::memory_order_acquire))
         {
-            // TrySet 只报告并发首因是否由本次发布；失败控制流仍由当前调用者处理。
-            (void)FirstFailure.TrySet(Value);
+            RecordFailure(Value.Failed() ? Value : Failure{Preview::Fault::Code::InvalidArgument});
+            return;
         }
+        (void)CloseCancellation.TrySet(Value);
     }
 
     /** @brief 同一个连接 owner 重试关闭命令、任务与所有实际 stream barrier。 */
     inline auto Http2State::Drain() -> Net::awaitable<std::expected<void, Failure>>
     {
         co_await Net::this_coro::throw_if_cancelled(false);
+        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
         co_await Net::dispatch(Strand, Net::use_awaitable);
         if (Retired.load(std::memory_order_acquire))
         {
@@ -254,6 +270,13 @@ namespace Preview::Mux::H2Mux
         }
         const auto First = FirstFailure.Load();
         if (First.Failed()) co_return std::unexpected(First);
+        if (!Retired.load(std::memory_order_acquire))
+        {
+            const auto CloseFailure = CloseCancellation.Load();
+            if (CloseFailure.Failed()) co_return std::unexpected(CloseFailure);
+            co_return std::unexpected(
+                Preview::Fault::Failure{Preview::Fault::Code::Blocked});
+        }
         co_return std::expected<void, Failure>{};
     }
 
@@ -270,11 +293,19 @@ namespace Preview::Mux::H2Mux
             const auto StreamId = Iterator->first;
             const auto Stream = Iterator->second;
             LastStreamId = StreamId;
-            const auto Activity = co_await Stream->Activity()->Drain();
+            const auto StreamActivity = Stream->Activity();
+            const auto Activity = co_await StreamActivity->Drain();
             co_await Net::dispatch(Strand, Net::use_awaitable);
             if (!Activity)
             {
                 Stream->MarkRetirementFailed(Activity.error());
+                Complete = false;
+                continue;
+            }
+            if (!StreamActivity->IsRetired())
+            {
+                Stream->MarkRetirementFailed(
+                    Preview::Fault::Failure{Preview::Fault::Code::Blocked});
                 Complete = false;
                 continue;
             }
@@ -317,7 +348,7 @@ namespace Preview::Mux::H2Mux
         const auto Drained = co_await Activity->Drain();
         co_await Net::dispatch(Strand, Net::use_awaitable);
         if (!Drained) RecordFailure(Drained.error());
-        RawDrained = !Raw->IsOpen() && static_cast<bool>(Drained);
+        RawDrained = !Raw->IsOpen() && Activity->IsRetired();
         if (!RawDrained) RecordFailure(Preview::Fault::Failure{Preview::Fault::Code::Blocked});
         co_return RawDrained;
     }
@@ -347,16 +378,23 @@ namespace Preview::Mux::H2Mux
         co_return std::expected<void, Failure>{};
     }
 
-    inline auto Http2State::Flush() -> Net::awaitable<std::expected<void, Failure>>
+    inline auto Http2State::Flush() -> Net::awaitable<FlushResult>
     {
         co_await Net::dispatch(Strand, Net::use_awaitable);
         if (!FlushGate)
-            co_return std::unexpected(Failure{Preview::Fault::Code::Canceled});
+            co_return FlushResult{Failure{Preview::Fault::Code::Canceled}, false};
+        co_await Net::this_coro::throw_if_cancelled(false);
+        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
         boost::system::error_code GateError;
         co_await FlushGate->async_receive(Net::redirect_error(Net::use_awaitable, GateError));
         co_await Net::dispatch(Strand, Net::use_awaitable);
         if (GateError)
-            co_return std::unexpected(Preview::Fault::FromNative(static_cast<std::error_code>(GateError)));
+        {
+            if (Closed)
+                co_return FlushResult{Failure{Preview::Fault::Code::Canceled}, true};
+            co_return FlushResult{
+                Preview::Fault::FromNative(static_cast<std::error_code>(GateError)), false};
+        }
         struct FlushRelease final
         {
             std::shared_ptr<FlushChannel> Gate;
@@ -369,15 +407,23 @@ namespace Preview::Mux::H2Mux
         while (Session->Collect(Wire))
         {
             const auto Written = co_await WriteAll(Wire);
-            if (!Written) co_return std::unexpected(Written.error());
+            if (!Written)
+            {
+                const auto Error = Written.error();
+                // 只把根关闭后取消的 Raw 写入标为关闭回执。
+                const bool CloseCanceled = Error.Code == Preview::Fault::Code::Canceled &&
+                    CloseRequested.load(std::memory_order_acquire);
+                co_return FlushResult{Error, CloseCanceled};
+            }
             Wire.clear();
             co_await Net::dispatch(Strand, Net::use_awaitable);
         }
-        co_return std::expected<void, Failure>{};
+        co_return FlushResult{};
     }
 
     inline auto Http2State::Close() -> void
     {
+        CloseRequested.store(true, std::memory_order_release);
         if (!Closed)
         {
             Closed = true;

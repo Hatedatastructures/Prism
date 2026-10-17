@@ -7,9 +7,11 @@
 #include <Preview/Foundation/Generation/Lifetime.hpp>
 #include <Preview/Application/Shutdown/DrainStages.hpp>
 #include <Preview/Application/Shutdown/GenerationRetirement.hpp>
+#include <Preview/Application/Startup/Start.hpp>
 #include <Preview/Composition/Provider/ProviderCatalog.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/deferred.hpp>
+#include <atomic>
 
 namespace
 {
@@ -19,8 +21,8 @@ namespace
 auto VerifyIdleRelayClosesBothTransports() -> void
 {
     Net::io_context Io;
-    auto Inbound = std::make_shared<Preview::PreviewMockTransport>(Io.get_executor());
-    auto Outbound = std::make_shared<Preview::PreviewMockTransport>(Io.get_executor());
+    auto Inbound = std::make_shared<Preview::PreviewMockTransport>(Net::make_strand(Io.get_executor()));
+    auto Outbound = std::make_shared<Preview::PreviewMockTransport>(Net::make_strand(Io.get_executor()));
     auto Relay = std::make_shared<Preview::Network::StreamRelayService>(
         Preview::Network::StreamRelayOptions{
             .BufferSize = 64,
@@ -47,6 +49,55 @@ auto VerifyIdleRelayClosesBothTransports() -> void
     EXPECT_FALSE(Inbound->IsOpen());
     EXPECT_FALSE(Outbound->IsOpen());
 }
+
+class FailOnceOnCloseTransport final : public Preview::Transmission
+{
+public:
+    FailOnceOnCloseTransport(std::shared_ptr<Preview::PreviewMockTransport> Inner,
+        std::shared_ptr<std::atomic<unsigned>> CloseAttempts)
+        : Preview::Transmission(Inner->Executor()), Inner_(std::move(Inner)),
+          CloseAttempts_(std::move(CloseAttempts)) {}
+
+    [[nodiscard]] auto Executor() const -> Net::any_io_executor override
+    {
+        return Inner_->Executor();
+    }
+
+    auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
+    {
+        Inner_->ReadSome(Buffer, std::move(Handler));
+    }
+
+    auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+    {
+        Inner_->WriteSome(Buffer, std::move(Handler));
+    }
+
+    auto StartWriteShutdown(Completion Handler) -> void override
+    {
+        Inner_->WriteShutdown(std::move(Handler));
+    }
+
+    [[nodiscard]] auto OnClose() -> ControlResult override
+    {
+        if (CloseAttempts_->fetch_add(1, std::memory_order_acq_rel) == 0)
+        {
+            (void)Inner_->Close();
+            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError});
+        }
+        return Inner_->Close();
+    }
+
+    [[nodiscard]] auto OnCancel() -> ControlResult override
+    {
+        (void)Inner_->Cancel();
+        return {};
+    }
+
+private:
+    std::shared_ptr<Preview::PreviewMockTransport> Inner_;
+    std::shared_ptr<std::atomic<unsigned>> CloseAttempts_;
+};
 }
 
 TEST(PreviewApplication, ProfileFailureReleasesBackendWhileFailedApplicationLives)
@@ -150,12 +201,21 @@ TEST(PreviewApplicationStatistics, ConfiguredIntervalFlushesTheSameOperationsCou
         .OperationsPort = FindFreePort(), .StatisticsInterval = 10});
     const auto Phase = Preview::Application::Startup::GenerationPhase::Build({Config.Path(), {}});
     ASSERT_TRUE(Phase);
+    ASSERT_TRUE(Phase->Accounts.Identities);
+    const auto& Configuration = Phase->Generation->Configuration();
     auto Runtime = std::make_shared<Preview::Application::Application::RuntimeState>(
-        2, Phase->Generation->Id(), Preview::Network::Dns::Config{});
+        Configuration.Runtime.WorkerCount, Phase->Generation->Id(),
+        Preview::Application::Assembly::MakeDnsConfig(Configuration.Dns));
+    const auto AdmissionAuthority = Phase->Accounts.Identities->RuntimeRegistry()->AttachAdmissionAuthority(
+        Runtime->GenerationPublisher);
+    ASSERT_TRUE(AdmissionAuthority);
+    Preview::Application::ObserveClosingFailures(Runtime);
     Preview::Application::Startup::StartupTransaction Transaction(Runtime);
     Runtime->Generation = Phase->Generation;
     Runtime->Accounts = Phase->Accounts;
-    ASSERT_TRUE(Preview::Application::Startup::ProcessServices::Build(Runtime, *Phase));
+    const auto Started = Preview::Application::StartupRuntime(Runtime, *Phase, Config.Path());
+    ASSERT_TRUE(Started.has_value()) << Started.error().Path << ": " << Started.error().Message;
+    ASSERT_TRUE(Runtime->GenerationPublisher->Contains(Phase->Generation->Id()));
     ASSERT_TRUE(Runtime->Traffic);
     EXPECT_EQ(Runtime->Services->Traffic.get(), Runtime->Traffic.get());
     EXPECT_EQ(Runtime->Services->RecognitionLatency.get(), Runtime->Traffic.get());
@@ -165,6 +225,8 @@ TEST(PreviewApplicationStatistics, ConfiguredIntervalFlushesTheSameOperationsCou
     Runtime->Services->Traffic->Report({.Generation = Phase->Generation->Id(),
         .Worker = Preview::WorkerId{1}, .Session = Preview::SessionId{22},
         .Account = Preview::AccountId{11}, .Up = 37, .Down = 41});
+    EXPECT_EQ(Runtime->Traffic->Accepted(), 1U);
+    EXPECT_EQ(Runtime->Traffic->Dropped(), 0U);
     EXPECT_EQ(Runtime->Traffic->Value(Preview::Statistics::Scope::Account, 11).UpBytes, 0U);
     std::exception_ptr Failure;
     Net::co_spawn(Runtime->Io, ObserveTrafficInterval(Runtime),
@@ -185,18 +247,28 @@ TEST(PreviewApplicationStatistics, ShutdownConsumesPendingBytesBeforeReleasingGe
         .OperationsPort = FindFreePort(), .StatisticsInterval = 60000});
     const auto Phase = Preview::Application::Startup::GenerationPhase::Build({Config.Path(), {}});
     ASSERT_TRUE(Phase);
+    ASSERT_TRUE(Phase->Accounts.Identities);
+    const auto& Configuration = Phase->Generation->Configuration();
     auto Runtime = std::make_shared<Preview::Application::Application::RuntimeState>(
-        2, Phase->Generation->Id(), Preview::Network::Dns::Config{});
+        Configuration.Runtime.WorkerCount, Phase->Generation->Id(),
+        Preview::Application::Assembly::MakeDnsConfig(Configuration.Dns));
+    const auto AdmissionAuthority = Phase->Accounts.Identities->RuntimeRegistry()->AttachAdmissionAuthority(
+        Runtime->GenerationPublisher);
+    ASSERT_TRUE(AdmissionAuthority);
+    Preview::Application::ObserveClosingFailures(Runtime);
     Preview::Application::Startup::StartupTransaction Transaction(Runtime);
     Runtime->Generation = Phase->Generation;
     Runtime->Accounts = Phase->Accounts;
-    ASSERT_TRUE(Preview::Application::Startup::ProcessServices::Build(Runtime, *Phase));
+    const auto Started = Preview::Application::StartupRuntime(Runtime, *Phase, Config.Path());
+    ASSERT_TRUE(Started.has_value()) << Started.error().Path << ": " << Started.error().Message;
     auto Counter = Runtime->Traffic;
     ASSERT_TRUE(Counter);
     Runtime = Transaction.Commit();
     Counter->Report({.Generation = Phase->Generation->Id(), .Worker = Preview::WorkerId{2},
         .Session = Preview::SessionId{22}, .Account = Preview::AccountId{11}, .Up = 13, .Down = 17});
     EXPECT_EQ(Counter->ConsumedObservations(), 0U);
+    EXPECT_EQ(Counter->Accepted(), 1U);
+    EXPECT_EQ(Counter->Dropped(), 0U);
     Preview::Application::Shutdown::ScheduleShutdown(Runtime);
     Runtime->Io.run();
     EXPECT_TRUE(Runtime->StopCompleted.load());
@@ -261,7 +333,13 @@ TEST(PreviewApplicationMux, ChildCoroutineOwnsSnapshotUntilActualHandlerDrains)
 
 TEST(PreviewApplicationMux, SingMuxHandlerRelaysBothDirectionsAndReleasesTrafficAfterDrain)
 {
-    struct Totals final { std::size_t Up{0}, Down{0}, Calls{0}, ByteCalls{0}; };
+    struct Totals final
+    {
+        using Signal = Net::experimental::channel<void(boost::system::error_code)>;
+        explicit Totals(Net::any_io_executor Executor) : WritesCompleted(std::move(Executor), 1) {}
+        std::size_t Up{0}, Down{0}, Calls{0}, ByteCalls{0};
+        Signal WritesCompleted;
+    };
     class Traffic final : public Preview::Foundation::TrafficSink
     {
     public:
@@ -271,6 +349,8 @@ TEST(PreviewApplicationMux, SingMuxHandlerRelaysBothDirectionsAndReleasesTraffic
             Result_->Up += Event.Up; Result_->Down += Event.Down;
             if (Event.Kind == Preview::Foundation::TrafficEventKind::Completed) ++Result_->Calls;
             else ++Result_->ByteCalls;
+            if (Result_->Up >= 2 && Result_->Down >= 4)
+                (void)Result_->WritesCompleted.try_send(boost::system::error_code{});
         }
         auto Retire(Preview::Foundation::TrafficRetirement Owner)
             -> boost::asio::awaitable<std::expected<void, Preview::Fault::Failure>> override
@@ -279,7 +359,7 @@ TEST(PreviewApplicationMux, SingMuxHandlerRelaysBothDirectionsAndReleasesTraffic
         std::shared_ptr<Totals> Result_;
     };
     Net::io_context Io;
-    auto Result = std::make_shared<Totals>();
+    auto Result = std::make_shared<Totals>(Io.get_executor());
     auto Services = std::make_shared<Preview::Runtime::SessionServices>();
     Services->Traffic = std::make_shared<Traffic>(Result);
     const auto WeakRoot = std::weak_ptr<Preview::Runtime::SessionServices>(Services);
@@ -304,18 +384,14 @@ TEST(PreviewApplicationMux, SingMuxHandlerRelaysBothDirectionsAndReleasesTraffic
         { Failure = Error; if (Result) Code = Preview::Fault::Code::Success; else Code = Result.error().Code; Completed = true; });
     const auto Driver = [&]() -> Net::awaitable<void>
     {
-        Net::steady_timer Timer(Io, std::chrono::milliseconds(10));
-        co_await Timer.async_wait(Net::use_awaitable);
+        co_await Result->WritesCompleted.async_receive(Net::use_awaitable);
         Relay.reset();
-        OwnerObservedDuringRelay = !WeakTraffic.expired() && Outbound->Written.size() == 2 && Inbound->Written.size() == 5;
-        (void)Inbound->Close();
-        (void)Outbound->Close();
+        OwnerObservedDuringRelay = !WeakTraffic.expired() && Result->Up == 2 && Result->Down == 4;
+        Inbound->InjectPeerEof();
+        Outbound->InjectPeerEof();
     };
     Net::co_spawn(Io, Driver(), Net::detached);
-    std::thread WorkerA([&Io] { Io.run(); });
-    std::thread WorkerB([&Io] { Io.run(); });
-    WorkerA.join();
-    WorkerB.join();
+    Io.run();
     EXPECT_TRUE(Completed);
     EXPECT_EQ(Failure, nullptr);
     EXPECT_EQ(Code, Preview::Fault::Code::Success);
@@ -330,48 +406,6 @@ TEST(PreviewApplicationMux, SingMuxHandlerRelaysBothDirectionsAndReleasesTraffic
 
 TEST(PreviewApplicationMux, RelayStrandDrainsIdleAndWriteErrorOnTwoWorkers)
 {
-    class ThrowOnCloseTransport final : public Preview::Transmission
-    {
-    public:
-        explicit ThrowOnCloseTransport(std::shared_ptr<Preview::PreviewMockTransport> Inner)
-            : Preview::Transmission(Inner->Executor()), Inner_(std::move(Inner)) {}
-
-        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
-        {
-            return Inner_->Executor();
-        }
-
-        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
-        {
-            Inner_->ReadSome(Buffer, std::move(Handler));
-        }
-
-        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
-        {
-            Inner_->WriteSome(Buffer, std::move(Handler));
-        }
-
-        auto StartWriteShutdown(Completion Handler) -> void override
-        {
-            Inner_->WriteShutdown(std::move(Handler));
-        }
-
-        [[nodiscard]] auto OnClose() -> ControlResult override
-        {
-            (void)Inner_->Close();
-            return std::unexpected(Preview::Fault::Failure{Preview::Fault::Code::IoError});
-        }
-
-        [[nodiscard]] auto OnCancel() -> ControlResult override
-        {
-            (void)Inner_->Cancel();
-            return {};
-        }
-
-    private:
-        std::shared_ptr<Preview::PreviewMockTransport> Inner_;
-    };
-
     VerifyIdleRelayClosesBothTransports();
 
     Net::io_context Io;
@@ -383,11 +417,14 @@ TEST(PreviewApplicationMux, RelayStrandDrainsIdleAndWriteErrorOnTwoWorkers)
         WorkerB.join();
     };
 
-    auto CloseInboundRaw = std::make_shared<Preview::PreviewMockTransport>(Io.get_executor());
-    auto CloseInbound = std::make_shared<ThrowOnCloseTransport>(CloseInboundRaw);
-    auto CloseOutbound = std::make_shared<Preview::PreviewMockTransport>(Io.get_executor());
+    auto CloseInboundRaw = std::make_shared<Preview::PreviewMockTransport>(Net::make_strand(Io.get_executor()));
+    const auto CloseAttempts = std::make_shared<std::atomic<unsigned>>(0);
+    auto CloseInbound = std::make_shared<FailOnceOnCloseTransport>(CloseInboundRaw, CloseAttempts);
+    auto CloseOutbound = std::make_shared<Preview::PreviewMockTransport>(Net::make_strand(Io.get_executor()));
+    const auto Storage = Preview::Executor::ContextOwner::Storage(Io.get_executor());
     Preview::Network::Relay::Result CloseResult;
     bool CloseDone = false;
+    bool RetryTimedOut = false;
     std::exception_ptr CloseFailure;
     Net::co_spawn(
         Io,
@@ -400,16 +437,33 @@ TEST(PreviewApplicationMux, RelayStrandDrainsIdleAndWriteErrorOnTwoWorkers)
             CloseResult = std::move(Result);
             CloseDone = true;
         });
+    const auto RetryClose = [&]() -> Net::awaitable<void>
+    {
+        Net::steady_timer Timer(Io);
+        for (std::size_t Attempt = 0;
+            Attempt < 5000 && CloseAttempts->load(std::memory_order_acquire) < 2; ++Attempt)
+        {
+            Storage->Retry();
+            Timer.expires_after(std::chrono::milliseconds(1));
+            co_await Timer.async_wait(Net::use_awaitable);
+        }
+        RetryTimedOut = CloseAttempts->load(std::memory_order_acquire) < 2;
+        if (RetryTimedOut) Io.stop();
+    };
+    Net::co_spawn(Io, RetryClose(), Net::detached);
     RunWorkers();
+    ASSERT_FALSE(RetryTimedOut);
     EXPECT_TRUE(CloseDone);
     EXPECT_EQ(CloseFailure, nullptr);
-    EXPECT_EQ(CloseResult.Failure.Code, Preview::Fault::Code::IoError);
+    EXPECT_EQ(CloseResult.Failure.Code, Preview::Fault::Code::Timeout);
+    EXPECT_EQ(CloseAttempts->load(std::memory_order_acquire), 2U);
+    EXPECT_TRUE(CloseInbound->Activity()->IsRetired());
     EXPECT_FALSE(CloseInboundRaw->IsOpen());
     EXPECT_FALSE(CloseOutbound->IsOpen());
 
     Io.restart();
-    auto ErrorInbound = std::make_shared<Preview::PreviewMockTransport>(Io.get_executor());
-    auto ErrorOutbound = std::make_shared<Preview::PreviewMockTransport>(Io.get_executor());
+    auto ErrorInbound = std::make_shared<Preview::PreviewMockTransport>(Net::make_strand(Io.get_executor()));
+    auto ErrorOutbound = std::make_shared<Preview::PreviewMockTransport>(Net::make_strand(Io.get_executor()));
     ErrorInbound->ToRead = {0x01U, 0x02U, 0x03U};
     ErrorInbound->EofOnDrain = true;
     ErrorOutbound->FailNextWrite = true;
@@ -433,351 +487,4 @@ TEST(PreviewApplicationMux, RelayStrandDrainsIdleAndWriteErrorOnTwoWorkers)
     EXPECT_EQ(ErrorFailure, nullptr);
     EXPECT_TRUE(ErrorInbound->IsOpen() == false);
     EXPECT_TRUE(ErrorOutbound->IsOpen() == false);
-}
-
-
-namespace
-{
-    namespace Provider = Preview::Composition::Provider;
-    using AdmissionSignal = Net::experimental::channel<void(boost::system::error_code)>;
-    using ShutdownRuntime = Preview::Application::Application::RuntimeState;
-
-    struct PendingAdmission final
-    {
-        explicit PendingAdmission(Net::any_io_executor Executor)
-            : Entered(Executor, 1), Released(Executor, 1) {}
-        AdmissionSignal Entered;
-        AdmissionSignal Released;
-    };
-
-    class FailingAdmissionTransport final : public Preview::Transmission
-    {
-    public:
-        FailingAdmissionTransport(
-            Net::any_io_executor Executor,
-            std::shared_ptr<PendingAdmission> Pending)
-            : Preview::Transmission(Executor), Executor_(std::move(Executor)),
-              Pending_(std::move(Pending)) {}
-
-        auto Executor() const -> ExecutorType override { return Executor_; }
-        auto IsOpen() const -> bool override { return Open_; }
-
-        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
-        {
-            Net::async_initiate<Completion, void(Preview::IoResult)>(
-                Net::co_composed<void(Preview::IoResult)>(ReadOperation{}, Executor_),
-                Handler,
-                ReadInput{
-                    std::static_pointer_cast<FailingAdmissionTransport>(
-                        Preview::Transmission::shared_from_this()),
-                    Buffer});
-        }
-
-        auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
-        {
-            Preview::Transport::Detail::PostResult(
-                Executor_, std::move(Handler),
-                Preview::IoResult{0, {Preview::Fault::Code::IoError}});
-        }
-
-        auto StartWriteShutdown(Completion Handler) -> void override
-        {
-            Preview::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
-        }
-
-        [[nodiscard]] auto OnClose() -> ControlResult override
-        {
-            ++CloseCalls_;
-            if (CloseCalls_ == 1)
-            {
-                return std::unexpected(Preview::Fault::Failure{
-                    Preview::Fault::Code::IoError,
-                    std::make_error_code(std::errc::connection_reset)});
-            }
-            Open_ = false;
-            (void)Pending_->Released.try_send(boost::system::error_code{});
-            return {};
-        }
-
-        [[nodiscard]] auto OnCancel() -> ControlResult override
-        {
-            (void)Pending_->Released.try_send(boost::system::error_code{});
-            return {};
-        }
-
-    private:
-        struct ReadInput final
-        {
-            std::shared_ptr<FailingAdmissionTransport> Owner;
-            std::span<std::byte> Buffer;
-        };
-
-        struct ReadOperation final
-        {
-            template <class OperationState>
-            auto operator()(OperationState Operation, ReadInput Input) const -> void
-            {
-                Preview::Transport::Detail::ConfigureIo(Operation);
-                const auto Result = co_await Net::co_spawn(
-                    Input.Owner->Executor(), Input.Owner->ReadPartial(Input.Buffer), Net::deferred);
-                co_return std::tuple{Result};
-            }
-        };
-
-        [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer)
-            -> Net::awaitable<Preview::IoResult>
-        {
-            (void)Buffer;
-            (void)Pending_->Entered.try_send(boost::system::error_code{});
-            co_await Pending_->Released.async_receive(Net::use_awaitable);
-            co_return Preview::IoResult{
-                0, Preview::Fault::FromNative(Preview::make_error_code(Preview::Error::NotOpen))};
-        }
-
-        Net::any_io_executor Executor_;
-        std::shared_ptr<PendingAdmission> Pending_;
-        std::size_t CloseCalls_{0};
-        bool Open_{true};
-    };
-
-    struct ProviderOwnerFixture final
-    {
-        ProviderOwnerFixture()
-            : Pin(Preview::Testing::ProviderPin()),
-              UseState(std::make_shared<Preview::Foundation::GenerationUseState>()),
-              Accounts(Preview::Testing::ProviderAccount(
-                  Preview::Account::Credential::Password("provider-password"))) {}
-
-        [[nodiscard]] auto PrepareInput() const -> Provider::Preparation
-        {
-            const Preview::Contract::ProtocolConfiguration ProtocolValue{
-                "socks-instance", "socks5", "socks5", {}, {}};
-            return {Pin, UseState, {{ProtocolValue, true, false,
-                {Pin, Accounts->Credentials, Accounts->Authenticator}}}, {}};
-        }
-
-        [[nodiscard]] auto Bind(Net::any_io_executor Executor)
-            -> std::expected<void, Preview::Contract::ProviderFailure>
-        {
-            auto Prepared = Provider::ProviderCatalog::Prepare(
-                PrepareInput(), Provider::BindingServices{std::move(Executor), {}, {}, {}});
-            if (!Prepared)
-            {
-                return std::unexpected(Prepared.error());
-            }
-            auto Frozen = Prepared->Freeze();
-            if (!Frozen)
-            {
-                return std::unexpected(Frozen.error());
-            }
-            auto Bound = Frozen->Bind({});
-            if (!Bound)
-            {
-                return std::unexpected(Bound.error());
-            }
-            Catalog = std::make_shared<Provider::BoundCatalog>(std::move(*Bound));
-            return {};
-        }
-
-        [[nodiscard]] auto MakeSnapshot(
-            Preview::Application::Configuration::SharedConfigurationGeneration Generation,
-            Preview::Application::AccountCatalog AccountsValue) const
-            -> Preview::Application::SharedRuntimeGenerationSnapshot
-        {
-            Preview::Application::RuntimeGenerationServices Services;
-            Services.Providers = Catalog;
-            Services.UseState = UseState;
-            return std::make_shared<Preview::Application::RuntimeGenerationSnapshot>(
-                std::move(Generation), std::move(AccountsValue), std::move(Services));
-        }
-
-        Preview::Foundation::GenerationPin Pin;
-        std::shared_ptr<Preview::Foundation::GenerationUseState> UseState;
-        std::shared_ptr<Preview::Testing::ProviderAccounts> Accounts;
-        std::shared_ptr<Provider::BoundCatalog> Catalog;
-    };
-
-    struct HistoricalFailureProbe final
-    {
-        explicit HistoricalFailureProbe(Net::any_io_executor ExecutorValue)
-            : Executor(std::move(ExecutorValue)), Pending(std::make_shared<PendingAdmission>(Executor)),
-              AcceptFinished(Executor, 1) {}
-
-        Net::any_io_executor Executor;
-        std::shared_ptr<PendingAdmission> Pending;
-        AdmissionSignal AcceptFinished;
-        std::shared_ptr<Provider::BoundCatalog> Catalog;
-        std::shared_ptr<Preview::Contract::StreamFactory> Factory;
-        std::shared_ptr<FailingAdmissionTransport> Carrier;
-        std::shared_ptr<Preview::Executor::ClosingStorage> Storage;
-        std::optional<Preview::Fault::Failure> HistoricalFailure;
-        std::optional<Preview::Fault::Failure> FinalDrainFailure;
-        bool InitialDrainFailed{false};
-        bool PhysicallyRetiredAfterInitialDrain{false};
-        bool AcceptReturned{false};
-        bool AcceptSucceeded{false};
-        std::optional<Preview::Contract::ProtocolDataPlane> Plane;
-        bool PhysicallyRetiredAfterRetry{false};
-        std::exception_ptr Unexpected;
-    };
-
-    auto AcceptPendingSocks(const std::shared_ptr<HistoricalFailureProbe> &Probe)
-        -> Net::awaitable<void>
-    {
-        Preview::Contract::StreamAcceptInput Input{
-            Probe->Carrier, {},
-            std::make_shared<Preview::Memory::BytePool>(
-                Preview::Memory::BytePoolOptions{.BlockCount = 8})};
-        auto Accepted = co_await Probe->Factory->Accept(std::move(Input));
-        Probe->AcceptReturned = true;
-        Probe->AcceptSucceeded = static_cast<bool>(Accepted);
-        if (Accepted)
-        {
-            auto Value = std::move(*Accepted);
-            (void)Value;
-        }
-    }
-
-    auto CompletePendingSocks(
-        const std::shared_ptr<HistoricalFailureProbe> &Probe,
-        std::exception_ptr Error) -> void
-    {
-        Probe->Unexpected = std::move(Error);
-        (void)Probe->AcceptFinished.try_send(boost::system::error_code{});
-    }
-
-    auto CreateHistoricalProviderFailure(
-        const std::shared_ptr<HistoricalFailureProbe> &Probe) -> Net::awaitable<void>
-    {
-        Net::co_spawn(Probe->Executor, AcceptPendingSocks(Probe),
-            [Probe](std::exception_ptr Error) { CompletePendingSocks(Probe, std::move(Error)); });
-        co_await Probe->Pending->Entered.async_receive(Net::use_awaitable);
-        Probe->Catalog->Close();
-        const auto Initial = co_await Probe->Catalog->Drain();
-        Probe->InitialDrainFailed = !Initial;
-        if (!Initial)
-        {
-            Probe->HistoricalFailure = Initial.error();
-        }
-        Probe->PhysicallyRetiredAfterInitialDrain =
-            Probe->Catalog->PhysicalRetirement().Complete();
-
-        Probe->Factory.reset();
-        Probe->Carrier.reset();
-        Probe->Storage->Retry();
-        (void)Probe->Pending->Released.try_send(boost::system::error_code{});
-        co_await Probe->AcceptFinished.async_receive(Net::use_awaitable);
-        Probe->Storage->Collect();
-        const auto Retry = co_await Probe->Catalog->Drain();
-        if (!Retry)
-        {
-            Probe->FinalDrainFailure = Retry.error();
-            if (!Probe->HistoricalFailure)
-            {
-                Probe->HistoricalFailure = Retry.error();
-            }
-        }
-        Probe->PhysicallyRetiredAfterRetry =
-            Probe->Catalog->PhysicalRetirement().Complete();
-        Probe->Storage->Collect();
-        Probe->Storage->Retry();
-        Probe->Storage->Collect();
-    }
-}
-
-TEST(PreviewApplicationShutdown, ReleasesRetiredGenerationAfterPhysicalReceiptAndKeepsFailure)
-{
-    TemporaryConfiguration Configuration(FindFreePort());
-    const auto Phase = Preview::Application::Startup::GenerationPhase::Build(
-        {Configuration.Path(), {}});
-    ASSERT_TRUE(Phase);
-
-    auto Runtime = std::make_shared<ShutdownRuntime>(
-        1, Phase->Generation->Id(), Preview::Network::Dns::Config{});
-    Runtime->Generation = Phase->Generation;
-    Runtime->Accounts = Phase->Accounts;
-
-    ProviderOwnerFixture FailedFixture;
-    ASSERT_TRUE(FailedFixture.Bind(Runtime->Io.get_executor()));
-    auto Probe = std::make_shared<HistoricalFailureProbe>(Runtime->Io.get_executor());
-    Probe->Catalog = FailedFixture.Catalog;
-    Probe->Factory = FailedFixture.Catalog->Find("socks-instance")->Stream();
-    Probe->Carrier = std::make_shared<FailingAdmissionTransport>(Runtime->Io.get_executor(), Probe->Pending);
-    Probe->Storage = Runtime->ClosingResources;
-
-    std::exception_ptr ProbeFailure;
-    Net::co_spawn(Runtime->Io, CreateHistoricalProviderFailure(Probe),
-        [&ProbeFailure](std::exception_ptr Error) { ProbeFailure = std::move(Error); });
-    Runtime->Io.run();
-
-    EXPECT_FALSE(ProbeFailure);
-    EXPECT_FALSE(Probe->Unexpected);
-    EXPECT_TRUE(Probe->AcceptReturned);
-    EXPECT_FALSE(Probe->AcceptSucceeded);
-    ASSERT_TRUE(Probe->InitialDrainFailed);
-    EXPECT_FALSE(Probe->PhysicallyRetiredAfterInitialDrain);
-    ASSERT_TRUE(Probe->HistoricalFailure);
-    ASSERT_TRUE(Probe->FinalDrainFailure);
-    EXPECT_EQ(Probe->FinalDrainFailure->Code, Probe->HistoricalFailure->Code);
-    EXPECT_EQ(Probe->FinalDrainFailure->Native, Probe->HistoricalFailure->Native);
-    ASSERT_TRUE(Probe->PhysicallyRetiredAfterRetry);
-
-    auto FailedOwner = FailedFixture.MakeSnapshot(Phase->Generation, Phase->Accounts);
-    ASSERT_TRUE(FailedOwner->CanRetire());
-    auto Token = Runtime->GenerationPublisher->Prepare({}, FailedOwner, {});
-    ASSERT_TRUE(Token);
-    ASSERT_TRUE(Runtime->GenerationPublisher->Publish(*Token));
-
-    ProviderOwnerFixture FirstRetiredFixture;
-    ProviderOwnerFixture SecondRetiredFixture;
-    ASSERT_TRUE(FirstRetiredFixture.Bind(Runtime->Io.get_executor()));
-    ASSERT_TRUE(SecondRetiredFixture.Bind(Runtime->Io.get_executor()));
-    auto FirstRetired = FirstRetiredFixture.MakeSnapshot(Phase->Generation, Phase->Accounts);
-    auto SecondRetired = SecondRetiredFixture.MakeSnapshot(Phase->Generation, Phase->Accounts);
-    Runtime->RetiredGenerationSnapshots.push_back(FirstRetired);
-    Runtime->RetiredGenerationSnapshots.push_back(SecondRetired);
-
-    Runtime->Io.restart();
-    std::optional<Preview::Application::Shutdown::ShutdownOutcome> Outcome;
-    std::exception_ptr DrainFailure;
-    const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
-    Net::co_spawn(Runtime->Io,
-        Preview::Application::Shutdown::GenerationRetirement::DrainGenerationSnapshots(Runtime, Deadline),
-        [&Outcome, &DrainFailure](std::exception_ptr Error,
-            Preview::Application::Shutdown::ShutdownOutcome Result)
-        {
-            DrainFailure = std::move(Error);
-            if (!DrainFailure)
-            {
-                Outcome.emplace(std::move(Result));
-            }
-        });
-    Runtime->Io.run();
-
-    EXPECT_FALSE(DrainFailure);
-    ASSERT_TRUE(Outcome);
-    ASSERT_FALSE(*Outcome);
-    EXPECT_EQ(Outcome->error().Code, Probe->HistoricalFailure->Code);
-    EXPECT_EQ(Outcome->error().Native, Probe->HistoricalFailure->Native);
-    EXPECT_FALSE(Runtime->ActiveGenerationSnapshot());
-    EXPECT_TRUE(Runtime->RetiredGenerationSnapshots.empty());
-    EXPECT_TRUE(FailedOwner->PhysicalRetirementComplete());
-    EXPECT_TRUE(FirstRetired->PhysicalRetirementComplete());
-    EXPECT_TRUE(SecondRetired->PhysicalRetirementComplete());
-    EXPECT_EQ(Runtime->GenerationPublisher->RetainedCount(), 0U);
-
-    const std::weak_ptr<Provider::BoundCatalog> WeakFailedCatalog = FailedFixture.Catalog;
-    const std::weak_ptr<Provider::BoundCatalog> WeakFirstRetiredCatalog = FirstRetiredFixture.Catalog;
-    const std::weak_ptr<Provider::BoundCatalog> WeakSecondRetiredCatalog = SecondRetiredFixture.Catalog;
-    FailedOwner.reset();
-    FirstRetired.reset();
-    SecondRetired.reset();
-    Probe->Catalog.reset();
-    FailedFixture.Catalog.reset();
-    FirstRetiredFixture.Catalog.reset();
-    SecondRetiredFixture.Catalog.reset();
-    Probe.reset();
-    EXPECT_TRUE(WeakFailedCatalog.expired());
-    EXPECT_TRUE(WeakFirstRetiredCatalog.expired());
-    EXPECT_TRUE(WeakSecondRetiredCatalog.expired());
 }

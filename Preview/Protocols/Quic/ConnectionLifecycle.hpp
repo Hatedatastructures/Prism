@@ -255,9 +255,9 @@ namespace Preview::Protocols
             {
                 return;
             }
-            try{if(Server_)Server_->Close();}
-            catch(...){PublishFatal(std::current_exception());}
             try{CloseProtocol();}
+            catch(...){PublishFatal(std::current_exception());}
+            try{if(Server_)Server_->Close();}
             catch(...){PublishFatal(std::current_exception());}
             auto Self=shared_from_this();
             try

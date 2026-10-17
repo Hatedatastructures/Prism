@@ -24,6 +24,7 @@
 #include <Preview/Runtime/SessionControl.hpp>
 #include <Preview/Runtime/SessionRegistry.hpp>
 #include <Preview/Runtime/SessionServices.hpp>
+#include <Preview/Runtime/SessionTraceRing.hpp>
 #include <Preview/Runtime/Session/RecognitionLogging.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
@@ -46,6 +47,7 @@ namespace Preview::Runtime
         // 借用 Session owner 的唯一 token；RunSession 按值持有 Session 至最终关闭及错误投递结束。
         SessionRegistry::Registration *Registration{nullptr};
         std::shared_ptr<SessionControl> Control{};
+        std::shared_ptr<SessionTraceWriter> TraceWriter{};
         std::shared_ptr<ActiveTransports> Active{};
         std::shared_ptr<SessionSupport::SessionLogState> LogState{};
         std::shared_ptr<SessionCancellationChannel> Cancellation{};

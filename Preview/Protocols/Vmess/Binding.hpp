@@ -106,6 +106,8 @@ namespace Preview::Vmess
             return Lifetime_->Drain();
         }
         [[nodiscard]] auto IsRetired() const noexcept -> bool { return Lifetime_->IsRetired(); }
+        [[nodiscard]] auto DrainFailure() const noexcept -> Preview::Fault::Failure
+        { return Lifetime_->DrainFailure(); }
 
     private:
         friend auto BindProvider(PreparedBinding) -> std::shared_ptr<const Binding>;
