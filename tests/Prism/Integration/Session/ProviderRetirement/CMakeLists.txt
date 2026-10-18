@@ -1,0 +1,4 @@
+AddPrismTest(ProviderSessionRetirementTest.cpp)
+target_link_libraries(ProviderSessionRetirementTest PRIVATE PrismRuntime PrismProtocolsCommon PrismTestSupport)
+AddPrismTest(ProviderSessionDrainCoordinatorTest.cpp)
+target_link_libraries(ProviderSessionDrainCoordinatorTest PRIVATE PrismProtocolsCommon PrismTestSupport)

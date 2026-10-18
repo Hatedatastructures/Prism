@@ -1,2 +1,0 @@
-AddPreviewTest(BuiltinRegistryTest.cpp)
-target_link_libraries(BuiltinRegistryTest PRIVATE PreviewComposition)

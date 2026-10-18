@@ -1,5 +1,0 @@
-# http 子模块测试
-AddPreviewTest(Http11ConnectTest.cpp)
-target_link_libraries(Http11ConnectTest PRIVATE PreviewTransport PreviewNet PreviewProtocolHttp PreviewTestSupport)
-AddPreviewTest(HttpTrojanVlessBeastTest.cpp)
-target_link_libraries(HttpTrojanVlessBeastTest PRIVATE PreviewProtocolTrojan PreviewProtocolVless PreviewTestSupport)

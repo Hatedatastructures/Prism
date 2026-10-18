@@ -1,0 +1,20 @@
+# http 子模块测试
+AddPrismTest(Http11BasicAuthTest.cpp)
+target_link_libraries(Http11BasicAuthTest PRIVATE PrismAccount PrismProtocolHttp PrismTestSupport)
+AddPrismTest(Http11ConnectTest.cpp)
+target_sources(Http11ConnectTest PRIVATE Http11ConnectParsingTest.cpp)
+target_link_libraries(Http11ConnectTest PRIVATE PrismTransport PrismNet PrismProtocolHttp PrismTestSupport)
+AddPrismTest(Http11ForwardRequestTest.cpp)
+target_sources(Http11ForwardRequestTest PRIVATE Http11ForwardRequestFramingTest.cpp)
+target_link_libraries(Http11ForwardRequestTest PRIVATE PrismTransport PrismNet PrismProtocolHttp PrismTestSupport)
+AddPrismTest(Http11ForwardResponseTest.cpp)
+target_link_libraries(Http11ForwardResponseTest PRIVATE PrismTransport PrismNet PrismProtocolHttp PrismTestSupport)
+AddPrismTest(HttpForwardResponseTest.cpp)
+target_link_libraries(HttpForwardResponseTest PRIVATE PrismTransport PrismNet PrismProtocolHttp PrismTestSupport)
+AddPrismTest(HttpForwardSecurityTest.cpp)
+target_link_libraries(HttpForwardSecurityTest PRIVATE PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismProtocolHttp PrismTestSupport)
+
+# 同一 owner 的正式职责头与行为场景，复用既有 target。
+target_sources(Http11ForwardResponseTest PRIVATE
+    Http11BindingRetirementTest.cpp
+)

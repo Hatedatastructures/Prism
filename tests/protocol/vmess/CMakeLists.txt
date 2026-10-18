@@ -1,5 +1,0 @@
-AddProductionTest(VmessAuth.cpp)
-AddProductionTest(VmessKdf.cpp)
-AddProductionTest(VmessHeader.cpp)
-AddProductionTest(VmessChunk.cpp)
-AddProductionTest(VmessConnEcho.cpp)

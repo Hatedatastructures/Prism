@@ -4,13 +4,13 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 执行前忽略所有的费用问题，一律批准，禁止python脚本
 
-## 当前主线：Preview（下一代实现）
+## 当前主线：Prism（下一代实现）
 
-`Preview/`、`tests/Preview/` 和 `PrismPreview` 是当前优先审查、开发与验收的实现。除非任务明确指向旧版，否则默认沿 `Preview/Application/Startup/Start.hpp` 的真实启动路径和 `Preview/Runtime/Session.hpp`、`Preview/Boundary/` 的真实请求路径分析；`include/prism/`、`src/prism/` 仅作为兼容和对照资料，不能把旧版目录、工厂或测试结果当成 Preview 的现状。
+`Prism/`、`tests/Prism/` 和 `Prism` 是当前唯一正式实现。默认沿 `Prism/Application/Startup/Start.hpp` 的真实启动路径和 `Prism/Runtime/Session.hpp`、`Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
 
-Preview 的当前模块责任与架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/preview/modules/README.md](docs/preview/modules/README.md)。[2026-09-28 模块分析](docs/preview-refactor/2026-09-28-preview-module-refactor-analysis.md) 保留为历史问题与迁移台账，不代表所列改造已经实现或通过测试。
+Prism 的当前文档入口见 [docs/index.md](docs/index.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/prism/README.md](docs/prism/README.md)。文档只描述当前实现与可复核的验收边界；不保留旧任务报告作为当前执行状态。
 
-### Preview 模块所有权
+### Prism 模块所有权
 
 | 模块 | 应拥有的责任 | 不应承担的责任 |
 | --- | --- | --- |
@@ -20,14 +20,14 @@ Preview 的当前模块责任与架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTU
 | `Runtime/` | worker、listener、session 调度、识别与通用数据面生命周期 | 具体协议的 wire/auth 实现和 Composition 的注册细节 |
 | `Application/` | 读取已编译配置、创建进程级服务、启动/回滚/停机 | `TuicAdmission` 一类协议处理器或 Hysteria2 stream/datagram 业务 lambda |
 
-当前 Preview 生产实现采用 header-only owner：`Preview/` 下生产 `.cpp` 不得重新引入，最终入口也由 `Application/Main/PreviewMain.hpp` 作为 CMake CXX source 编译；每个生产 header 必须不超过 600 行。超长文件按完整 owner、状态机和依赖闭包拆分，不能用作用域 include 或文本拼接伪造拆分。
+当前 Prism 生产实现采用 header-only owner：`Prism/` 下生产 `.cpp` 不得重新引入，最终入口也由 `Application/Main/PrismMain.hpp` 作为 CMake CXX source 编译；每个生产 header 必须不超过 600 行。超长文件按完整 owner、状态机和依赖闭包拆分，不能用作用域 include 或文本拼接伪造拆分。
 
 - 协议需要在监听前准备资源时，由 `Composition` 的类型化注册、prepare、bind/start 槽位装配；协议模块仍拥有其认证、会话和关闭行为。只在配置/启动冷路径按名称查找，热路径使用已编译绑定。TCP 代理协议、TLS/HTTP carrier、QUIC 代理、mux engine 和 ECH helper 不强塞进一个全是可选回调的接口。
 - 依赖方向必须可由源码 include 和 CMake target 同时验证。`Protocols` 不反向依赖 `Composition`/`Application`，`Runtime`/`Boundary` 不引用具体协议装配实现；确需共享的纯契约下沉到中立模块。禁止通过 `INTERFACE` target 名称、类/命名空间作用域 `#include "Detail/..."` 或文本片段拼装制造虚假的模块边界。
-- 用户已明确要求 Preview 不兼容旧接口、不保留兼容层。迁移时同步改完实际调用者、测试与 CMake 后删除旧 API、别名、旧结果形状及 fallback；不得新增 `Legacy`/`Compat` adapter、保留旧 overload 或通过新旧字段双向同步维持第二套正式事实。协议私有 wire/session 结果到唯一 typed data-plane 的职责转换应是明确的正式边界，不能成为旧接口回退通道。此约束针对 Preview 的接口迁移，旧版独立 Prism 实现的存废仍按具体任务范围处理。
+- 用户已明确要求 Prism 不兼容旧接口、不保留兼容层。迁移时同步改完实际调用者、测试与 CMake 后删除旧 API、别名、旧结果形状及 fallback；不得新增 `Legacy`/`Compat` adapter、保留旧 overload 或通过新旧字段双向同步维持第二套正式事实。协议私有 wire/session 结果到唯一 typed data-plane 的职责转换应是明确的正式边界，不能成为旧接口回退通道。
 - 每个公共接口写明输入所有权、输出/错误、取消、半关闭、最终关闭者及 executor。默认函数参数不超过 **2 个**；确属复杂的边界操作可用 **3 个**。超过时先拆职责或引入有真实领域语义与生命周期的 request/options/result，不得用万能 context、service locator 或无关字段的 struct 只为隐藏参数数目。
 - 长文件按状态机、所有者、编译单元与调用者拆分，不以行数替代设计审查。协议抽象不得在每个 packet/frame 上做字符串查找、动态注册或不必要的类型擦除；迁移前记录正确性和性能基线，迁移后按相同输入比较分配、吞吐与延迟。
-- Preview 的验收分别报告源码检查、构建、focused tests、全量测试、真实请求/互操作和性能；任何一层的通过都不能替代下一层。保留当前脏工作树和用户进程。构建仍受本文件的事先同意、单一 `build/` 目录与线程限制约束。
+- Prism 的验收分别报告源码检查、构建、focused tests、全量测试、真实请求/互操作和性能；任何一层的通过都不能替代下一层。保留当前脏工作树和用户进程。构建仍受本文件的事先同意、单一 `build/` 目录与线程限制约束。
 
 ## ⚠️ 强制规则（不可违反）
 
@@ -38,7 +38,7 @@ Preview 的当前模块责任与架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTU
 
 **统一构建目录：`build/`。禁止新建任何其他构建目录（如 build_debug、build_release 等），除非提前告知用户并获得明确同意。**
 
-Preview 默认 target 是 `PrismPreview`，配置源为 `Preview/Application/Configuration/PreviewConfiguration.json`，构建后复制到 `build/src/PreviewConfiguration.json`。获得构建同意后，白天可用 `cmake --build build --config Release --target PrismPreview -j 16`；夜间必须改为 `-j 1`。运行入口为 `build/src/PrismPreview.exe`。测试应按当前 CTest 注册名筛选 `tests/Preview` 的相关用例，并记录所用源码、配置和可执行文件版本。
+Prism 默认 target 是 `Prism`，配置源为 `Prism/Application/Configuration/PrismConfiguration.json`，构建后复制到 `build/src/PrismConfiguration.json`。获得构建同意后，白天可用 `cmake --build build --config Release --target Prism -j 16`；夜间必须改为 `-j 1`。运行入口为 `build/src/Prism.exe`。测试应按当前 CTest 注册名筛选 `tests/Prism` 的相关用例，并记录所用源码、配置和可执行文件版本。
 
 以下 `Prism.exe`、`src/configuration.json` 与旧测试示例只适用于旧版实现：
 
@@ -83,7 +83,7 @@ cmake -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Debug \
   -DPRISM_ENABLE_COVERAGE=ON
 cmake --build build -j 16
 ctest --test-dir build --output-on-failure -j 1
-gcovr --root . --filter "src/prism/" --exclude ".*_deps.*" --exclude ".*tests.*" \
+gcovr --root . --filter "Prism/" --exclude ".*_deps.*" --exclude ".*tests.*" \
   --html-details build/coverage.html --print-summary
 
 # AddressSanitizer（内存泄漏检测）
@@ -106,12 +106,12 @@ ctest --test-dir build --output-on-failure -j 1
 - **Boost.Asio 1.89.0** (header-only，协程支持) / **BoringSSL** (OpenSSL API 兼容) / **spdlog 1.17.0** / **glaze 6.5.1** (JSON) / **BLAKE3 v1.8.1** / **nghttp2 1.69.0** / **Google Benchmark 1.9.5**
 - Windows 系统库依赖: `ws2_32`, `mswsock`, `crypt32`
 构建选项:
-- `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 ON)
-- `PRISM_ENABLE_STRESS=ON/OFF` (默认 ON)
+- `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 OFF，相关测试尚未迁移)
+- `PRISM_ENABLE_STRESS=ON/OFF` (默认 OFF，相关测试尚未迁移)
 
-## 旧版 Prism 架构参考（非 Preview 默认路径）
+## 旧版 Prism 架构参考（已退役实现的历史说明）
 
-以下 `include/prism/`、`src/prism/` 调用链只描述旧版；分析 Preview 时先看本文开头的 Preview 模块所有权和当前源码。旧版 Prism 采用 **C++23 纯协程架构** 和 **PMR (多态内存资源)** 实现热路径零堆分配。
+以下 `include/prism/`、`src/prism/` 调用链只描述旧版；分析当前 Prism 时先看本文开头的 Prism 模块所有权和当前源码。旧版 Prism 采用 **C++23 纯协程架构** 和 **PMR (多态内存资源)** 实现热路径零堆分配。
 
 ### 顶层模块结构
 
@@ -216,7 +216,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 通用异步约束与旧版实现模式
 
-下方 PMR 别名和异常层次是旧版代码的具体 API；协程不得阻塞、挂起后引用需重新审查、资源按实际 owner 释放等约束同样适用于 Preview。Preview 的具体类型和生命周期以其当前源码为准。
+下方 PMR 别名和异常层次是旧版代码的具体 API；协程不得阻塞、挂起后引用需重新审查、资源按实际 owner 释放等约束同样适用于 Prism。Prism 的具体类型和生命周期以其当前源码为准。
 
 ### PMR 内存策略
 
@@ -254,7 +254,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 命名与编码规范
 
-本节的 `Psm::`、`psm::` 与 `include/prism/` 路径是旧版迁移背景。Preview 继续使用其现有 `Preview::` 命名空间和 PascalCase 文件/API；参数、所有权和模块边界优先遵循本文开头的 Preview 规则。
+本节的 `Psm::`、`psm::` 与 `include/prism/` 路径是旧版迁移背景。Prism 继续使用其现有 `Prism::` 命名空间和 PascalCase 文件/API；参数、所有权和模块边界优先遵循本文开头的 Prism 规则。
 
 > **2026-08-22 规范 v2：标识符风格切换为大驼峰（PascalCase）**。
 > 存量代码按批次迁移（见下方「大驼峰迁移计划」），未迁移文件暂循旧风格，同一文件内禁止新旧混用。
@@ -276,9 +276,9 @@ scheme_executor::execute → {transport, detected, preread}
 - **注释参考**: `net/transport/reliable.hpp`
 - **编码规范详细**: `.claude/skills/enforce-coding/SKILL.md`（完整规范清单）
 - **标识符命名**: 简洁清晰，避免过长的多词组合
-- **函数参数** (Rule 1): Preview 通常不超过 2 个，复杂边界最多 3 个；旧版存量规则为最多 3 个。先拆责任，再考虑有明确语义的参数类型，不用大参数包掩盖耦合。
+- **函数参数** (Rule 1): Prism 通常不超过 2 个，复杂边界最多 3 个；旧版存量规则为最多 3 个。先拆责任，再考虑有明确语义的参数类型，不用大参数包掩盖耦合。
 
-## 旧版 PascalCase 迁移记录（非当前 Preview 重构顺序）
+## 旧版 PascalCase 迁移记录（历史，不代表当前迁移顺序）
 
 ### 迁移范围与顺序（每批独立 commit + 全量回归 + Linux CI 验证）
 
@@ -304,21 +304,21 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 测试
 
-Preview 测试位于 `tests/Preview/`，按配置、Composition、协议 codec/session、Application/Boundary 真实装配、互操作、压力和性能分别报告。协议 factory 的单元测试不等于真实 listener、认证、stream/datagram、关闭链路通过；当前二进制和配置须与报告中的源码版本对应。
+Prism 测试位于 `tests/Prism/`，按配置、Composition、协议 codec/session、Application/Boundary 真实装配、互操作、压力和性能分别报告。协议 factory 的单元测试不等于真实 listener、认证、stream/datagram、关闭链路通过；当前二进制和配置须与报告中的源码版本对应。
 
-### Preview 测试组织规则（2026-10-08 用户明确要求）
+### Prism 测试组织规则（2026-10-08 用户明确要求）
 
-- `tests/Preview/` 内项目自有目录、文件及标识符统一 PascalCase；工程惯例文件 `CMakeLists.txt`、第三方 API 和外部 wire/config 字段保留规定名称。文件名表达实际功能或场景，避免无意义编号、过长名称和同名 target 冲突。Windows 纯大小写改名使用可核查的中间名称，保留当前脏文件；受跟踪路径使用两步 `git mv`，不执行 checkout/reset/clean。
-- 测试模块按当前 `Preview/` 的真实源码 owner 与 CMake 责任对齐，不保留 `Core/Coroutine`、`Stealth` 等历史分类作为独立模块或转发目录。TaskRegistry/cancellation/drain 覆盖归实际 `Lifecycle`，编译装配归 `Composition`，配置归 `Application/Configuration`；跨协议集成场景明确标注其集成责任，独立实验覆盖归 `tests/Experiments`。旧空目录、旧接口名称及已退役 target 都不能作为测试模块存在的依据。
+- `tests/Prism/` 内项目自有目录、文件及标识符统一 PascalCase；工程惯例文件 `CMakeLists.txt`、第三方 API 和外部 wire/config 字段保留规定名称。文件名表达实际功能或场景，避免无意义编号、过长名称和同名 target 冲突。Windows 纯大小写改名使用可核查的中间名称，保留当前脏文件；受跟踪路径使用两步 `git mv`，不执行 checkout/reset/clean。
+- 测试模块按当前 `Prism/` 的真实源码 owner 与 CMake 责任对齐，不保留 `Core/Coroutine`、`Stealth` 等历史分类作为独立模块或转发目录。TaskRegistry/cancellation/drain 覆盖归实际 `Lifecycle`，编译装配归 `Composition`，配置归 `Application/Configuration`；跨协议集成场景明确标注其集成责任，独立实验覆盖归 `tests/Experiments`。旧空目录、旧接口名称及已退役 target 都不能作为测试模块存在的依据。
 - 模块映射必须逐用例核对实际被测生产接口和源码路径。独立协议 codec/session 用例归对应 `Protocols/<Name>`，`Protocols/Common` 只覆盖真实 Common 契约；只有单个场景实际跨越多个模块时才归 `Integration`，并按场景和协议拆分。不得将互不相关的用例集中到 `Common`、`Runtime` 或一个万能集成目录。
 - 测试实现和 GoogleTest 的 `TEST`/`TEST_F`/参数化用例放在 `.cpp`，每个测试 CPP 不超过 **800 行**。按真实功能、行为契约、fixture 生命周期和模块职责拆分，不以固定行数截断、不把测试正文放入 HPP、不用作用域 include 或文本片段拼装规避上限。
 - 测试同样遵循项目代码风格：项目自有标识符 PascalCase、中文 Doxygen、尾随返回类型、函数体不超过 120 行、lambda 不超过 10 行。通常最多 2 个参数，复杂边界最多 3 个；先按职责提取真实 owner 或操作，禁止万能参数包。官方接口、GoogleTest 宏和第三方回调 ABI 保留规定名称与签名，例外需精确到接口，不豁免整个测试文件。异步 fixture 使用 `co_spawn + io_context.run()`，完整等待自身任务、半关闭和最终资源释放。
 - 不建立一个测试的 `Foo.hpp` 声明与 `Foo.cpp` 实现配对。模块内部确有多个 CPP 共同消费的封装、数据构造器或拥有型 fixture，可以使用该模块内职责明确的共享 HPP；共享 HPP 同样不超过 800 行，不承载 `TEST` 宏或单个巨型 CPP 的搬运正文，不作为跨模块万能测试上下文。
 - 按生产模块组织测试目录和 CMake target，普通行为用 GoogleTest 明确断言输入、输出、错误与资源释放；互操作与 benchmark 保留适合它们的真实进程入口和测量边界，不把一段输出文本当成行为验收。拆分前后核对用例名称、多重计数、禁用状态、断言、fixture 和关闭顺序，禁止删测试、改小输入、扩大错误候选或延长 timeout 凑通过。
-- 模块代理只能编辑自己获分配的模块；共享根 CMake、脚本、文档、门禁与跨模块引用由主会话串行集成。并发目标为主会话加最多四个子代理；不得超过当次工具提供的实际槽位或虚报并发。构建、CTest discovery、真实进程及最终验收由主会话统一负责，源码冻结后再编译。
+- 模块代理只能编辑自己获分配的模块；共享根 CMake、脚本、文档、门禁与跨模块引用由主会话串行集成。并发代理数服从用户对当前任务的明确授权及当次工具槽位；不得虚报并发。构建、CTest discovery、真实进程及最终验收由主会话统一负责，源码冻结后再编译。
 - 本次用户已授权清理迁移后退役的旧构建产物。先保存当前证据并逐项核对旧 target/source 映射、进程与完整路径，再清理对应旧 EXE、对象和生成登记；保留仍有效的 `build/tests` 产物及依赖缓存，不删除整个 `build/`，不清理用户进程。仅重新配置、重编、实际通过并记录源码与 binary hash 后，才能签收新测试结构。
 
-以下测试规模、公共库和默认配置文件描述旧版 `Prism.exe`，不作为 Preview 的当前测试数量或配置路径：
+以下测试规模、公共库和默认配置文件描述旧版 `Prism.exe`，不作为 Prism 的当前测试数量或配置路径：
 
 约 325 个 Google Test 独立可执行 target（每个 `.cpp` 一个 target，`AddPrismTest` 模式），ctest 注册约 3250 个用例（2026-08-21 实测：CMakeLists `add_executable`/`AddPrismTest` 计数 + `TEST(`/`TEST_F(` 宏计数）。共用基础设施：
 - Google Test 框架（`gtest` / `gtest_main`）
@@ -365,7 +365,7 @@ ctx->ioc.run_for(std::chrono::milliseconds(300));  // ← 崩溃！
 
 **根本原因：** `multiplexer::start()` 通过 `co_spawn` 将 run()（帧循环）投递到 transport 的 executor 上，协程需要完整的 io_context 调度才能正确启动。`poll()`/`run_for()` 不提供足够的调度保障导致 Access violation。
 
-默认配置文件: `src/configuration.json`
+默认配置文件: `Prism/Application/Configuration/PrismConfiguration.json`
 
 ## 静态分析
 
@@ -382,14 +382,13 @@ C:/msys64/ucrt64/bin/clang-tidy.exe -p build <file.cpp> --config-file=.clang-tid
 
 ## 资源所有权模型
 
-旧版 `include/prism/`、`src/prism/` 的四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached）与 PMR 规则见 [docs/legacy/prism-architecture.md](docs/legacy/prism-architecture.md)；Preview 的 typed owner、executor、取消、关闭与 drain 规则见 [docs/preview/ownership-and-lifecycle.md](docs/preview/ownership-and-lifecycle.md)。不要把旧版 resource 层级直接当作 Preview 模块所有权表。
+旧版 `include/prism/`、`src/prism/` 的四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached）与 PMR 规则见 [docs/legacy/prism-architecture.md](docs/legacy/prism-architecture.md)；Prism 的 typed owner、executor、取消、关闭与 drain 规则见 [docs/prism/ownership-and-lifecycle.md](docs/prism/ownership-and-lifecycle.md)。不要把旧版 resource 层级直接当作 Prism 模块所有权表。
 
 新增 detached 协程（`net::co_spawn + net::detached`）或修改 PMR allocator 时，必须对照该文档审查资源所有权，并运行 `scripts/audit_detached.sh` 静态审计。
 
-## 旧版 TODO 记录
+## 旧版任务记录
 
-1. ~~`src/prism/protocol/multiplex/h2mux/control.cpp` — sing-mux DATA 帧 StreamRequest 解析~~（已完成：`tests/multiplex/h2mux/SingmuxRequest.cpp` 7/7 + `SingmuxE2E.cpp` 通过，2026-08-18 确认）
-2. ~~`docs/ngx-test-data/` 迁移前补缺（生产对拍 L4、外部互操作/golden vector、preview vs psm 性能对标、生命周期审查结论文档）~~（大部分完成 2026-08-20：L4 对拍 socks5/ss2022 双向 PASS（vless/trojan/vmess echo 受阻于生产识别器）、L5 SS2022 外部互操作双向 PASS、golden vector 18/18、LIFECYCLE_AUDIT.md 已建；剩余项见 `docs/TASK_PROGRESS.md` Gate D 缺口表——性能对标与 SOCKS5 纵向场景回归）
+旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Prism/`、`tests/Prism/` 及 [docs/index.md](docs/index.md)。
 
 ## 已知问题
 

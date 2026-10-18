@@ -1,9 +1,9 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    L4 生产对拍一键脚本：启动生产 Prism.exe，依次运行 preview 客户端互操作用例。
+    L4 生产对拍一键脚本：启动 Prism.exe，依次运行 Prism 客户端互操作用例。
 .DESCRIPTION
-    流程：起 Prism.exe（configuration.json）→ 轮询入站端口可连 → 逐协议跑
+    流程：起 Prism.exe（PrismConfigurationMatrix.json）→ 轮询入站端口可连 → 逐协议跑
     InteropPrismL4（echo 模式 ×5 + socks5 authfail）→ finally 收敛 Prism 进程。
     前置：build/ 目录已完成构建（build/src/Prism.exe 与 InteropPrismL4.exe 存在）。
 .PARAMETER PrismExe
@@ -23,8 +23,8 @@
 #>
 param(
     [string]$PrismExe = "build/src/Prism.exe",
-    [string]$InteropExe = "build/tests/Preview/Integration/InteropPrismL4.exe",
-    [string]$Config = "src/configuration.json",
+    [string]$InteropExe = "build/tests/Prism/Integration/InteropPrismL4.exe",
+    [string]$Config = "PrismConfigurationMatrix.json",
     [string]$Addr = "127.0.0.1:18081",
     [int]$WaitSecs = 15
 )

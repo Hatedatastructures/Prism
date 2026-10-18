@@ -3,6 +3,9 @@
 *~
 build_options.*
 \.*
+!.agents/
+!.agents/skills/
+!.agents/skills/**
 config.log
 *.o
 build/
@@ -45,7 +48,6 @@ compile_commands.json
 MODULE.bazel.lock
 CLAUDE.md
 .claude/settings.local.json
-docs/superpowers/
 .claude/scheduled_tasks.lock
 audit_report.md
 bug.md

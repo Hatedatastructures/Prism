@@ -1,0 +1,8 @@
+# http2 子模块测试
+AddPrismTest(H2CodecTest.cpp)
+target_link_libraries(H2CodecTest PRIVATE PrismProtocolHttp2 PrismTestSupport)
+AddPrismTest(H2SessionTest.cpp)
+target_sources(H2SessionTest PRIVATE H2BackpressureTest.cpp)
+target_link_libraries(H2SessionTest PRIVATE PrismProtocolHttp2 PrismTestSupport)
+AddPrismTest(Http2FuzzTest.cpp)
+target_link_libraries(Http2FuzzTest PRIVATE PrismProtocolHttp2 PrismTestSupport)

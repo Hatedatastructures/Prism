@@ -1,7 +1,7 @@
 /**
  * @file RecognitionWire.hpp
  * @brief 识别策略的标准协议 wire fixture
- * @details 只调用现有 Preview serializer/builder 生成真实首包，避免
+ * @details 只调用现有 Prism serializer/builder 生成真实首包，避免
  *          ASCII 伪 VLESS、CRLF 伪 Trojan 和单字节 VMess 正例。
  */
 
@@ -17,14 +17,14 @@
 #include <string_view>
 #include <vector>
 
-#include <Preview/Protocols/Http1/Parser.hpp>
-#include <Preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
-#include <Preview/Protocols/Socks5/Codec.hpp>
-#include <Preview/Protocols/Trojan/Codec.hpp>
-#include <Preview/Protocols/Vless/Codec.hpp>
-#include <Preview/Protocols/Vmess/Codec.hpp>
+#include <Prism/Protocols/Http1/Parser.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <Prism/Protocols/Socks5/Codec.hpp>
+#include <Prism/Protocols/Trojan/Codec.hpp>
+#include <Prism/Protocols/Vless/Codec.hpp>
+#include <Prism/Protocols/Vmess/Codec.hpp>
 
-namespace Preview::Testing::RecognitionWire
+namespace Prism::Testing::RecognitionWire
 {
 
     inline auto Bytes(const std::vector<std::uint8_t> &Input) -> std::vector<std::byte>
@@ -98,36 +98,36 @@ namespace Preview::Testing::RecognitionWire
 
     inline auto MakeHttp(std::string_view Payload = "") -> std::vector<std::byte>
     {
-        auto Request = Preview::Http11::MakeConnectRequest("example.com", 443);
+        auto Request = Prism::Http11::MakeConnectRequest("example.com", 443);
         Request.append(Payload);
         return Bytes(Request);
     }
 
     inline auto MakeSocksGreeting(bool UserPass = false) -> std::vector<std::byte>
     {
-        Preview::Socks5::Greeting Greeting;
+        Prism::Socks5::Greeting Greeting;
         if (UserPass)
         {
-            Greeting.Methods = {static_cast<std::uint8_t>(Preview::Socks5::AuthMethod::UserPass)};
+            Greeting.Methods = {static_cast<std::uint8_t>(Prism::Socks5::AuthMethod::UserPass)};
         }
         else
         {
-            Greeting.Methods = {static_cast<std::uint8_t>(Preview::Socks5::AuthMethod::NoAuth)};
+            Greeting.Methods = {static_cast<std::uint8_t>(Prism::Socks5::AuthMethod::NoAuth)};
         }
-        return Bytes(Preview::Socks5::BuildGreeting(Greeting));
+        return Bytes(Prism::Socks5::BuildGreeting(Greeting));
     }
 
     inline auto MakeVless(const std::array<std::uint8_t, 16> &Uuid,
-                          std::uint8_t Command = Preview::Vless::CmdTcp)
+                          std::uint8_t Command = Prism::Vless::CmdTcp)
         -> std::vector<std::byte>
     {
-        Preview::Vless::Message Message;
+        Prism::Vless::Message Message;
         Message.uuid = Uuid;
         Message.cmd = Command;
-        Message.dst.Type = Preview::Vless::AddressType::Domain;
+        Message.dst.Type = Prism::Vless::AddressType::Domain;
         Message.dst.Host = "example.com";
         Message.dst.Port = 443;
-        Preview::Vless::Serializer Serializer(Uuid);
+        Prism::Vless::Serializer Serializer(Uuid);
         Serializer.Reset(Message);
         std::array<std::uint8_t, 512> Wire{};
         std::error_code Error;
@@ -137,11 +137,11 @@ namespace Preview::Testing::RecognitionWire
 
     inline auto MakeTrojan(std::string_view Password) -> std::vector<std::byte>
     {
-        Preview::Trojan::Message Message;
-        Message.Target.Type = Preview::Trojan::AddressType::Domain;
+        Prism::Trojan::Message Message;
+        Message.Target.Type = Prism::Trojan::AddressType::Domain;
         Message.Target.Host = "example.com";
         Message.Target.Port = 443;
-        Preview::Trojan::Serializer Serializer(Password);
+        Prism::Trojan::Serializer Serializer(Password);
         Serializer.Reset(Message);
         std::array<std::uint8_t, 512> Wire{};
         std::error_code Error;
@@ -151,9 +151,9 @@ namespace Preview::Testing::RecognitionWire
 
     inline auto MakeVmess(const std::array<std::uint8_t, 16> &Uuid) -> std::vector<std::byte>
     {
-        Preview::Vmess::Message Message;
-        Message.Cmd = Preview::Vmess::CmdTcp;
-        Message.dst.Type = Preview::Vmess::AddressType::Domain;
+        Prism::Vmess::Message Message;
+        Message.Cmd = Prism::Vmess::CmdTcp;
+        Message.dst.Type = Prism::Vmess::AddressType::Domain;
         Message.dst.Host = "example.com";
         Message.dst.Port = 443;
         for (std::size_t Index = 0; Index < Message.RequestNonce.size(); ++Index)
@@ -162,7 +162,7 @@ namespace Preview::Testing::RecognitionWire
             Message.RequestKey[Index] = static_cast<std::uint8_t>(0xA0 + Index);
         }
         Message.RespHeader = 0x42;
-        Preview::Vmess::Serializer Serializer(Uuid);
+        Prism::Vmess::Serializer Serializer(Uuid);
         Serializer.Reset(Message, static_cast<std::uint64_t>(
                                    std::chrono::duration_cast<std::chrono::seconds>(
                                        std::chrono::system_clock::now().time_since_epoch())
@@ -176,11 +176,11 @@ namespace Preview::Testing::RecognitionWire
     inline auto MakeSs2022At(const std::array<std::uint8_t, 16> &Psk,
                              std::uint64_t TimeSec) -> std::vector<std::byte>
     {
-        Preview::Shadowsocks2022::Message Message;
-        Message.dst.Type = Preview::Shadowsocks2022::AddressType::Domain;
+        Prism::Shadowsocks2022::Message Message;
+        Message.dst.Type = Prism::Shadowsocks2022::AddressType::Domain;
         Message.dst.Host = "example.com";
         Message.dst.Port = 443;
-        Preview::Shadowsocks2022::Serializer Serializer(Psk);
+        Prism::Shadowsocks2022::Serializer Serializer(Psk);
         Serializer.Reset(Message, TimeSec);
         std::array<std::uint8_t, 2048> Wire{};
         std::error_code Error;
@@ -212,4 +212,4 @@ namespace Preview::Testing::RecognitionWire
         return MakeUuid(Seed);
     }
 
-} // namespace Preview::Testing::RecognitionWire
+} // namespace Prism::Testing::RecognitionWire

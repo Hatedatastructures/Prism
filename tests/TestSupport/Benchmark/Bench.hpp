@@ -4,9 +4,9 @@
  * @details 提供协议性能测试的统一测量原语：
  *          - BenchOptions：测试参数（总字节数 / 块大小 / 队列深度）
  *          - BenchReport：完整往返吞吐量及延迟分位数
- *          - BenchThroughput() / BenchThroughputTx() / BenchPreviewThroughput()：单连接吞吐与延迟测量
+ *          - BenchThroughput() / BenchThroughputTx() / BenchPrismThroughput()：单连接吞吐与延迟测量
  * @note 配合 MemoryStream（内存）或真实 socket 使用。
- * @note 旧接口与 Preview typed Transmission 使用独立具名入口；Preview 结果保留部分字节、耗时和 Failure。
+ * @note 旧接口与 Prism typed Transmission 使用独立具名入口；Prism 结果保留部分字节、耗时和 Failure。
  */
 
 #pragma once
@@ -25,12 +25,12 @@
 #include <utility>
 #include <vector>
 
-#include <Preview/Contract/Io/IoResult.hpp>
-#include <Preview/Foundation/ByteSpan.hpp>
-#include <Preview/Foundation/Fault/Failure.hpp>
-#include <Preview/Transport/Transmission.hpp>
+#include <Prism/Contract/Io/IoResult.hpp>
+#include <Prism/Foundation/ByteSpan.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Transport/Transmission.hpp>
 
-namespace Preview
+namespace Prism
 {
 
     namespace Net = boost::asio;
@@ -67,11 +67,11 @@ namespace Preview
     };
 
     /**
-     * @brief Preview typed 基准的唯一结果：实际测量报告与同次领域失败。
+     * @brief Prism typed 基准的唯一结果：实际测量报告与同次领域失败。
      * @details Report.Bytes 只累计完整往返块；BytesWritten 和 BytesRead 分别保留写入与回读的
      *          实际部分字节。Failure 为唯一终态事实，不用 expected 丢弃部分测量结果。
      */
-    struct PreviewBenchResult final
+    struct PrismBenchResult final
     {
         BenchReport Report{};
         std::size_t BytesWritten{0};
@@ -105,11 +105,11 @@ namespace Preview
         };
 
     /**
-     * @brief Preview 正式传输能力：只接受唯一 ReadSome/WriteSome 与 IoResult 契约。
+     * @brief Prism 正式传输能力：只接受唯一 ReadSome/WriteSome 与 IoResult 契约。
      * @tparam T 由 Transmission 或遵循相同正式接口的测试传输实现。
      */
     template <typename T>
-    concept PreviewBenchTransport =
+    concept PrismBenchTransport =
         requires(T &Value, std::span<std::byte> ReadBuffer,
                  std::span<const std::byte> WriteBuffer)
         {
@@ -289,8 +289,8 @@ namespace Preview
          * @param Data 本轮写入块。
          * @return 实际写入字节与终态失败；非空块零进度映射为 IoError。
          */
-        template <PreviewBenchTransport T>
-        auto WritePreviewBlock(T &Stream, std::span<const std::uint8_t> Data)
+        template <PrismBenchTransport T>
+        auto WritePrismBlock(T &Stream, std::span<const std::uint8_t> Data)
             -> Net::awaitable<IoResult>
         {
             std::size_t Bytes = 0;
@@ -321,8 +321,8 @@ namespace Preview
          * @param Data 本轮读取块。
          * @return 实际读取字节与终态失败；非空块零进度映射为 IoError。
          */
-        template <PreviewBenchTransport T>
-        auto ReadPreviewBlock(T &Stream, std::span<std::uint8_t> Data)
+        template <PrismBenchTransport T>
+        auto ReadPrismBlock(T &Stream, std::span<std::uint8_t> Data)
             -> Net::awaitable<IoResult>
         {
             std::size_t Bytes = 0;
@@ -347,13 +347,13 @@ namespace Preview
             co_return IoResult{Bytes, {}};
         }
 
-        struct PreviewBenchMeasurement final
+        struct PrismBenchMeasurement final
         {
-            PreviewBenchResult Result{};
+            PrismBenchResult Result{};
             std::vector<double> Latencies;
             std::chrono::steady_clock::time_point Started{std::chrono::steady_clock::now()};
 
-            auto Finish() -> PreviewBenchResult
+            auto Finish() -> PrismBenchResult
             {
                 Result.Report.Elapsed = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - Started);
@@ -393,19 +393,19 @@ namespace Preview
         };
 
         /**
-         * @brief 执行 Preview typed 逐块往返测量并保留部分结果。
-         * @tparam Writer 满足 PreviewBenchTransport 的写入端。
-         * @tparam Reader 满足 PreviewBenchTransport 的读取端。
+         * @brief 执行 Prism typed 逐块往返测量并保留部分结果。
+         * @tparam Writer 满足 PrismBenchTransport 的写入端。
+         * @tparam Reader 满足 PrismBenchTransport 的读取端。
          * @param Write 写入载体。
          * @param Read 读取载体。
          * @param Options 总量与块大小。
          * @return 完整往返报告、实际上下行字节、耗时、延迟样本及唯一领域 Failure。
          */
-        template <PreviewBenchTransport Writer, PreviewBenchTransport Reader>
-        auto RunPreviewBench(Writer &Write, Reader &Read, const BenchOptions &Options)
-            -> Net::awaitable<PreviewBenchResult>
+        template <PrismBenchTransport Writer, PrismBenchTransport Reader>
+        auto RunPrismBench(Writer &Write, Reader &Read, const BenchOptions &Options)
+            -> Net::awaitable<PrismBenchResult>
         {
-            PreviewBenchMeasurement Measurement;
+            PrismBenchMeasurement Measurement;
             if (Options.Block == 0)
             {
                 if (Options.Total > 0)
@@ -423,7 +423,7 @@ namespace Preview
                 const auto Chunk = std::min(
                     Options.Block, Options.Total - Measurement.Result.Report.Bytes);
                 const auto BlockStart = std::chrono::steady_clock::now();
-                const auto WriteResult = co_await WritePreviewBlock(
+                const auto WriteResult = co_await WritePrismBlock(
                     Write, std::span<const std::uint8_t>(WriteBuffer.data(), Chunk));
                 if (WriteResult.Failure.Failed())
                 {
@@ -439,7 +439,7 @@ namespace Preview
                 }
                 Measurement.Result.BytesWritten += WriteResult.Bytes;
 
-                const auto ReadResult = co_await ReadPreviewBlock(
+                const auto ReadResult = co_await ReadPrismBlock(
                     Read, std::span<std::uint8_t>(ReadBuffer.data(), Chunk));
                 Measurement.Result.BytesRead += ReadResult.Bytes;
                 if (ReadResult.Failure.Failed())
@@ -462,20 +462,20 @@ namespace Preview
     } // namespace Detail
 
     /**
-     * @brief 对 Preview typed 传输执行吞吐与往返延迟测量。
-     * @tparam Writer 满足 PreviewBenchTransport 的写入端类型。
-     * @tparam Reader 满足 PreviewBenchTransport 的读取端类型。
+     * @brief 对 Prism typed 传输执行吞吐与往返延迟测量。
+     * @tparam Writer 满足 PrismBenchTransport 的写入端类型。
+     * @tparam Reader 满足 PrismBenchTransport 的读取端类型。
      * @param Write 写入端。
      * @param Read 读取端。
      * @param Options 总字节数与块大小。
      * @return Report.Bytes 统计完整往返字节；结果另存实际写入与回读字节及唯一 Failure。
      * @details 普通 I/O 失败作为 Failure 返回，不转成异常。
      */
-    template <PreviewBenchTransport Writer, PreviewBenchTransport Reader>
-    auto BenchPreviewThroughput(Writer &Write, Reader &Read, const BenchOptions &Options)
-        -> Net::awaitable<PreviewBenchResult>
+    template <PrismBenchTransport Writer, PrismBenchTransport Reader>
+    auto BenchPrismThroughput(Writer &Write, Reader &Read, const BenchOptions &Options)
+        -> Net::awaitable<PrismBenchResult>
     {
-        return Detail::RunPreviewBench(Write, Read, Options);
+        return Detail::RunPrismBench(Write, Read, Options);
     }
     /**
      * @brief 旧版 ReadSome/WriteAll 接口的吞吐与延迟测量入口。
@@ -511,4 +511,4 @@ namespace Preview
             Options);
     }
 
-} // namespace Preview
+} // namespace Prism

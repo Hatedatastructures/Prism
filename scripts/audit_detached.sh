@@ -5,10 +5,10 @@
 #   ❌ DANGEROUS：捕获 session 裸引用/指针、frame_arena.get() 等 L3 资源
 #   ⚠ REVIEW   ：其他 detached 协程，需人工确认捕获列表或 operation helper
 #
-# 用法：bash scripts/audit_detached.sh [src_dir]
-# 默认 src_dir=src
+# 用法：bash scripts/audit_detached.sh [source_dir]
+# 默认 source_dir=Prism
 #
-# 旧版 src/ 的 L1/L2/L3/PMR 规则见 docs/legacy/prism-architecture.md
+# 当前 Prism 的 owner/executor/cancel/close/drain 规则见 docs/prism/ownership-and-lifecycle.md
 #
 # 退出码：
 #   0 - 无 DANGEROUS（REVIEW 项需人工确认）
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-SRC="${1:-src}"
+SRC="${1:-Prism}"
 
 if [[ ! -d "$SRC" ]]; then
     echo "错误：源目录不存在：$SRC" >&2
@@ -281,7 +281,7 @@ while IFS= read -r f; do
                     helper_label="operation helper"
                 fi
                 if printf '%s\n' "$operation" | grep -qE "$DANGEROUS_PATTERN"; then
-                    printf "❌ DANGEROUS %s:%d\n   %s: %s\n   建议：改为 shared_ptr 捕获或值拷贝，详见 docs/legacy/prism-architecture.md\n\n" \
+                    printf "❌ DANGEROUS %s:%d\n   %s: %s\n   建议：依据 Prism owner 和生命周期规则修复，详见 docs/prism/ownership-and-lifecycle.md\n\n" \
                         "$rel_path" "$line" "$helper_label" "$operation" >> "$tmp_danger"
                 else
                     printf "⚠ REVIEW    %s:%d\n   %s: %s\n\n" \
@@ -309,10 +309,10 @@ echo ""
 
 if [[ "$danger_count" -gt 0 ]]; then
     echo "❌ 发现 $danger_count 处危险 detached 协程捕获，请修复后重试"
-    echo "   参考 docs/legacy/prism-architecture.md 中的旧版 detached 协程规则"
+    echo "   参考 docs/prism/ownership-and-lifecycle.md 中的 owner 与关闭规则"
     exit 1
 fi
 
 echo "✓ 审计通过：未发现 DANGEROUS 捕获"
-echo "  REVIEW 项需人工确认捕获列表无 L3 资源依赖"
+echo "  REVIEW 项需人工确认捕获所有权、executor 与关闭/drain 顺序"
 exit 0

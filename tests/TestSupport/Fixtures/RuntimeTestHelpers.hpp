@@ -2,8 +2,7 @@
  * @file RuntimeTestHelpers.hpp
  * @brief runtime E2E 测试公共样板（RunCoro / echo 上游 / 链路状态等）
  * @details 为当前 Runtime 和协议集成测试共享真实 echo 与拥有型链路状态。
- *          仅测试代码使用，不属于生产库；Runtime fixtures 位于 Preview::Testing，
- *          与 Psm::Testing::ProductionMockTransport 明确分属两套类型体系。
+ *          仅测试代码使用，不属于生产库；Runtime fixtures 位于 Prism::Testing。
  * @note AcceptEchoUpstream 的 acceptor 以 shared_ptr 捕获进 detached 协程——
  *       禁止退回局部变量 + 引用捕获的写法（函数返回即悬垂，use-after-scope）。
  */
@@ -35,14 +34,14 @@
 #include <utility>
 #include <variant>
 
-#include <Preview/Foundation/Fault/Code.hpp>
-#include <Preview/Foundation/Fault/Failure.hpp>
-#include <Preview/Net/Dialer/Dialer.hpp>
-#include <Preview/Net/Target.hpp>
-#include <Preview/Transport/Transmission.hpp>
-#include <Preview/Foundation/Utility/TrafficSink.hpp>
+#include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Net/Dialer/Dialer.hpp>
+#include <Prism/Net/Target.hpp>
+#include <Prism/Transport/Transmission.hpp>
+#include <Prism/Foundation/Utility/TrafficSink.hpp>
 
-namespace Preview::Testing
+namespace Prism::Testing
 {
     namespace net = boost::asio;
 
@@ -204,11 +203,11 @@ namespace Preview::Testing
     struct TailReadOutcome final
     {
         bool TimedOut{false};
-        Preview::IoResult Result{};
+        Prism::IoResult Result{};
     };
 
     /** @brief 返回尾部读取的 typed 结果；超时与 peer close 保持可区分。 */
-    inline auto TailReadOutcomeGuarded(const Preview::SharedTransmission &Sock,
+    inline auto TailReadOutcomeGuarded(const Prism::SharedTransmission &Sock,
                                        std::span<std::byte> Buffer)
         -> net::awaitable<TailReadOutcome>
     {
@@ -220,12 +219,12 @@ namespace Preview::Testing
         if (Result.index() == 1)
         {
             (void)Sock->Close();
-            co_return TailReadOutcome{true, {0, {Preview::Fault::Code::Timeout}}};
+            co_return TailReadOutcome{true, {0, {Prism::Fault::Code::Timeout}}};
         }
         co_return TailReadOutcome{false, std::get<0>(std::move(Result))};
     }
 
-    inline auto TailReadGuarded(const Preview::SharedTransmission &Sock,
+    inline auto TailReadGuarded(const Prism::SharedTransmission &Sock,
                                 std::span<std::byte> Buffer, std::error_code &ErrorCode)
         -> net::awaitable<std::size_t>
     {
@@ -235,7 +234,7 @@ namespace Preview::Testing
             ErrorCode = std::make_error_code(std::errc::timed_out);
             co_return 0;
         }
-        ErrorCode = Preview::Fault::ToNative(Outcome.Result.Failure);
+        ErrorCode = Prism::Fault::ToNative(Outcome.Result.Failure);
         co_return Outcome.Result.Bytes;
     }
 
@@ -260,15 +259,15 @@ namespace Preview::Testing
      * @return 拨号结果（失败为 unreachable）
      */
     [[nodiscard]] inline auto DialUpstream(const ChainStatePtr &State,
-                                            const Preview::Network::Target &Target)
-        -> net::awaitable<std::expected<Preview::SharedTransmission, Preview::Fault::Failure>>
+                                            const Prism::Network::Target &Target)
+        -> net::awaitable<std::expected<Prism::SharedTransmission, Prism::Fault::Failure>>
     {
-        const auto Text = Preview::Network::ToText(Target.Host);
+        const auto Text = Prism::Network::ToText(Target.Host);
         State->RequestedHost = Text.View();
         State->RequestedPort = std::to_string(Target.Port);
-        Preview::Network::Dialer::Dialer Dialer(State->Executor);
+        Prism::Network::Dialer::Dialer Dialer(State->Executor);
         co_return co_await Dialer.Connect(
-            {*Preview::Network::ParseHost("127.0.0.1"), State->EchoPort});
+            {*Prism::Network::ParseHost("127.0.0.1"), State->EchoPort});
     }
 
     /**
@@ -276,10 +275,10 @@ namespace Preview::Testing
      * @param Value 协议私有错误码；本函数同步读取，不保留输入。
      * @return 只保留映射后的 Fault 分类；协议解析错误没有伪造原生 cause。
      */
-    [[nodiscard]] inline auto FailureFromProtocolError(const Preview::Error Value) noexcept
-        -> Preview::Fault::Failure
+    [[nodiscard]] inline auto FailureFromProtocolError(const Prism::Error Value) noexcept
+        -> Prism::Fault::Failure
     {
-        return {Preview::Fault::ToCode(Preview::make_error_code(Value)), {}};
+        return {Prism::Fault::ToCode(Prism::make_error_code(Value)), {}};
     }
 
     /**
@@ -288,7 +287,7 @@ namespace Preview::Testing
      */
     struct ConnectResult
     {
-        Preview::Fault::Failure Failure{}; ///< 唯一业务失败值；成功要求 Code::Success 且无 Native。
+        Prism::Fault::Failure Failure{}; ///< 唯一业务失败值；成功要求 Code::Success 且无 Native。
         std::string Echo;                  ///< 回显数据
         std::string Host;                  ///< 上游记录的请求 host
         std::string Port;                  ///< 上游记录的请求 port
@@ -298,33 +297,33 @@ namespace Preview::Testing
      * @struct TrafficRecorder
      * @brief 流量统计桩（校验 relay/udp 数据面结束后上报）
      */
-    struct TrafficRecorder : Preview::Foundation::TrafficSink
+    struct TrafficRecorder : Prism::Foundation::TrafficSink
     {
-        Preview::Foundation::TrafficEvent LastEvent{}; ///< 最近一次上报的数值事件
+        Prism::Foundation::TrafficEvent LastEvent{}; ///< 最近一次上报的数值事件
         std::size_t Up{0};    ///< 累计上行字节
         std::size_t Down{0};  ///< 累计下行字节
         int Calls{0};         ///< Completed 终结上报次数
         int ByteCalls{0};     ///< Bytes 增量上报次数
         int RetirementCalls{0}; ///< 动态统计 owner 退休回执次数
-        Preview::Foundation::TrafficRetirement LastRetirement{
-            Preview::Foundation::SessionTrafficOwner{}};
+        Prism::Foundation::TrafficRetirement LastRetirement{
+            Prism::Foundation::SessionTrafficOwner{}};
 
-        auto Report(Preview::Foundation::TrafficEvent Event) noexcept -> void override
+        auto Report(Prism::Foundation::TrafficEvent Event) noexcept -> void override
         {
             LastEvent = Event;
             Up += Event.Up;
             Down += Event.Down;
-            if (Event.Kind == Preview::Foundation::TrafficEventKind::Completed) ++Calls;
+            if (Event.Kind == Prism::Foundation::TrafficEventKind::Completed) ++Calls;
             else ++ByteCalls;
         }
 
         /** @brief 桩显式记录已接管的退休输入；不承担生产计数器的聚合或资源关闭。 */
-        auto Retire(Preview::Foundation::TrafficRetirement Owner)
-            -> net::awaitable<std::expected<void, Preview::Fault::Failure>> override
+        auto Retire(Prism::Foundation::TrafficRetirement Owner)
+            -> net::awaitable<std::expected<void, Prism::Fault::Failure>> override
         {
             LastRetirement = std::move(Owner);
             ++RetirementCalls;
-            co_return std::expected<void, Preview::Fault::Failure>{};
+            co_return std::expected<void, Prism::Fault::Failure>{};
         }
     };
 
@@ -361,4 +360,4 @@ namespace Preview::Testing
         }
         return Output;
     }
-} // namespace Preview::Testing
+} // namespace Prism::Testing

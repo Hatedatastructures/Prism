@@ -1,0 +1,7 @@
+AddPrismTest(Task10StatisticsTest.cpp)
+target_link_libraries(Task10StatisticsTest PRIVATE PrismStatistics)
+AddPrismTest(AnalysisHistoryTest.cpp)
+target_link_libraries(AnalysisHistoryTest PRIVATE PrismStatistics)
+
+AddPrismTest(SettingsApiTest.cpp)
+target_link_libraries(SettingsApiTest PRIVATE PrismRuntime PrismTestSupport)

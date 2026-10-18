@@ -1,0 +1,2 @@
+AddPrismTest(BuiltinRegistryTest.cpp)
+target_link_libraries(BuiltinRegistryTest PRIVATE PrismComposition)

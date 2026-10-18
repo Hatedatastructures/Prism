@@ -13,7 +13,7 @@
 #include <format>
 #include <string_view>
 
-namespace Preview::Testing
+namespace Prism::Testing
 {
     /**
      * @brief 轻量级测试运行器
@@ -110,4 +110,4 @@ namespace Preview::Testing
         int Passed_ = 0;
         int Failed_ = 0;
     };
-} // namespace Preview::Testing
+} // namespace Prism::Testing

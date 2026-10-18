@@ -23,7 +23,7 @@
 #include <span>
 #include <vector>
 
-namespace Preview::Stress
+namespace Prism::Stress
 {
     namespace net = boost::asio;
 
@@ -153,4 +153,4 @@ namespace Preview::Stress
         co_return false;
     }
 
-} // namespace Preview::Stress
+} // namespace Prism::Stress

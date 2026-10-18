@@ -1,2 +1,0 @@
-AddProductionTest(TuicCodec.cpp)
-

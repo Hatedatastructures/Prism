@@ -1,5 +1,0 @@
-AddProductionTest(Trojan.cpp)
-AddProductionTest(TrojanFraming.cpp)
-AddProductionTest(TrojanFramingPure.cpp)
-AddProductionTest(TrojanProcessPure.cpp)
-AddProductionTest(TrojanConnPure.cpp)

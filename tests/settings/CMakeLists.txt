@@ -1,1 +1,0 @@
-AddProductionTest(validator.cpp)

@@ -1,3 +1,0 @@
-AddProductionTest(StealthCommonPure.cpp)
-AddProductionTest(StealthRegistryDeep.cpp)
-AddProductionTest(StealthRegistryPure.cpp)

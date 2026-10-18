@@ -24,17 +24,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: G7 Header Registration + Mirror Drift
-        run: pwsh scripts/check_common_headers.ps1 -CheckMirror
+      - name: G7 Header Registration
+        run: pwsh scripts/check_common_headers.ps1
 
-      - name: Preview Source Contracts
-        run: pwsh scripts/check_preview_contracts.ps1
+      - name: Prism Source Contracts
+        run: pwsh scripts/check_prism_contracts.ps1
 
       - name: Workflow Syntax Check
         run: pwsh scripts/check_workflow.ps1
 
-      - name: Preview Gate D Workflow Check
-        run: pwsh scripts/check_workflow.ps1 -WorkflowPath .github/workflows/preview-gate-d.yml
+      - name: Prism Gate D Workflow Check
+        run: pwsh scripts/check_workflow.ps1 -WorkflowPath .github/workflows/prism-gate-d.yml
 
   build-windows:
     needs: gate
@@ -66,7 +66,7 @@ jobs:
         run: pwsh scripts/check_common_headers.ps1
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "MinGW Makefiles" -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "MinGW Makefiles"
 
       - name: Build
         run: cmake --build build --config Release -j4 --verbose
@@ -83,17 +83,14 @@ jobs:
             exit $LASTEXITCODE
           }
 
-      - name: Preview Executable and Configuration
+      - name: Prism Executable and Configuration
         shell: pwsh
         run: |
-          if (-not (Test-Path -LiteralPath build/src/PrismPreview.exe) -or
-              -not (Test-Path -LiteralPath build/src/PreviewConfiguration.json)) {
-            throw 'The build did not produce the Preview executable and compiled configuration.'
+          if (-not (Test-Path -LiteralPath build/src/Prism.exe) -or
+              -not (Test-Path -LiteralPath build/src/PrismConfiguration.json)) {
+            throw 'The build did not produce the Prism executable and compiled configuration.'
           }
-          Get-FileHash -Algorithm SHA256 -LiteralPath build/src/PrismPreview.exe,build/src/PreviewConfiguration.json
-
-      - name: Preview Contract Smoke
-        run: ctest --test-dir build --no-tests=error --output-on-failure -R "^(ProtocolContract|TransportContract)" -j 4 --timeout 120
+          Get-FileHash -Algorithm SHA256 -LiteralPath build/src/Prism.exe,build/src/PrismConfiguration.json
 
       - name: Create Archive
         run: |
@@ -138,7 +135,7 @@ jobs:
         run: pwsh scripts/check_common_headers.ps1
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
 
       - name: Build
         run: cmake --build build --config Release --parallel 4 --verbose
@@ -154,14 +151,11 @@ jobs:
             exit $?
           fi
 
-      - name: Preview Executable and Configuration
+      - name: Prism Executable and Configuration
         run: |
-          test -x build/src/PrismPreview
-          test -f build/src/PreviewConfiguration.json
-          sha256sum build/src/PrismPreview build/src/PreviewConfiguration.json
-
-      - name: Preview Contract Smoke
-        run: ctest --test-dir build --no-tests=error --output-on-failure -R '^(ProtocolContract|TransportContract)' -j 4 --timeout 120
+          test -x build/src/Prism
+          test -f build/src/PrismConfiguration.json
+          sha256sum build/src/Prism build/src/PrismConfiguration.json
 
       - name: Create Archive
         run: |

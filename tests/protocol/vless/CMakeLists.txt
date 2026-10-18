@@ -1,5 +1,0 @@
-AddProductionTest(Vless.cpp)
-AddProductionTest(VlessFraming.cpp)
-AddProductionTest(VlessFramingPure.cpp)
-AddProductionTest(VlessProcessPure.cpp)
-AddProductionTest(VlessConnPure.cpp)

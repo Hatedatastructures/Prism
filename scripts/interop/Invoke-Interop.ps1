@@ -36,14 +36,14 @@ function Get-InteropMatrixScope {
     )
 
     if ([string]::IsNullOrWhiteSpace($PrismExe)) {
-        return 'preview-only'
+        return 'prism-only'
     }
     return 'full'
 }
 
 function Get-GateDClassification {
     param(
-        [Parameter(Mandatory = $true)][ValidateSet('full', 'preview-only')][string]$Scope,
+        [Parameter(Mandatory = $true)][ValidateSet('full', 'prism-only')][string]$Scope,
         [Parameter(Mandatory = $true)][ValidateSet('pass', 'failed', 'blocked-production-prerequisite', 'environment-unavailable', 'interface-gap')][string]$Status
     )
 
@@ -51,10 +51,10 @@ function Get-GateDClassification {
         if ($Scope -eq 'full') {
             return 'production-blocked'
         }
-        return 'preview-only-blocked'
+        return 'prism-only-blocked'
     }
     if ($Status -in @('environment-unavailable', 'interface-gap')) {
-        return 'preview-only-blocked'
+        return 'prism-only-blocked'
     }
     if ($Status -eq 'failed') {
         return 'failed'
@@ -68,7 +68,7 @@ function Get-InteropReferenceVersions {
     )
 
     $Versions = [ordered]@{}
-    $GoMod = Join-Path $RepoRoot 'tests/go/go.mod'
+    $GoMod = Join-Path $RepoRoot 'tests/Prism/Integration/Go/go.mod'
     if (-not (Test-Path -LiteralPath $GoMod -PathType Leaf)) {
         return $Versions
     }

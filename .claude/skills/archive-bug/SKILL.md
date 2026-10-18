@@ -12,8 +12,7 @@ description: Prism bug 或互操作问题修复并验证后，将根因、证据
 ## 归档位置
 
 - 活跃问题和安全分级遵循 `AGENTS.md` 指定的 `logs/issues.md`。
-- 协议互操作证据优先更新 `docs/ngx-test-data/` 中对应文档。
-- 可复用的架构结论更新 `docs/` 中现有主题文档。
+- 互操作证据按 `docs/TESTING.md` 的验收边界记录；可复用的架构结论更新 `docs/` 中当前主题文档。
 - 不写入仓库之外的私人路径，不要求存在 commit hash。
 
 ## 记录内容

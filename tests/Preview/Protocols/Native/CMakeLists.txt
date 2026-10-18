@@ -1,3 +1,0 @@
-# native 子模块
-AddPreviewTest(NativeConnTest.cpp)
-target_link_libraries(NativeConnTest PRIVATE PreviewFoundation PreviewTransport PreviewProtocolNative PreviewTestSupport)

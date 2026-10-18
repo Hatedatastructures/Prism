@@ -1,0 +1,3 @@
+AddPrismTest(AnytlsShutdownCancellationTest.cpp)
+target_link_libraries(AnytlsShutdownCancellationTest PRIVATE
+    PrismFoundation PrismProtocolAnytls PrismRuntime PrismTransport)

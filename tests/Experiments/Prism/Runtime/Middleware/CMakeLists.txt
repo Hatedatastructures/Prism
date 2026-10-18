@@ -1,0 +1,12 @@
+# 实验认证中间件只由实验测试 target 消费。
+add_library(ExperimentalAuthentication INTERFACE)
+target_sources(ExperimentalAuthentication INTERFACE
+    ${CMAKE_SOURCE_DIR}/tests/Experiments/Prism/Authentication.hpp)
+target_link_libraries(ExperimentalAuthentication INTERFACE PrismRuntime PrismAccount)
+
+AddExperimentTest(AuthMiddlewareTest.cpp)
+target_link_libraries(ExperimentAuthMiddlewareTest PRIVATE PrismFoundation PrismRuntime ExperimentalAuthentication)
+
+AddExperimentTest(AuthDirectoryMiddlewareTest.cpp)
+target_link_libraries(ExperimentAuthDirectoryMiddlewareTest PRIVATE
+    PrismFoundation PrismRuntime PrismAccount ExperimentalAuthentication)

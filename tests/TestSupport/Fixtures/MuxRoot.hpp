@@ -3,48 +3,48 @@
 #include <gtest/gtest.h>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
-#include <Preview/Account/Authenticator.hpp>
-#include <TestSupport/Preview/ProviderBindings.hpp>
-#include <Preview/Contract/Services/Authentication.hpp>
-#include <Preview/Protocols/Trojan/Binding.hpp>
-#include <Preview/Protocols/Trojan/IngressFactory.hpp>
-#include <Preview/Foundation/Generation/Lifetime.hpp>
-#include <Preview/Protocols/Mux/Smux/Smux.hpp>
-#include <Preview/Protocols/Mux/Yamux/Yamux.hpp>
-#include <Preview/Foundation/Memory/BytePool.hpp>
-#include <Preview/Transport/MemoryStream.hpp>
-#include <Preview/Transport/Reliable.hpp>
+#include <Prism/Account/Authenticator.hpp>
+#include <TestSupport/Prism/ProviderBindings.hpp>
+#include <Prism/Contract/Services/Authentication.hpp>
+#include <Prism/Protocols/Trojan/Binding.hpp>
+#include <Prism/Protocols/Trojan/IngressFactory.hpp>
+#include <Prism/Foundation/Generation/Lifetime.hpp>
+#include <Prism/Protocols/Mux/Smux/Smux.hpp>
+#include <Prism/Protocols/Mux/Yamux/Yamux.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
+#include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Reliable.hpp>
 #include <barrier>
 #include <exception>
 #include <expected>
 #include <optional>
 #include <thread>
 
-namespace Preview::Testing::MuxRoot
+namespace Prism::Testing::MuxRoot
 {
     namespace Net = boost::asio;
     using Tcp = Net::ip::tcp;
-    using Code = Preview::Fault::Code;
+    using Code = Prism::Fault::Code;
     using Signal = Net::experimental::channel<void(boost::system::error_code)>;
     constexpr std::string_view Literal{"A4-FORMAL-ROOT-ECHO"};
     constexpr std::string_view Password{"task4-consumer-password"};
     struct PreparedCreate final
     {
-        std::optional<Preview::Contract::InboundAdmission> Admission;
-        std::optional<Preview::Contract::MuxRootCreateRequest> Request;
+        std::optional<Prism::Contract::InboundAdmission> Admission;
+        std::optional<Prism::Contract::MuxRootCreateRequest> Request;
     };
 
-    inline auto PrepareCreate(Preview::SharedTransmission Inbound,
-        std::shared_ptr<Preview::Foundation::GenerationUseState> UseState)
-        -> Net::awaitable<std::expected<PreparedCreate, Preview::Fault::Failure>>
+    inline auto PrepareCreate(Prism::SharedTransmission Inbound,
+        std::shared_ptr<Prism::Foundation::GenerationUseState> UseState)
+        -> Net::awaitable<std::expected<PreparedCreate, Prism::Fault::Failure>>
     {
-        auto Reserved = co_await Preview::Contract::InboundAdmission::Prepare(Inbound);
+        auto Reserved = co_await Prism::Contract::InboundAdmission::Prepare(Inbound);
         if (!Reserved) co_return std::unexpected(Reserved.error());
         auto Admission = std::move(*Reserved);
-        Preview::Contract::ProtocolDataPlane Plane;
-        Plane.Protocol = Preview::Contract::ProtocolType::AnyTls;
-        Plane.Root = Preview::Contract::MuxRootDataPlane{std::move(Inbound), {}};
-        auto Request = Preview::Contract::MuxRootCreateRequest::Prepare(
+        Prism::Contract::ProtocolDataPlane Plane;
+        Plane.Protocol = Prism::Contract::ProtocolType::AnyTls;
+        Plane.Root = Prism::Contract::MuxRootDataPlane{std::move(Inbound), {}};
+        auto Request = Prism::Contract::MuxRootCreateRequest::Prepare(
             Admission.RootCreateOwner(), std::move(UseState), std::move(Plane));
         if (!Request)
         {
@@ -55,10 +55,10 @@ namespace Preview::Testing::MuxRoot
         co_return PreparedCreate{std::move(Admission), std::move(*Request)};
     }
 
-    inline auto CreateRoot(std::shared_ptr<Preview::Mux::RootBinding> Binding,
-        Preview::SharedTransmission Inbound)
-        -> Net::awaitable<std::expected<Preview::Mux::RootCreateResult,
-            Preview::Fault::Failure>>
+    inline auto CreateRoot(std::shared_ptr<Prism::Mux::RootBinding> Binding,
+        Prism::SharedTransmission Inbound)
+        -> Net::awaitable<std::expected<Prism::Mux::RootCreateResult,
+            Prism::Fault::Failure>>
     {
         auto Prepared = co_await PrepareCreate(std::move(Inbound), Binding->GenerationUseState());
         if (!Prepared) co_return std::unexpected(Prepared.error());
@@ -69,31 +69,31 @@ namespace Preview::Testing::MuxRoot
     {
         explicit Peer(Net::any_io_executor Ex) : Ready(Ex, 1), Done(Ex, 1)
         {
-            auto [C,S] = Preview::MakeMemoryPair(Ex);
-            Client = std::make_shared<Preview::MemoryStream>(std::move(C));
-            Server = std::make_shared<Preview::MemoryStream>(std::move(S));
+            auto [C,S] = Prism::MakeMemoryPair(Ex);
+            Client = std::make_shared<Prism::MemoryStream>(std::move(C));
+            Server = std::make_shared<Prism::MemoryStream>(std::move(S));
         }
-        Preview::SharedTransmission Client, Server;
-        std::shared_ptr<Preview::Contract::MuxSession> Root;
-        std::weak_ptr<Preview::Contract::MuxSession> WeakRoot;
-        std::shared_ptr<Preview::Foundation::GenerationUseState> UseState{
-            std::make_shared<Preview::Foundation::GenerationUseState>()};
-        Preview::Contract::RequestMetadata Metadata;
+        Prism::SharedTransmission Client, Server;
+        std::shared_ptr<Prism::Contract::MuxSession> Root;
+        std::weak_ptr<Prism::Contract::MuxSession> WeakRoot;
+        std::shared_ptr<Prism::Foundation::GenerationUseState> UseState{
+            std::make_shared<Prism::Foundation::GenerationUseState>()};
+        Prism::Contract::RequestMetadata Metadata;
         Signal Ready, Done;
-        std::expected<void, Preview::Fault::Failure> Status{std::unexpected(Preview::Fault::Failure{Code::IoError})};
-        std::optional<Preview::Fault::Failure> AcceptFailure;
+        std::expected<void, Prism::Fault::Failure> Status{std::unexpected(Prism::Fault::Failure{Code::IoError})};
+        std::optional<Prism::Fault::Failure> AcceptFailure;
         bool Authenticated{false}, Returned{false};
     };
     struct State final : std::enable_shared_from_this<State>
     {
         explicit State(Net::any_io_executor Ex) : Executor(Ex), Acceptor(Ex, Tcp::endpoint(Tcp::v4(),0)),
-            Deadline(Ex), Tasks(std::make_shared<Preview::Lifecycle::TaskRegistry>(Ex)), Reported(Ex,32),
-            Bytes(std::make_shared<Preview::Memory::BytePool>(Preview::Memory::BytePoolOptions{.BlockCount=64}))
+            Deadline(Ex), Tasks(std::make_shared<Prism::Lifecycle::TaskRegistry>(Ex)), Reported(Ex,32),
+            Bytes(std::make_shared<Prism::Memory::BytePool>(Prism::Memory::BytePoolOptions{.BlockCount=64}))
         {
-            Accounts=Preview::Testing::ProviderAccount(
-                Preview::Account::Credential::Token(Preview::Trojan::Credential(Password)),
-                Preview::AccountId{4700},{.MaxConnections=8,.MaxStreams=8});
-            Record=Accounts->Store->FindById(Preview::AccountId{4700});
+            Accounts=Prism::Testing::ProviderAccount(
+                Prism::Account::Credential::Token(Prism::Trojan::Credential(Password)),
+                Prism::AccountId{4700},{.MaxConnections=8,.MaxStreams=8});
+            Record=Accounts->Store->FindById(Prism::AccountId{4700});
             EXPECT_TRUE(Record);
         }
         auto Stop() -> void
@@ -106,60 +106,60 @@ namespace Preview::Testing::MuxRoot
         Net::any_io_executor Executor;
         Tcp::acceptor Acceptor;
         Net::steady_timer Deadline;
-        std::shared_ptr<Preview::Lifecycle::TaskRegistry> Tasks;
+        std::shared_ptr<Prism::Lifecycle::TaskRegistry> Tasks;
         Signal Reported;
-        std::shared_ptr<Preview::Memory::BytePool> Bytes;
-        std::shared_ptr<Preview::Foundation::GenerationUseState> UseState{
-            std::make_shared<Preview::Foundation::GenerationUseState>()};
-        std::shared_ptr<Preview::Testing::ProviderAccounts> Accounts;
-        std::shared_ptr<const Preview::Account::AccountBinding> Record;
-        std::shared_ptr<Preview::Mux::RootBinding> Binding;
+        std::shared_ptr<Prism::Memory::BytePool> Bytes;
+        std::shared_ptr<Prism::Foundation::GenerationUseState> UseState{
+            std::make_shared<Prism::Foundation::GenerationUseState>()};
+        std::shared_ptr<Prism::Testing::ProviderAccounts> Accounts;
+        std::shared_ptr<const Prism::Account::AccountBinding> Record;
+        std::shared_ptr<Prism::Mux::RootBinding> Binding;
         std::vector<std::shared_ptr<Peer>> Peers;
         std::vector<std::shared_ptr<Tcp::socket>> Sockets;
-        std::vector<Preview::Mux::ChildReport> Reports;
+        std::vector<Prism::Mux::ChildReport> Reports;
         std::size_t Dials{0};
         std::exception_ptr Failure;
         bool TimedOut{false};
     };
-    class Egress final : public Preview::Contract::StreamEgress
+    class Egress final : public Prism::Contract::StreamEgress
     {
     public:
         explicit Egress(std::weak_ptr<State> Owner) : Owner_(std::move(Owner)) {}
-        auto Connect(Preview::Network::Target Target)
-            -> Net::awaitable<std::expected<Preview::SharedTransmission,Preview::Fault::Failure>> override
+        auto Connect(Prism::Network::Target Target)
+            -> Net::awaitable<std::expected<Prism::SharedTransmission,Prism::Fault::Failure>> override
         {
             if(const auto S=Owner_.lock()) ++S->Dials;
             Tcp::socket Socket(co_await Net::this_coro::executor);
             boost::system::error_code Error;
-            co_await Socket.async_connect(Tcp::endpoint(*Preview::Network::IpAddress(Target.Host),
+            co_await Socket.async_connect(Tcp::endpoint(*Prism::Network::IpAddress(Target.Host),
                 Target.Port),Net::redirect_error(Net::use_awaitable,Error));
-            if(Error) co_return std::unexpected(Preview::Fault::FromNative(static_cast<std::error_code>(Error)));
-            co_return Preview::SharedTransmission{
-                std::make_shared<Preview::Transport::Reliable>(std::move(Socket))};
+            if(Error) co_return std::unexpected(Prism::Fault::FromNative(static_cast<std::error_code>(Error)));
+            co_return Prism::SharedTransmission{
+                std::make_shared<Prism::Transport::Reliable>(std::move(Socket))};
         }
     private: std::weak_ptr<State> Owner_;
     };
 
     struct ConcurrentRegistryScenario final
     {
-        using Prepare = std::expected<PreparedCreate, Preview::Fault::Failure>;
-        using Create = std::expected<Preview::Mux::RootCreateResult,
-            Preview::Fault::Failure>;
+        using Prepare = std::expected<PreparedCreate, Prism::Fault::Failure>;
+        using Create = std::expected<Prism::Mux::RootCreateResult,
+            Prism::Fault::Failure>;
         Net::io_context IoA, IoB, DrainIo;
-        Preview::SharedTransmission ClientA, ClientB, AnchorClient;
-        std::shared_ptr<Preview::MemoryStream> InboundA, InboundB, AnchorInbound;
-        std::shared_ptr<Preview::Foundation::GenerationUseState> UseState{
-            std::make_shared<Preview::Foundation::GenerationUseState>()};
+        Prism::SharedTransmission ClientA, ClientB, AnchorClient;
+        std::shared_ptr<Prism::MemoryStream> InboundA, InboundB, AnchorInbound;
+        std::shared_ptr<Prism::Foundation::GenerationUseState> UseState{
+            std::make_shared<Prism::Foundation::GenerationUseState>()};
         std::shared_ptr<State> Fixture;
-        std::shared_ptr<Preview::Mux::RootBinding> Binding;
+        std::shared_ptr<Prism::Mux::RootBinding> Binding;
         std::optional<Prepare> PreparedA, PreparedB, PreparedAnchor;
         std::exception_ptr PrepareFailureA, PrepareFailureB, PrepareFailureAnchor;
         std::optional<Create> AnchorCreated;
         std::optional<Create> CreatedA, CreatedB;
         std::exception_ptr CreateFailureA, CreateFailureB;
-        std::optional<std::expected<void, Preview::Fault::Failure>> Drained;
+        std::optional<std::expected<void, Prism::Fault::Failure>> Drained;
         std::exception_ptr DrainException;
-        std::weak_ptr<Preview::Contract::MuxSession> WeakAnchor, WeakA, WeakB;
+        std::weak_ptr<Prism::Contract::MuxSession> WeakAnchor, WeakA, WeakB;
         bool NotRetiredAtSeal{false};
         bool RegisteredA{false}, RegisteredB{false};
         bool PreparedReady{false}, RegistrationReady{false};
@@ -167,14 +167,14 @@ namespace Preview::Testing::MuxRoot
 
     inline auto PrepareConcurrentRegistryRoots(ConcurrentRegistryScenario &Scenario) -> void
     {
-        auto [ClientA, ServerA] = Preview::MakeMemoryPair(Scenario.IoA.get_executor());
-        auto [ClientB, ServerB] = Preview::MakeMemoryPair(Scenario.IoB.get_executor());
-        Scenario.ClientA = std::make_shared<Preview::MemoryStream>(std::move(ClientA));
-        Scenario.ClientB = std::make_shared<Preview::MemoryStream>(std::move(ClientB));
-        Scenario.InboundA = std::make_shared<Preview::MemoryStream>(std::move(ServerA));
-        Scenario.InboundB = std::make_shared<Preview::MemoryStream>(std::move(ServerB));
+        auto [ClientA, ServerA] = Prism::MakeMemoryPair(Scenario.IoA.get_executor());
+        auto [ClientB, ServerB] = Prism::MakeMemoryPair(Scenario.IoB.get_executor());
+        Scenario.ClientA = std::make_shared<Prism::MemoryStream>(std::move(ClientA));
+        Scenario.ClientB = std::make_shared<Prism::MemoryStream>(std::move(ClientB));
+        Scenario.InboundA = std::make_shared<Prism::MemoryStream>(std::move(ServerA));
+        Scenario.InboundB = std::make_shared<Prism::MemoryStream>(std::move(ServerB));
         Scenario.Fixture = std::make_shared<State>(Scenario.IoA.get_executor());
-        Scenario.Binding = std::make_shared<Preview::Mux::RootBinding>(Preview::Mux::RootOptions{
+        Scenario.Binding = std::make_shared<Prism::Mux::RootBinding>(Prism::Mux::RootOptions{
             .Services = {.Egress = std::make_shared<Egress>(Scenario.Fixture)},
             .GenerationUseState = Scenario.UseState});
         Net::co_spawn(Scenario.IoA, PrepareCreate(Scenario.InboundA, Scenario.UseState),
@@ -190,10 +190,10 @@ namespace Preview::Testing::MuxRoot
             Scenario.PreparedB && *Scenario.PreparedB;
         if (!Scenario.PreparedReady) return;
 
-        auto [AnchorClient, AnchorServer] = Preview::MakeMemoryPair(
+        auto [AnchorClient, AnchorServer] = Prism::MakeMemoryPair(
             Scenario.IoA.get_executor());
-        Scenario.AnchorClient = std::make_shared<Preview::MemoryStream>(std::move(AnchorClient));
-        Scenario.AnchorInbound = std::make_shared<Preview::MemoryStream>(
+        Scenario.AnchorClient = std::make_shared<Prism::MemoryStream>(std::move(AnchorClient));
+        Scenario.AnchorInbound = std::make_shared<Prism::MemoryStream>(
             std::move(AnchorServer));
         Net::co_spawn(Scenario.IoA,
             PrepareCreate(Scenario.AnchorInbound, Scenario.UseState),
@@ -267,7 +267,7 @@ namespace Preview::Testing::MuxRoot
     {
         Net::co_spawn(Scenario.DrainIo, Scenario.Binding->Drain(),
             [&Scenario](std::exception_ptr Failure,
-                std::expected<void, Preview::Fault::Failure> Value)
+                std::expected<void, Prism::Fault::Failure> Value)
             { Scenario.DrainException = std::move(Failure); Scenario.Drained = std::move(Value); });
         Scenario.IoA.restart();
         Scenario.IoB.restart();
@@ -305,22 +305,22 @@ namespace Preview::Testing::MuxRoot
             EXPECT_TRUE(S->Tasks->SpawnTracked({.StartOnSubmit=true},Echo(Socket)));
         }
     }
-    inline auto Make(Net::any_io_executor Ex, Preview::Mux::Mode Wire) -> std::shared_ptr<State>
+    inline auto Make(Net::any_io_executor Ex, Prism::Mux::Mode Wire) -> std::shared_ptr<State>
     {
         auto S=std::make_shared<State>(Ex); const auto Weak=std::weak_ptr<State>(S);
-        Preview::Mux::RootOptions Options{.Wire=Wire,
+        Prism::Mux::RootOptions Options{.Wire=Wire,
             .Services={.Egress=std::make_shared<Egress>(S),.Bytes=S->Bytes},
             .GenerationUseState=S->UseState};
-        Options.Observe=[Weak](Preview::Mux::ChildReport Report)
+        Options.Observe=[Weak](Prism::Mux::ChildReport Report)
         { if(const auto Owner=Weak.lock()){Owner->Reports.push_back(std::move(Report));(void)Owner->Reported.try_send(boost::system::error_code{});} };
-        S->Binding=std::make_shared<Preview::Mux::RootBinding>(std::move(Options));
+        S->Binding=std::make_shared<Prism::Mux::RootBinding>(std::move(Options));
         EXPECT_TRUE(S->Tasks->SpawnTracked({.StartOnSubmit=true},Accept(S)));
         return S;
     }
     inline auto RunPeer(std::shared_ptr<State> S, std::shared_ptr<Peer> P) -> Net::awaitable<void>
     {
-        auto Prepared = Preview::Trojan::PrepareProviderBinding(
-            Preview::Trojan::ProviderRequest{
+        auto Prepared = Prism::Trojan::PrepareProviderBinding(
+            Prism::Trojan::ProviderRequest{
                 .Instance = "mux-root-fixture",
                 .Authentication = {S->Accounts->Generation,
                     S->Accounts->Credentials, S->Accounts->Authenticator},
@@ -336,7 +336,7 @@ namespace Preview::Testing::MuxRoot
             (void)P->Done.try_send(boost::system::error_code{});
             co_return;
         }
-        auto ProtocolBinding = Preview::Trojan::BindProvider(std::move(*Prepared));
+        auto ProtocolBinding = Prism::Trojan::BindProvider(std::move(*Prepared));
         auto Factory = ProtocolBinding->WithIngress({.Mux = S->Binding});
         auto Plane=co_await Factory->Accept({P->Server,P->Metadata,S->Bytes});
         if (!Plane)
@@ -354,7 +354,7 @@ namespace Preview::Testing::MuxRoot
         {
             P->Root=Plane->Mux()->Session;P->WeakRoot=P->Root;
             (void)P->Ready.try_send(boost::system::error_code{});
-            Preview::Contract::MuxRootRequest Request{.Lease=std::move(Plane->AccountLease),
+            Prism::Contract::MuxRootRequest Request{.Lease=std::move(Plane->AccountLease),
                 .Metadata=P->Metadata,.GenerationUseState=S->UseState};
             P->Status=co_await P->Root->Run(std::move(Request));
             P->Root.reset();
@@ -368,12 +368,12 @@ namespace Preview::Testing::MuxRoot
         const auto Outcome=co_await(Event.async_receive(Net::use_awaitable)||Timer.async_wait(Net::use_awaitable));
         co_return Outcome.index()==0;
     }
-    inline auto Start(std::shared_ptr<State> S, Preview::Contract::RequestMetadata Metadata={}) -> Net::awaitable<std::shared_ptr<Peer>>
+    inline auto Start(std::shared_ptr<State> S, Prism::Contract::RequestMetadata Metadata={}) -> Net::awaitable<std::shared_ptr<Peer>>
     {
         auto P=std::make_shared<Peer>(S->Executor);P->Metadata=std::move(Metadata);S->Peers.push_back(P);
         EXPECT_TRUE(S->Tasks->SpawnTracked({.StartOnSubmit=true},RunPeer(S,P)));
-        const auto Auth=Preview::Trojan::BuildRequest(Preview::Trojan::Credential(Password),Preview::Trojan::Command::Mux,
-            Preview::Trojan::Address{Preview::Trojan::AddressType::Ipv4,"127.0.0.1",80});
+        const auto Auth=Prism::Trojan::BuildRequest(Prism::Trojan::Credential(Password),Prism::Trojan::Command::Mux,
+            Prism::Trojan::Address{Prism::Trojan::AddressType::Ipv4,"127.0.0.1",80});
         const auto Written=co_await P->Client->WriteExact(std::as_bytes(std::span(Auth)));
         EXPECT_TRUE(Written.Failure.Succeeded());EXPECT_EQ(Written.Bytes,Auth.size());
         EXPECT_TRUE(co_await Wait(P->Ready));
@@ -388,17 +388,17 @@ namespace Preview::Testing::MuxRoot
         co_return P;
     }
     template<class Client>
-    auto Connect(std::shared_ptr<Peer> P, Preview::Mux::Mode Wire) -> Net::awaitable<std::shared_ptr<Client>>
+    auto Connect(std::shared_ptr<Peer> P, Prism::Mux::Mode Wire) -> Net::awaitable<std::shared_ptr<Client>>
     {
         std::uint8_t WireTag = 1;
-        if (Wire == Preview::Mux::Mode::Smux) WireTag = 0;
+        if (Wire == Prism::Mux::Mode::Smux) WireTag = 0;
         const std::array<std::byte,2> Envelope{std::byte{0},std::byte{WireTag}};
         const auto Written=co_await P->Client->WriteExact(Envelope);
         EXPECT_TRUE(Written.Failure.Succeeded());EXPECT_EQ(Written.Bytes,Envelope.size());
         auto C=std::make_shared<Client>();EXPECT_TRUE(C->Connect(P->Client));co_return C;
     }
     template<class Client>
-    auto RoundTrip(std::shared_ptr<State> S,std::shared_ptr<Client> ClientValue) -> Net::awaitable<Preview::SharedTransmission>
+    auto RoundTrip(std::shared_ptr<State> S,std::shared_ptr<Client> ClientValue) -> Net::awaitable<Prism::SharedTransmission>
     {
         auto Stream=co_await ClientValue->OpenStream();EXPECT_TRUE(Stream);if(!Stream)co_return nullptr;
         const auto Port=S->Acceptor.local_endpoint().port();
@@ -434,7 +434,7 @@ namespace Preview::Testing::MuxRoot
         if(!Error){S->TimedOut=true;S->Stop();}
     }
     template<class Driver>
-    auto Scenario(Preview::Mux::Mode Mode,Driver Operation) -> void
+    auto Scenario(Prism::Mux::Mode Mode,Driver Operation) -> void
     {
         Net::io_context Io;auto S=Make(Io.get_executor(),Mode);
         const auto Completed=[S](std::exception_ptr Error){if(Error){S->Failure=Error;S->Stop();}};

@@ -1,7 +1,0 @@
-# memory 子模块测试
-AddPreviewTest(MemoryLifecycleTest.cpp)
-target_link_libraries(MemoryLifecycleTest PRIVATE PreviewFoundation PreviewTransport PreviewProtocolSocks5 PreviewTestSupport)
-AddPreviewTest(MemoryPointerTest.cpp)
-target_link_libraries(MemoryPointerTest PRIVATE PreviewFoundation PreviewProtocolSocks5 PreviewTestSupport)
-AddPreviewTest(PreviewMemoryTest.cpp)
-target_link_libraries(PreviewMemoryTest PRIVATE PreviewFoundation PreviewTestSupport)

@@ -1,3 +1,0 @@
-AddPreviewTest(AnytlsShutdownCancellationTest.cpp)
-target_link_libraries(AnytlsShutdownCancellationTest PRIVATE
-    PreviewFoundation PreviewProtocolAnytls PreviewRuntime PreviewTransport)

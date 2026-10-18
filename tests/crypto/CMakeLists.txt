@@ -1,7 +1,0 @@
-AddProductionTest(Crypto.cpp)
-AddProductionTest(Aead.cpp)
-AddProductionTest(AeadDeep.cpp)
-AddProductionTest(Blake3.cpp)
-AddProductionTest(Block.cpp)
-AddProductionTest(Hkdf.cpp)
-AddProductionTest(X25519.cpp)

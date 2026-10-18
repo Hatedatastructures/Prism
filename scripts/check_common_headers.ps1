@@ -1,12 +1,11 @@
-# check-common-headers.ps1 - G7 gate: Preview header ownership completeness
-# Usage: pwsh scripts/check_common_headers.ps1 [-RepoRoot <path>] [-CheckMirror]
-# Checks Preview module roots and the remaining tests/common
+# check-common-headers.ps1 - G7 gate: Prism header ownership completeness
+# Usage: pwsh scripts/check_common_headers.ps1 [-RepoRoot <path>]
+# Checks Prism module roots and the current tests/Prism support tree.
 # headers against their owning target_sources blocks.
 # Exit code: 0 = pass, 1 = gate failure
 
 param(
-    [string]$RepoRoot = "",
-    [switch]$CheckMirror
+    [string]$RepoRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,36 +14,31 @@ if (-not $RepoRoot) {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 }
 
-$previewRoots = @(
-    (Join-Path $RepoRoot "Preview/Account")
-    (Join-Path $RepoRoot "Preview/Application")
-    (Join-Path $RepoRoot "Preview/Boundary")
-    (Join-Path $RepoRoot "Preview/Composition")
-    (Join-Path $RepoRoot "Preview/Contract")
-    (Join-Path $RepoRoot "Preview/Foundation")
-    (Join-Path $RepoRoot "Preview/Lifecycle")
-    (Join-Path $RepoRoot "Preview/Net")
-    (Join-Path $RepoRoot "Preview/Operations")
-    (Join-Path $RepoRoot "Preview/Protocols")
-    (Join-Path $RepoRoot "Preview/Resource")
-    (Join-Path $RepoRoot "Preview/Runtime")
-    (Join-Path $RepoRoot "Preview/Scheduler")
-    (Join-Path $RepoRoot "Preview/Statistics")
-    (Join-Path $RepoRoot "Preview/Transport")
+$prismRoots = @(
+    (Join-Path $RepoRoot "Prism/Account")
+    (Join-Path $RepoRoot "Prism/Application")
+    (Join-Path $RepoRoot "Prism/Boundary")
+    (Join-Path $RepoRoot "Prism/Composition")
+    (Join-Path $RepoRoot "Prism/Contract")
+    (Join-Path $RepoRoot "Prism/Foundation")
+    (Join-Path $RepoRoot "Prism/Lifecycle")
+    (Join-Path $RepoRoot "Prism/Net")
+    (Join-Path $RepoRoot "Prism/Operations")
+    (Join-Path $RepoRoot "Prism/Protocols")
+    (Join-Path $RepoRoot "Prism/Resource")
+    (Join-Path $RepoRoot "Prism/Runtime")
+    (Join-Path $RepoRoot "Prism/Statistics")
+    (Join-Path $RepoRoot "Prism/Transport")
 )
 $testSupportDir = Join-Path $RepoRoot "tests/TestSupport"
-$commonDir = Join-Path $RepoRoot "tests/common"
-$experimentDir = Join-Path $RepoRoot "tests/Experiments/Preview"
-$previewCmake = Join-Path $RepoRoot "Preview/CMakeLists.txt"
+$experimentDir = Join-Path $RepoRoot "tests/Experiments/Prism"
+$prismCmake = Join-Path $RepoRoot "Prism/CMakeLists.txt"
 $testSupportCmake = Join-Path $testSupportDir "CMakeLists.txt"
-$commonCmake = Join-Path $commonDir "CMakeLists.txt"
 
-$requiredPaths = $previewRoots + @(
+$requiredPaths = $prismRoots + @(
     $testSupportDir
-    $commonDir
-    $previewCmake
+    $prismCmake
     $testSupportCmake
-    $commonCmake
 )
 
 function Assert-ExactPathCase {
@@ -98,7 +92,7 @@ function Get-TargetSources {
             continue
         }
         $sourceLine = $line.TrimEnd(')').Trim('"')
-        if ($sourceLine -match '^\$\{(?:CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/(tests/Experiments/Preview/[A-Za-z0-9_/.-]+\.hpp)$') {
+        if ($sourceLine -match '^\$\{(?:CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/(tests/Experiments/Prism/[A-Za-z0-9_/.-]+\.hpp)$') {
             $registrations += [pscustomobject]@{
                 Target = $activeTarget
                 Path = $Matches[1]
@@ -115,9 +109,9 @@ function Get-TargetSources {
     return $registrations
 }
 
-# 1. Collect all public headers in the active preview and tests/common roots.
+# 1. Collect public headers in the active Prism and test support roots.
 $diskFiles = @()
-$sourceRoots = $previewRoots + @($testSupportDir, $commonDir, $experimentDir)
+$sourceRoots = $prismRoots + @($testSupportDir, $experimentDir)
 foreach ($sourceRoot in $sourceRoots) {
     $diskFiles += Get-ChildItem -Path $sourceRoot -Recurse -Filter *.hpp -File |
         ForEach-Object {
@@ -128,28 +122,27 @@ $diskFiles = $diskFiles | Sort-Object -Unique
 
 # 2. Parse target_sources from both CMake owners.
 $registrations = @()
-$previewCmakeFiles = Get-ChildItem -LiteralPath (Join-Path $RepoRoot "Preview") -Recurse -Filter CMakeLists.txt -File
-foreach ($CmakeFile in $previewCmakeFiles) {
+$prismCmakeFiles = Get-ChildItem -LiteralPath (Join-Path $RepoRoot "Prism") -Recurse -Filter CMakeLists.txt -File
+foreach ($CmakeFile in $prismCmakeFiles) {
     $Directory = Split-Path -Parent $CmakeFile.FullName
     $PathPrefix = $Directory.Substring($RepoRoot.Length + 1).Replace("\", "/")
     $registrations += Get-TargetSources $CmakeFile.FullName $PathPrefix
 }
 $registrations += Get-TargetSources $testSupportCmake "tests/TestSupport"
-$registrations += Get-TargetSources $commonCmake "tests/common"
-Get-ChildItem -LiteralPath (Join-Path $RepoRoot "tests/Preview") -Recurse -Filter CMakeLists.txt -File |
+Get-ChildItem -LiteralPath (Join-Path $RepoRoot "tests/Prism") -Recurse -Filter CMakeLists.txt -File |
     ForEach-Object {
         $Directory = Split-Path -Parent $_.FullName
         $PathPrefix = $Directory.Substring($RepoRoot.Length + 1).Replace("\", "/")
         $registrations += Get-TargetSources $_.FullName $PathPrefix |
-            Where-Object { $_.Path.StartsWith('tests/Experiments/Preview/') }
+            Where-Object { $_.Path.StartsWith('tests/Experiments/Prism/') }
     }
 $cmakeEntries = $registrations | ForEach-Object { $_.Path }
-$allowedTargetPattern = '^(Preview|PrismPreview|TestSupport|ProductionTestSupport|Experimental)[A-Za-z0-9]*$'
+$allowedTargetPattern = '^(Prism[A-Za-z0-9]*|TestSupport|Experimental[A-Za-z0-9]*)$'
 $problems = @()
 
 $unknownTargets = $registrations | Where-Object {
     $_.Target -notmatch $allowedTargetPattern -and
-    !$_.Path.StartsWith('tests/Experiments/Preview/')
+    !$_.Path.StartsWith('tests/Experiments/Prism/')
 }
 if ($unknownTargets) {
     $problems += "UNKNOWN TARGET (header registered on a non-module target):"
@@ -183,83 +176,12 @@ if ($duplicates) {
     }
 }
 
-# 3. Preview is a standalone project. Its PascalCase headers are no longer
-#    required to mirror the production psm headers; -CheckMirror is retained
-#    as an explicit no-op for callers that still pass the legacy switch.
-$mirrorFailures = @()
-if ($false) {
-    function Normalize-MirrorContent {
-        param([string]$Content)
-
-        # Documentation and line layout are not behavior. The only semantic
-        # normalization permitted here is the established namespace/path and
-        # Preview PascalCase -> psm snake_case conversion.
-        $Content = [regex]::Replace($Content, '(?s)/\*.*?\*/', '')
-        $Content = [regex]::Replace($Content, '//[^\r\n]*', '')
-        $Content = $Content.Replace('Preview/Foundation/', 'prism/foundation/')
-        $Content = $Content.Replace('Preview::', 'psm::')
-        $Content = $Content.Replace('std::hash', 'hash')
-        $Content = $Content.Replace('boost::system::error_category', 'error_category')
-        $Content = $Content.Replace('} namespace psm::fault {', '')
-        $Content = [regex]::Replace(
-            $Content,
-            '(?<![A-Za-z0-9_])[A-Z][A-Za-z0-9]*(?:_)?(?![A-Za-z0-9_])',
-            {
-                param($Match)
-                $Token = $Match.Value
-                $Suffix = ''
-                if ($Token.EndsWith('_')) {
-                    $Token = $Token.Substring(0, $Token.Length - 1)
-                    $Suffix = '_'
-                }
-                $Token = [regex]::Replace($Token, '([A-Z]+)([A-Z][a-z])', '$1_$2')
-                $Token = [regex]::Replace($Token, '([a-z0-9])([A-Z])', '$1_$2')
-                return $Token.ToLowerInvariant() + $Suffix
-            })
-        $Content = [regex]::Replace($Content, '\s+', ' ').Trim()
-        $Content = $Content.Replace('} namespace psm::fault {', '')
-        $Content = $Content.Replace('namespace psm { }', '')
-        $Content = [regex]::Replace($Content, '\s+', ' ').Trim()
-        return $Content
-    }
-
-    # The strict mirror is an explicit eight-file contract. CowMap, Pointer,
-    # and Fault/Handling are intentionally not mirror candidates.
-    $mirrorFiles = @(
-        @{ src = "Preview/Foundation/Fault/Code.hpp"; dst = "include/prism/foundation/fault/code.hpp" },
-        @{ src = "Preview/Foundation/Fault/Compatible.hpp"; dst = "include/prism/foundation/fault/compatible.hpp" },
-        @{ src = "Preview/Foundation/Exception/Deviant.hpp"; dst = "include/prism/foundation/exception/deviant.hpp" },
-        @{ src = "Preview/Foundation/Exception/Network.hpp"; dst = "include/prism/foundation/exception/network.hpp" },
-        @{ src = "Preview/Foundation/Exception/Protocol.hpp"; dst = "include/prism/foundation/exception/protocol.hpp" },
-        @{ src = "Preview/Foundation/Exception/Security.hpp"; dst = "include/prism/foundation/exception/security.hpp" },
-        @{ src = "Preview/Foundation/Memory/Container.hpp"; dst = "include/prism/foundation/memory/container.hpp" },
-        @{ src = "Preview/Foundation/Memory/Pool.hpp"; dst = "include/prism/foundation/memory/pool.hpp" }
-    )
-    foreach ($pair in $mirrorFiles) {
-        $srcFile = Join-Path $RepoRoot $pair.src
-        $dstFile = Join-Path $RepoRoot $pair.dst
-        if (-not (Test-Path $srcFile) -or -not (Test-Path $dstFile)) {
-            $mirrorFailures += "  MIRROR-MISSING $($pair.src) <-> $($pair.dst)"
-            continue
-        }
-        $srcContent = Normalize-MirrorContent ([IO.File]::ReadAllText($srcFile))
-        $dstContent = Normalize-MirrorContent ([IO.File]::ReadAllText($dstFile))
-        if ($srcContent -cne $dstContent) {
-            $mirrorFailures += "  MIRROR-DIFF $($pair.src) <-> $($pair.dst)"
-        }
-    }
-}
-
 if ($problems.Count -gt 0) {
     Write-Host "G7 gate FAILED:" -ForegroundColor Red
     $problems | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
     Write-Host ""
     Write-Host "Fix: assign each public header to exactly one module target_sources block"
     exit 1
-}
-
-if ($CheckMirror) {
-    Write-Host "Mirror check skipped: Preview is standalone and has no production mirror contract"
 }
 
 Write-Host "G7 gate passed: $($diskFiles.Count) headers, $($registrations.Count) owned entries"

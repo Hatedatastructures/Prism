@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'Invoke-Interop.ps1') -LibraryOnly
-. (Join-Path $PSScriptRoot 'Run-PrismPreview.ps1') -LibraryOnly
+. (Join-Path $PSScriptRoot 'Run-Prism.ps1') -LibraryOnly
 
 function Assert-Equal([object]$Expected, [object]$Actual, [string]$Message) {
     if ($Expected -ne $Actual) {
@@ -57,7 +57,7 @@ function Assert-TrusttunnelReadinessContract {
         'Go TrustTunnel readiness is bound to the launched process'
     Assert-Equal $true ($TrusttunnelFunctionSource -match
         'Wait-TcpReady\s+''127\.0\.0\.1''\s+\$TrusttunnelPort\s+-ProcessId\s+\$CppServerProcess\.Id') `
-        'Preview TrustTunnel readiness is bound to the launched process'
+        'Prism TrustTunnel readiness is bound to the launched process'
 }
 
 Assert-TrusttunnelReadinessContract
@@ -72,11 +72,11 @@ Assert-Equal 'implementation-mismatch' (Get-InteropStatus -ExitCode 1 -Output 'F
 Assert-Equal 'environment-unavailable' (Get-InteropStatus -ExitCode 127 -Output 'command not found') 'missing command exit'
 Assert-Equal 'interface-gap' (Get-InteropStatus -ExitCode 2 -Output 'BLOCKED: interface-gap: missing stream API') 'interface gap marker'
 Assert-Equal 'blocked-production-prerequisite' (Get-InteropStatus -ExitCode 0 -Output '' -BlockedProductionPrerequisite) 'blocked prerequisite wins'
-Assert-Equal 'preview-only' (Get-InteropMatrixScope -PrismExe '') 'preview-only matrix scope'
+Assert-Equal 'prism-only' (Get-InteropMatrixScope -PrismExe '') 'prism-only matrix scope'
 Assert-Equal 'full' (Get-InteropMatrixScope -PrismExe 'build/Prism.exe') 'full matrix scope'
 Assert-Equal 'production-blocked' (Get-GateDClassification -Scope full -Status blocked-production-prerequisite) 'full gate blocks production prerequisite'
-Assert-Equal 'preview-only-blocked' (Get-GateDClassification -Scope preview-only -Status blocked-production-prerequisite) 'preview-only gate classifies production prerequisite'
-Assert-Equal 'preview-only-blocked' (Get-GateDClassification -Scope preview-only -Status environment-unavailable) 'preview-only gate classifies missing environment'
+Assert-Equal 'prism-only-blocked' (Get-GateDClassification -Scope prism-only -Status blocked-production-prerequisite) 'prism-only gate classifies production prerequisite'
+Assert-Equal 'prism-only-blocked' (Get-GateDClassification -Scope prism-only -Status environment-unavailable) 'prism-only gate classifies missing environment'
 Assert-Equal 'failed' (Get-GateDClassification -Scope full -Status failed) 'gate preserves hard failures'
 
 $Listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
@@ -117,8 +117,8 @@ Assert-Equal 12.5 $metricResult.wall_time_ms 'measured wall time'
 Assert-Equal 4096 $metricResult.peak_working_set_bytes 'measured peak working set'
 Assert-Equal $true $metricResult.metrics_available 'measured metrics availability'
 
-$profileResult = New-InteropResult -Protocol 'http' -Direction 'preview-single-port' `
-    -Scenario 'authenticated-echo' -Implementation 'preview-listener' -Commit 'deadbeef' `
+$profileResult = New-InteropResult -Protocol 'http' -Direction 'prism-single-port' `
+    -Scenario 'authenticated-echo' -Implementation 'prism-listener' -Commit 'deadbeef' `
     -Platform 'windows-amd64' -Status 'pass' -ExitCode 0 -Command 'test command' `
     -RecognitionMode 'Deterministic' -CandidateProfile 'http+socks5' -Route 'edge.example -> http'
 Assert-Equal 'Deterministic' $profileResult.recognition_mode 'explicit recognition mode'
@@ -133,8 +133,8 @@ $coverage = [ordered]@{
 }
 Assert-Equal $true ($coverage['Deterministic'] -gt 0 -and $coverage['MixedTrial'] -gt 0) 'recognition coverage complete'
 
-$ReadyOutput = 'PrismPreview READY tcp_port=18081 udp_port=18082 udp_ready=true quic_ready=false generation=7'
-$ReadyEvidence = Get-PreviewReadinessEvidence -Output $ReadyOutput -ExpectedPort 18081
+$ReadyOutput = 'Prism READY tcp_port=18081 udp_port=18082 udp_ready=true quic_ready=false generation=7'
+$ReadyEvidence = Get-PrismReadinessEvidence -Output $ReadyOutput -ExpectedPort 18081
 Assert-Equal $true $ReadyEvidence.ready_log 'readiness log evidence'
 Assert-Equal $true $ReadyEvidence.ready_port 'readiness tcp port evidence'
 Assert-Equal 18082 $ReadyEvidence.udp_port 'readiness udp port evidence'
@@ -142,18 +142,18 @@ Assert-Equal $true $ReadyEvidence.udp_ready 'readiness udp state evidence'
 Assert-Equal $false $ReadyEvidence.quic_ready 'readiness quic state evidence'
 Assert-Equal 7 $ReadyEvidence.ready_generation 'readiness generation evidence'
 
-$MissingReadiness = Get-PreviewReadinessEvidence -Output 'startup failed' -ExpectedPort 18081
+$MissingReadiness = Get-PrismReadinessEvidence -Output 'startup failed' -ExpectedPort 18081
 Assert-Equal $false $MissingReadiness.ready_log 'missing readiness log evidence'
 Assert-Equal $false $MissingReadiness.ready_port 'missing readiness port evidence'
 
 $HashRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('prism-interop-hash-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $HashRoot -Force | Out-Null
 try {
-    $HashExe = Join-Path $HashRoot 'preview.exe'
+    $HashExe = Join-Path $HashRoot 'prism.exe'
     $HashConfig = Join-Path $HashRoot 'configuration.json'
     'executable' | Set-Content -LiteralPath $HashExe -Encoding UTF8
     'configuration' | Set-Content -LiteralPath $HashConfig -Encoding UTF8
-    $HashEvidence = Get-PreviewHashEvidence -ExecutablePath $HashExe -ConfigPath $HashConfig
+    $HashEvidence = Get-PrismHashEvidence -ExecutablePath $HashExe -ConfigPath $HashConfig
     Assert-Equal 'SHA256' $HashEvidence.algorithm 'hash algorithm evidence'
     Assert-Equal $true ($HashEvidence.executable_sha256.Length -eq 64) 'executable hash evidence'
     Assert-Equal $true ($HashEvidence.configuration_sha256.Length -eq 64) 'configuration hash evidence'
@@ -166,7 +166,7 @@ finally {
 
 $TemporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('prism-interop-temp-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $TemporaryRoot 'evidence') -Force | Out-Null
-$CleanupResult = Remove-PreviewTemporaryDirectory -Path $TemporaryRoot
+$CleanupResult = Remove-PrismTemporaryDirectory -Path $TemporaryRoot
 Assert-Equal 'completed' $CleanupResult.status 'temporary directory cleanup status'
 Assert-Equal $false (Test-Path -LiteralPath $TemporaryRoot) 'temporary directory cleanup'
 

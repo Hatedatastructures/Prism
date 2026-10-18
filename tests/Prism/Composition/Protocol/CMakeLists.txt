@@ -1,0 +1,2 @@
+AddPrismTest(ProtocolCatalogTest.cpp)
+target_link_libraries(ProtocolCatalogTest PRIVATE PrismComposition)

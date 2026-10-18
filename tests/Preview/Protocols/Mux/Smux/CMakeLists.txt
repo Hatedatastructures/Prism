@@ -1,2 +1,0 @@
-AddPreviewTest(SmuxFrameError.cpp)
-target_link_libraries(SmuxFrameError PRIVATE PreviewProtocolMux PreviewTestSupport)

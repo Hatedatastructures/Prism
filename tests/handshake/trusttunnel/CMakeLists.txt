@@ -1,4 +1,0 @@
-AddProductionTest(TrustTunnel.cpp)
-AddProductionTest(TrustTunnelAuthPure.cpp)
-AddProductionTest(TrustTunnelPure.cpp)
-AddProductionTest(TrustTunnelSchemeDeep.cpp)

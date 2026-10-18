@@ -163,7 +163,7 @@ export function AppShell(Input: Readonly<{ Services: AdminServices }>): ReactNod
             <div className="brand-row">
                 <NavLink className="brand" to={WithTime('/', new URLSearchParams(Location.search))} aria-label="Prism 运行概览" onClick={() => SetMobileOpen(false)}>
                     <img className="brand-mark" src="/PrismMark.svg" width="30" height="30" alt="" />
-                    <span className="brand-copy"><strong>Prism</strong><small>Preview</small></span>
+                    <span className="brand-copy"><strong>Prism</strong></span>
                 </NavLink>
                 <button className="icon-button sidebar-close" type="button" onClick={() => SetMobileOpen(false)} aria-label="关闭导航">
                     <X size={19} aria-hidden="true" />
@@ -223,7 +223,7 @@ export function AppShell(Input: Readonly<{ Services: AdminServices }>): ReactNod
                 {Input.Services.Mode === 'live' && Overview.isError && <div className="notice notice-info source-banner"><span>真实管理接口当前不可用；原有运行进程保持不变。</span><a href="/?source=demo">打开演示预览</a></div>}
                 <Outlet context={Input.Services} />
             </main>
-            <footer className="workspace-footer"><span>Prism Preview <i>·</i> 代理运维控制台</span>
+            <footer className="workspace-footer"><span>Prism <i>·</i> 代理运维控制台</span>
                 <span>{Input.Services.Mode === 'demo' ? '演示夹具 · 不连接后端' : '运行概览每 5 秒刷新 · 后台暂停 · 其他数据以页面采样时间为准'}</span></footer>
         </div>
     </div>;

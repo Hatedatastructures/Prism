@@ -1,8 +1,0 @@
-# http2 子模块测试
-AddPreviewTest(H2CodecTest.cpp)
-target_link_libraries(H2CodecTest PRIVATE PreviewProtocolHttp2 PreviewTestSupport)
-AddPreviewTest(H2SessionTest.cpp)
-target_sources(H2SessionTest PRIVATE H2BackpressureTest.cpp)
-target_link_libraries(H2SessionTest PRIVATE PreviewProtocolHttp2 PreviewTestSupport)
-AddPreviewTest(Http2FuzzTest.cpp)
-target_link_libraries(Http2FuzzTest PRIVATE PreviewProtocolHttp2 PreviewTestSupport)

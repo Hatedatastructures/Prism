@@ -1,0 +1,2 @@
+AddExperimentTest(RouteOutboundTest.cpp)
+target_link_libraries(ExperimentRouteOutboundTest PRIVATE PrismNet)

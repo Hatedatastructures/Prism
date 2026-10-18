@@ -4,10 +4,10 @@
  */
 #pragma once
 
-#include <Preview/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/TaskRegistry.hpp>
 #include <cstdint>
 
-namespace Preview::Lifecycle
+namespace Prism::Lifecycle
 {
     /**
      * @brief 仅测试源可包含的 friend 访问，不恢复生产指定 TaskId 入口。

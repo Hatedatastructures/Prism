@@ -1,0 +1,20 @@
+# 跨协议 admission/adapter 与统一 reply 错误场景
+AddPrismTest(AdapterAdmissionTest.cpp)
+AddPrismTest(AdapterErrorMappingTest.cpp)
+target_link_libraries(AdapterAdmissionTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismTestSupport)
+target_sources(AdapterAdmissionTest PRIVATE AdapterTestSupport.hpp)
+target_sources(AdapterAdmissionTest PRIVATE AccountLeaseAdmissionTest.cpp)
+target_link_libraries(AdapterErrorMappingTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismTestSupport)
+target_sources(AdapterErrorMappingTest PRIVATE AdapterTestSupport.hpp)
+AddPrismTest(AdapterMuxLeaseTest.cpp)
+target_link_libraries(AdapterMuxLeaseTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismTestSupport)
+
+AddPrismTest(PostDialReplyFailureTest.cpp)
+target_link_libraries(PostDialReplyFailureTest PRIVATE
+    PrismFoundation PrismTransport PrismRuntime PrismComposition
+    PrismProtocolHttp PrismProtocolSocks5 PrismTestSupport)
+
+AddPrismTest(ProviderAcceptPathTest.cpp)
+target_link_libraries(ProviderAcceptPathTest PRIVATE PrismApplication)
+AddPrismTest(ProviderClosingOwnerTest.cpp)
+target_link_libraries(ProviderClosingOwnerTest PRIVATE PrismApplication PrismTestSupport)

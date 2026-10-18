@@ -1,0 +1,17 @@
+# reality 子模块
+AddPrismTest(RealityKeygenTest.cpp)
+target_link_libraries(RealityKeygenTest PRIVATE PrismProtocolReality PrismTestSupport)
+AddPrismTest(RealityCertificateTest.cpp)
+target_link_libraries(RealityCertificateTest PRIVATE PrismProtocolReality PrismTestSupport OpenSSL::Crypto)
+AddPrismTest(RealityResponseTest.cpp)
+target_link_libraries(RealityResponseTest PRIVATE PrismProtocolReality PrismTestSupport)
+AddPrismTest(RealityCodecDeepTest.cpp)
+target_link_libraries(RealityCodecDeepTest PRIVATE PrismProtocolReality PrismTestSupport)
+target_compile_options(RealityCodecDeepTest PRIVATE -O0 -fno-inline)
+AddPrismTest(RealityCarrierTest.cpp)
+target_link_libraries(RealityCarrierTest PRIVATE PrismProtocolReality)
+
+# 同一实际owner的源文件，复用现有target。
+target_sources(RealityCarrierTest PRIVATE
+    RealityPreparedAdmissionTest.cpp
+)

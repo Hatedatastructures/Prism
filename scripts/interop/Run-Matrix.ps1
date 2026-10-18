@@ -39,18 +39,20 @@ function Add-BlockedResult {
         [string]$Reason,
         [ValidateSet('Deterministic', 'MixedTrial', 'direct-handler', 'not-exercised')][string]$RecognitionMode = 'not-exercised',
         [string]$CandidateProfile = '',
-        [string]$Route = ''
+        [string]$Route = '',
+        [string]$Scenario = 'authenticated-echo',
+        [string[]]$Artifacts = @()
     )
     $ExitCode = switch ($Status) {
         'environment-unavailable' { 127; break }
         'interface-gap' { 2; break }
         default { 0 }
     }
-    $Result = New-InteropResult -Protocol $Protocol -Direction $Direction -Scenario 'authenticated-echo' `
+    $Result = New-InteropResult -Protocol $Protocol -Direction $Direction -Scenario $Scenario `
         -Implementation 'not-run' -Commit $Commit -Platform $Platform -Status $Status -ExitCode $ExitCode `
-        -Command $Reason -Artifacts @() -RecognitionMode $RecognitionMode `
+        -Command $Reason -Artifacts $Artifacts -RecognitionMode $RecognitionMode `
         -CandidateProfile $CandidateProfile -Route $Route
-    $Name = ($Protocol + '_' + $Direction) -replace '[^A-Za-z0-9_.-]', '_'
+    $Name = ($Protocol + '_' + $Direction + '_' + $Scenario) -replace '[^A-Za-z0-9_.-]', '_'
     $Path = Join-Path $OutputDirectory ($Name + '.json')
     Write-InteropResult -Result $Result -Path $Path
     [void]$Results.Add($Result)
@@ -74,11 +76,11 @@ $CodecVectorTools = @{
     websocket = 'wscmp'
 }
 
-$CppClient = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropSs2022Client.exe'
-$CppServer = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropSs2022Server.exe'
-$GoServer = Join-Path $RepoRoot 'build/tests/go/ss2022_server.exe'
-$GoClient = Join-Path $RepoRoot 'build/tests/go/ss2022_client.exe'
-$InteropScript = Join-Path $RepoRoot 'tests/go/Interop/run_interop.ps1'
+$CppClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSs2022Client.exe'
+$CppServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSs2022Server.exe'
+$GoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/ss2022_server.exe'
+$GoClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/ss2022_client.exe'
+$InteropScript = Join-Path $RepoRoot 'tests/Prism/Integration/Go/Interop/run_interop.ps1'
 $Pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
 if (-not $Pwsh) {
     $Pwsh = (Get-Command powershell -ErrorAction SilentlyContinue).Source
@@ -92,72 +94,72 @@ if ((Test-Path -LiteralPath $CppClient -PathType Leaf) -and
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $InteropScript,
         '-CppClient', $CppClient, '-CppServer', $CppServer,
         '-GoServer', $GoServer, '-GoClient', $GoClient) `
-        -Protocol 'ss2022' -Direction 'preview-reference-bidirectional' -Scenario 'authenticated-echo' `
+        -Protocol 'ss2022' -Direction 'prism-reference-bidirectional' -Scenario 'authenticated-echo' `
         -Implementation 'sing-shadowsocks-v0.2.12' -Commit $Commit -Platform $Platform `
         -OutputDirectory $OutputDirectory
     [void]$Results.Add($Result)
 } else {
-    Add-BlockedResult 'ss2022' 'preview-reference-bidirectional' 'environment-unavailable' `
+    Add-BlockedResult 'ss2022' 'prism-reference-bidirectional' 'environment-unavailable' `
         'SS2022 C++/Go interop executables or PowerShell runner are unavailable'
 }
 
-$TrojanClient = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropTrojanClient.exe'
-$TrojanServer = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropTrojanServer.exe'
-$TrojanGo = Join-Path $RepoRoot 'build/tests/go/trojan.exe'
+$TrojanClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrojanClient.exe'
+$TrojanServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrojanServer.exe'
+$TrojanGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/trojan.exe'
 $TrojanPort = 19082
-$VmessClient = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropVmessClient.exe'
-$VmessServer = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropVmessServer.exe'
-$VmessGo = Join-Path $RepoRoot 'build/tests/go/singvmess.exe'
-$VmessGoServer = Join-Path $RepoRoot 'build/tests/go/vmess_server.exe'
+$VmessClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVmessClient.exe'
+$VmessServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVmessServer.exe'
+$VmessGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/singvmess.exe'
+$VmessGoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/vmess_server.exe'
 $VmessPort = 19083
-$VlessClient = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropVlessClient.exe'
-$VlessServer = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropVlessServer.exe'
-$VlessGo = Join-Path $RepoRoot 'build/tests/go/vless.exe'
+$VlessClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVlessClient.exe'
+$VlessServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVlessServer.exe'
+$VlessGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/vless.exe'
 $VlessPort = 19084
-$Socks5Cpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropSocks5.exe'
-$Socks5Go = Join-Path $RepoRoot 'build/tests/go/socks5.exe'
+$Socks5Cpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSocks5.exe'
+$Socks5Go = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/socks5.exe'
 $Socks5Port = 19085
-$HttpCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropHttp.exe'
-$HttpGo = Join-Path $RepoRoot 'build/tests/go/http.exe'
+$HttpCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHttp.exe'
+$HttpGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/http.exe'
 $HttpPort = 19086
-$RecognitionCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropRecognition.exe'
+$RecognitionCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropRecognition.exe'
 $RecognitionDeterministicPort = 19110
 $RecognitionDeterministicSocks5Port = 19112
 $RecognitionMixedTrialPort = 19111
 $RecognitionMixedTrojanPort = 19113
 $RecognitionMixedVmessPort = 19114
 $RecognitionMixedSs2022Port = 19115
-$NativeTlsCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropNativeTls.exe'
-$NativeTlsGo = Join-Path $RepoRoot 'build/tests/go/native_tls.exe'
+$NativeTlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropNativeTls.exe'
+$NativeTlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/native_tls.exe'
 $NativeTlsPort = 19092
-$WsCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropWs.exe'
-$WsGo = Join-Path $RepoRoot 'build/tests/go/websocket.exe'
+$WsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropWs.exe'
+$WsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/websocket.exe'
 $WsPort = 19093
-$AnytlsCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropAnytls.exe'
-$AnytlsGo = Join-Path $RepoRoot 'build/tests/go/anytls.exe'
+$AnytlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropAnytls.exe'
+$AnytlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/anytls.exe'
 $AnytlsPort = 19094
-$GunCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropGun.exe'
-$GunGo = Join-Path $RepoRoot 'build/tests/go/gun.exe'
+$GunCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropGun.exe'
+$GunGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/gun.exe'
 $GunPort = 19095
-$XhttpCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropXhttp.exe'
-$XhttpGo = Join-Path $RepoRoot 'build/tests/go/xhttp.exe'
+$XhttpCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropXhttp.exe'
+$XhttpGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/xhttp.exe'
 $XhttpPort = 19096
-$TrusttunnelCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropTrusttunnel.exe'
-$TrusttunnelGo = Join-Path $RepoRoot 'build/tests/go/trusttunnel.exe'
+$TrusttunnelCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrusttunnel.exe'
+$TrusttunnelGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/trusttunnel.exe'
 $TrusttunnelPort = 19097
-$ShadowtlsCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropShadowtls.exe'
-$ShadowtlsGo = Join-Path $RepoRoot 'build/tests/go/shadowtls.exe'
+$ShadowtlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropShadowtls.exe'
+$ShadowtlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/shadowtls.exe'
 $ShadowtlsPort = 19100
 $ShadowtlsTargetPort = 19101
-$TuicCpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropTuic.exe'
-$TuicGo = Join-Path $RepoRoot 'build/tests/go/tuic.exe'
-$TuicGoServer = Join-Path $RepoRoot 'build/tests/go/tuic_server.exe'
+$TuicCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTuic.exe'
+$TuicGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/tuic.exe'
+$TuicGoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/tuic_server.exe'
 $TuicPort = 19087
 $TuicReferencePort = 19091
-$Hysteria2Cpp = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropHysteria2.exe'
-$Hysteria2CppClient = Join-Path $RepoRoot 'build/tests/Preview/Integration/InteropHysteria2Client.exe'
-$Hysteria2Go = Join-Path $RepoRoot 'build/tests/go/hysteria2.exe'
-$Hysteria2GoServer = Join-Path $RepoRoot 'build/tests/go/hysteria2_server.exe'
+$Hysteria2Cpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHysteria2.exe'
+$Hysteria2CppClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHysteria2Client.exe'
+$Hysteria2Go = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/hysteria2.exe'
+$Hysteria2GoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/hysteria2_server.exe'
 $Hysteria2Port = 19088
 $Hysteria2ReferencePort = 19089
 $Hysteria2ReferenceUdpPort = 19090
@@ -233,10 +235,10 @@ function Invoke-TrojanInterop {
     if (-not (Test-Path -LiteralPath $TrojanClient -PathType Leaf) -or
         -not (Test-Path -LiteralPath $TrojanServer -PathType Leaf) -or
         -not (Test-Path -LiteralPath $TrojanGo -PathType Leaf)) {
-        Add-BlockedResult 'trojan' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview Trojan or Go Trojan harness executable is unavailable'
-        Add-BlockedResult 'trojan' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview Trojan or Go Trojan harness executable is unavailable'
+        Add-BlockedResult 'trojan' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism Trojan or Go Trojan harness executable is unavailable'
+        Add-BlockedResult 'trojan' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism Trojan or Go Trojan harness executable is unavailable'
         return
     }
 
@@ -253,13 +255,13 @@ function Invoke-TrojanInterop {
             '-mode', 'server', '-listen', $ServerAddress, '-pass', 'prism') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-TcpReady '127.0.0.1' $TrojanPort -ProcessId $GoServerProcess.Id)) {
-            Add-BlockedResult 'trojan' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'trojan' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go Trojan reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $TrojanClient -Arguments @(
                 '-addr', $ServerAddress, '-password', 'prism', '-target', 'example.com:443') `
-                -Protocol 'trojan' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'trojan' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-trojan-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -275,15 +277,15 @@ function Invoke-TrojanInterop {
             '-addr', $ServerAddress, '-password', 'prism') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-TcpReady '127.0.0.1' $TrojanPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'trojan' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview Trojan server did not become ready'
+            Add-BlockedResult 'trojan' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism Trojan server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $TrojanGo -Arguments @(
                 '-mode', 'selftest', '-server', $ServerAddress, '-pass', 'prism',
                 '-target', 'example.com:443', '-total', '65536', '-block', '4096') `
-                -Protocol 'trojan' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-trojan-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'trojan' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-trojan-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -300,10 +302,10 @@ function Invoke-VmessInterop {
         -not (Test-Path -LiteralPath $VmessServer -PathType Leaf) -or
         -not (Test-Path -LiteralPath $VmessGo -PathType Leaf) -or
         -not (Test-Path -LiteralPath $VmessGoServer -PathType Leaf)) {
-        Add-BlockedResult 'vmess' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview VMess or sing-vmess reference executable/server is unavailable'
-        Add-BlockedResult 'vmess' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview VMess or sing-vmess reference executable/server is unavailable'
+        Add-BlockedResult 'vmess' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism VMess or sing-vmess reference executable/server is unavailable'
+        Add-BlockedResult 'vmess' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism VMess or sing-vmess reference executable/server is unavailable'
         return
     }
 
@@ -317,12 +319,12 @@ function Invoke-VmessInterop {
             '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-TcpReady '127.0.0.1' $VmessPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'vmess' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview VMess server did not become ready'
+            Add-BlockedResult 'vmess' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism VMess server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $VmessGo -Arguments @($ServerAddress) `
-                -Protocol 'vmess' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
+                -Protocol 'vmess' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'sing-vmess-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             if ($CppServerProcess -and -not $CppServerProcess.HasExited) {
@@ -345,14 +347,14 @@ function Invoke-VmessInterop {
             '-listen', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'vmess' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'vmess' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go sing-vmess reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $VmessClient -Arguments @(
                 '-addr', $ServerAddress) `
-                -Protocol 'vmess' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-vmess-client-sing-vmess-reference' -Commit $Commit -Platform $Platform `
+                -Protocol 'vmess' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-vmess-client-sing-vmess-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             if ($GoServerProcess -and -not $GoServerProcess.HasExited) {
                 [void]$GoServerProcess.WaitForExit(2000)
@@ -371,10 +373,13 @@ function Invoke-VlessInterop {
     if (-not (Test-Path -LiteralPath $VlessClient -PathType Leaf) -or
         -not (Test-Path -LiteralPath $VlessServer -PathType Leaf) -or
         -not (Test-Path -LiteralPath $VlessGo -PathType Leaf)) {
-        Add-BlockedResult 'vless' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview VLESS or Go VLESS harness executable is unavailable'
-        Add-BlockedResult 'vless' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview VLESS or Go VLESS harness executable is unavailable'
+        Add-BlockedResult 'vless' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism VLESS or Go VLESS harness executable is unavailable'
+        Add-BlockedResult 'vless' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism VLESS or Go VLESS harness executable is unavailable'
+        Add-BlockedResult 'vless' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism VLESS XUDP client or Go reference harness executable is unavailable' `
+            -Scenario 'xudp-two-association-lifecycle'
         return
     }
 
@@ -391,13 +396,13 @@ function Invoke-VlessInterop {
             '-mode', 'server', '-listen', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-TcpReady '127.0.0.1' $VlessPort -ProcessId $GoServerProcess.Id)) {
-            Add-BlockedResult 'vless' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'vless' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go VLESS reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $VlessClient -Arguments @(
                 '-addr', $ServerAddress, '-target', 'example.com:443') `
-                -Protocol 'vless' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'vless' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-vless-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -413,14 +418,14 @@ function Invoke-VlessInterop {
             '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-TcpReady '127.0.0.1' $VlessPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'vless' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview VLESS server did not become ready'
+            Add-BlockedResult 'vless' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism VLESS server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $VlessGo -Arguments @(
                 '-mode', 'client', '-server', $ServerAddress, '-target', 'example.com:443') `
-                -Protocol 'vless' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-vless-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'vless' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-vless-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -442,13 +447,13 @@ function Invoke-VlessInterop {
             '-mode', 'server', '-listen', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $UdpGoOut -RedirectStandardError $UdpGoErr
         if (-not (Wait-TcpReady '127.0.0.1' $VlessPort -ProcessId $UdpGoServerProcess.Id)) {
-            Add-BlockedResult 'vless' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'vless' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go VLESS UDP reference server did not become ready'
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $VlessClient -Arguments @(
                 '-addr', $ServerAddress, '-target', 'example.com:53', '-udp', '1') `
-                -Protocol 'vless' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-udp-echo' `
+                -Protocol 'vless' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-udp-echo' `
                 -Implementation 'go-vless-reference-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $UdpResult @($UdpGoOut, $UdpGoErr)))
@@ -464,14 +469,14 @@ function Invoke-VlessInterop {
             '-addr', $ServerAddress, '-udp', '1') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $UdpCppOut -RedirectStandardError $UdpCppErr
         if (-not (Wait-TcpReady '127.0.0.1' $VlessPort -ProcessId $UdpCppServerProcess.Id)) {
-            Add-BlockedResult 'vless' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview VLESS UDP server did not become ready'
+            Add-BlockedResult 'vless' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism VLESS UDP server did not become ready'
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $VlessGo -Arguments @(
                 '-mode', 'client', '-server', $ServerAddress, '-target', 'example.com:53', '-udp') `
-                -Protocol 'vless' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-udp-echo' `
-                -Implementation 'preview-vless-server-udp' -Commit $Commit -Platform $Platform `
+                -Protocol 'vless' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-udp-echo' `
+                -Implementation 'prism-vless-server-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $UdpResult @($UdpCppOut, $UdpCppErr)))
         }
@@ -480,15 +485,42 @@ function Invoke-VlessInterop {
         Stop-InteropProcess $UdpCppServerProcess
         $UdpCppServerProcess = $null
     }
+
+    $XudpPrefix = 'vless_xudp_' + [Guid]::NewGuid().ToString('N')
+    $XudpGoOut = Join-Path $OutputDirectory ($XudpPrefix + '_go_server.stdout.log')
+    $XudpGoErr = Join-Path $OutputDirectory ($XudpPrefix + '_go_server.stderr.log')
+    $XudpGoServerProcess = $null
+    try {
+        $XudpGoServerProcess = Start-Process -FilePath $VlessGo -ArgumentList @(
+            '-mode', 'xudp-server', '-listen', $ServerAddress) -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput $XudpGoOut -RedirectStandardError $XudpGoErr
+        if (-not (Wait-TcpReady '127.0.0.1' $VlessPort -ProcessId $XudpGoServerProcess.Id)) {
+            Add-BlockedResult 'vless' 'prism-client-to-reference-server' 'environment-unavailable' `
+                'Go VLESS XUDP reference server did not become ready' `
+                -Scenario 'xudp-two-association-lifecycle' -Artifacts @($XudpGoOut, $XudpGoErr)
+        }
+        else {
+            $XudpResult = Invoke-InteropCase -Executable $VlessClient -Arguments @(
+                '-addr', $ServerAddress, '-target', 'example.com:53', '-xudp', '1') `
+                -Protocol 'vless' -Direction 'prism-client-to-reference-server' -Scenario 'xudp-two-association-lifecycle' `
+                -Implementation 'sing-vmess-v0.2.5-reference' -Commit $Commit -Platform $Platform `
+                -OutputDirectory $OutputDirectory
+            $Results.Add((Add-DependencyArtifacts $XudpResult @($XudpGoOut, $XudpGoErr)))
+        }
+    }
+    finally {
+        Stop-InteropProcess $XudpGoServerProcess
+        $XudpGoServerProcess = $null
+    }
 }
 
 function Invoke-Socks5Interop {
     if (-not (Test-Path -LiteralPath $Socks5Cpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $Socks5Go -PathType Leaf)) {
-        Add-BlockedResult 'socks5' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview SOCKS5 or Go SOCKS5 harness executable is unavailable'
-        Add-BlockedResult 'socks5' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview SOCKS5 or Go SOCKS5 harness executable is unavailable'
+        Add-BlockedResult 'socks5' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism SOCKS5 or Go SOCKS5 harness executable is unavailable'
+        Add-BlockedResult 'socks5' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism SOCKS5 or Go SOCKS5 harness executable is unavailable'
         return
     }
 
@@ -505,13 +537,13 @@ function Invoke-Socks5Interop {
             '-mode', 'server', '-listen', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-TcpReady '127.0.0.1' $Socks5Port -ProcessId $GoServerProcess.Id)) {
-            Add-BlockedResult 'socks5' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'socks5' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go SOCKS5 reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $Socks5Cpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress, '-target', 'example.com:443') `
-                -Protocol 'socks5' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'socks5' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-socks5-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -527,14 +559,14 @@ function Invoke-Socks5Interop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-TcpReady '127.0.0.1' $Socks5Port -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'socks5' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview SOCKS5 server did not become ready'
+            Add-BlockedResult 'socks5' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism SOCKS5 server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $Socks5Go -Arguments @(
                 '-mode', 'client', '-server', $ServerAddress, '-target', 'example.com:443') `
-                -Protocol 'socks5' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-socks5-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'socks5' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-socks5-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -548,10 +580,10 @@ function Invoke-Socks5Interop {
 function Invoke-HttpInterop {
     if (-not (Test-Path -LiteralPath $HttpCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $HttpGo -PathType Leaf)) {
-        Add-BlockedResult 'http' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview HTTP or Go HTTP harness executable is unavailable'
-        Add-BlockedResult 'http' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview HTTP or Go HTTP harness executable is unavailable'
+        Add-BlockedResult 'http' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism HTTP or Go HTTP harness executable is unavailable'
+        Add-BlockedResult 'http' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism HTTP or Go HTTP harness executable is unavailable'
         return
     }
 
@@ -568,13 +600,13 @@ function Invoke-HttpInterop {
             '-mode', 'server', '-listen', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-TcpReady '127.0.0.1' $HttpPort -ProcessId $GoServerProcess.Id)) {
-            Add-BlockedResult 'http' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'http' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go HTTP CONNECT reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $HttpCpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'http' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'http' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-http-connect-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -590,14 +622,14 @@ function Invoke-HttpInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-TcpReady '127.0.0.1' $HttpPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'http' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview HTTP CONNECT server did not become ready'
+            Add-BlockedResult 'http' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism HTTP CONNECT server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $HttpGo -Arguments @(
                 '-mode', 'client', '-server', $ServerAddress, '-target', 'example.com:443') `
-                -Protocol 'http' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-http-connect-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'http' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-http-connect-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -616,28 +648,28 @@ function Invoke-RecognitionModeInterop {
         -not (Test-Path -LiteralPath $TrojanGo -PathType Leaf) -or
         -not (Test-Path -LiteralPath $VmessGo -PathType Leaf) -or
         -not (Test-Path -LiteralPath $GoClient -PathType Leaf)) {
-        Add-BlockedResult 'http' 'external-client-to-preview-single-port' 'environment-unavailable' `
-            'Preview recognition listener or Go HTTP/SOCKS5/VLESS reference client is unavailable' `
+        Add-BlockedResult 'http' 'external-client-to-prism-single-port' 'environment-unavailable' `
+            'Prism recognition listener or Go HTTP/SOCKS5/VLESS reference client is unavailable' `
             -RecognitionMode 'Deterministic' -CandidateProfile 'http|socks5' `
             -Route 'first-byte 0x43 -> http; 0x05 -> socks5'
-        Add-BlockedResult 'socks5' 'external-client-to-preview-single-port' 'environment-unavailable' `
-            'Preview recognition listener or Go HTTP/SOCKS5/VLESS reference client is unavailable' `
+        Add-BlockedResult 'socks5' 'external-client-to-prism-single-port' 'environment-unavailable' `
+            'Prism recognition listener or Go HTTP/SOCKS5/VLESS reference client is unavailable' `
             -RecognitionMode 'Deterministic' -CandidateProfile 'http|socks5' `
             -Route 'first-byte 0x43 -> http; 0x05 -> socks5'
-        Add-BlockedResult 'vless' 'external-client-to-preview-single-port' 'environment-unavailable' `
-            'Preview recognition listener or Go HTTP/SOCKS5/VLESS reference client is unavailable' `
+        Add-BlockedResult 'vless' 'external-client-to-prism-single-port' 'environment-unavailable' `
+            'Prism recognition listener or Go HTTP/SOCKS5/VLESS reference client is unavailable' `
             -RecognitionMode 'MixedTrial' -CandidateProfile 'vless|vmess' `
             -Route 'first-byte 0x00 -> vless; opaque fallback -> vmess'
-        Add-BlockedResult 'trojan' 'external-client-to-preview-single-port' 'environment-unavailable' `
-            'Preview recognition listener or Go HTTP/SOCKS5/Trojan/VLESS reference client is unavailable' `
+        Add-BlockedResult 'trojan' 'external-client-to-prism-single-port' 'environment-unavailable' `
+            'Prism recognition listener or Go HTTP/SOCKS5/Trojan/VLESS reference client is unavailable' `
             -RecognitionMode 'MixedTrial' -CandidateProfile 'trojan|vmess' `
             -Route 'credential prefix -> trojan; opaque fallback -> vmess'
-        Add-BlockedResult 'vmess' 'external-client-to-preview-single-port' 'environment-unavailable' `
-            'Preview recognition listener or Go VMess reference client is unavailable' `
+        Add-BlockedResult 'vmess' 'external-client-to-prism-single-port' 'environment-unavailable' `
+            'Prism recognition listener or Go VMess reference client is unavailable' `
             -RecognitionMode 'MixedTrial' -CandidateProfile 'vmess|trojan' `
             -Route 'opaque authentication -> vmess; opaque fallback -> trojan'
-        Add-BlockedResult 'ss2022' 'external-client-to-preview-single-port' 'environment-unavailable' `
-            'Preview recognition listener or Go SS2022 reference client is unavailable' `
+        Add-BlockedResult 'ss2022' 'external-client-to-prism-single-port' 'environment-unavailable' `
+            'Prism recognition listener or Go SS2022 reference client is unavailable' `
             -RecognitionMode 'MixedTrial' -CandidateProfile 'ss2022|vmess' `
             -Route 'raw PSK authentication -> ss2022; opaque fallback -> vmess'
         return
@@ -651,7 +683,7 @@ function Invoke-RecognitionModeInterop {
             Client = $HttpGo
             Arguments = @('-mode', 'client', '-server', ('127.0.0.1:' + $RecognitionDeterministicPort), '-target', 'example.com:443')
             Scenario = 'deterministic-profile-single-port'
-            Implementation = 'go-http-reference-preview-profile-listener'
+            Implementation = 'go-http-reference-prism-profile-listener'
             CandidateProfile = 'http|socks5'
             Route = 'first-byte 0x43 -> http; 0x05 -> socks5'
         }
@@ -662,7 +694,7 @@ function Invoke-RecognitionModeInterop {
             Client = $Socks5Go
             Arguments = @('-mode', 'client', '-server', ('127.0.0.1:' + $RecognitionDeterministicSocks5Port), '-target', 'example.com:443')
             Scenario = 'deterministic-profile-single-port'
-            Implementation = 'go-socks5-reference-preview-profile-listener'
+            Implementation = 'go-socks5-reference-prism-profile-listener'
             CandidateProfile = 'http|socks5'
             Route = 'first-byte 0x43 -> http; 0x05 -> socks5'
         }
@@ -673,7 +705,7 @@ function Invoke-RecognitionModeInterop {
             Client = $VlessGo
             Arguments = @('-mode', 'client', '-server', ('127.0.0.1:' + $RecognitionMixedTrialPort), '-uuid', '123e4567-e89b-12d3-a456-426614174000', '-target', 'example.com:443')
             Scenario = 'mixed-trial-profile-single-port'
-            Implementation = 'go-vless-reference-preview-profile-listener'
+            Implementation = 'go-vless-reference-prism-profile-listener'
             CandidateProfile = 'vless|vmess'
             Route = 'first-byte 0x00 -> vless; opaque fallback -> vmess'
         }
@@ -684,7 +716,7 @@ function Invoke-RecognitionModeInterop {
             Client = $TrojanGo
             Arguments = @('-mode', 'client', '-server', ('127.0.0.1:' + $RecognitionMixedTrojanPort), '-pass', 'prism', '-target', 'example.com:443')
             Scenario = 'mixed-trial-opaque-authentication'
-            Implementation = 'go-trojan-reference-preview-profile-listener'
+            Implementation = 'go-trojan-reference-prism-profile-listener'
             CandidateProfile = 'trojan|vmess'
             Route = 'credential prefix -> trojan; opaque fallback -> vmess'
         }
@@ -695,7 +727,7 @@ function Invoke-RecognitionModeInterop {
             Client = $VmessGo
             Arguments = @('127.0.0.1:' + $RecognitionMixedVmessPort, '-tcp-only')
             Scenario = 'mixed-trial-opaque-authentication'
-            Implementation = 'sing-vmess-reference-preview-profile-listener'
+            Implementation = 'sing-vmess-reference-prism-profile-listener'
             CandidateProfile = 'vmess|trojan'
             Route = 'opaque authentication -> vmess; opaque fallback -> trojan'
         }
@@ -706,7 +738,7 @@ function Invoke-RecognitionModeInterop {
             Client = $GoClient
             Arguments = @('127.0.0.1:' + $RecognitionMixedSs2022Port)
             Scenario = 'mixed-trial-opaque-authentication'
-            Implementation = 'sing-shadowsocks-reference-preview-profile-listener'
+            Implementation = 'sing-shadowsocks-reference-prism-profile-listener'
             CandidateProfile = 'ss2022|vmess'
             Route = 'raw PSK authentication -> ss2022; opaque fallback -> vmess'
         }
@@ -723,13 +755,13 @@ function Invoke-RecognitionModeInterop {
                 '-mode', $Case.Mode, '-protocol', $Case.Protocol, '-addr', $ServerAddress) `
                 -PassThru -WindowStyle Hidden -RedirectStandardOutput $ServerOut -RedirectStandardError $ServerErr
             if (-not (Wait-OutputReady $ServerProcess $ServerOut)) {
-                Add-BlockedResult $Case.Protocol 'external-client-to-preview-single-port' 'environment-unavailable' `
-                    ('Preview ' + $Case.Mode + ' recognition listener did not become ready') `
+                Add-BlockedResult $Case.Protocol 'external-client-to-prism-single-port' 'environment-unavailable' `
+                    ('Prism ' + $Case.Mode + ' recognition listener did not become ready') `
                     -RecognitionMode $Case.Mode -CandidateProfile $Case.CandidateProfile -Route $Case.Route
             }
             else {
                 $Result = Invoke-InteropCase -Executable $Case.Client -Arguments $Case.Arguments `
-                    -Protocol $Case.Protocol -Direction 'external-client-to-preview-single-port' `
+                    -Protocol $Case.Protocol -Direction 'external-client-to-prism-single-port' `
                     -Scenario $Case.Scenario -Implementation $Case.Implementation `
                     -Commit $Commit -Platform $Platform -OutputDirectory $OutputDirectory `
                     -RecognitionMode $Case.Mode -CandidateProfile $Case.CandidateProfile -Route $Case.Route
@@ -746,10 +778,10 @@ function Invoke-RecognitionModeInterop {
 function Invoke-NativeTlsInterop {
     if (-not (Test-Path -LiteralPath $NativeTlsCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $NativeTlsGo -PathType Leaf)) {
-        Add-BlockedResult 'native-tls' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview native TLS endpoint or Go reference harness executable is unavailable'
-        Add-BlockedResult 'native-tls' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview native TLS endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'native-tls' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism native TLS endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'native-tls' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism native TLS endpoint or Go reference harness executable is unavailable'
         return
     }
 
@@ -763,13 +795,13 @@ function Invoke-NativeTlsInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'native-tls' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'native-tls' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go native TLS reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $NativeTlsCpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'native-tls' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'native-tls' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-crypto-tls-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -788,14 +820,14 @@ function Invoke-NativeTlsInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'native-tls' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview native TLS server did not become ready'
+            Add-BlockedResult 'native-tls' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism native TLS server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $NativeTlsGo -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'native-tls' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-native-tls-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'native-tls' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-native-tls-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -809,10 +841,10 @@ function Invoke-NativeTlsInterop {
 function Invoke-ShadowtlsInterop {
     if (-not (Test-Path -LiteralPath $ShadowtlsCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $ShadowtlsGo -PathType Leaf)) {
-        Add-BlockedResult 'shadowtls' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview ShadowTLS endpoint or Go/mihomo harness executable is unavailable'
-        Add-BlockedResult 'shadowtls' 'preview-client-to-reference-server' 'interface-gap' `
-            'Preview ShadowTLS client lacks a real TLS ClientHello/outer TLS state machine'
+        Add-BlockedResult 'shadowtls' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism ShadowTLS endpoint or Go/mihomo harness executable is unavailable'
+        Add-BlockedResult 'shadowtls' 'prism-client-to-reference-server' 'interface-gap' `
+            'Prism ShadowTLS client lacks a real TLS ClientHello/outer TLS state machine'
         return
     }
 
@@ -830,7 +862,7 @@ function Invoke-ShadowtlsInterop {
             '-mode', 'target-server', '-addr', $TargetAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $TargetOut -RedirectStandardError $TargetErr
         if (-not (Wait-OutputReady $TargetProcess $TargetOut)) {
-            Add-BlockedResult 'shadowtls' 'reference-client-to-preview-server' 'environment-unavailable' `
+            Add-BlockedResult 'shadowtls' 'reference-client-to-prism-server' 'environment-unavailable' `
                 'Go TLS target for ShadowTLS did not become ready'
         }
         else {
@@ -838,14 +870,14 @@ function Invoke-ShadowtlsInterop {
                 '-addr', $RelayAddress, '-target', $TargetAddress, '-password', 'relay-password') `
                 -PassThru -WindowStyle Hidden -RedirectStandardOutput $RelayOut -RedirectStandardError $RelayErr
             if (-not (Wait-OutputReady $RelayProcess $RelayOut)) {
-                Add-BlockedResult 'shadowtls' 'reference-client-to-preview-server' 'environment-unavailable' `
-                    'Preview ShadowTLS relay did not become ready'
+                Add-BlockedResult 'shadowtls' 'reference-client-to-prism-server' 'environment-unavailable' `
+                    'Prism ShadowTLS relay did not become ready'
             }
             else {
                 $Result = Invoke-InteropCase -Executable $ShadowtlsGo -Arguments @(
                     '-mode', 'client', '-addr', $RelayAddress, '-target', 'target', '-password', 'relay-password') `
-                    -Protocol 'shadowtls' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                    -Implementation 'mihomo-shadowtls-v3-client-preview-server' -Commit $Commit -Platform $Platform `
+                    -Protocol 'shadowtls' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                    -Implementation 'mihomo-shadowtls-v3-client-prism-server' -Commit $Commit -Platform $Platform `
                     -OutputDirectory $OutputDirectory
                 $Results.Add((Add-DependencyArtifacts $Result @($TargetOut, $TargetErr, $RelayOut, $RelayErr)))
             }
@@ -856,17 +888,17 @@ function Invoke-ShadowtlsInterop {
         Stop-InteropProcess $TargetProcess
     }
 
-    Add-BlockedResult 'shadowtls' 'preview-client-to-reference-server' 'interface-gap' `
-        'Preview ShadowTLS client lacks a real TLS ClientHello/outer TLS state machine'
+    Add-BlockedResult 'shadowtls' 'prism-client-to-reference-server' 'interface-gap' `
+        'Prism ShadowTLS client lacks a real TLS ClientHello/outer TLS state machine'
 }
 
 function Invoke-WebsocketInterop {
     if (-not (Test-Path -LiteralPath $WsCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $WsGo -PathType Leaf)) {
-        Add-BlockedResult 'websocket' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview WebSocket endpoint or Go reference harness executable is unavailable'
-        Add-BlockedResult 'websocket' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview WebSocket endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'websocket' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism WebSocket endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'websocket' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism WebSocket endpoint or Go reference harness executable is unavailable'
         return
     }
 
@@ -880,13 +912,13 @@ function Invoke-WebsocketInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'websocket' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'websocket' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go WebSocket reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $WsCpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'websocket' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'websocket' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-gobwas-ws-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -905,14 +937,14 @@ function Invoke-WebsocketInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'websocket' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview WebSocket reference server did not become ready'
+            Add-BlockedResult 'websocket' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism WebSocket reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $WsGo -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'websocket' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-websocket-server-gobwas-ws-reference' -Commit $Commit -Platform $Platform `
+                -Protocol 'websocket' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-websocket-server-gobwas-ws-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -926,10 +958,10 @@ function Invoke-WebsocketInterop {
 function Invoke-AnytlsInterop {
     if (-not (Test-Path -LiteralPath $AnytlsCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $AnytlsGo -PathType Leaf)) {
-        Add-BlockedResult 'anytls' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview AnyTLS endpoint or Go reference harness executable is unavailable'
-        Add-BlockedResult 'anytls' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview AnyTLS endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'anytls' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism AnyTLS endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'anytls' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism AnyTLS endpoint or Go reference harness executable is unavailable'
         return
     }
 
@@ -943,13 +975,13 @@ function Invoke-AnytlsInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'anytls' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'anytls' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go AnyTLS reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $AnytlsCpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'anytls' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'anytls' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-anytls-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -968,14 +1000,14 @@ function Invoke-AnytlsInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'anytls' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview AnyTLS server did not become ready'
+            Add-BlockedResult 'anytls' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism AnyTLS server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $AnytlsGo -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'anytls' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-anytls-server-go-reference' -Commit $Commit -Platform $Platform `
+                -Protocol 'anytls' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-anytls-server-go-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -989,10 +1021,10 @@ function Invoke-AnytlsInterop {
 function Invoke-GunInterop {
     if (-not (Test-Path -LiteralPath $GunCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $GunGo -PathType Leaf)) {
-        Add-BlockedResult 'grpc' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview gun-lite endpoint or Go reference harness executable is unavailable'
-        Add-BlockedResult 'grpc' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview gun-lite endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'grpc' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism gun-lite endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'grpc' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism gun-lite endpoint or Go reference harness executable is unavailable'
         return
     }
 
@@ -1006,13 +1038,13 @@ function Invoke-GunInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'grpc' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'grpc' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go gun-lite reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $GunCpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'grpc' -Direction 'preview-client-to-reference-server' -Scenario 'gun-lite-authenticated-echo' `
+                -Protocol 'grpc' -Direction 'prism-client-to-reference-server' -Scenario 'gun-lite-authenticated-echo' `
                 -Implementation 'go-gun-lite-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -1031,14 +1063,14 @@ function Invoke-GunInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'grpc' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview gun-lite server did not become ready'
+            Add-BlockedResult 'grpc' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism gun-lite server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $GunGo -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'grpc' -Direction 'reference-client-to-preview-server' -Scenario 'gun-lite-authenticated-echo' `
-                -Implementation 'preview-gun-lite-server-go-reference' -Commit $Commit -Platform $Platform `
+                -Protocol 'grpc' -Direction 'reference-client-to-prism-server' -Scenario 'gun-lite-authenticated-echo' `
+                -Implementation 'prism-gun-lite-server-go-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -1052,10 +1084,10 @@ function Invoke-GunInterop {
 function Invoke-XhttpInterop {
     if (-not (Test-Path -LiteralPath $XhttpCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $XhttpGo -PathType Leaf)) {
-        Add-BlockedResult 'xhttp' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview XHTTP client or Go HTTP/2 reference harness executable is unavailable'
-        Add-BlockedResult 'xhttp' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview XHTTP endpoint or Go HTTP/2 reference harness executable is unavailable'
+        Add-BlockedResult 'xhttp' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism XHTTP client or Go HTTP/2 reference harness executable is unavailable'
+        Add-BlockedResult 'xhttp' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism XHTTP endpoint or Go HTTP/2 reference harness executable is unavailable'
         return
     }
 
@@ -1072,14 +1104,14 @@ function Invoke-XhttpInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'xhttp' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'xhttp' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go XHTTP reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $XhttpCpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'xhttp' -Direction 'preview-client-to-reference-server' -Scenario 'http2-stream-one-echo' `
-                -Implementation 'preview-xhttp-client-go-x-net-http2-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'xhttp' -Direction 'prism-client-to-reference-server' -Scenario 'http2-stream-one-echo' `
+                -Implementation 'prism-xhttp-client-go-x-net-http2-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
         }
@@ -1094,13 +1126,13 @@ function Invoke-XhttpInterop {
             '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'xhttp' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview XHTTP server did not become ready'
+            Add-BlockedResult 'xhttp' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism XHTTP server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $XhttpGo -Arguments @(
                 '-addr', $ServerAddress) `
-                -Protocol 'xhttp' -Direction 'reference-client-to-preview-server' -Scenario 'http2-stream-one-echo' `
+                -Protocol 'xhttp' -Direction 'reference-client-to-prism-server' -Scenario 'http2-stream-one-echo' `
                 -Implementation 'go-x-net-http2-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
@@ -1115,10 +1147,10 @@ function Invoke-XhttpInterop {
 function Invoke-TrusttunnelInterop {
     if (-not (Test-Path -LiteralPath $TrusttunnelCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $TrusttunnelGo -PathType Leaf)) {
-        Add-BlockedResult 'trusttunnel' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview TrustTunnel standard HTTP/2 endpoint or Go reference harness executable is unavailable'
-        Add-BlockedResult 'trusttunnel' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview TrustTunnel standard HTTP/2 endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'trusttunnel' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism TrustTunnel standard HTTP/2 endpoint or Go reference harness executable is unavailable'
+        Add-BlockedResult 'trusttunnel' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism TrustTunnel standard HTTP/2 endpoint or Go reference harness executable is unavailable'
         return
     }
 
@@ -1136,14 +1168,14 @@ function Invoke-TrusttunnelInterop {
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut) -or
             -not (Wait-TcpReady '127.0.0.1' $TrusttunnelPort -ProcessId $GoServerProcess.Id)) {
-            Add-BlockedResult 'trusttunnel' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'trusttunnel' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go TrustTunnel reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $TrusttunnelCpp -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'trusttunnel' -Direction 'preview-client-to-reference-server' -Scenario 'http2-connect-echo' `
-                -Implementation 'preview-trusttunnel-go-x-net-http2-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'trusttunnel' -Direction 'prism-client-to-reference-server' -Scenario 'http2-connect-echo' `
+                -Implementation 'prism-trusttunnel-go-x-net-http2-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
         }
@@ -1159,14 +1191,14 @@ function Invoke-TrusttunnelInterop {
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut) -or
             -not (Wait-TcpReady '127.0.0.1' $TrusttunnelPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'trusttunnel' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview TrustTunnel standard HTTP/2 server did not become ready'
+            Add-BlockedResult 'trusttunnel' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism TrustTunnel standard HTTP/2 server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $TrusttunnelGo -Arguments @(
                 '-mode', 'client', '-addr', $ServerAddress) `
-                -Protocol 'trusttunnel' -Direction 'reference-client-to-preview-server' -Scenario 'http2-connect-echo' `
-                -Implementation 'go-x-net-http2-reference-preview-trusttunnel-server' -Commit $Commit -Platform $Platform `
+                -Protocol 'trusttunnel' -Direction 'reference-client-to-prism-server' -Scenario 'http2-connect-echo' `
+                -Implementation 'go-x-net-http2-reference-prism-trusttunnel-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
@@ -1181,10 +1213,10 @@ function Invoke-TuicInterop {
     if (-not (Test-Path -LiteralPath $TuicCpp -PathType Leaf) -or
         -not (Test-Path -LiteralPath $TuicGo -PathType Leaf) -or
         -not (Test-Path -LiteralPath $TuicGoServer -PathType Leaf)) {
-        Add-BlockedResult 'tuic' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview TUIC endpoint or Go quic-go harness executable is unavailable'
-        Add-BlockedResult 'tuic' 'preview-client-to-reference-server' 'environment-unavailable' `
-            'Preview TUIC or Go reference server executable is unavailable'
+        Add-BlockedResult 'tuic' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism TUIC endpoint or Go quic-go harness executable is unavailable'
+        Add-BlockedResult 'tuic' 'prism-client-to-reference-server' 'environment-unavailable' `
+            'Prism TUIC or Go reference server executable is unavailable'
         return
     }
 
@@ -1199,14 +1231,14 @@ function Invoke-TuicInterop {
             '-uuid', '123e4567-e89b-12d3-a456-426614174000') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'tuic' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview TUIC server did not become ready'
+            Add-BlockedResult 'tuic' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism TUIC server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $TuicGo -Arguments @(
                 '-server', $ServerAddress, '-password', 'tuic_password',
                 '-uuid', '123e4567-e89b-12d3-a456-426614174000') `
-                -Protocol 'tuic' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
+                -Protocol 'tuic' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-quic-tuic-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
@@ -1227,14 +1259,14 @@ function Invoke-TuicInterop {
             '-uuid', '123e4567-e89b-12d3-a456-426614174000', '-udp', '1') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $UdpOut -RedirectStandardError $UdpErr
         if (-not (Wait-OutputReady $UdpServerProcess $UdpOut)) {
-            Add-BlockedResult 'tuic' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview TUIC UDP server did not become ready'
+            Add-BlockedResult 'tuic' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism TUIC UDP server did not become ready'
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $TuicGo -Arguments @(
                 '-server', $ServerAddress, '-password', 'tuic_password',
                 '-uuid', '123e4567-e89b-12d3-a456-426614174000', '-udp') `
-                -Protocol 'tuic' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-udp-echo' `
+                -Protocol 'tuic' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-udp-echo' `
                 -Implementation 'go-quic-tuic-reference-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $UdpResult @($UdpOut, $UdpErr)))
@@ -1256,14 +1288,14 @@ function Invoke-TuicInterop {
             '-uuid', '123e4567-e89b-12d3-a456-426614174000') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'tuic' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'tuic' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go TUIC reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $TuicCpp -Arguments @(
                 '-mode', 'client', '-addr', $ReferenceAddress, '-password', 'tuic_password',
                 '-uuid', '123e4567-e89b-12d3-a456-426614174000') `
-                -Protocol 'tuic' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Protocol 'tuic' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
                 -Implementation 'mihomo-tuic-v5-reference-tcp-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
@@ -1280,9 +1312,9 @@ function Invoke-Hysteria2Interop {
         -not (Test-Path -LiteralPath $Hysteria2CppClient -PathType Leaf) -or
         -not (Test-Path -LiteralPath $Hysteria2Go -PathType Leaf) -or
         -not (Test-Path -LiteralPath $Hysteria2GoServer -PathType Leaf)) {
-        Add-BlockedResult 'hysteria2' 'reference-client-to-preview-server' 'environment-unavailable' `
-            'Preview Hysteria2 endpoint or Go sing-quic harness executable is unavailable'
-        Add-BlockedResult 'hysteria2' 'preview-client-to-reference-server' 'environment-unavailable' `
+        Add-BlockedResult 'hysteria2' 'reference-client-to-prism-server' 'environment-unavailable' `
+            'Prism Hysteria2 endpoint or Go sing-quic harness executable is unavailable'
+        Add-BlockedResult 'hysteria2' 'prism-client-to-reference-server' 'environment-unavailable' `
             'No pinned full external Hysteria2 reference server executable is available'
         return
     }
@@ -1297,13 +1329,13 @@ function Invoke-Hysteria2Interop {
             '-addr', $ServerAddress, '-password', 'hysteria2_password') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'hysteria2' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview Hysteria2 server did not become ready'
+            Add-BlockedResult 'hysteria2' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism Hysteria2 server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $Hysteria2Go -Arguments @(
                 '-server', $ServerAddress, '-password', 'hysteria2_password') `
-                -Protocol 'hysteria2' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-echo' `
+                -Protocol 'hysteria2' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'sing-quic-hysteria2-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
@@ -1323,13 +1355,13 @@ function Invoke-Hysteria2Interop {
             '-addr', $ServerAddress, '-password', 'hysteria2_password', '-udp', '1') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $UdpOut -RedirectStandardError $UdpErr
         if (-not (Wait-OutputReady $UdpServerProcess $UdpOut)) {
-            Add-BlockedResult 'hysteria2' 'reference-client-to-preview-server' 'environment-unavailable' `
-                'Preview Hysteria2 UDP server did not become ready'
+            Add-BlockedResult 'hysteria2' 'reference-client-to-prism-server' 'environment-unavailable' `
+                'Prism Hysteria2 UDP server did not become ready'
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $Hysteria2Go -Arguments @(
                 '-server', $ServerAddress, '-password', 'hysteria2_password', '-udp') `
-                -Protocol 'hysteria2' -Direction 'reference-client-to-preview-server' -Scenario 'authenticated-udp-echo' `
+                -Protocol 'hysteria2' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-udp-echo' `
                 -Implementation 'sing-quic-hysteria2-reference-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $UdpResult @($UdpOut, $UdpErr)))
@@ -1350,14 +1382,14 @@ function Invoke-Hysteria2Interop {
             '-listen', $ReferenceAddress, '-password', 'hysteria2_password') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoOut -RedirectStandardError $GoErr
         if (-not (Wait-OutputReady $GoServerProcess $GoOut)) {
-            Add-BlockedResult 'hysteria2' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'hysteria2' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go Hysteria2 reference server did not become ready'
         }
         else {
             $Result = Invoke-InteropCase -Executable $Hysteria2CppClient -Arguments @(
                 '-addr', $ReferenceAddress, '-password', 'hysteria2_password') `
-                -Protocol 'hysteria2' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-echo' `
-                -Implementation 'preview-http3-native-ngtcp2-reference' -Commit $Commit -Platform $Platform `
+                -Protocol 'hysteria2' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
+                -Implementation 'prism-http3-native-ngtcp2-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
         }
@@ -1378,14 +1410,14 @@ function Invoke-Hysteria2Interop {
             '-listen', $ReferenceUdpAddress, '-password', 'hysteria2_password') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $GoUdpOut -RedirectStandardError $GoUdpErr
         if (-not (Wait-OutputReady $GoUdpServerProcess $GoUdpOut)) {
-            Add-BlockedResult 'hysteria2' 'preview-client-to-reference-server' 'environment-unavailable' `
+            Add-BlockedResult 'hysteria2' 'prism-client-to-reference-server' 'environment-unavailable' `
                 'Go Hysteria2 UDP reference server did not become ready'
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $Hysteria2CppClient -Arguments @(
                 '-addr', $ReferenceUdpAddress, '-password', 'hysteria2_password', '-udp', '1') `
-                -Protocol 'hysteria2' -Direction 'preview-client-to-reference-server' -Scenario 'authenticated-udp-echo' `
-                -Implementation 'preview-http3-native-ngtcp2-reference-udp' -Commit $Commit -Platform $Platform `
+                -Protocol 'hysteria2' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-udp-echo' `
+                -Implementation 'prism-http3-native-ngtcp2-reference-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $UdpResult @($GoUdpOut, $GoUdpErr)))
         }
@@ -1404,7 +1436,7 @@ foreach ($Protocol in $Protocols) {
     }
 
     if ($CodecVectorTools.ContainsKey($Protocol)) {
-        $VectorExecutable = Join-Path $RepoRoot ('build/tests/go/' + $CodecVectorTools[$Protocol] + '.exe')
+        $VectorExecutable = Join-Path $RepoRoot ('build/tests/Prism/Integration/Go/' + $CodecVectorTools[$Protocol] + '.exe')
         $VectorResult = Invoke-InteropCase -Executable $VectorExecutable `
             -Protocol $Protocol -Direction 'reference-codec-vector' -Scenario 'codec-vector' `
             -Implementation 'go-reference-vector' -Commit $Commit -Platform $Platform `
@@ -1418,8 +1450,8 @@ foreach ($Protocol in $Protocols) {
     if ($Protocol -eq 'trojan') {
         Invoke-TrojanInterop
         if ($PrismExe) {
-            Add-BlockedResult 'trojan' 'preview-production-single-port' 'blocked-production-prerequisite' `
-                'Production analyzer change is not authorized in this Preview-only run'
+            Add-BlockedResult 'trojan' 'prism-production-single-port' 'blocked-production-prerequisite' `
+                'Production analyzer change is not authorized in this Prism-only run'
         }
         continue
     }
@@ -1427,8 +1459,8 @@ foreach ($Protocol in $Protocols) {
     if ($Protocol -eq 'vmess') {
         Invoke-VmessInterop
         if ($PrismExe) {
-            Add-BlockedResult 'vmess' 'preview-production-single-port' 'blocked-production-prerequisite' `
-                'Production analyzer change is not authorized in this Preview-only run'
+            Add-BlockedResult 'vmess' 'prism-production-single-port' 'blocked-production-prerequisite' `
+                'Production analyzer change is not authorized in this Prism-only run'
         }
         continue
     }
@@ -1436,8 +1468,8 @@ foreach ($Protocol in $Protocols) {
     if ($Protocol -eq 'vless') {
         Invoke-VlessInterop
         if ($PrismExe) {
-            Add-BlockedResult 'vless' 'preview-production-single-port' 'blocked-production-prerequisite' `
-                'Production analyzer change is not authorized in this Preview-only run'
+            Add-BlockedResult 'vless' 'prism-production-single-port' 'blocked-production-prerequisite' `
+                'Production analyzer change is not authorized in this Prism-only run'
         }
         continue
     }
@@ -1487,10 +1519,10 @@ foreach ($Protocol in $Protocols) {
             Invoke-ShadowtlsInterop
             continue
         }
-        Add-BlockedResult $Protocol 'preview-client-to-reference-server' 'interface-gap' `
-            "Preview $Protocol has codec/loopback coverage but no standard external carrier endpoint"
-        Add-BlockedResult $Protocol 'reference-client-to-preview-server' 'interface-gap' `
-            "Preview $Protocol has codec/loopback coverage but no standard external carrier endpoint"
+        Add-BlockedResult $Protocol 'prism-client-to-reference-server' 'interface-gap' `
+            "Prism $Protocol has codec/loopback coverage but no standard external carrier endpoint"
+        Add-BlockedResult $Protocol 'reference-client-to-prism-server' 'interface-gap' `
+            "Prism $Protocol has codec/loopback coverage but no standard external carrier endpoint"
         continue
     }
 
@@ -1504,14 +1536,14 @@ foreach ($Protocol in $Protocols) {
         continue
     }
 
-    foreach ($Direction in @('preview-client-to-reference-server', 'reference-client-to-preview-server')) {
+    foreach ($Direction in @('prism-client-to-reference-server', 'reference-client-to-prism-server')) {
         Add-BlockedResult $Protocol $Direction 'environment-unavailable' `
             "No pinned full external harness is registered for $Protocol"
     }
 
     if ($Protocol -in @('vless', 'trojan', 'vmess') -and $PrismExe) {
-        Add-BlockedResult $Protocol 'preview-production-single-port' 'blocked-production-prerequisite' `
-            'Production analyzer change is not authorized in this Preview-only run'
+        Add-BlockedResult $Protocol 'prism-production-single-port' 'blocked-production-prerequisite' `
+            'Production analyzer change is not authorized in this Prism-only run'
     }
 }
 
@@ -1537,7 +1569,7 @@ $Summary = [ordered]@{
     pass = @($Results | Where-Object { $_.status -eq 'pass' }).Count
     blocked = @($Results | Where-Object { $_.status -in @('environment-unavailable', 'interface-gap', 'blocked-production-prerequisite') }).Count
     production_blocked = @($Results | Where-Object { $_.status -eq 'blocked-production-prerequisite' }).Count
-    preview_only_blocked = @($Results | Where-Object { $_.status -in @('environment-unavailable', 'interface-gap') }).Count
+    prism_only_blocked = @($Results | Where-Object { $_.status -in @('environment-unavailable', 'interface-gap') }).Count
     failed = @($Results | Where-Object { $_.status -in @('protocol-failure', 'implementation-mismatch') }).Count
     recognition_coverage = $RecognitionCoverage
     recognition_coverage_complete = $RecognitionCoverageComplete
@@ -1549,7 +1581,7 @@ $Summary.gate_d_classification = if ($Summary.failed -gt 0) {
 } elseif ($Summary.production_blocked -gt 0 -and $Summary.scope -eq 'full') {
     'production-blocked'
 } elseif ($Summary.blocked -gt 0) {
-    'preview-only-blocked'
+    'prism-only-blocked'
 } else {
     'pass'
 }

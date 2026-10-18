@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-namespace Preview::Testing::Tls
+namespace Prism::Testing::Tls
 {
     namespace net = boost::asio;
 
@@ -398,4 +398,4 @@ namespace Preview::Testing::Tls
         return TlsResponder{DohResponder{std::string(StatusLine)}};
     }
 
-} // namespace Preview::Testing::Tls
+} // namespace Prism::Testing::Tls

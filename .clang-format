@@ -113,13 +113,13 @@ ContinuationIndentWidth: 4
 
 # ═══════════════════════════════════════════════════════════════
 # Include 排序
-# Preview/Prism 项目头文件 → 第三方库 → 标准库 → 其他头文件
+# Prism 项目头文件 → 第三方库 → 标准库 → 其他头文件
 # ═══════════════════════════════════════════════════════════════
 SortIncludes: CaseInsensitive
 IncludeBlocks: Regroup
 IncludeCategories:
   # 项目头文件
-  - Regex: '^<(Preview|prism)/.*\.hpp>'
+  - Regex: '^<(Prism|prism)/.*\.hpp>'
     Priority: 1
   # 第三方库
   - Regex: '^<(boost|openssl|spdlog|glaze|blake3|nghttp2|benchmark|gtest|fmt)/'

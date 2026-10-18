@@ -1,0 +1,11 @@
+# trusttunnel 子模块
+AddPrismTest(TrusttunnelDgramSession.cpp)
+target_link_libraries(TrusttunnelDgramSession PRIVATE PrismTransport PrismProtocolTrusttunnel PrismTestSupport)
+
+AddPrismTest(TrusttunnelCodecDeep.cpp)
+target_link_libraries(TrusttunnelCodecDeep PRIVATE PrismProtocolTrusttunnel PrismTestSupport)
+
+AddPrismTest(TrusttunnelHttp2Transport.cpp)
+target_link_libraries(TrusttunnelHttp2Transport PRIVATE PrismProtocolTrusttunnel PrismTestSupport)
+AddPrismTest(TrusttunnelIngressFactoryTest.cpp)
+target_link_libraries(TrusttunnelIngressFactoryTest PRIVATE PrismProtocolTrusttunnel PrismTestSupport)

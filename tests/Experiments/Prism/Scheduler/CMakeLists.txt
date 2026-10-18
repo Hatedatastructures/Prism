@@ -1,0 +1,2 @@
+AddExperimentTest(SchedulerTest.cpp)
+target_link_libraries(ExperimentSchedulerTest PRIVATE PrismFoundation)

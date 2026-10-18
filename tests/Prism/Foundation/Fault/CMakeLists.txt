@@ -1,0 +1,11 @@
+# fault 子模块测试
+AddPrismTest(CoreError.cpp)
+target_link_libraries(CoreError PRIVATE PrismFoundation PrismTestSupport)
+AddPrismTest(CoreFault.cpp)
+target_link_libraries(CoreFault PRIVATE PrismFoundation PrismTestSupport)
+AddPrismTest(FaultCoverage.cpp)
+target_link_libraries(FaultCoverage PRIVATE PrismFoundation PrismTestSupport)
+AddPrismTest(PrismErrorTest.cpp)
+target_link_libraries(PrismErrorTest PRIVATE PrismFoundation PrismTestSupport)
+AddPrismTest(PrismFaultTest.cpp)
+target_link_libraries(PrismFaultTest PRIVATE PrismFoundation PrismTestSupport)

@@ -28,9 +28,9 @@ int main(void) { return 0; }
 endif()
 
 # Project-owned test switch. Third-party FetchContent projects temporarily use
-# BUILD_TESTING=OFF below, but Preview/Contract tests are enabled by default
-# and can only be disabled explicitly with -DPRISM_BUILD_TESTING=OFF.
-option(PRISM_BUILD_TESTING "Build Prism Preview and Contract tests" ON)
+# BUILD_TESTING=OFF below, while Prism tests are enabled by default and can only
+# be disabled explicitly with -DPRISM_BUILD_TESTING=OFF.
+option(PRISM_BUILD_TESTING "Build Prism tests" ON)
 message(STATUS "PRISM_BUILD_TESTING=${PRISM_BUILD_TESTING}")
 
 # CMake 4.0+ 将 CMP0167 行为改为 NEW（FindBoost 弃用），此处显式设置避免警告
@@ -382,17 +382,14 @@ endif()
 enable_testing()
 
 # 可选的基准测试和压力测试工具开关
-option(PRISM_ENABLE_BENCHMARK "Enable forward benchmarks" ON)
+option(PRISM_ENABLE_BENCHMARK "Enable deferred Prism benchmark tests" OFF)
 message(STATUS "PRISM_ENABLE_BENCHMARK=${PRISM_ENABLE_BENCHMARK}")
 
-option(PRISM_ENABLE_STRESS "Enable forward stress tools" ON)
+option(PRISM_ENABLE_STRESS "Enable deferred Prism stress tests" OFF)
 message(STATUS "PRISM_ENABLE_STRESS=${PRISM_ENABLE_STRESS}")
 
-option(PRISM_ENABLE_INTEROP "Enable external Preview interoperability runners" OFF)
+option(PRISM_ENABLE_INTEROP "Enable external Prism interoperability runners" OFF)
 message(STATUS "PRISM_ENABLE_INTEROP=${PRISM_ENABLE_INTEROP}")
-
-option(PRISM_ENABLE_PERF_CONTRACT "Enable Preview/production performance Contract" OFF)
-message(STATUS "PRISM_ENABLE_PERF_CONTRACT=${PRISM_ENABLE_PERF_CONTRACT}")
 
 option(PRISM_ENABLE_COVERAGE "Enable code coverage instrumentation (gcc/clang --coverage)" OFF)
 message(STATUS "PRISM_ENABLE_COVERAGE=${PRISM_ENABLE_COVERAGE}")
@@ -484,16 +481,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nghttp3)
 
-# 依赖 src 的所有子目录必须在 nghttp3/ngtcp2 之后（src 用到其 include 变量）
-add_subdirectory(src)
-add_subdirectory(Preview)
+# Prism production and its test support must be configured after all fetched
+# dependencies have declared their public targets.
+add_subdirectory(Prism)
 add_subdirectory(tests/TestSupport)
-add_subdirectory(benchmarks)
 set(BUILD_TESTING ${PRISM_BUILD_TESTING} CACHE BOOL "Build Prism tests" FORCE)
 if(PRISM_BUILD_TESTING)
-    message(STATUS "Prism Preview/Contract test targets: ENABLED")
+    message(STATUS "Prism test targets: ENABLED")
     add_subdirectory(tests)
 else()
-    message(STATUS "Prism Preview/Contract test targets: DISABLED by explicit PRISM_BUILD_TESTING=OFF")
+    message(STATUS "Prism test targets: DISABLED by explicit PRISM_BUILD_TESTING=OFF")
 endif()
-add_subdirectory(stresses)

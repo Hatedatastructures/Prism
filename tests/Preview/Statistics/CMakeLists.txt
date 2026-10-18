@@ -1,5 +1,0 @@
-AddPreviewTest(Task10StatisticsTest.cpp)
-target_link_libraries(Task10StatisticsTest PRIVATE PreviewStatistics)
-
-AddPreviewTest(SettingsApiTest.cpp)
-target_link_libraries(SettingsApiTest PRIVATE PreviewRuntime PreviewTestSupport)

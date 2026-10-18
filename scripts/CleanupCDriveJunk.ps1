@@ -85,7 +85,7 @@ if (-not $isAdmin -and -not $isWhatIf) {
     }
 }
 if (-not $isAdmin -and $isWhatIf) {
-    Write-Warning 'Preview mode is running without administrator privileges. Some size reads may be incomplete.'
+    Write-Warning 'Prism mode is running without administrator privileges. Some size reads may be incomplete.'
 }
 
 foreach ($target in $targets) {
