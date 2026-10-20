@@ -7,6 +7,7 @@
 
 #include <Prism/Protocols/Mux/Detail/SingMux/Codec.hpp>
 #include <Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Smux/Types.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -72,9 +73,9 @@ TEST(AnytlsWire, ParsesStreamRequestAndPreservesTrailingPayload)
 TEST(AnytlsWire, SmuxCodecMatchesBootstrapStreamContract)
 {
     const auto Syn = Prism::Mux::Smux::Detail::BuildSyn(3U);
-    Prism::Mux::Smux::Detail::FrameHeader SynHeader{};
+    Prism::Mux::Smux::FrameHeader SynHeader{};
     EXPECT_EQ(Prism::Mux::Smux::Detail::ParseHeader(Syn, SynHeader), Prism::Error::None);
-    EXPECT_EQ(SynHeader.cmd, Prism::Mux::Smux::Detail::Command::Syn);
+    EXPECT_EQ(SynHeader.cmd, Prism::Mux::Smux::Command::Syn);
     EXPECT_EQ(SynHeader.StreamId, 3U);
 
     const auto StreamRequest = Bytes({0x00, 0x00, 0x01, 127, 0, 0, 1, 0x46, 0x50});
@@ -82,12 +83,12 @@ TEST(AnytlsWire, SmuxCodecMatchesBootstrapStreamContract)
         reinterpret_cast<const std::uint8_t *>(StreamRequest.data()),
         reinterpret_cast<const std::uint8_t *>(StreamRequest.data()) + StreamRequest.size());
     const auto Push = Prism::Mux::Smux::Detail::BuildPush(3U, Payload);
-    Prism::Mux::Smux::Detail::FrameHeader PushHeader{};
+    Prism::Mux::Smux::FrameHeader PushHeader{};
     EXPECT_EQ(Prism::Mux::Smux::Detail::ParseHeader(
-                  std::span<const std::uint8_t>(Push.data(), Prism::Mux::Smux::Detail::FrameHdrsize),
+                  std::span<const std::uint8_t>(Push.data(), Prism::Mux::Smux::FrameHdrsize),
                   PushHeader),
               Prism::Error::None);
-    EXPECT_EQ(PushHeader.cmd, Prism::Mux::Smux::Detail::Command::Push);
+    EXPECT_EQ(PushHeader.cmd, Prism::Mux::Smux::Command::Push);
     EXPECT_EQ(PushHeader.length, StreamRequest.size());
     EXPECT_EQ(PushHeader.StreamId, 3U);
 }

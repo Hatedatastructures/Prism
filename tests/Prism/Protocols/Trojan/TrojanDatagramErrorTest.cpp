@@ -85,17 +85,35 @@ namespace
         return Address;
     }
 
-    /** @brief 验证 Trojan LEN/CRLF 头部截断仍返回原有 I/O 错误。 */
+    /** @brief 关闭 Dgram 并依次排空本层与底层活动。 */
+    auto CloseAndDrainDatagram(
+        std::shared_ptr<Trojan::Dgram<>> Datagram,
+        std::shared_ptr<PrismMockTransport> RawTransport) -> Net::awaitable<void>
+    {
+        const auto Close = Datagram->Close();
+        EXPECT_TRUE(Close);
+        const auto DatagramActivity = Datagram->Activity();
+        const auto DatagramDrain = co_await DatagramActivity->Drain();
+        EXPECT_TRUE(DatagramDrain);
+        EXPECT_TRUE(DatagramActivity->IsRetired());
+        const auto RawActivity = RawTransport->Activity();
+        const auto RawDrain = co_await RawActivity->Drain();
+        EXPECT_TRUE(RawDrain);
+        EXPECT_TRUE(RawTransport->IsClosed());
+        EXPECT_TRUE(RawActivity->IsRetired());
+    }
+
+    /** @brief 验证 Trojan LEN/CRLF 头部截断映射为 BadMessage。 */
     auto RunReceiveLenHeadEof(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        // LEN(2) + CRLF(2) 头部缺失 → io_error
+        // LEN(2) + CRLF(2) 头部缺失 → BadMessage
         auto RawTransport = MakeMock(IoContext.get_executor());
         RawTransport->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
         auto Datagram = std::make_shared<Trojan::Dgram<>>(RawTransport);
         Trojan::Address Source;
         std::vector<std::uint8_t> Output;
         const auto ErrorCode = co_await Datagram->AsyncReceiveFrom(Source, Output);
-        EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::IoError));
+        EXPECT_EQ(DatagramStatus(ErrorCode), Prism::Fault::Code::BadMessage);
     }
 
     /** @brief 验证 Trojan 非法 CRLF 魔数仍返回原有协议错误。 */
@@ -111,17 +129,17 @@ namespace
         EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::BadMagic));
     }
 
-    /** @brief 验证 Trojan 声明长度大于实际载荷仍返回原有 I/O 错误。 */
+    /** @brief 验证 Trojan 声明长度大于实际载荷映射为 BadMessage。 */
     auto RunReceivePayloadTruncated(Net::io_context &IoContext) -> Net::awaitable<void>
     {
-        // LEN 声明 5，实际仅 2 字节载荷 → io_error
+        // LEN 声明 5，实际仅 2 字节载荷 → BadMessage
         auto RawTransport = MakeMock(IoContext.get_executor());
         RawTransport->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n', 'h', 'e'};
         auto Datagram = std::make_shared<Trojan::Dgram<>>(RawTransport);
         Trojan::Address Source;
         std::vector<std::uint8_t> Output;
         const auto ErrorCode = co_await Datagram->AsyncReceiveFrom(Source, Output);
-        EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::IoError));
+        EXPECT_EQ(DatagramStatus(ErrorCode), Prism::Fault::Code::BadMessage);
     }
 
     /** @brief 验证 Trojan 载荷读取注入失败仍返回原有 I/O 错误。 */
@@ -135,6 +153,7 @@ namespace
         std::vector<std::uint8_t> Output;
         const auto ErrorCode = co_await Datagram->AsyncReceiveFrom(Source, Output);
         EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::IoError));
+        co_await CloseAndDrainDatagram(Datagram, RawTransport);
     }
 
     /** @brief 验证部分写入后原生错误仍由 Trojan 数据报 API 保留。 */
@@ -154,23 +173,46 @@ namespace
         EXPECT_EQ(Result.PayloadBytes, 0U);
         EXPECT_EQ(Result.WireBytes, 1U);
         EXPECT_EQ(RawTransport->Written.size(), 1U);
+        co_await CloseAndDrainDatagram(Datagram, RawTransport);
+    }
+
+    /** @brief 验证 overreport 的未确认字节不计入 Trojan wire 进度。 */
+    auto RunSendOverreportedWrite(Net::io_context &IoContext) -> Net::awaitable<void>
+    {
+        auto RawTransport = MakeMock(IoContext.get_executor());
+        RawTransport->OverreportWrite = true;
+        auto Datagram = std::make_shared<Trojan::Dgram<>>(RawTransport);
+        const std::string Payload = "overreported";
+        const auto Result = co_await Datagram->AsyncSendTo(
+            MakeTrojanAddress(), AsU8Span(Payload));
+        EXPECT_EQ(Result.Failure.Code, Prism::Fault::Code::InvalidArgument);
+        EXPECT_FALSE(Result.Failure.Native);
+        EXPECT_EQ(Result.PayloadBytes, 0U);
+        EXPECT_EQ(Result.WireBytes, 0U);
+        EXPECT_TRUE(RawTransport->Written.empty());
+        co_await CloseAndDrainDatagram(Datagram, RawTransport);
     }
 
     /** @brief 验证关闭后的 Trojan 数据报收发错误。 */
     auto RunClosedState(std::shared_ptr<PrismMockTransport> Raw) -> Net::awaitable<void>
     {
         auto Datagram = std::make_shared<Trojan::Dgram<>>(Raw);
-        Datagram->Close();
+        const auto Close = Datagram->Close();
+        EXPECT_TRUE(Close);
         const std::string Payload = "x";
         const auto SendError = co_await Datagram->AsyncSendTo(
             MakeTrojanAddress(), AsU8Span(Payload));
-        EXPECT_EQ(DatagramStatus(SendError), FaultStatus(Error::IoError));
+        EXPECT_EQ(DatagramStatus(SendError), Prism::Fault::Code::Canceled);
         Trojan::Address Source;
         std::vector<std::uint8_t> Output;
         const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(Source, Output);
-        EXPECT_EQ(DatagramStatus(ReceiveError), FaultStatus(Error::IoError));
+        EXPECT_EQ(DatagramStatus(ReceiveError), Prism::Fault::Code::Canceled);
         const auto Drain = co_await Datagram->Activity()->Drain();
         EXPECT_TRUE(Drain);
+        const auto RawActivity = Raw->Activity();
+        const auto RawDrain = co_await RawActivity->Drain();
+        EXPECT_TRUE(RawDrain);
+        EXPECT_TRUE(RawActivity->IsRetired());
     }
 
 } // namespace
@@ -188,6 +230,7 @@ TEST(TrojanDgramErr, SendWriteFail)
                      const std::string Payload = "x";
                      const auto ErrorCode = co_await Datagram->AsyncSendTo(MakeTrojanAddress(), AsU8Span(Payload));
                      EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::IoError));
+                     co_await CloseAndDrainDatagram(Datagram, RawTransport);
                  });
     }
 
@@ -196,6 +239,12 @@ TEST(TrojanDgramErr, SendNativePartialFailure)
         Net::io_context IoContext;
         const auto Native = std::make_error_code(std::errc::connection_reset);
         RunCoroutine(IoContext, RunSendNativePartialFailure(IoContext, Native));
+    }
+
+TEST(TrojanDgramErr, SendOverreportedWriteReportsNoWireBytes)
+    {
+        Net::io_context IoContext;
+        RunCoroutine(IoContext, RunSendOverreportedWrite(IoContext));
     }
 
 TEST(TrojanDgramErr, ReceiveHeadEof)
@@ -244,7 +293,7 @@ TEST(TrojanDgramErr, ReceiveDomainTruncated)
                      Trojan::Address Source;
                      std::vector<std::uint8_t> Output;
                      const auto ErrorCode = co_await Datagram->AsyncReceiveFrom(Source, Output);
-                     EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::IoError));
+                     EXPECT_EQ(DatagramStatus(ErrorCode), Prism::Fault::Code::BadMessage);
                  });
     }
 
@@ -261,7 +310,7 @@ TEST(TrojanDgramErr, ReceivePortEof)
                      Trojan::Address Source;
                      std::vector<std::uint8_t> Output;
                      const auto ErrorCode = co_await Datagram->AsyncReceiveFrom(Source, Output);
-                     EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::IoError));
+                     EXPECT_EQ(DatagramStatus(ErrorCode), Prism::Fault::Code::BadMessage);
                  });
     }
 

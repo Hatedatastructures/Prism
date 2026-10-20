@@ -54,10 +54,12 @@ namespace
         auto Datagram = std::make_shared<Vmess::Dgram<>>(Connection);
         std::vector<std::uint8_t> Payload;
         const auto ReadPacket = co_await Datagram->AsyncReceiveDatagram(Payload);
-        EXPECT_EQ(PrismApi::Fault::ToNative(ReadPacket.Failure), make_error_code(Error::NotOpen));
+        EXPECT_EQ(ReadPacket.Failure.Code, PrismApi::Fault::Code::IoError);
+        EXPECT_FALSE(ReadPacket.Failure.Native);
         const auto WritePacket = co_await Datagram->AsyncSendDatagram(
             std::span<const std::uint8_t>{});
-        EXPECT_EQ(PrismApi::Fault::ToNative(WritePacket.Failure), make_error_code(Error::NotOpen));
+        EXPECT_EQ(WritePacket.Failure.Code, PrismApi::Fault::Code::IoError);
+        EXPECT_FALSE(WritePacket.Failure.Native);
         co_await ExpectCloseTransmission(Datagram);
         co_await ExpectCloseTransmission(Connection);
     }
@@ -150,7 +152,7 @@ namespace
         EXPECT_FALSE(Result);
         if (!Result)
         {
-            EXPECT_EQ(Result.error().Code, Prism::Fault::Code::IoError);
+            EXPECT_EQ(Result.error().Code, Prism::Fault::Code::InvalidArgument);
             EXPECT_FALSE(Result.error().Native);
         }
         EXPECT_EQ(Raw->ReadsDone, 1u);
@@ -186,7 +188,7 @@ namespace
         std::array<std::byte, 64> Buffer{};
         const auto Read = co_await Client->ReadSome(Buffer);
         EXPECT_EQ(Read.Bytes, 0u);
-        EXPECT_EQ(PrismApi::Fault::ToNative(Read.Failure), make_error_code(Error::BadAuth));
+        EXPECT_EQ(Read.Failure.Code, PrismApi::Fault::Code::AuthFailed);
         co_await ExpectCloseTransmission(Client);
         co_await WaitForTask(ServerTask);
     }
@@ -216,7 +218,7 @@ namespace
         std::array<std::byte, 64> Buffer{};
         const auto Read = co_await Client->ReadSome(Buffer);
         EXPECT_EQ(Read.Bytes, 0u);
-        EXPECT_EQ(PrismApi::Fault::ToNative(Read.Failure), make_error_code(Error::UnexpectedEof));
+        EXPECT_EQ(Read.Failure.Code, PrismApi::Fault::Code::Eof);
         co_await ExpectCloseTransmission(Client);
         co_await WaitForTask(ServerTask);
     }
@@ -282,11 +284,11 @@ namespace
         auto Datagram = std::make_shared<Vmess::Dgram<>>(Client);
         std::vector<std::uint8_t> Payload;
         const auto FirstRead = co_await Datagram->AsyncReceiveDatagram(Payload);
-        EXPECT_EQ(PrismApi::Fault::ToNative(FirstRead.Failure),
-                  make_error_code(Error::UnexpectedEof));
+        EXPECT_EQ(FirstRead.PayloadBytes, 0U);
+        EXPECT_EQ(FirstRead.Failure.Code, PrismApi::Fault::Code::Eof);
         const auto SecondRead = co_await Datagram->AsyncReceiveDatagram(Payload);
-        EXPECT_EQ(PrismApi::Fault::ToNative(SecondRead.Failure),
-                  make_error_code(Error::UnexpectedEof));
+        EXPECT_EQ(SecondRead.PayloadBytes, 0U);
+        EXPECT_EQ(SecondRead.Failure.Code, PrismApi::Fault::Code::Eof);
         co_await ExpectCloseTransmission(Datagram);
         co_await ExpectCloseTransmission(Client);
         co_await WaitForTask(ServerTask);

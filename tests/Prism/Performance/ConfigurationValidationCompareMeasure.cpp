@@ -140,7 +140,7 @@ namespace Prism::Application::Configuration::Perf::Measure
             {
                 Allocation::Window Window;
                 const auto Started = Clock::now();
-                const auto Parsed = Scenario::Parser::Parse(
+                const auto Parsed = Scenario::ConfigurationParser::Parse(
                     {.Json = Active->Json,
                      .Options = Scenario::MakeValidationOptions(Request.Plan.Builtins)});
                 const auto Finished = Clock::now();
@@ -156,7 +156,7 @@ namespace Prism::Application::Configuration::Perf::Measure
             {
                 Allocation::Window Window;
                 const auto Started = Clock::now();
-                const auto Validated = Scenario::Parser::Validate(
+                const auto Validated = Scenario::ConfigurationValidator::Validate(
                     Scenario::ValidationRequest{
                         Active->Configuration,
                         Scenario::MakeValidationOptions(Request.Plan.Builtins)});

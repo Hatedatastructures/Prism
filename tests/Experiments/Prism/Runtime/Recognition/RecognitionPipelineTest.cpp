@@ -17,8 +17,17 @@
 #include <utility>
 #include <vector>
 
+#include <Prism/Foundation/Memory/BytePool.hpp>
+
 namespace
 {
+    /** @brief 创建实验识别流水线所需的有界预读池。 */
+    auto MakeExperimentProbeBytePool() -> std::shared_ptr<Prism::Memory::BytePool>
+    {
+        return std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U * 1024U, 64U});
+    }
+
     struct AcceptedSchemeRequest final
     {
         std::shared_ptr<Prism::MemoryStream> Client;
@@ -499,7 +508,7 @@ TEST(RecognitionPipeline, ProbePathHonorsPreCancelledControl)
     auto Peer = std::make_shared<Prism::MemoryStream>(std::move(B));
 
     experiment::ProbeRecognition Pipeline;
-    rec::ProbeBuffer Buffer(rec::MaxTlsClientHelloBytes);
+    rec::ProbeBuffer Buffer(rec::MaxTlsClientHelloBytes, MakeExperimentProbeBytePool());
     rec::RecognitionControl Control;
     bool CancelCalled = false;
     Control.Cancelled = [] { return true; };
@@ -519,7 +528,7 @@ TEST(RecognitionPipeline, ProbePathPreservesPartialPrefixOnCancellation)
     auto Peer = std::make_shared<Prism::MemoryStream>(std::move(B));
 
     experiment::ProbeRecognition Pipeline;
-    rec::ProbeBuffer Buffer(rec::MaxTlsClientHelloBytes);
+    rec::ProbeBuffer Buffer(rec::MaxTlsClientHelloBytes, MakeExperimentProbeBytePool());
     rec::RecognitionControl Control;
     Control.Wait = [Executor = Io.get_executor()]
     {

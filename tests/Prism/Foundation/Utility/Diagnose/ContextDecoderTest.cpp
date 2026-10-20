@@ -10,7 +10,7 @@
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/ContextDecoder.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/ContextSnapshot.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionRecord.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Detail/Record.hpp>
 #include <Prism/Foundation/Utility/Text/TraceSelection.hpp>
 
 #include <string>
@@ -31,6 +31,14 @@ namespace
     using Prism::Diagnose::ContextState;
     using Prism::Diagnose::Detail::ContextDecoder;
     using Prism::Diagnose::Detail::SubmissionRecord;
+
+    TEST(PrismDiagnose, HumanTimestampUsesStableUtcMilliseconds)
+    {
+        EXPECT_EQ(Prism::Diagnose::Detail::FormatHumanTimestamp(0U),
+            "[1970-01-01 00:00:00.000] ");
+        EXPECT_EQ(Prism::Diagnose::Detail::FormatHumanTimestamp(1710000000123U),
+            "[2024-03-09 16:00:00.123] ");
+    }
 
     TEST(PrismDiagnose, CompactHumanCapturesOnlyCachedWorkerSessionPrefix)
     {

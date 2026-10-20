@@ -216,7 +216,8 @@ namespace
         std::vector<Prism::Account::CredentialMaterial> Credentials;
         Credentials.push_back({TestScope, {}, std::move(Input.CredentialValue)});
         auto Materials = std::make_shared<const AccountMaterials>(AccountMaterials::CreateRequest{
-            Input.AccountId, {}, std::move(Credentials)});
+            Input.AccountId, "test-account-" + std::to_string(Input.AccountId.Value()),
+            std::move(Credentials)});
         return {std::move(Materials), {Input.Quota, Input.Rate}};
     }
     [[nodiscard]] auto IsBusy(const Prism::Fault::Failure Failure) noexcept -> bool

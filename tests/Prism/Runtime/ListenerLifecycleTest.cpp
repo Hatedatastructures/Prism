@@ -438,6 +438,37 @@ TEST(TcpListener, DestroyAfterStopKeepsAcceptLoopStateAlive)
         SUCCEED();
     }
 
+TEST(TcpListener, ShutdownOperationCapturesLifetimeBeforeFirstAwait)
+    {
+        Net::io_context Ioc;
+        auto FactoryLifetime = std::make_shared<int>(1);
+        std::weak_ptr<int> WeakLifetime = FactoryLifetime;
+        auto Listener = std::make_shared<Prism::Runtime::TcpListener>(
+            Prism::Runtime::TcpListener::Options{
+                .Executor = Ioc.get_executor(),
+                .Factory = [FactoryLifetime](Prism::Runtime::SessionAdmission)
+                    -> std::shared_ptr<Prism::Runtime::Session>
+                {
+                    (void)FactoryLifetime;
+                    return {};
+                }});
+        FactoryLifetime.reset();
+        ASSERT_FALSE(WeakLifetime.expired());
+
+        auto Operation = Listener->Shutdown();
+        Listener.reset();
+        EXPECT_FALSE(WeakLifetime.expired())
+            << "Shutdown 必须在调用时捕获 Lifetime，而不是等待首次 await";
+
+        RunCoro(Ioc, [Operation = std::move(Operation)]() mutable
+            -> Net::awaitable<void>
+            {
+                const auto Result = co_await std::move(Operation);
+                EXPECT_TRUE(Result);
+            });
+        EXPECT_TRUE(WeakLifetime.expired());
+    }
+
 TEST(TcpListener, DestructorStopsAccepting)
     {
         // P-H13：不显式 Stop()，listener 析构必须关闭 acceptor，

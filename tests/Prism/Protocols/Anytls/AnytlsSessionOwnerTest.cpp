@@ -6,9 +6,9 @@
 #include <Prism/Protocols/Anytls/Detail/Session/Writer.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Reliable.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <array>
 #include <expected>
 #include <memory>
@@ -408,7 +408,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
                     Input.Owner->ReadPartial(Input.Buffer, Error), Net::deferred);
@@ -420,7 +420,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
                     Input.Owner->WritePartial(Input.Buffer, Error), Net::deferred);
@@ -514,7 +514,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
                     Input.Owner->ReadPartial(Input.Buffer, Error), Net::deferred);
@@ -526,7 +526,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Net::co_spawn(Input.Owner->Executor(),
                     Input.Owner->WritePartial(Input.Buffer, Error), Net::deferred);
@@ -578,14 +578,14 @@ namespace
             : Prism::Transmission(Executor), Executor_(std::move(Executor)), Native_(Native) {}
         auto Executor() const -> ExecutorType override { return Executor_; }
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{}); }
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{}); }
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                 Prism::IoResult{0U, Prism::Fault::FromNative(Native_)});
         }
         auto StartWriteShutdown(Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{}); }
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{}); }
         auto OnClose() -> ControlResult override { return {}; }
         auto OnCancel() -> ControlResult override { return {}; }
     private:

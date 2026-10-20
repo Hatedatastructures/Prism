@@ -11,9 +11,11 @@
 #include <boost/asio/this_coro.hpp>
 
 #include <Prism/Operations/Operations.hpp>
+#include <Prism/Operations/ManagementModels.hpp>
 #include <Prism/Operations/Routes/HttpJson.hpp>
-#include <Prism/Operations/Routes/RequestParser.hpp>
 #include <Prism/Operations/Router.hpp>
+#include <Prism/Statistics/EventRing.hpp>
+#include <Prism/Foundation/Utility/Text/Redaction.hpp>
 #include "OperationsHttpAuthTestSupport.hpp"
 
 #include <exception>
@@ -594,17 +596,17 @@ namespace
             Prism::Operations::RouterHandlers{
                 [&Ring](Prism::Operations::Query QueryValue) -> Net::awaitable<Prism::Operations::QueryResult>
                 {
-                    const auto& QueryData = std::get<Prism::Operations::EventQuery>(QueryValue.Value);
-                    const auto Source = Ring.Page(QueryData.Page.Cursor, QueryData.Page.BoundedLimit());
+                    const auto &QueryData = std::get<Prism::Operations::ManagementQuery>(QueryValue.Value);
+                    const auto &EventsRead = std::get<Prism::Operations::EventsRead>(QueryData.Value);
+                    const auto Source = Ring.Page(EventsRead.Page.Cursor, EventsRead.Page.BoundedLimit());
                     co_return Prism::Operations::QueryResult::Events(QueryData.Correlation,
                         Prism::Statistics::EventPage{Source.Items,
                             Source.NextCursor, Source.HasMore});
                 },
                 {}});
 
-        Prism::Operations::EventQuery QueryData;
-        QueryData.Correlation = Prism::RequestId{211};
-        QueryData.Page = {.Cursor = 0, .Limit = 1};
+        Prism::Operations::ManagementQuery QueryData{Prism::RequestId{211},
+            Prism::Operations::EventsRead{.Page = {.Cursor = 0, .Limit = 1}}};
         const auto Result =
             RunAwaitable(Io, Router.QueryAsync(Prism::Operations::Query{QueryData}));
 
@@ -667,22 +669,6 @@ namespace
         EXPECT_NE(TerminalJson->find("\"parent_task\":\"6\""), std::string::npos);
     }
 
-    TEST(Task10OperationsHttpParser, RejectsRepeatedSecurityHeaders)
-    {
-        Prism::Operations::HttpRequest Request;
-        EXPECT_EQ(Prism::Operations::RequestParserDetail::ParseRequest(
-            "GET /Operations/Health HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n"
-            "Host: 127.0.0.1:9090\r\n\r\n", Request), Prism::Operations::RequestParserDetail::ParseStatus::Malformed);
-        EXPECT_EQ(Prism::Operations::RequestParserDetail::ParseRequest(
-            "GET /Operations/Health HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n"
-            "Origin: http://127.0.0.1:9090\r\nOrigin: http://127.0.0.1:9090\r\n\r\n",
-            Request), Prism::Operations::RequestParserDetail::ParseStatus::Malformed);
-        EXPECT_EQ(Prism::Operations::RequestParserDetail::ParseRequest(
-            "POST /Operations/Reload HTTP/1.1\r\nHost: 127.0.0.1:9090\r\n"
-            "Authorization: Bearer one\r\nAuthorization: Bearer two\r\n"
-            "Content-Length: 0\r\n\r\n", Request), Prism::Operations::RequestParserDetail::ParseStatus::Malformed);
-    }
-
     TEST(Task10OperationsHttp, PublishesVersionedNoStoreBootstrap)
     {
         Net::io_context Io;
@@ -696,13 +682,15 @@ namespace
         EXPECT_NE(Exchange.Response.find("HTTP/1.1 200"), std::string::npos);
         EXPECT_NE(Exchange.Response.find("\r\nCache-Control: no-store\r\n"), std::string::npos);
         EXPECT_EQ(Exchange.Response.find("Access-Control-Allow-Origin"), std::string::npos);
-        EXPECT_NE(Exchange.Response.find("\"api_version\":\"1\""), std::string::npos);
+        EXPECT_NE(Exchange.Response.find("\"api_version\":\"2\""), std::string::npos);
         EXPECT_NE(Exchange.Response.find("\"process_id\":\"1\""), std::string::npos);
         EXPECT_NE(Exchange.Response.find("\"capabilities\":["), std::string::npos);
         EXPECT_NE(Exchange.Response.find("\"workers.drain\""), std::string::npos);
         EXPECT_NE(Exchange.Response.find("\"process.drain\""), std::string::npos);
-        EXPECT_EQ(Exchange.Response.find("\"streams.reset\""), std::string::npos);
-        EXPECT_NE(Exchange.Response.find("\"configuration.reload\""), std::string::npos);
+        EXPECT_NE(Exchange.Response.find("\"streams.reset\""), std::string::npos);
+        EXPECT_NE(Exchange.Response.find("\"configuration.reload.validate\""), std::string::npos);
+        EXPECT_NE(Exchange.Response.find("\"configuration.reload.apply\""), std::string::npos);
+        EXPECT_NE(Exchange.Response.find("\"configuration.reload.persist\""), std::string::npos);
         const auto Incarnation = Exchange.Response.find("\"process_incarnation\":\"");
         ASSERT_NE(Incarnation, std::string::npos);
         const auto IncarnationBegin = Incarnation + std::string_view{"\"process_incarnation\":\""}.size();

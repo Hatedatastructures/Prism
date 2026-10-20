@@ -6,6 +6,8 @@
 #include "../../Protocols/Ws/WsFactorySupport.hpp"
 #include "CarrierErrorFixture.hpp"
 
+namespace Ws = Prism::Ws;
+
 /** @brief 完整执行 ReadHandshakeMissingKey 场景并排空协议连接。 */
 auto RunWsReadMissingKey(SharedTransmission ClientEndpoint, SharedTransmission ServerEndpoint)
     -> Net::awaitable<void>
@@ -53,9 +55,40 @@ auto RunGunReadBadMagic(SharedTransmission ClientEndpoint, SharedTransmission Se
     co_await WriteRaw(ClientEndpoint, "GET / HTTP/2\r\n\r\n");
     std::string Host;
     const auto ErrorValue = co_await Server->ReadHandshake(Host);
-    EXPECT_EQ(ErrorValue, Error::BadMagic);
+    EXPECT_FALSE(ErrorValue);
+    if (ErrorValue) co_return;
+    EXPECT_EQ(ErrorValue.error().Code, Prism::Fault::Code::BadMessage);
     co_await ExpectCloseTransmission(Server);
     co_return;
+}
+
+auto RunGunReadHandshakeEof(
+    SharedTransmission ClientEndpoint,
+    SharedTransmission ServerEndpoint) -> Net::awaitable<void>
+{
+    auto Server = std::make_shared<Gun::Conn<>>(ServerEndpoint);
+    co_await ExpectCloseTransmission(ClientEndpoint);
+    std::string Host;
+    const auto Handshake = co_await Server->ReadHandshake(Host);
+    EXPECT_FALSE(Handshake);
+    if (!Handshake) EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::Eof);
+    co_await ExpectCloseTransmission(Server);
+}
+
+auto RunGunWriteHandshakeIoError(
+    SharedTransmission ClientEndpoint,
+    SharedTransmission ServerEndpoint) -> Net::awaitable<void>
+{
+    auto Client = std::make_shared<Gun::Conn<>>(ClientEndpoint);
+    co_await ExpectCloseTransmission(ServerEndpoint);
+    const auto Handshake = co_await Client->WriteHandshake("example.com");
+    EXPECT_FALSE(Handshake);
+    if (!Handshake)
+    {
+        EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::ConnectionAborted);
+        EXPECT_FALSE(Handshake.error().Native);
+    }
+    co_await ExpectCloseTransmission(Client);
 }
 
 
@@ -81,7 +114,8 @@ namespace
         co_await WriteRaw(Client, Header);
         std::string Target;
         const auto Result = co_await Connection->ReadHandshake(Target);
-        EXPECT_EQ(Result, Error::BadAuth);
+        EXPECT_FALSE(Result);
+        if (!Result) EXPECT_EQ(Result.error().Code, Prism::Fault::Code::AuthFailed);
         co_await ExpectCloseTransmission(Connection);
     }
 
@@ -112,7 +146,9 @@ namespace
         const auto Shutdown = co_await Request.Client->WriteShutdown();
         EXPECT_TRUE(Shutdown);
         std::string Target;
-        EXPECT_EQ(co_await Connection->ReadHandshake(Target), Error::None);
+        const auto Handshake = co_await Connection->ReadHandshake(Target);
+        EXPECT_TRUE(Handshake);
+        if (!Handshake) co_return;
         EXPECT_EQ(Target, "example.com");
         std::array<std::byte, 128> Buffer{};
         std::error_code ReadError;
@@ -172,7 +208,7 @@ namespace
         co_await ExpectCloseTransmission(Client);
     }
 
-    /// 验证有效 WebSocket 请求在对端关闭时返回 io_error。
+    /// 验证有效 WebSocket 请求在对端关闭时保留 ConnectionAborted。
     auto RunWsReadIoError(SharedTransmission Client, SharedTransmission Server) -> Net::awaitable<void>
     {
         auto Connection = std::make_shared<Ws::Detail::StreamOwner<>>(
@@ -187,11 +223,15 @@ namespace
         std::string Key;
         const auto Result = co_await Connection->ReadHandshake(Key);
         EXPECT_FALSE(Result);
-        if (!Result) EXPECT_EQ(Result.error().Code, Prism::Fault::Code::Eof);
+        if (!Result)
+        {
+            EXPECT_EQ(Result.error().Code, Prism::Fault::Code::ConnectionAborted);
+            EXPECT_FALSE(Result.error().Native);
+        }
         co_await ExpectCloseTransmission(Connection);
     }
 
-    /** @brief 验证 TrustTunnel 对端 EOF 返回 BadMagic。 */
+    /** @brief 验证 TrustTunnel 对端 EOF 保留 EOF 分类。 */
     auto RunTrustTunnelReadHandshakeEof(
         SharedTransmission ClientEndpoint,
         SharedTransmission ServerEndpoint) -> Net::awaitable<void>
@@ -206,7 +246,9 @@ namespace
         auto Server = std::move(*Creation);
         co_await ExpectCloseTransmission(ClientEndpoint);
         std::string Target;
-        EXPECT_EQ(co_await Server->ReadHandshake(Target), Error::BadMagic);
+        const auto Handshake = co_await Server->ReadHandshake(Target);
+        EXPECT_FALSE(Handshake);
+        if (!Handshake) EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::Eof);
         co_await ExpectCloseTransmission(Server);
     }
 
@@ -226,7 +268,9 @@ namespace
         const std::string Request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
         co_await WriteRaw(ClientEndpoint, Request);
         std::string Target;
-        EXPECT_EQ(co_await Server->ReadHandshake(Target), Error::BadMagic);
+        const auto Handshake = co_await Server->ReadHandshake(Target);
+        EXPECT_FALSE(Handshake);
+        if (!Handshake) EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::BadMessage);
         co_await ExpectCloseTransmission(Server);
     }
 
@@ -246,7 +290,9 @@ namespace
         const std::string Request = "CONNECT example.com:443 HTTP/2\r\n\r\n";
         co_await WriteRaw(ClientEndpoint, Request);
         std::string Target;
-        EXPECT_EQ(co_await Server->ReadHandshake(Target), Error::BadAuth);
+        const auto Handshake = co_await Server->ReadHandshake(Target);
+        EXPECT_FALSE(Handshake);
+        if (!Handshake) EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::AuthFailed);
         co_await ExpectCloseTransmission(Server);
     }
 
@@ -264,7 +310,13 @@ namespace
         }
         auto Client = std::move(*Creation);
         co_await ExpectCloseTransmission(ServerEndpoint);
-        EXPECT_EQ(co_await Client->WriteHandshake("example.com", 443), Error::IoError);
+        const auto Handshake = co_await Client->WriteHandshake("example.com", 443);
+        EXPECT_FALSE(Handshake);
+        if (!Handshake)
+        {
+            EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::ConnectionAborted);
+            EXPECT_FALSE(Handshake.error().Native);
+        }
         co_await ExpectCloseTransmission(Client);
     }
 }
@@ -336,7 +388,10 @@ TEST(StealthTrustTunnelConnError, ReadHandshakeEof)
                  [&]() -> Net::awaitable<void>
                  {
                      std::string Target;
-                     EXPECT_EQ(co_await Server->ReadHandshake(Target), Error::BadLength);
+                     const auto Handshake = co_await Server->ReadHandshake(Target);
+                     EXPECT_FALSE(Handshake);
+                     if (!Handshake)
+                         EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::InvalidArgument);
                  });
 
         CheckTransmissionClose(DriveCloseTransmission(Context, Server));
@@ -383,17 +438,7 @@ TEST(StealthTrustTunnelConnError, ReadHandshakeEof)
         auto Pair = MakeOwnedMemoryPair(Context.get_executor());
         auto& [ClientEndpoint, ServerEndpoint] = Pair;
 
-        RunMemoryCase(Context, Pair,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto Server = std::make_shared<Gun::Conn<>>(
-                         ServerEndpoint);
-                     co_await ExpectCloseTransmission(ClientEndpoint); // 对端关闭 → 无 CONNECT 首行 → bad_magic
-                     std::string Host;
-                     const auto ErrorValue = co_await Server->ReadHandshake(Host);
-                     EXPECT_EQ(ErrorValue, Error::BadMagic);
-                     co_await ExpectCloseTransmission(Server);
-        });
+        RunMemoryCase(Context, Pair, RunGunReadHandshakeEof(ClientEndpoint, ServerEndpoint));
     }
 
     TEST(StealthGunConnError, ReadHandshakeRejectsOverreportedRead)
@@ -407,7 +452,10 @@ TEST(StealthTrustTunnelConnError, ReadHandshakeEof)
                  [&]() -> Net::awaitable<void>
                  {
                      std::string Host;
-                     EXPECT_EQ(co_await Server->ReadHandshake(Host), Error::BadLength);
+                     const auto Handshake = co_await Server->ReadHandshake(Host);
+                     EXPECT_FALSE(Handshake);
+                     if (!Handshake)
+                         EXPECT_EQ(Handshake.error().Code, Prism::Fault::Code::InvalidArgument);
                  });
 
         CheckTransmissionClose(DriveCloseTransmission(Context, Server));
@@ -428,16 +476,7 @@ TEST(StealthTrustTunnelConnError, ReadHandshakeEof)
         auto Pair = MakeOwnedMemoryPair(Context.get_executor());
         auto& [ClientEndpoint, ServerEndpoint] = Pair;
 
-        RunMemoryCase(Context, Pair,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto Client = std::make_shared<Gun::Conn<>>(
-                         ClientEndpoint);
-                     co_await ExpectCloseTransmission(ServerEndpoint); // 对端全关 → 发送 CONNECT 帧失败 → io_error
-                     const auto ErrorValue = co_await Client->WriteHandshake("example.com");
-                     EXPECT_EQ(ErrorValue, Error::IoError);
-                     co_await ExpectCloseTransmission(Client);
-                 });
+        RunMemoryCase(Context, Pair, RunGunWriteHandshakeIoError(ClientEndpoint, ServerEndpoint));
     }
 
     TEST(StealthGunConnError, NotOpenReadWrite)
@@ -503,12 +542,10 @@ TEST(StealthTrustTunnelConnError, ReadHandshakeEof)
                  [&]() -> Net::awaitable<void>
                  {
                      std::string Key;
-                      const auto Result = co_await Server->ReadHandshake(Key);
-                      EXPECT_FALSE(Result);
-                      if (!Result)
-                      {
-                          EXPECT_EQ(Result.error().Code, Prism::Fault::Code::BadMessage);
-                      }
+                     const auto Result = co_await Server->ReadHandshake(Key);
+                     EXPECT_FALSE(Result);
+                     if (!Result)
+                         EXPECT_EQ(Result.error().Code, Prism::Fault::Code::InvalidArgument);
                  });
 
         CheckTransmissionClose(DriveCloseTransmission(Context, Server));

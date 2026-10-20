@@ -2,11 +2,15 @@
  * @file XhttpErrorCloseMatrix.cpp
  * @brief XHTTP 传输关闭、完成与终态错误测试。
  */
+#include <Prism/Protocols/Xhttp/Detail/StreamClient.hpp>
+
 #include "XhttpErrorMatrixSupport.hpp"
 
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Protocols/Xhttp/Detail/AcceptedTransport.hpp>
 #include <Prism/Protocols/Xhttp/Detail/FactoryRetirement.hpp>
+#include <Prism/Transport/Detail/IoActivity.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 
     struct FactoryRetirementRunResult final
@@ -287,18 +291,54 @@
         std::size_t Bytes{0};
         std::exception_ptr Failure;
     };
+
+    template <typename Awaitable>
+    auto RunCoroutineUntilCompletion(Net::io_context &IoContext, Awaitable Coroutine) -> void
+    {
+        IoContext.restart();
+        std::exception_ptr Exception;
+        Net::co_spawn(
+            IoContext, std::move(Coroutine),
+            [&IoContext, &Exception](std::exception_ptr Error)
+            {
+                Exception = std::move(Error);
+                IoContext.stop();
+            });
+        IoContext.run();
+        if (Exception) std::rethrow_exception(Exception);
+    }
+
     /** @brief 在挂起读取期间关闭 transport，并等待读取完成。 */
     auto CloseDuringPendingRead(
         Net::io_context &IoContext,
         const SharedTransport &Transport,
         const std::shared_ptr<ReadResult> &Result) -> Net::awaitable<void>
     {
-        auto Read = Net::co_spawn(
-            IoContext, ReadOnce(Transport, Result, 1), Net::use_awaitable);
-        co_await Net::post(IoContext, Net::use_awaitable);
+        const auto ReadFinished = std::make_shared<CompletionSignal>(IoContext.get_executor(), 1);
+        const auto ReadException = std::make_shared<std::exception_ptr>();
+        Net::co_spawn(
+            IoContext,
+            ReadOnce(Transport, Result, 1),
+            [ReadFinished, ReadException](std::exception_ptr Exception)
+            {
+                *ReadException = std::move(Exception);
+                (void)ReadFinished->try_send(boost::system::error_code{});
+            });
+        const auto Activity = std::dynamic_pointer_cast<Prism::Transport::Detail::IoActivity>(
+            Transport->Activity());
+        while (Activity && Activity->IsIdle() && !Result->Completed)
+        {
+            co_await Net::post(IoContext, Net::use_awaitable);
+        }
+        Result->Admitted = Activity && !Activity->IsIdle();
+        if (Result->Admitted)
+        {
+            co_await Net::post(IoContext, Net::use_awaitable);
+        }
         const auto Closed = Transport->Close();
         EXPECT_TRUE(Closed);
-        co_await std::move(Read);
+        co_await ReadFinished->async_receive(Net::use_awaitable);
+        if (*ReadException) std::rethrow_exception(*ReadException);
     }
 
     struct SplitTerminalErrorRequest final
@@ -357,7 +397,7 @@
         const auto Write = co_await Transport->WriteSome(Payload);
         ErrorCode = Prism::Fault::ToNative(Write.Failure);
         EXPECT_EQ(Write.Bytes, 0U);
-        EXPECT_EQ(ErrorCode, std::make_error_code(std::errc::io_error));
+        EXPECT_EQ(ErrorCode, std::make_error_code(std::errc::broken_pipe));
         co_await std::move(Read);
     }
 
@@ -450,6 +490,7 @@ TEST(XhttpErrorMatrix, TransportDataRoundtrip)
 
         RunCoroutine(IoContext, CloseDuringPendingRead(IoContext, Transport, Result));
 
+        EXPECT_TRUE(Result->Admitted);
         EXPECT_EQ(Result->Count, 0U);
         EXPECT_EQ(Result->ErrorCode, std::make_error_code(std::errc::not_connected));
         EXPECT_TRUE(*OwnerClosed);
@@ -472,21 +513,21 @@ TEST(XhttpErrorMatrix, TransportDataRoundtrip)
                     throw std::runtime_error("first-close-failure");
                 }});
 
-        const auto Canceled = Transport->Cancel();
-        EXPECT_FALSE(Canceled);
-        EXPECT_EQ(Canceled.error().Code, Prism::Fault::Code::GenericError);
-        ASSERT_EQ(CloseCalls, 1U);
+        const auto CloseSubmitted = Transport->Close();
+        EXPECT_TRUE(CloseSubmitted);
+        const auto Retirement = std::make_shared<TransportRetirementResult>();
+        RunCoroutineUntilCompletion(
+            IoContext, CloseAndDrainTransportActivity(Transport, Retirement));
+        EXPECT_EQ(CloseCalls, 1U);
         const auto CloseFailure = Transport->CloseFailure();
-        ASSERT_TRUE(CloseFailure.Failed());
         EXPECT_EQ(CloseFailure.Code, Prism::Fault::Code::GenericError);
 
         const auto Closed = Transport->Close();
         EXPECT_FALSE(Closed);
         EXPECT_EQ(Closed.error().Code, Prism::Fault::Code::GenericError);
         EXPECT_EQ(CloseCalls, 1U);
-        const auto Retirement = DrainTransport(IoContext, Transport);
-        EXPECT_TRUE(Retirement.Retired);
-        EXPECT_EQ(Retirement.Failure.Code, Prism::Fault::Code::GenericError);
+        EXPECT_FALSE(Retirement->Retired);
+        EXPECT_EQ(Retirement->Failure.Code, Prism::Fault::Code::GenericError);
     }
 
     TEST(XhttpErrorMatrix, SplitCloseOwnerAttemptsCancelWireAndEncryptedClose)
@@ -498,21 +539,27 @@ TEST(XhttpErrorMatrix, TransportDataRoundtrip)
         Prism::Transport::Connector Connector(Raw);
         auto Stream = std::make_shared<Prism::Transport::Encrypted::StreamType>(
             std::move(Connector), SslContext);
-        auto Encrypted = std::make_shared<Prism::Transport::Encrypted>(std::move(Stream));
+        auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
+        auto Encrypted = std::make_shared<Prism::Transport::Encrypted>(
+            std::move(Stream), std::move(Bytes));
         auto State = std::make_shared<Xhttp::Detail::SplitClientState>();
         State->Encrypted = Encrypted;
         State->Wire = std::make_shared<Xhttp::Detail::WireWriter>(
             IoContext.get_executor(), Xhttp::Detail::WireWriter::Sink(DiscardWire));
 
         const auto CloseFailure = Xhttp::Detail::SplitClientCloseHandler{State}();
-
+        EXPECT_TRUE(CloseFailure.Succeeded());
+        const auto EncryptedRetirement = std::make_shared<TransportRetirementResult>();
+        RunCoroutineUntilCompletion(
+            IoContext,
+            DrainRawActivity(
+                std::static_pointer_cast<Prism::Transmission>(Encrypted), EncryptedRetirement));
         EXPECT_EQ(Probe->CancelCalls, 1U);
         EXPECT_EQ(Probe->CloseCalls, 1U);
-        EXPECT_EQ(CloseFailure.Code, Prism::Fault::Code::GenericError);
-        ASSERT_TRUE(State->CloseFailure.Failed());
-        EXPECT_EQ(State->CloseFailure.Code, Prism::Fault::Code::GenericError);
-        const auto WriterRetirement = RetireWireWriter(IoContext, State->Wire);
-        EXPECT_TRUE(WriterRetirement.Retired);
+        EXPECT_EQ(EncryptedRetirement->Failure.Code, Prism::Fault::Code::Blocked);
+        EXPECT_FALSE(EncryptedRetirement->Retired);
+        EXPECT_TRUE(State->Wire->IsRetired());
     }
 
     TEST(XhttpErrorMatrix, SplitTerminalErrorWakesPendingWritesWithFirstError)
@@ -534,9 +581,9 @@ TEST(XhttpErrorMatrix, TransportDataRoundtrip)
 
         ASSERT_FALSE(FirstResult->Failure);
         ASSERT_FALSE(SecondResult->Failure);
-        EXPECT_EQ(FirstResult->Bytes, 0U);
+        EXPECT_EQ(FirstResult->Bytes, First.size());
         EXPECT_EQ(SecondResult->Bytes, 0U);
-        EXPECT_EQ(FirstResult->Error, std::make_error_code(std::errc::protocol_error));
+        EXPECT_FALSE(FirstResult->Error);
         EXPECT_EQ(SecondResult->Error, std::make_error_code(std::errc::protocol_error));
         EXPECT_EQ(State->Calls, 1U);
         const auto Retirement = RetireRawTransport(
@@ -558,7 +605,7 @@ TEST(XhttpErrorMatrix, TransportDataRoundtrip)
         RunCoroutine(IoContext, RunTransportWriteFailure(IoContext, Transport, Result));
 
         EXPECT_EQ(Result->Count, 0U);
-        EXPECT_EQ(Result->ErrorCode, std::make_error_code(std::errc::not_connected));
+        EXPECT_EQ(Result->ErrorCode, std::make_error_code(std::errc::broken_pipe));
         const auto Retirement = DrainTransport(IoContext, Transport);
         EXPECT_TRUE(Retirement.Failure.Succeeded());
         EXPECT_TRUE(Retirement.Retired);

@@ -5,7 +5,6 @@
 #include <Prism/Protocols/Anytls/IngressFactory.hpp>
 #include <Prism/Protocols/Anytls/Detail/Session/Retirement.hpp>
 #include <Prism/Protocols/Mux/RootBinding.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
@@ -43,7 +42,7 @@ namespace
                 Buffer.front() = std::byte{0};
                 Result = Prism::IoResult{1U, {}};
             }
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Result);
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), Result);
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
@@ -51,12 +50,12 @@ namespace
             Prism::IoResult Result{0U, Failure_};
             const auto Partial = FailWrite_ && Writes_++ == 0;
             if (Partial) Result = Prism::IoResult{1U, {}};
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Result);
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), Result);
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{});
         }
 

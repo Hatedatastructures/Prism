@@ -2,12 +2,15 @@
  * @brief 原并发策略发布场景，读取一个完整Binding且使用其冻结quota。
  */
 #include "AccountTestSupport.hpp"
+#include <Prism/Account/Policy.hpp>
+#include <Prism/Account/UsagePersistence.hpp>
 #include <Prism/Application/Account/IdentityRegistry.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
 #include <TestSupport/Prism/AccountAdmissionAuthority.hpp>
 namespace
 {
+    namespace Net = boost::asio;
     constexpr std::size_t Reloads = 256, Readers = 2, ReadsPerReader = 1024;
     struct ReloadWriterState final
     {
@@ -103,6 +106,80 @@ namespace
     {
         auto Prepared = Store.PrepareUpsert(Definition);
         return Prepared && static_cast<bool>(Store.Commit(*Prepared));
+    }
+
+    class ReloadPolicySource final : public Prism::Account::PolicySource
+    {
+    public:
+        ReloadPolicySource()
+            : Policy_(std::make_shared<const Prism::Account::PolicySnapshot>(
+                  Prism::Account::PolicySnapshot::CreateRequest{
+                      Prism::Account::PolicyVersion{1U},
+                      Prism::Account::PolicySettings{
+                          {}, {}, Prism::Account::TransferPolicy{
+                              std::optional<std::uint64_t>{1024U}, {}, {}, {}}},
+                      {}}))
+        {
+        }
+
+        [[nodiscard]] auto Load(Prism::AccountId) const noexcept
+            -> std::shared_ptr<const Prism::Account::PolicySnapshot> override
+        {
+            return Policy_;
+        }
+
+    private:
+        std::shared_ptr<const Prism::Account::PolicySnapshot> Policy_;
+    };
+
+    class ReloadUsagePersistence final : public Prism::Account::UsagePersistence
+    {
+    public:
+        auto ResolveCycle(Prism::Account::UsageCycleRequest)
+            -> Net::awaitable<std::expected<Prism::Account::UsageCycle, Prism::Fault::Failure>> override
+        {
+            co_return Prism::Account::UsageCycle{1000, std::nullopt};
+        }
+
+        auto Read(Prism::Account::UsageReadRequest)
+            -> Net::awaitable<std::expected<Prism::Account::UsageSnapshot, Prism::Fault::Failure>> override
+        {
+            co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+        }
+
+        auto Reserve(Prism::Account::UsageReservationRequest)
+            -> Net::awaitable<std::expected<Prism::Account::UsageReservation,
+                Prism::Fault::Failure>> override
+        {
+            co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+        }
+
+        auto Settle(Prism::Account::UsageSettlementRequest)
+            -> Net::awaitable<std::expected<Prism::Account::UsageSnapshot,
+                Prism::Fault::Failure>> override
+        {
+            co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+        }
+
+        auto Adjust(Prism::Account::UsageAdjustmentRequest)
+            -> Net::awaitable<std::expected<Prism::Account::UsageSnapshot,
+                Prism::Fault::Failure>> override
+        {
+            co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+        }
+    };
+
+    [[nodiscard]] auto MakeReloadDefinition(
+        const Prism::AccountId Id,
+        const std::string_view CredentialIdentity) -> AccountDefinition
+    {
+        std::vector<Prism::Account::CredentialMaterial> Credentials;
+        Credentials.push_back({Prism::Account::CredentialScope{1U},
+            std::string(CredentialIdentity),
+            Credential::Password(std::string(CredentialIdentity))});
+        auto Materials = std::make_shared<const AccountMaterials>(AccountMaterials::CreateRequest{
+            Id, "reload-stable-account", std::move(Credentials)});
+        return {std::move(Materials), {}};
     }
 }
 TEST(PrismAccountDirectory, InitialUpsertKeepsPolicyGenerationFloorAndAuthenticates)
@@ -479,4 +556,72 @@ TEST(PrismAccountDirectory, ManualRevokeTombstoneSurvivesGenerationAndStoreRepla
     Root->Release();
     EXPECT_EQ(OldBinding->Runtime()->ActiveConnections(), 0U);
     EXPECT_EQ(OldBinding->Runtime()->ActiveStreams(), 0U);
+}
+
+TEST(PrismAccountDirectory, ReloadRollbackRestoresRuntimeAndIdentityRetrySucceeds)
+{
+    const auto Id = Prism::AccountId{324U};
+    auto Publisher = std::make_shared<Prism::Runtime::GenerationPublication>();
+    ASSERT_TRUE(PublishAccountGeneration(*Publisher, 1U, {Id}));
+    const auto RuntimeRegistry = MakeAccountRuntimeRegistry(Publisher);
+    ASSERT_TRUE(RuntimeRegistry);
+    ASSERT_TRUE(RuntimeRegistry->AttachPolicySource(std::make_shared<ReloadPolicySource>()));
+    ASSERT_TRUE(RuntimeRegistry->AttachUsagePersistence(
+        std::make_shared<ReloadUsagePersistence>(), "reload-transaction"));
+    auto OldStore = MakePublicationBoundStore(RuntimeRegistry);
+    const auto OldDefinition = MakeReloadDefinition(Id, "reload-old-identity");
+    ASSERT_TRUE(InstallAccount(*OldStore, OldDefinition));
+    const auto OldBinding = OldStore->FindById(Id);
+    ASSERT_TRUE(OldBinding);
+    const auto OldRuntime = OldBinding->Runtime();
+    ASSERT_TRUE(OldRuntime);
+    const auto OldTransfer = OldRuntime->Transfer();
+    ASSERT_TRUE(OldTransfer);
+
+    auto ReplacementStore = MakePublicationBoundStore(RuntimeRegistry);
+    const auto NewDefinition = MakeReloadDefinition(Id, "reload-new-identity");
+    const std::array ReplacementSet{NewDefinition};
+    auto Candidate = ReplacementStore->PrepareReplacement(ReplacementSet);
+    ASSERT_TRUE(Candidate);
+    const auto RuntimePrepared = ReplacementStore->PrepareRuntimeTransaction(*Candidate);
+    ASSERT_TRUE(RuntimePrepared);
+    ASSERT_TRUE(ReplacementStore->CommitSnapshot(*Candidate));
+    EXPECT_EQ(OldRuntime->StableKey(), "reload-stable-account");
+    EXPECT_EQ(OldRuntime->Transfer(), OldTransfer);
+
+    auto Token = Publisher->Prepare(Publisher->Current(), MakeAccountReloadGeneration(2U), {Id});
+    ASSERT_TRUE(Token);
+    auto Admission = Publisher->BeginAdmission(Id);
+    ASSERT_TRUE(Admission);
+    ASSERT_TRUE((*RuntimePrepared)->Publish());
+    const auto Busy = Publisher->Publish(*Token);
+    ASSERT_FALSE(Busy);
+    EXPECT_EQ(Busy.error(),
+        Prism::Runtime::GenerationPublication::PublishError::AdmissionBusy);
+    (*RuntimePrepared)->Rollback();
+    EXPECT_EQ(OldRuntime->StableKey(), "reload-stable-account");
+    EXPECT_EQ(OldRuntime->Transfer(), OldTransfer);
+    const auto Resolved = RuntimeRegistry->FindOrCreate(Id, 1U);
+    ASSERT_TRUE(Resolved);
+    EXPECT_EQ(*Resolved, OldRuntime);
+    Admission->Commit();
+
+    auto RetryStore = MakePublicationBoundStore(RuntimeRegistry);
+    auto RetryCandidate = RetryStore->PrepareReplacement(ReplacementSet);
+    ASSERT_TRUE(RetryCandidate);
+    const auto RetryRuntime = RetryStore->PrepareRuntimeTransaction(*RetryCandidate);
+    ASSERT_TRUE(RetryRuntime);
+    ASSERT_TRUE(RetryStore->CommitSnapshot(*RetryCandidate));
+    auto Retried = Publisher->Prepare(Publisher->Current(),
+        MakeAccountReloadGeneration(2U), {Id});
+    ASSERT_TRUE(Retried);
+    ASSERT_TRUE((*RetryRuntime)->Publish());
+    ASSERT_TRUE(Publisher->Publish(*Retried));
+    (*RetryRuntime)->Finalize();
+    const auto NewBinding = RetryStore->FindById(Id);
+    ASSERT_TRUE(NewBinding);
+    EXPECT_EQ(NewBinding->Runtime(), OldRuntime);
+    EXPECT_EQ(NewBinding->Runtime()->StableKey(), "reload-stable-account");
+    EXPECT_EQ(NewBinding->Runtime()->Transfer(), OldTransfer);
+    EXPECT_TRUE(Publisher->Load()->IsAdmitted(Id));
 }

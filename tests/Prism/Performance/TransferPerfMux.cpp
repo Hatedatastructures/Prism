@@ -93,7 +93,7 @@ namespace TransferPerfMux
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -135,7 +135,7 @@ namespace TransferPerfMux
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Input.Owner->ReadPartial(Input.Buffer, Error);
                 co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(Error)}};
@@ -146,7 +146,7 @@ namespace TransferPerfMux
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Input.Owner->WritePartial(Input.Buffer, Error);
                 co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(Error)}};
@@ -361,6 +361,27 @@ namespace TransferPerfMux
         std::uint64_t ExpectedInputHash{InitialHash};
         MuxLaneResult *Result{nullptr};
         std::shared_ptr<LaneCompletion> Completion;
+    };
+
+    struct LaneRunCompletionHandler final
+    {
+        MuxClient *Client{nullptr};
+        MuxServer *Server{nullptr};
+        MuxLaneResult *Result{nullptr};
+        std::shared_ptr<LaneCompletion> Completion;
+        std::size_t LaneId{0};
+
+        auto operator()(std::exception_ptr Failure) const -> void
+        {
+            if (Failure)
+            {
+                ++Result->Errors;
+                Result->NaturalExit = false;
+                (void)Client->Close();
+                (void)Server->Close();
+            }
+            (void)Completion->try_send(boost::system::error_code{}, LaneId);
+        }
     };
 
     auto RunClientReceive(ClientTransferRequest Request) -> Net::awaitable<void>
@@ -637,17 +658,8 @@ namespace TransferPerfMux
                     RunLane(LaneRequest{
                         &Client, &Server, Request.Input, LaneId, Request.ServerFirst,
                         Request.ExpectedInputHash, &Lane, Completion}),
-                    [&Client, &Server, &Lane, Completion, LaneId](std::exception_ptr Failure)
-                    {
-                        if (Failure)
-                        {
-                            ++Lane.Errors;
-                            Lane.NaturalExit = false;
-                            (void)Client.Close();
-                            (void)Server.Close();
-                        }
-                        (void)Completion->try_send(boost::system::error_code{}, LaneId);
-                    });
+                    LaneRunCompletionHandler{
+                        &Client, &Server, &Lane, Completion, LaneId});
                 Result.LaneSpawned[LaneId] = true;
                 ++Spawned;
             }

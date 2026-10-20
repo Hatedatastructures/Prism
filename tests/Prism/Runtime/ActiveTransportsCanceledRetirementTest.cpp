@@ -32,6 +32,7 @@
 #include <Prism/Runtime/CarrierDomain.hpp>
 #include <Prism/Transport/Detail/IoActivity.hpp>
 #include <Prism/Transport/Detail/TransmissionControl.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
@@ -77,19 +78,19 @@ namespace
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), {0, {Prism::Fault::Code::Canceled}});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), {0, {Prism::Fault::Code::Canceled}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), {0, {Prism::Fault::Code::Canceled}});
         }
 

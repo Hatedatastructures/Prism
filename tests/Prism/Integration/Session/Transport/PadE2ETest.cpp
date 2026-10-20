@@ -30,6 +30,7 @@
 #include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Transport/PadPolicy.hpp>
+#include <Prism/Runtime/Middleware/Builtin/Pad.hpp>
 #include <Prism/Runtime/Middleware/Context.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
 #include <Prism/Runtime/Listener.hpp>
@@ -76,7 +77,8 @@ namespace
             Memory::BytePoolOptions{64U * 1024U, 4U});
         Middleware::Builtin::PadMiddleware PadOwner;
 
-        EXPECT_EQ(co_await PadOwner.Handle(Inbound, Context), Fault::Code::Success);
+        const auto Handled = co_await PadOwner.Handle(Inbound, Context);
+        EXPECT_FALSE(Handled.Failed());
         const std::string_view Payload{"abc"};
         const auto Write = co_await Inbound->WriteExact(
             AsBytes(AsU8Span(Payload.data(), Payload.size())));
@@ -209,7 +211,7 @@ namespace
             Plane.Root = Prism::Contract::StreamDataPlane{std::move(Input.Inbound)};
             Plane.Target.Host = *Prism::Network::ParseHost("127.0.0.1");
             Plane.Target.Port = EchoPort;
-            co_return Prism::Contract::Admit(std::move(Plane));
+            co_return Prism::Contract::AcceptOutcome{std::move(Plane)};
         };
 
         auto AcceptProtocol = std::make_shared<Prism::Testing::StreamFactory>(MakeAcceptSetTarget);

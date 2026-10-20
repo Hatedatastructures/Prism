@@ -9,7 +9,9 @@
 #include <span>
 #include <string>
 #include <vector>
-#include <Prism/Protocols/Shadowsocks2022/Codec.hpp>
+#include <Prism/Protocols/Shadowsocks2022/RequestState.hpp>
+#include <Prism/Protocols/Shadowsocks2022/RequestWire.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Types.hpp>
 #include <gtest/gtest.h>
 namespace
 {

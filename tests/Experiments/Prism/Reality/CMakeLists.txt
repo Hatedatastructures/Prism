@@ -1,9 +1,20 @@
 # Reality SessionId 实验测试与生产协议断言分离。
+add_library(ExperimentalRealitySessionSupport INTERFACE)
+target_sources(ExperimentalRealitySessionSupport INTERFACE
+    SessionIdChannel.hpp
+    SessionIdChannelTestSupport.hpp
+    SessionIdTool.hpp
+    SessionIdToolBenchmarkSupport.hpp
+)
+
 AddExperimentTest(RealitySessionIdToolTest.cpp)
-target_link_libraries(ExperimentRealitySessionIdToolTest PRIVATE PrismProtocolReality)
+target_include_directories(ExperimentRealitySessionIdToolTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ExperimentRealitySessionIdToolTest PRIVATE PrismProtocolReality ExperimentalRealitySessionSupport)
 
 AddExperimentTest(SessionIdChannelErrorTest.cpp)
-target_link_libraries(ExperimentSessionIdChannelErrorTest PRIVATE PrismTransport PrismProtocolReality)
+target_include_directories(ExperimentSessionIdChannelErrorTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ExperimentSessionIdChannelErrorTest PRIVATE PrismTransport PrismProtocolReality ExperimentalRealitySessionSupport)
 
 AddExperimentTest(SessionIdChannelDecoratorTest.cpp)
-target_link_libraries(ExperimentSessionIdChannelDecoratorTest PRIVATE PrismTransport PrismProtocolReality)
+target_include_directories(ExperimentSessionIdChannelDecoratorTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ExperimentSessionIdChannelDecoratorTest PRIVATE PrismTransport PrismProtocolReality ExperimentalRealitySessionSupport)

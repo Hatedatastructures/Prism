@@ -125,32 +125,38 @@ TEST(SessionRecognitionMode, MixedTrialProfileResolvesAuthenticatedWinner)
             Prism::Vmess::ServerConfig{Prism::Testing::RecognitionWire::MakeUuid(32)}, UseState));
         auto Options = MakeMixedOptions(std::move(Bindings));
         const auto Flow = [GoodUuid](Prism::SharedTransmission Client)
-            -> Net::awaitable<Prism::Error>
+            -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
         {
             co_return co_await RunVlessClient(std::move(Client), Prism::Vless::ClientConfig{GoodUuid});
         };
 
         const auto Result = RunProfileFlow(std::move(Options), Flow);
 
-        EXPECT_EQ(Result.ClientError, Prism::Error::None);
+        EXPECT_FALSE(Result.ClientFailure.Failed());
         EXPECT_EQ(Result.ResolverCalls, 1U);
     }
 
 TEST(SessionRecognitionMode, DeterministicProfileResolvesByStructuralSelector)
     {
         std::vector<Composition::CandidateBinding> Bindings;
-        Bindings.push_back(Composition::CandidateFactory::MakeHttp(Prism::Composition::Recognition::CandidateOptions{20}));
+        auto HttpFactory = std::make_shared<Prism::Http11::Binding>(
+            Prism::Http11::PreparedBinding{
+                .Instance = "session-recognition-http",
+                .Executor = Net::system_executor(),
+                .RequireAuth = false});
+        Bindings.push_back(Composition::CandidateFactory::MakeHttp(
+            Prism::Composition::Recognition::CandidateOptions{20}, std::move(HttpFactory)));
         Bindings.push_back(Composition::CandidateFactory::MakeSocks5(Composition::CandidateOptions{21}, Prism::Testing::MakeSocks5Binding({})));
         auto Options = MakeDeterministicOptions(std::move(Bindings));
         const auto Flow = [](Prism::SharedTransmission Client)
-            -> Net::awaitable<Prism::Error>
+            -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
         {
             co_return co_await RunSocks5Client(std::move(Client), Prism::Socks5::ClientConfig{});
         };
 
         const auto Result = RunProfileFlow(std::move(Options), Flow);
 
-        EXPECT_EQ(Result.ClientError, Prism::Error::None);
+        EXPECT_FALSE(Result.ClientFailure.Failed());
         EXPECT_EQ(Result.ResolverCalls, 1U);
     }
 
@@ -161,11 +167,12 @@ TEST(SessionRecognitionMode, WrongTypedSs2022PskDoesNotReachResolver)
         Config.Psk = Prism::Testing::RecognitionWire::MakePsk(0x62);
         auto Options = MakeConfiguredOptions(Composition::CandidateFactory::MakeSs2022(Composition::CandidateOptions{17}, Prism::Testing::MakeSs2022Binding(Config)));
         const auto Flow = [Psk](Prism::SharedTransmission Client)
-            -> Net::awaitable<Prism::Error>
+            -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
         {
             co_return co_await RunSs2022Client(std::move(Client), Psk);
         };
         const auto Result = RunProfileFlow(std::move(Options), Flow);
+        EXPECT_TRUE(Result.ClientFailure.Failed());
         EXPECT_NE(Result.SessionCode, Prism::Fault::Code::Success);
         EXPECT_EQ(Result.ResolverCalls, 0U);
     }
@@ -201,12 +208,12 @@ TEST(SessionRecognitionMode, SessionCancellationStopsRecognitionBeforeAccept)
             Result.Transport = std::move(Context.Inbound);
             co_return Result;
         };
-        Binding.Accept = std::make_shared<Prism::Testing::StreamFactory>([AcceptCalls](Prism::SharedTransmission Inbound, Prism::Contract::RequestMetadata)
+        Binding.Accept = std::make_shared<Prism::Testing::StreamFactory>([AcceptCalls](Prism::Contract::StreamAcceptInput Input)
             -> Net::awaitable<Prism::Contract::AcceptOutcome>
         {
             ++*AcceptCalls;
             Prism::Contract::ProtocolDataPlane Plane;
-            Plane.Root = Prism::Contract::StreamDataPlane{std::move(Inbound)};
+            Plane.Root = Prism::Contract::StreamDataPlane{std::move(Input.Inbound)};
             co_return Plane;
         });
         auto Built = Composition::ProfileBuilder::Build(std::move(Binding));
@@ -214,6 +221,7 @@ TEST(SessionRecognitionMode, SessionCancellationStopsRecognitionBeforeAccept)
 
         Prism::Runtime::SessionOptions Options;
         Options.Control = Control;
+        Options.Services->Bytes = MakeSessionRecognitionBytePool();
         Options.Services->Profile = Built->Profile;
         Options.Services->ResolveCandidate = Built->Resolver;
 
@@ -239,6 +247,7 @@ TEST(SessionNativeTls, FallbackDeadlineCoversHandshakeAfterCompleteClientHello)
         auto Raw = std::make_shared<Prism::PrismMockTransport>(Io.get_executor());
         Raw->ToRead = std::move(ClientHello);
         auto Services = std::make_shared<Prism::Runtime::SessionServices>();
+        Services->Bytes = MakeSessionRecognitionBytePool();
         Services->NativeTls = MakeSessionNativeTlsContext();
         Services->HandshakeTimeout = std::chrono::milliseconds(20);
 

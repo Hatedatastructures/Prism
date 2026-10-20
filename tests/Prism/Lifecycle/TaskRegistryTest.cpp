@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 
+#include <Prism/Lifecycle/DrainBarrier.hpp>
 #include <Prism/Lifecycle/TaskRegistry.hpp>
 #include <Prism/Lifecycle/TaskRetirementReceipt.hpp>
 #include <TestSupport/Fixtures/TaskRegistryAccess.hpp>
@@ -391,7 +392,7 @@ namespace
             Lifecycle::TaskRegistry Registry(IoContext.get_executor());
             const auto Queued = Registry.SpawnTracked(MakeRequest(1), CompleteTask());
             ASSERT_TRUE(Queued);
-            Notification = Lifecycle::Detail::DrainNotification::Bind(IoContext.get_executor());
+            Notification = Lifecycle::BindDrainNotification(IoContext.get_executor());
             EXPECT_TRUE(Notification->load(std::memory_order_acquire));
             EXPECT_EQ(Registry.Stats().Active, 1U);
             EXPECT_FALSE(Queued->IsCompleted());

@@ -130,7 +130,7 @@ namespace
     {
         auto Raw = MakeMock(Io.get_executor());
         Raw->ToRead = {0x00, 0x01};
-        Raw->ReadFailAt = 1;
+        Raw->ReadFailAt = 2;
         auto Datagram = std::make_shared<Vless::Dgram<>>(Raw);
         std::vector<std::uint8_t> Payload;
         const auto Result = co_await Datagram->AsyncReceiveDatagram(Payload);
@@ -157,14 +157,14 @@ namespace
         Raw->ToRead = {0x00, 0x04, 0x21, 0x22};
         const auto Native = std::make_error_code(std::errc::connection_reset);
         Raw->SetReadError(Native);
-        Raw->ReadErrorBytes = 1;
+        Raw->ReadErrorBytes = 2;
         auto Datagram = std::make_shared<Vless::Dgram<>>(Raw);
         std::vector<std::uint8_t> Payload;
         const auto Result = co_await Datagram->AsyncReceiveDatagram(Payload);
         EXPECT_TRUE(Result.Failure.Failed());
         EXPECT_EQ(Result.Failure.Code, Fault::Code::ConnectionReset);
         EXPECT_EQ(Result.Failure.Native, Native);
-        EXPECT_EQ(Result.WireBytes, 3U);
+        EXPECT_EQ(Result.WireBytes, 2U);
     }
 
     struct UdpTunnelResolverFailureRequest final
@@ -196,6 +196,18 @@ namespace
         auto Raw = MakeMock(IoContext.get_executor());
         auto Datagram = std::make_shared<Vless::Dgram<>>(Raw);
         Datagram->Close();
+        const auto Activity = Datagram->Activity();
+        EXPECT_TRUE(Activity);
+        if (!Activity)
+        {
+            co_return;
+        }
+        const auto Drained = co_await Activity->Drain();
+        EXPECT_TRUE(Drained);
+        if (!Drained)
+        {
+            co_return;
+        }
         const std::string Payload = "x";
         const auto Send = co_await Datagram->AsyncSendDatagram(AsU8Span(Payload));
         EXPECT_TRUE(Send.Failure.Failed());
@@ -280,7 +292,8 @@ TEST(VlessDgramErr, UdpTunnelCleanFrameBoundaryEofDrainsSuccessfully)
 
     RunCoroutine(Ioc, [&]() -> Net::awaitable<void>
     {
-        (void)PeerMemory.Close();
+        const auto PeerShutdown = co_await PeerMemory.WriteShutdown();
+        EXPECT_TRUE(PeerShutdown.has_value());
         EXPECT_TRUE((co_await Tunnel->Run()).has_value());
         const auto Drained = co_await Tunnel->Drain();
         EXPECT_TRUE(Drained);

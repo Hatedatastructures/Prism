@@ -16,7 +16,7 @@
 #include <utility>
 #include <Prism/Runtime/Recognition/Probe.hpp>
 #include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
-#include <Prism/Runtime/Recognition/RecognitionConfig.hpp>
+#include <Prism/Runtime/Recognition/Detail/RecognitionConfig.hpp>
 #include <Experiments/Prism/Route.hpp>
 #include <Experiments/Prism/SchemeExecutor.hpp>
 #include <Prism/Runtime/Recognition/Tls.hpp>

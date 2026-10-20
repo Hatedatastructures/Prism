@@ -16,31 +16,65 @@ target_link_libraries(ContextLifetimeTest PRIVATE PrismFoundation PrismTestSuppo
 
 AddPrismTest(SessionAuditTest.cpp)
 target_link_libraries(SessionAuditTest PRIVATE
-        PrismFoundation PrismTransport PrismRuntime PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismTransport PrismRuntime PrismLifecycle PrismTestSupport)
 
 AddPrismTest(DiagnoseFacadeTest.cpp)
 target_link_libraries(DiagnoseFacadeTest PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismTestSupport)
 
 AddPrismTest(AsyncBackendInitializationTest.cpp)
 target_link_libraries(AsyncBackendInitializationTest PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismTestSupport)
 
 AddPrismTest(AsyncBackendQueueTest.cpp)
 target_link_libraries(AsyncBackendQueueTest PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismTestSupport)
 
 AddPrismTest(AsyncBackendFallbackTest.cpp)
 target_link_libraries(AsyncBackendFallbackTest PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismTestSupport)
 
 AddPrismTest(AsyncBackendRotationTest.cpp)
 target_link_libraries(AsyncBackendRotationTest PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismTestSupport)
 
 AddPrismTest(AsyncBackendShutdownTest.cpp)
 target_link_libraries(AsyncBackendShutdownTest PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismTestSupport)
 
 AddPrismTest(LoggerTest.cpp)
-target_link_libraries(LoggerTest PRIVATE PrismFoundation PrismTestSupport spdlog::spdlog)
+target_link_libraries(LoggerTest PRIVATE PrismFoundation PrismTestSupport)
+
+# 诊断测试使用后端静态实现。
+foreach(PrismDiagnoseTest IN ITEMS
+        ObservabilityTest ContextStateTest FieldCodecTest ContextDecoderTest ContextLifetimeTest
+        SessionAuditTest DiagnoseFacadeTest AsyncBackendInitializationTest AsyncBackendQueueTest
+        AsyncBackendFallbackTest AsyncBackendRotationTest AsyncBackendShutdownTest LoggerTest)
+    target_link_libraries(${PrismDiagnoseTest} PRIVATE PrismDiagnoseBackend)
+endforeach()
+
+# Diagnose 内部状态机白盒用例单独取得 Src include root。
+foreach(PrismDiagnoseWhiteboxTest IN ITEMS
+        ContextDecoderTest
+        ContextLifetimeTest
+        SessionAuditTest
+        DiagnoseFacadeTest
+        AsyncBackendInitializationTest
+        AsyncBackendQueueTest
+        AsyncBackendFallbackTest
+        AsyncBackendRotationTest
+        AsyncBackendShutdownTest
+        LoggerTest)
+    target_include_directories(${PrismDiagnoseWhiteboxTest} PRIVATE "${PROJECT_SOURCE_DIR}/Src")
+endforeach()
+
+foreach(PrismDiagnoseRuntimeConsumer IN ITEMS
+        SessionAuditTest
+        DiagnoseFacadeTest
+        AsyncBackendInitializationTest
+        AsyncBackendQueueTest
+        AsyncBackendRotationTest
+        AsyncBackendShutdownTest
+        LoggerTest)
+    target_link_libraries(${PrismDiagnoseRuntimeConsumer} PRIVATE PrismApplication)
+endforeach()

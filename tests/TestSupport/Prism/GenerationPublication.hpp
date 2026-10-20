@@ -1,7 +1,7 @@
 /** @file GenerationPublication.hpp @brief 配置阶段账户在集成测试中的真实发布。 */
 #pragma once
 
-#include <Prism/Application/Account/Catalog.hpp>
+#include <Prism/Application/AccountCatalog.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
 
 #include <expected>
@@ -31,16 +31,36 @@ namespace Prism::Testing
         auto Prepared = Publication->Prepare({}, Generation, Catalog.Store->AccountIds());
         if (!Prepared)
         {
+            if (Catalog.RuntimeTransaction)
+            {
+                Catalog.RuntimeTransaction->Rollback();
+            }
             return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+        }
+        if (Catalog.RuntimeTransaction)
+        {
+            const auto RuntimePublished = Catalog.RuntimeTransaction->Publish();
+            if (!RuntimePublished)
+            {
+                return std::unexpected(RuntimePublished.error());
+            }
         }
         const auto Published = Publication->Publish(*Prepared);
         if (!Published)
         {
+            if (Catalog.RuntimeTransaction)
+            {
+                Catalog.RuntimeTransaction->Rollback();
+            }
             return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
         }
 
         const auto Committed = Catalog.IdentityPreparation->Commit();
         if (!Committed) return std::unexpected(Committed.error());
+        if (Catalog.RuntimeTransaction)
+        {
+            Catalog.RuntimeTransaction->Finalize();
+        }
         return Publication;
     }
 }

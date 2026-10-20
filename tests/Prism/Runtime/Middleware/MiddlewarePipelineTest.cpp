@@ -12,6 +12,7 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/deferred.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 
@@ -28,6 +29,7 @@
 #include <Prism/Runtime/Middleware/Pipeline.hpp>
 #include <Prism/Runtime/Middleware/Builtin/Dial.hpp>
 #include <Prism/Runtime/Middleware/Builtin/Relay.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Foundation/Fault/Handling.hpp>
@@ -80,8 +82,8 @@ namespace
                 Error.clear();
                 Count = Buffer.size();
             }
-            Prism::Transport::Detail::PostResult(
-                std::move(Handler), Prism::IoResult{Count, Prism::Fault::FromNative(Error)});
+            Prism::Transmission::PostResult(
+                Executor(), std::move(Handler), Prism::IoResult{Count, Prism::Fault::FromNative(Error)});
         }
 
         /** @brief 测试替身显式兑现半关闭；装饰器沿实际 inner 转交。 */
@@ -92,7 +94,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -123,12 +125,18 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
-                std::error_code Error;
-                const auto Count = co_await Input.Owner->ReadPartial(Input.Buffer, Error);
-                co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(Error)}};
+                Prism::Transmission::ConfigureIo(Operation);
+                co_return std::tuple{co_await Net::co_spawn(
+                    Input.Owner->Executor(), Input.Owner->ReadSomeAwaitable(Input.Buffer), Net::deferred)};
             }
         };
+        [[nodiscard]] auto ReadSomeAwaitable(std::span<std::byte> Buffer)
+            -> Net::awaitable<Prism::IoResult>
+        {
+            std::error_code Error;
+            const auto Count = co_await ReadPartial(Buffer, Error);
+            co_return Prism::IoResult{Count, Prism::Fault::FromNative(Error)};
+        }
         [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer, std::error_code &Error)
             -> Net::awaitable<std::size_t>
         {
@@ -198,7 +206,7 @@ namespace
         }
 
         std::shared_ptr<CompletionChannel> Done;
-        Prism::Fault::Code Result{Prism::Fault::Code::Success};
+        Prism::Fault::Failure Result{};
         std::exception_ptr Failure;
     };
 
@@ -209,7 +217,7 @@ namespace
      * @details shared owner 使 detached relay 不依赖调用方栈上的管线和上下文。
      */
     auto RunMiddlewarePipeline(MiddlewarePipelineRequest Request)
-        -> Net::awaitable<Prism::Fault::Code>
+        -> Net::awaitable<Prism::Fault::Failure>
     {
         Request.ContextOwner->Inbound() = std::move(Request.Inbound);
         co_return co_await Request.PipelineOwner->Run(*Request.ContextOwner);
@@ -236,6 +244,8 @@ namespace
 
         auto Context = std::make_shared<Middleware::Context>();
         Context->Target().Route = Prism::Network::RouteKind::Forward;
+        Context->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{Context->BufferSize, 2U});
         auto Dial = std::make_shared<Middleware::Builtin::DialMiddleware>(
             [Outbound](const Network::Target &) -> Net::awaitable<
                 std::expected<Prism::SharedTransmission, Prism::Fault::Failure>>
@@ -251,7 +261,7 @@ namespace
         Net::co_spawn(
             IoContext.get_executor(),
             RunMiddlewarePipeline(MiddlewarePipelineRequest{Pipeline, Inbound, Context}),
-            [Completion](std::exception_ptr Failure, const Prism::Fault::Code Result)
+            [Completion](std::exception_ptr Failure, const Prism::Fault::Failure Result)
             {
                 Completion->Failure = std::move(Failure);
                 if (!Completion->Failure)
@@ -321,7 +331,7 @@ namespace
         (void)Upstream->Close();
         co_await Completion->Done->async_receive(Net::use_awaitable);
         EXPECT_FALSE(Completion->Failure);
-        EXPECT_EQ(Completion->Result, Fault::Code::IoError);
+        EXPECT_EQ(Completion->Result.Code, Fault::Code::IoError);
         if (Completion->Failure)
         {
             std::rethrow_exception(Completion->Failure);

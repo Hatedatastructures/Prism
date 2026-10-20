@@ -49,6 +49,24 @@ namespace
         return Prism::Fault::ToCode(Prism::make_error_code(Value));
     }
 
+    /** @brief 关闭 Dgram 并依次排空本层与底层活动。 */
+    auto CloseAndDrainDatagram(
+        std::shared_ptr<Trojan::Dgram<>> Datagram,
+        std::shared_ptr<PrismMockTransport> Raw) -> Net::awaitable<void>
+    {
+        const auto Close = Datagram->Close();
+        EXPECT_TRUE(Close);
+        const auto DatagramActivity = Datagram->Activity();
+        const auto DatagramDrain = co_await DatagramActivity->Drain();
+        EXPECT_TRUE(DatagramDrain);
+        EXPECT_TRUE(DatagramActivity->IsRetired());
+        const auto RawActivity = Raw->Activity();
+        const auto RawDrain = co_await RawActivity->Drain();
+        EXPECT_TRUE(RawDrain);
+        EXPECT_TRUE(Raw->IsClosed());
+        EXPECT_TRUE(RawActivity->IsRetired());
+    }
+
     template <typename Awaitable>
     auto RunCoroutine(Net::io_context &IoContext, Awaitable Operation) -> void
     {
@@ -186,6 +204,7 @@ namespace
     /** @brief 验证 Trojan Dgram 透传、对端 EOF、释放和取消顺序。 */
     auto RunDgramPeerClosed(DgramPeerCloseRequest Request) -> Net::awaitable<void>
     {
+        auto Raw = Request.Datagram;
         auto Datagram = std::make_shared<Trojan::Dgram<>>(std::move(Request.Datagram));
         EXPECT_TRUE(Datagram->Executor());
         std::array<std::byte, 8> Buffer{};
@@ -200,18 +219,25 @@ namespace
         Trojan::Address Source;
         std::vector<std::uint8_t> Payload;
         const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(Source, Payload);
-        EXPECT_EQ(DatagramStatus(ReceiveError), FaultStatus(Error::IoError));
+        EXPECT_EQ(DatagramStatus(ReceiveError), Prism::Fault::Code::Eof);
         const auto Close = Datagram->Close();
         EXPECT_TRUE(Close);
         const auto Cancel = Datagram->Cancel();
         EXPECT_TRUE(Cancel);
-        const auto Drain = co_await Datagram->Activity()->Drain();
-        EXPECT_TRUE(Drain);
+        const auto DatagramActivity = Datagram->Activity();
+        const auto DatagramDrain = co_await DatagramActivity->Drain();
+        EXPECT_TRUE(DatagramDrain);
+        EXPECT_TRUE(DatagramActivity->IsRetired());
         const auto PeerClose = Request.Peer->Close();
         EXPECT_TRUE(PeerClose);
         const auto PeerDrain = co_await Request.Peer->Activity()->Drain();
         EXPECT_TRUE(PeerDrain);
+        const auto RawActivity = Raw->Activity();
+        const auto RawDrain = co_await RawActivity->Drain();
+        EXPECT_TRUE(RawDrain);
+        EXPECT_TRUE(RawActivity->IsRetired());
         EXPECT_NE(Datagram->NextLayer(), nullptr);
+        EXPECT_EQ(Datagram->NextLayer(), Raw.get());
         const auto *ConstDatagram = Datagram.get();
         EXPECT_NE(ConstDatagram->NextLayer(), nullptr);
         auto Released = Datagram->Release();
@@ -221,6 +247,7 @@ namespace
     /** @brief 验证 Trojan Dgram 对端关闭时写入失败。 */
     auto RunDgramSendClosed(DgramPeerCloseRequest Request) -> Net::awaitable<void>
     {
+        auto Raw = Request.Datagram;
         auto Datagram = std::make_shared<Trojan::Dgram<>>(std::move(Request.Datagram));
         const auto PeerClose = Request.Peer->Close();
         EXPECT_TRUE(PeerClose);
@@ -229,11 +256,17 @@ namespace
         const auto ErrorValue = co_await Datagram->AsyncSendTo(
             MakeAddress(Trojan::AddressType::Domain, "example.com", 53),
             AsU8Span(std::string_view{"x"}));
-        EXPECT_EQ(DatagramStatus(ErrorValue), FaultStatus(Error::IoError));
+        EXPECT_EQ(DatagramStatus(ErrorValue), Prism::Fault::Code::ConnectionAborted);
         const auto DatagramClose = Datagram->Close();
         EXPECT_TRUE(DatagramClose);
-        const auto DatagramDrain = co_await Datagram->Activity()->Drain();
+        const auto DatagramActivity = Datagram->Activity();
+        const auto DatagramDrain = co_await DatagramActivity->Drain();
         EXPECT_TRUE(DatagramDrain);
+        EXPECT_TRUE(DatagramActivity->IsRetired());
+        const auto RawActivity = Raw->Activity();
+        const auto RawDrain = co_await RawActivity->Drain();
+        EXPECT_TRUE(RawDrain);
+        EXPECT_TRUE(RawActivity->IsRetired());
     }
 
     TEST(TrojanDgramSession, SendToClosedPeer)
@@ -278,7 +311,7 @@ namespace
             std::make_shared<MemoryStream>(std::move(ClientStream)),
             std::make_shared<MemoryStream>(std::move(ServerStream)),
             {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x01, 0xF4, '\r', '\n', 'a', 'b', 'c'},
-            Error::IoError}));
+            Error::BadMessage}));
     }
 
     TEST(TrojanDgramSession, PeerClosedEof)
@@ -304,7 +337,8 @@ namespace
                      const auto ErrorCode = co_await Datagram->AsyncSendTo(
                          MakeAddress(Trojan::AddressType::Domain, "example.com", 443),
                          AsU8Span(std::string_view{"overreport"}));
-                     EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::BadLength));
+                     EXPECT_EQ(DatagramStatus(ErrorCode), Prism::Fault::Code::InvalidArgument);
+                     co_await CloseAndDrainDatagram(Datagram, Raw);
                  });
     }
 
@@ -321,7 +355,8 @@ namespace
                      Trojan::Address Source;
                      std::vector<std::uint8_t> Payload;
                      const auto ErrorCode = co_await Datagram->AsyncReceiveFrom(Source, Payload);
-                     EXPECT_EQ(DatagramStatus(ErrorCode), FaultStatus(Error::BadLength));
+                     EXPECT_EQ(DatagramStatus(ErrorCode), Prism::Fault::Code::InvalidArgument);
+                     co_await CloseAndDrainDatagram(Datagram, Raw);
                  });
     }
 

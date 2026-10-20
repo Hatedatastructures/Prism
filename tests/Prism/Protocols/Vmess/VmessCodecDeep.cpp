@@ -21,7 +21,15 @@
 #include <vector>
 
 #include <Prism/Foundation/Error.hpp>
-#include <Prism/Protocols/Vmess/Codec.hpp>
+#include <Prism/Foundation/Utility/Crypto/Aead.hpp>
+#include <Prism/Protocols/Vmess/AuthCrypto.hpp>
+#include <Prism/Protocols/Vmess/AuthHeader.hpp>
+#include <Prism/Protocols/Vmess/AuthId.hpp>
+#include <Prism/Protocols/Vmess/AuthKdf.hpp>
+#include <Prism/Protocols/Vmess/ChunkCodec.hpp>
+#include <Prism/Protocols/Vmess/RequestCodec.hpp>
+#include <Prism/Protocols/Vmess/ResponseCodec.hpp>
+#include <Prism/Protocols/Vmess/Types.hpp>
 #include <Prism/Protocols/Vmess/ChunkMask.hpp>
 #include <gtest/gtest.h>
 
@@ -224,16 +232,96 @@ namespace
         ASSERT_TRUE(Result3);
         EXPECT_EQ(*Result3, 0u);
 
-        // 超长长度字段（> max_chunk_len → bad_length）
-        Vmess::ChunkEncryptor Encoder2{std::span<const std::uint8_t, 16>(Key), std::span<const std::uint8_t, 12>(Nonce)};
+        Vmess::ChunkDecryptor EmptyChunkDecoder{
+            std::span<const std::uint8_t, 16>(Key),
+            std::span<const std::uint8_t, 12>(Nonce)};
+        std::size_t EmptyChunkConsumed = 0U;
+        EXPECT_EQ(EmptyChunkDecoder.Open(
+                      std::span<const std::uint8_t>(LengthEncoded).first(BytesWritten),
+                      std::span<std::uint8_t>{}, EmptyChunkConsumed),
+                  Error::None);
+        EXPECT_EQ(EmptyChunkConsumed, BytesWritten);
+
+        // 16 KiB 是唯一有效边界；边界成功，超过一字节和 20,000 字节都拒绝。
+        Vmess::ChunkEncryptor Encoder2{
+            std::span<const std::uint8_t, 16>(Key),
+            std::span<const std::uint8_t, 12>(Nonce)};
+        std::vector<std::uint8_t> MaxPayload(Vmess::MaxChunkLen, 0xAB);
+        std::vector<std::uint8_t> MaxWire(MaxPayload.size() + Vmess::ChunkEncryptor::Overhead);
+        EXPECT_EQ(Encoder2.Seal(MaxPayload, MaxWire), MaxWire.size());
+
+        std::vector<std::uint8_t> OverLimitPayload(Vmess::MaxChunkLen + 1U, 0xAB);
+        std::vector<std::uint8_t> OverLimitWire(
+            OverLimitPayload.size() + Vmess::ChunkEncryptor::Overhead);
+        EXPECT_EQ(Encoder2.Seal(OverLimitPayload, OverLimitWire), 0U);
+
+        std::array<std::uint8_t, 16> LegacyNonce{};
+        constexpr auto LegacyOptions = static_cast<std::uint8_t>(Vmess::Option::ChunkStream) |
+                                       static_cast<std::uint8_t>(Vmess::Option::ChunkMasking);
+        Vmess::ChunkEncryptor LegacyEncoder{
+            std::span<const std::uint8_t, 16>(Key),
+            std::span<const std::uint8_t, 16>(LegacyNonce), LegacyOptions};
+        EXPECT_EQ(LegacyEncoder.Seal(OverLimitPayload, OverLimitWire), 0U);
+
         std::vector<std::uint8_t> BigPayload(20000, 0xAB);
-        std::vector<std::uint8_t> BigWire(BigPayload.size() + 34);
+        std::vector<std::uint8_t> BigWire(
+            BigPayload.size() + Vmess::ChunkEncryptor::Overhead);
         const auto BigBytesWritten = Encoder2.Seal(BigPayload, BigWire);
-        EXPECT_EQ(BigBytesWritten, BigPayload.size() + 34);
-        Vmess::ChunkDecryptor Decoder2{std::span<const std::uint8_t, 16>(Key), std::span<const std::uint8_t, 12>(Nonce)};
-        const auto Result4 = Decoder2.OpenLen(std::span<const std::uint8_t>(BigWire).first(18));
-        EXPECT_FALSE(Result4);
-        EXPECT_EQ(Result4, Error::BadLength);
+        EXPECT_EQ(BigBytesWritten, 0U);
+    }
+
+    TEST(VmessCodecDeep, ChunkDecryptorRejectsOverLimitAuthenticatedAndLegacyLengths)
+    {
+        constexpr std::size_t OverLimitPayloadLength = 20000U;
+        std::array<std::uint8_t, 16> Key{};
+        std::array<std::uint8_t, 12> AuthenticatedNonce{};
+        // 直接用初始 nonce 认证大端 20,000 长度，绕过编码器的超限输入拒绝。
+        const std::array<std::uint8_t, 2> AuthenticatedLength{
+            static_cast<std::uint8_t>(OverLimitPayloadLength >> 8U),
+            static_cast<std::uint8_t>(OverLimitPayloadLength & 0xFFU)};
+        std::array<std::uint8_t, 18> AuthenticatedHeader{};
+        Prism::Crypto::AeadContext LengthSealer(
+            Prism::Crypto::AeadCipher::Aes128Gcm, std::span<const std::uint8_t>(Key));
+        ASSERT_EQ(LengthSealer.Seal(Prism::Crypto::SealInput{
+                      std::span<std::uint8_t>(AuthenticatedHeader),
+                      std::span<const std::uint8_t>(AuthenticatedLength),
+                      std::span<const std::uint8_t>(AuthenticatedNonce), {}}),
+                  Prism::Fault::Code::Success);
+
+        Vmess::ChunkDecryptor AuthenticatedDecoder{
+            std::span<const std::uint8_t, 16>(Key),
+            std::span<const std::uint8_t, 12>(AuthenticatedNonce)};
+        const auto AuthenticatedResult = AuthenticatedDecoder.OpenLen(AuthenticatedHeader);
+        ASSERT_FALSE(AuthenticatedResult);
+        EXPECT_EQ(AuthenticatedResult.error(), Error::BadLength);
+
+        std::array<std::uint8_t, 16> LegacyNonce{};
+        constexpr auto LegacyOptions = static_cast<std::uint8_t>(Vmess::Option::ChunkStream);
+        // Legacy 长度字段记录密文长度，包含 16 字节 AEAD tag；无长度认证及 mask。
+        constexpr auto LegacyEncodedLength = OverLimitPayloadLength + 16U;
+        const std::array<std::uint8_t, 2> LegacyHeader{
+            static_cast<std::uint8_t>(LegacyEncodedLength >> 8U),
+            static_cast<std::uint8_t>(LegacyEncodedLength & 0xFFU)};
+        Vmess::ChunkDecryptor LegacyDecoder{
+            std::span<const std::uint8_t, 16>(Key),
+            std::span<const std::uint8_t, 16>(LegacyNonce), LegacyOptions};
+        const auto LegacyResult = LegacyDecoder.OpenLen(LegacyHeader);
+        ASSERT_FALSE(LegacyResult);
+        EXPECT_EQ(LegacyResult.error(), Error::BadLength);
+    }
+
+    TEST(VmessCodecDeep, AuthenticatedLengthSealRejectsEofMarkerSizedOverLimitPayload)
+    {
+        std::array<std::uint8_t, 16> Key{};
+        std::array<std::uint8_t, 12> Nonce{};
+        std::vector<std::uint8_t> Payload(Vmess::AuthenticatedLengthEofMarker, 0x5A);
+        std::vector<std::uint8_t> Wire(Payload.size() + Vmess::ChunkEncryptor::Overhead);
+        Vmess::ChunkEncryptor Encoder{
+            std::span<const std::uint8_t, 16>(Key),
+            std::span<const std::uint8_t, 12>(Nonce)};
+
+        // 此输入同时达到 EOF marker 长度并超过普通 chunk 上限，不能单独区分拒绝原因。
+        EXPECT_EQ(Encoder.Seal(Payload, Wire), 0U);
     }
 
     TEST(VmessCodecDeep, StandardChunkMaskingRoundtrip)
@@ -269,7 +357,21 @@ namespace
         EXPECT_EQ(std::string(reinterpret_cast<const char *>(Plain.data()), Plain.size()), Payload);
 
         std::array<std::uint8_t, 256> Finish{};
-        EXPECT_EQ(Encoder.Finish(Finish), 2u);
+        ASSERT_EQ(Encoder.Finish(Finish), 2u);
+        std::size_t FinishConsumed = 0U;
+        EXPECT_EQ(Decoder.Open(std::span<const std::uint8_t>(Finish).first(2), Plain, FinishConsumed),
+                  Error::None);
+        EXPECT_EQ(FinishConsumed, 2U);
+        const auto LengthAfterFinish = Decoder.OpenLen(
+            std::span<const std::uint8_t>(Finish).first(2));
+        ASSERT_FALSE(LengthAfterFinish);
+        EXPECT_EQ(LengthAfterFinish.error(), Error::ProtocolError);
+        EXPECT_EQ(Decoder.OpenPayload({}, Plain), Error::ProtocolError);
+        std::size_t RepeatedFinishConsumed = 7U;
+        EXPECT_EQ(Decoder.Open(std::span<const std::uint8_t>(Finish).first(2), Plain,
+                      RepeatedFinishConsumed),
+                  Error::ProtocolError);
+        EXPECT_EQ(RepeatedFinishConsumed, 0U);
     }
 
     TEST(VmessCodecDeep, ChunkOpenEndAndErrors)
@@ -277,22 +379,75 @@ namespace
         std::array<std::uint8_t, 16> key{};
         std::array<std::uint8_t, 12> Nonce{};
 
-        // 结束块（len==0）
+        // 认证长度模式结束 marker 加上 tag 后按 uint16 回绕为零。
         Vmess::ChunkEncryptor enc{std::span<const std::uint8_t, 16>(key), std::span<const std::uint8_t, 12>(Nonce)};
         std::array<std::uint8_t, 34> fin{};
+        std::array<std::uint8_t, 17> shortFin{};
+        EXPECT_EQ(enc.Finish(shortFin), 0U);
         const auto nf = enc.Finish(fin);
-        EXPECT_EQ(nf, 34u);
+        ASSERT_EQ(nf, 18u);
+
+        Vmess::ChunkDecryptor lengthDecoder{
+            std::span<const std::uint8_t, 16>(key),
+            std::span<const std::uint8_t, 12>(Nonce)};
+        const auto EndLength = lengthDecoder.OpenLen(
+            std::span<const std::uint8_t>(fin).first(nf));
+        ASSERT_TRUE(EndLength);
+        EXPECT_EQ(*EndLength, Vmess::AuthenticatedLengthEofMarker);
+        const auto LengthAfterMarker = lengthDecoder.OpenLen(
+            std::span<const std::uint8_t>(fin).first(nf));
+        ASSERT_FALSE(LengthAfterMarker);
+        EXPECT_EQ(LengthAfterMarker.error(), Error::ProtocolError);
+
         Vmess::ChunkDecryptor dec{std::span<const std::uint8_t, 16>(key), std::span<const std::uint8_t, 12>(Nonce)};
         std::array<std::uint8_t, 64> out{};
+        EXPECT_EQ(lengthDecoder.OpenPayload({}, out), Error::ProtocolError);
         std::size_t consumed = 0;
         EXPECT_EQ(dec.Open(std::span<const std::uint8_t>(fin), out, consumed), Error::None);
-        EXPECT_EQ(consumed, 18u);
+        EXPECT_EQ(consumed, nf);
+
+        const std::array<std::uint8_t, 3> Payload{0x31, 0x32, 0x33};
+        auto PostMarkerNonce = Nonce;
+        for (std::size_t I = PostMarkerNonce.size(); I > 0; --I)
+        {
+            if (++PostMarkerNonce[I - 1] != 0U)
+            {
+                break;
+            }
+        }
+        Vmess::ChunkEncryptor PostMarkerEncoder{
+            std::span<const std::uint8_t, 16>(key),
+            std::span<const std::uint8_t, 12>(PostMarkerNonce)};
+        std::array<std::uint8_t, 3 + Vmess::ChunkEncryptor::Overhead> PostMarkerWire{};
+        const auto PostMarkerSize = PostMarkerEncoder.Seal(Payload, PostMarkerWire);
+        ASSERT_EQ(PostMarkerSize, PostMarkerWire.size());
+        std::size_t PostMarkerConsumed = 0U;
+        EXPECT_EQ(dec.Open(
+                      std::span<const std::uint8_t>(PostMarkerWire).first(PostMarkerSize),
+                      out, PostMarkerConsumed),
+                  Error::ProtocolError);
+        EXPECT_EQ(PostMarkerConsumed, 0U);
+
+        Vmess::ChunkEncryptor FinishedEncoder{
+            std::span<const std::uint8_t, 16>(key),
+            std::span<const std::uint8_t, 12>(Nonce)};
+        std::array<std::uint8_t, 34> FinishedMarker{};
+        ASSERT_EQ(FinishedEncoder.Finish(FinishedMarker), 18U);
+        std::array<std::uint8_t, 3 + Vmess::ChunkEncryptor::Overhead> PostFinishWire{};
+        EXPECT_EQ(FinishedEncoder.Seal(Payload, PostFinishWire), 0U);
+        EXPECT_EQ(FinishedEncoder.Finish(FinishedMarker), 0U);
 
         // 错误传播（OpenLen 失败 → Open 返回错误）
         std::array<std::uint8_t, 18> bad{};
         bad[17] = 0x01;
-        const auto ec = dec.Open(std::span<const std::uint8_t>(bad), out, consumed);
+        Vmess::ChunkDecryptor ErrorDecoder{
+            std::span<const std::uint8_t, 16>(key),
+            std::span<const std::uint8_t, 12>(Nonce)};
+        std::size_t ErrorConsumed = nf;
+        const auto ec = ErrorDecoder.Open(
+            std::span<const std::uint8_t>(bad), out, ErrorConsumed);
         EXPECT_EQ(ec, Error::BadAuth);
+        EXPECT_EQ(ErrorConsumed, 0U);
     }
 
     TEST(VmessCodecDeep, ParserErrorPropagation)

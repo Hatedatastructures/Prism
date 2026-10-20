@@ -496,6 +496,42 @@ namespace TransferPerf
         bool CoordinatorFailure{false};
     };
 
+    struct CompareRoundReportRequest final
+    {
+        const CompareRoundRuntime &Runtime;
+        std::int64_t BusinessStart{0};
+        std::int64_t BusinessEnd{0};
+    };
+
+    auto PrintCompareRoundLaneReports(const CompareRoundReportRequest &Request) -> void
+    {
+        const auto &State = Request.Runtime;
+        const auto &Round = State.Request;
+        for (std::size_t Index = 0; Index < Round.LaneCount; ++Index)
+        {
+            const auto &Result = State.LaneResults[Index];
+            std::printf(
+                "io-compare-round round=%zu order=%s mode=%s lanes=%zu lane=%zu ready=%s done=%s end=%s "
+                "exited=%s completed=%s server-completed=%s sent=%zu received=%zu "
+                "errors=%zu partial=%zu expected-hash=%016llx server-input-hash=%016llx "
+                "client-output-hash=%016llx "
+                "round-wall-ns=%lld block-samples=%zu\n",
+                Round.Round, (Round.Round % 2U) == 0U ? "AB" : "BA",
+                ModeName(Round.Mode), Round.LaneCount, Index,
+                State.ReadyReceived[Index] && State.ReadyPassed[Index] ? "pass" : "fail",
+                State.LaneReceived[Index] ? "pass" : "fail",
+                State.EndSent[Index] ? "pass" : "fail",
+                State.ExitedReceived[Index] ? "pass" : "fail", Result.Completed ? "yes" : "no",
+                Result.ServerCompleted ? "yes" : "no", Result.Sent, Result.Received,
+                Result.Errors, Result.Partial,
+                static_cast<unsigned long long>(Result.ExpectedInputHash),
+                static_cast<unsigned long long>(Result.ServerInputHash),
+                static_cast<unsigned long long>(Result.ClientOutputHash),
+                static_cast<long long>(Request.BusinessEnd - Request.BusinessStart),
+                Result.BlockSamples.size());
+        }
+    }
+
     auto SpawnCompareLanes(CompareRoundRuntime &State) -> void
     {
         for (std::size_t Index = 0; Index < State.Request.LaneCount; ++Index)
@@ -631,28 +667,8 @@ namespace TransferPerf
 #endif
         co_await SamplerDone->async_receive(Net::use_awaitable);
         co_await ReleaseCompareLanes(State);
-        for (std::size_t Index = 0; Index < Request.LaneCount; ++Index)
-        {
-            const auto &Result = State.LaneResults[Index];
-            std::printf(
-                "io-compare-round round=%zu order=%s mode=%s lanes=%zu lane=%zu ready=%s done=%s end=%s "
-                "exited=%s completed=%s server-completed=%s sent=%zu received=%zu "
-                "errors=%zu partial=%zu expected-hash=%016llx server-input-hash=%016llx "
-                "client-output-hash=%016llx "
-                "round-wall-ns=%lld block-samples=%zu\n",
-                Request.Round, (Request.Round % 2U) == 0U ? "AB" : "BA",
-                ModeName(Request.Mode), Request.LaneCount, Index,
-                State.ReadyReceived[Index] && State.ReadyPassed[Index] ? "pass" : "fail",
-                State.LaneReceived[Index] ? "pass" : "fail",
-                State.EndSent[Index] ? "pass" : "fail",
-                State.ExitedReceived[Index] ? "pass" : "fail", Result.Completed ? "yes" : "no",
-                Result.ServerCompleted ? "yes" : "no", Result.Sent, Result.Received,
-                Result.Errors, Result.Partial,
-                static_cast<unsigned long long>(Result.ExpectedInputHash),
-                static_cast<unsigned long long>(Result.ServerInputHash),
-                static_cast<unsigned long long>(Result.ClientOutputHash),
-                static_cast<long long>(BusinessEnd - BusinessStart), Result.BlockSamples.size());
-        }
+        PrintCompareRoundLaneReports(
+            CompareRoundReportRequest{State, BusinessStart, BusinessEnd});
         IoCompareResult Combined;
         Combined.Completed = true;
         Combined.ExpectedInputHash = Request.ExpectedInputHash;

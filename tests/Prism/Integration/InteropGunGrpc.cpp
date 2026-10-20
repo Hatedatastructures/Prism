@@ -7,14 +7,18 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
 #include <Prism/Protocols/Gun/Grpc.hpp>
 #include <Prism/Protocols/Gun/Detail/GrpcSession.hpp>
 #include <Prism/Transport/Reliable.hpp>
 
 #include <charconv>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -23,6 +27,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 namespace
@@ -83,6 +89,17 @@ namespace
         return Tcp::endpoint(Address, static_cast<std::uint16_t>(Port));
     }
 
+    /** @brief 输出 gRPC interop 的领域失败和原生错误身份。 */
+    auto LogFailure(const std::string_view Phase, const Prism::Fault::Failure &Failure) -> void
+    {
+        const auto Description = Prism::Fault::Describe(Failure.Code);
+        const auto Native = Failure.Native ? Failure.Native : Prism::Fault::ToNative(Failure);
+        std::fprintf(stderr, "FAIL: Gun gRPC %.*s code=%.*s native=%s:%d\n",
+                     static_cast<int>(Phase.size()), Phase.data(),
+                     static_cast<int>(Description.size()), Description.data(),
+                     Native.category().name(), Native.value());
+    }
+
     [[nodiscard]] auto RunServer(const Options &OptionsValue) -> Net::awaitable<int>
     {
         const auto Endpoint = SplitAddress(OptionsValue.Address);
@@ -111,15 +128,17 @@ namespace
             Transport, Prism::Gun::Grpc::Config{},
             [](std::span<const std::byte> Payload)
             { return std::vector<std::byte>(Payload.begin(), Payload.end()); });
-        const auto Code = co_await Session->Run();
-        const auto Description = Prism::Fault::Describe(Code);
-        std::printf("PASS: Prism standard Gun gRPC server status=%.*s\n",
-                    static_cast<int>(Description.size()), Description.data());
-        if (Code == Prism::Fault::Code::Success)
+        const auto Failure = co_await Session->Run();
+        if (Failure.Failed())
         {
-            co_return 0;
+            LogFailure("server", Failure);
+            co_return 1;
         }
-        co_return 1;
+        const auto Description = Prism::Fault::Describe(Failure.Code);
+        const auto Native = Failure.Native.message();
+        std::printf("PASS: Prism standard Gun gRPC server status=%.*s native=%s\n",
+                    static_cast<int>(Description.size()), Description.data(), Native.c_str());
+        co_return 0;
     }
 
     [[nodiscard]] auto RunClient(const Options &OptionsValue) -> Net::awaitable<int>
@@ -131,32 +150,54 @@ namespace
             co_return 2;
         }
         Prism::Network::Dialer::Dialer Dialer(co_await Net::this_coro::executor);
-        std::error_code DialError;
-        auto Raw = co_await Dialer.Connect({Prism::Network::FromIpAddress(Endpoint->address()).value_or(Prism::Network::Host{}), Endpoint->port()}, DialError);
-        if (!Raw)
+        auto DialResult = co_await Dialer.Connect({
+            Prism::Network::FromIpAddress(Endpoint->address()).value_or(Prism::Network::Host{}),
+            Endpoint->port()});
+        if (!DialResult)
         {
-            std::fprintf(stderr, "FAIL: Gun gRPC TCP dial: %s\n", DialError.message().c_str());
+            LogFailure("TCP dial", DialResult.error());
             co_return 1;
         }
-        auto Session = std::make_shared<Prism::Gun::Grpc::Detail::ClientSession>(Raw);
+        auto Raw = std::move(*DialResult);
+        auto Session = std::make_shared<Prism::Gun::Grpc::Detail::ClientSession>(std::move(Raw));
         constexpr std::string_view Payload{"prism-standard-grpc-gun-payload"};
         const auto Result = co_await Session->Run(std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(Payload.data()), Payload.size()));
-        if (!Result)
+        bool Failed = false;
+        if (Result.Terminal.Failed() &&
+            (!Result.Response || Result.Terminal.Code != Prism::Fault::Code::Eof))
         {
-            const auto Description = Prism::Fault::Describe(Result.error().Code);
-            const auto Native = Result.error().Native.message();
-            std::fprintf(stderr, "FAIL: Gun gRPC code=%.*s native=%s\n",
-                         static_cast<int>(Description.size()), Description.data(),
-                         Native.c_str());
+            LogFailure("terminal", Result.Terminal);
+            Failed = true;
+        }
+        if (Result.CloseFailure.Failed())
+        {
+            LogFailure("close", Result.CloseFailure);
+            Failed = true;
+        }
+        if (Result.DrainFailure.Failed())
+        {
+            LogFailure("drain", Result.DrainFailure);
+            Failed = true;
+        }
+        if (!Result.Response)
+        {
+            if (!Result.Terminal.Failed())
+            {
+                std::fprintf(stderr, "FAIL: Gun gRPC response missing\n");
+            }
             co_return 1;
         }
-        const auto &Response = *Result;
+        const auto &Response = *Result.Response;
         if (Response.GrpcStatus != 0U || Response.Payload.size() != Payload.size() ||
             std::memcmp(Response.Payload.data(), Payload.data(), Payload.size()) != 0)
         {
             std::fprintf(stderr, "FAIL: Gun gRPC status=%u payload=%zu\n",
                          Response.GrpcStatus, Response.Payload.size());
+            co_return 1;
+        }
+        if (Failed)
+        {
             co_return 1;
         }
         std::printf("PASS: Prism standard Gun gRPC client status=%u payload=%zu\n",

@@ -31,6 +31,7 @@
 #include <vector>
 
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
+#include <Prism/Composition/Recognition/CandidateFactoryHelpers.hpp>
 #include <Prism/Composition/Recognition/CandidateRegistry.hpp>
 #include <Prism/Composition/Recognition/TrusttunnelCandidate.hpp>
 #include <Prism/Account/Authenticator.hpp>

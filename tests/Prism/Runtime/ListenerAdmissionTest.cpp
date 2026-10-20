@@ -5,6 +5,8 @@
 
 #include "ListenerTestSupport.hpp"
 
+#include <Prism/Runtime/ListenerAdmissionOwner.hpp>
+
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/redirect_error.hpp>
 
@@ -401,6 +403,8 @@ namespace
     auto MakeExceptionSession() -> std::shared_ptr<Prism::Runtime::Session>
     {
         Prism::Runtime::SessionOptions Options;
+        Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
         Options.Services->AcceptProtocol = std::make_shared<Prism::Testing::StreamFactory>(
             ThrowAcceptFailure);
         return std::make_shared<Prism::Runtime::Session>(std::move(Options));

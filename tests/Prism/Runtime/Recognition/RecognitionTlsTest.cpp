@@ -5,6 +5,9 @@
 
 #include "RecognitionTestSupport.hpp"
 
+#include <Prism/Runtime/Recognition/TlsRecordReader.hpp>
+#include <boost/asio/detached.hpp>
+
 namespace
 {
     /**
@@ -19,14 +22,16 @@ namespace
 
     auto RunTlsRecordScenario(TlsRecordRequest Request) -> Net::awaitable<void>
     {
-        const auto [Err, Got] = co_await rec::ReadTlsRecord(*Request.Source, Request.Prefix);
-        EXPECT_EQ(Err, Error::None);
-        EXPECT_EQ(Got.size(), Request.Record.size());
-        if (Got.size() != Request.Record.size())
+        const auto Result = co_await rec::ReadTlsRecord(*Request.Source, Request.Prefix);
+        EXPECT_EQ(Result.Status, Error::None);
+        EXPECT_FALSE(Result.Terminal.Failed());
+        EXPECT_EQ(Result.Record.size(), Request.Record.size());
+        if (Result.Record.size() != Request.Record.size())
         {
             co_return;
         }
-        EXPECT_TRUE(std::equal(Got.begin(), Got.end(), Request.Record.begin(), Request.Record.end()));
+        EXPECT_TRUE(std::equal(Result.Record.begin(), Result.Record.end(),
+            Request.Record.begin(), Request.Record.end()));
     }
 }
 

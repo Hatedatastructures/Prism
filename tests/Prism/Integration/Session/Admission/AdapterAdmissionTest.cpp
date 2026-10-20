@@ -12,6 +12,8 @@
 #include <vector>
 
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
+#include <Prism/Foundation/ByteSpan.hpp>
+#include <Prism/Transport/TransportResources.hpp>
 
 namespace
 {
@@ -104,7 +106,8 @@ namespace
             ADD_FAILURE() << "HTTP CONNECT accept did not produce a post-dial callback";
             co_return;
         }
-        co_await Request.Context->PostDial()(Fault::Code::Success);
+        const auto PostDialFailure = co_await Request.Context->PostDial()(Fault::Failure{});
+        EXPECT_TRUE(PostDialFailure.Succeeded());
         std::array<std::byte, 128> ResponseBuffer{};
         const auto ResponseRead = co_await Request.Client->ReadSome(ResponseBuffer);
         Error = Prism::Fault::ToNative(ResponseRead.Failure);
@@ -166,7 +169,8 @@ namespace
             ADD_FAILURE() << "HTTP absolute-form accept did not complete";
             co_return;
         }
-        co_await Request.Context->PostDial()(Fault::Code::Success);
+        const auto PostDialFailure = co_await Request.Context->PostDial()(Fault::Failure{});
+        EXPECT_TRUE(PostDialFailure.Succeeded());
         EXPECT_EQ(Request.Context->Target().Host, *Prism::Network::ParseHost("example.com"));
         EXPECT_EQ(Request.Context->Target().Port, 80);
         std::array<std::byte, 256> Buffer{};
@@ -191,6 +195,26 @@ namespace
         Fault::Code *Code;
     };
 
+    /** @brief 读取关闭响应直到 EOF；拒绝响应远小于内部缓冲区，不使用固定长度成功条件。 */
+    auto ReadHttpResponse(const std::shared_ptr<MemoryStream> &Client)
+        -> Net::awaitable<std::string>
+    {
+        std::array<std::byte, 256> Buffer{};
+        std::string Response;
+        for (;;)
+        {
+            const auto Read = co_await Client->ReadSome(Buffer);
+            if (Read.Bytes != 0U)
+            {
+                Response.append(reinterpret_cast<const char *>(Buffer.data()), Read.Bytes);
+            }
+            if (Read.Failure.Failed())
+            {
+                co_return Response;
+            }
+        }
+    }
+
     auto RunHttpAuth(HttpAuthRequest Request) -> Net::awaitable<void>
     {
         const std::string Wire = "CONNECT example.com:443 HTTP/1.1\r\n"
@@ -214,16 +238,11 @@ namespace
             Request.Context->SetDataPlane(std::move(*Accepted));
             Request.Inbound = Request.Context->Inbound();
         }
-        std::array<std::byte, 256> Buffer{};
-        const auto Read = co_await Request.Client->ReadExact(Buffer);
-        Error = Prism::Fault::ToNative(Read.Failure);
-        const auto ResponseSize = Read.Bytes;
-        if (Error)
+        *Request.Response = co_await ReadHttpResponse(Request.Client);
+        if (Request.Response->empty())
         {
-            ADD_FAILURE() << Error.message();
-            co_return;
+            ADD_FAILURE() << "HTTP proxy rejection response was empty";
         }
-        Request.Response->assign(reinterpret_cast<const char *>(Buffer.data()), ResponseSize);
     }
 
     template <typename Handler>
@@ -295,6 +314,8 @@ namespace
         Prism::Contract::ProtocolDataPlane Plane;
         auto Accept = MakeStubAccept(std::move(Plane));
         Runtime::SessionOptions Options;
+        Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
         Options.Services->AcceptProtocol = Accept;
         Runtime::Session Session(std::move(Options));
         const auto Code = (co_await Session.Run(Inbound)).Code;
@@ -558,9 +579,14 @@ TEST(AdapterSeam, VmessDirectoryCredentialMapsAccountLease)
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
         const auto Transport = Result->Transport();
         ASSERT_TRUE(Transport);
-        (void)Transport->Close();
-        EXPECT_FALSE(Transport->IsOpen());
-        EXPECT_FALSE(Result->Transport()->IsOpen());
+        Io.restart();
+        RunCoro(Io, [Transport, &Result]() -> Net::awaitable<void>
+        {
+            const auto Receipt = co_await Prism::Testing::CloseFixture(Transport);
+            Prism::Testing::ExpectFixtureCloseReceipt(Receipt);
+            EXPECT_FALSE(Transport->IsOpen());
+            EXPECT_FALSE(Result->Transport()->IsOpen());
+        }());
     }
 
 TEST(AdapterSeam, Ss2022DirectoryCredentialMapsAccountLease)
@@ -607,8 +633,8 @@ TEST(AdapterSeam, Ss2022DirectoryCredentialMapsAccountLease)
         Io.restart();
         RunCoro(Io, [Transport, &Result]() -> Net::awaitable<void>
         {
-            (void)Transport->Close();
-            co_await Net::post(Transport->Executor(), Net::use_awaitable);
+            const auto Receipt = co_await Prism::Testing::CloseFixture(Transport);
+            Prism::Testing::ExpectFixtureCloseReceipt(Receipt);
             EXPECT_FALSE(Transport->IsOpen());
             EXPECT_FALSE(Result->Transport()->IsOpen());
         }());

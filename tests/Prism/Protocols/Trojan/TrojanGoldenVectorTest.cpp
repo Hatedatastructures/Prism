@@ -12,8 +12,12 @@
 #include <string>
 #include <vector>
 #include <Prism/Foundation/Error.hpp>
-#include <Prism/Protocols/Trojan/Codec.hpp>
+#include <Prism/Protocols/Trojan/AddressCodec.hpp>
+#include <Prism/Protocols/Trojan/BeastCodec.hpp>
+#include <Prism/Protocols/Trojan/CredentialCodec.hpp>
+#include <Prism/Protocols/Trojan/RequestCodec.hpp>
 #include <Prism/Protocols/Trojan/Types.hpp>
+#include <Prism/Protocols/Trojan/UdpCodec.hpp>
 
 namespace
 {

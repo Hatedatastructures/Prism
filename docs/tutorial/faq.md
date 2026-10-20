@@ -10,7 +10,7 @@
 
 ## 配置中出现协议名称，是否说明程序一定支持它？
 
-不一定。配置能力必须和当前构建中的 protocol/carrier binding 一致，并通过启动能力校验。协议实现与测试以当前 `Prism/Protocols/` 和 `tests/Prism/Protocols/` 为准；本手册不提供逐协议专题页。
+不一定。配置能力必须和当前构建中的 protocol/carrier binding 一致，并通过启动能力校验。协议实现与测试以 `Include/Prism/Protocols/`、`Src/Prism/Protocols/` 和 `tests/Prism/Protocols/` 为准；本手册不提供逐协议专题页。
 
 ## CTest 通过是否表示所有场景都通过？
 

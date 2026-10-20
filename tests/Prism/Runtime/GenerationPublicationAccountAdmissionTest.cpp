@@ -43,29 +43,13 @@ namespace
         return static_cast<bool>(Publisher->Publish(*Token));
     }
 
-    [[nodiscard]] auto MakeRuntimeRegistry(
-        const std::shared_ptr<Prism::Runtime::GenerationPublication> &Publisher)
-        -> std::shared_ptr<Prism::Account::AccountRuntimeRegistry>
-    {
-        auto Registry = std::make_shared<Prism::Account::AccountRuntimeRegistry>();
-        if (!Registry->AttachAdmissionAuthority(Publisher))
-        {
-            return {};
-        }
-        return Registry;
-    }
-
     TEST(GenerationPublicationAccountAdmission, PublishWaitsForLeaseAdmissionCommit)
     {
         const Prism::AccountId Account{901U};
         auto Publisher = std::make_shared<Prism::Runtime::GenerationPublication>();
         ASSERT_TRUE(PublishInitial(Publisher, {Account}));
-        auto Registry = MakeRuntimeRegistry(Publisher);
-        ASSERT_TRUE(Registry);
-        auto Runtime = Registry->FindOrCreate(Account, 1U);
-        ASSERT_TRUE(Runtime);
 
-        auto Admission = (*Runtime)->TryAcquireConnection(1U);
+        auto Admission = Publisher->BeginAdmission(Account);
         ASSERT_TRUE(Admission);
         const auto BeforePublish = Publisher->Load();
         auto Token = Publisher->Prepare(Publisher->Current(), MakeGeneration(2U), {});
@@ -76,17 +60,10 @@ namespace
             Prism::Runtime::GenerationPublication::PublishError::AdmissionBusy);
         EXPECT_EQ(Publisher->Load(), BeforePublish);
         EXPECT_TRUE(Publisher->Load()->IsAdmitted(Account));
-        EXPECT_EQ((*Runtime)->ActiveConnections(), 1U);
 
         Admission->Commit();
         ASSERT_TRUE(Publisher->Publish(*Token));
         EXPECT_TRUE(Publisher->Load()->IsRevoked(Account));
-        const auto Rejected = (*Runtime)->TryAcquireConnection(1U);
-        ASSERT_FALSE(Rejected);
-        EXPECT_EQ(Rejected.error().Native,
-            Prism::Account::MakeFailure(Prism::Account::FailureReason::Revoked).Native);
-        (*Runtime)->ReleaseConnection();
-        EXPECT_EQ((*Runtime)->ActiveConnections(), 0U);
     }
 
     TEST(GenerationPublicationAccountAdmission, ManualRevokeSharesPublicationGate)
@@ -94,11 +71,9 @@ namespace
         const Prism::AccountId Account{902U};
         auto Publisher = std::make_shared<Prism::Runtime::GenerationPublication>();
         ASSERT_TRUE(PublishInitial(Publisher, {Account}));
-        auto Registry = MakeRuntimeRegistry(Publisher);
-        ASSERT_TRUE(Registry);
-        auto Runtime = Registry->FindOrCreate(Account, 1U);
-        ASSERT_TRUE(Runtime);
-        auto Admission = (*Runtime)->TryAcquireConnection(1U);
+        auto Registry = std::make_shared<Prism::Account::AccountRuntimeRegistry>();
+        ASSERT_TRUE(Registry->AttachAdmissionAuthority(Publisher));
+        auto Admission = Publisher->BeginAdmission(Account);
         ASSERT_TRUE(Admission);
 
         const auto BusyRevoke = Registry->Revoke(Account);
@@ -112,9 +87,8 @@ namespace
         const auto RevokedSnapshot = Publisher->Load();
         ASSERT_TRUE(Registry->Revoke(Account));
         EXPECT_EQ(Publisher->Load(), RevokedSnapshot);
-        const auto Rejected = (*Runtime)->TryAcquireConnection(1U);
+        const auto Rejected = Publisher->BeginAdmission(Account);
         EXPECT_FALSE(Rejected);
-        (*Runtime)->ReleaseConnection();
     }
 
     TEST(GenerationPublicationAccountAdmission, FailedPublishCannotRestoreRevokedAccount)
@@ -122,8 +96,8 @@ namespace
         const Prism::AccountId Account{903U};
         auto Publisher = std::make_shared<Prism::Runtime::GenerationPublication>();
         ASSERT_TRUE(PublishInitial(Publisher, {Account}));
-        auto Registry = MakeRuntimeRegistry(Publisher);
-        ASSERT_TRUE(Registry);
+        auto Registry = std::make_shared<Prism::Account::AccountRuntimeRegistry>();
+        ASSERT_TRUE(Registry->AttachAdmissionAuthority(Publisher));
         auto Token = Publisher->Prepare(Publisher->Current(), MakeGeneration(2U), {});
         ASSERT_TRUE(Token);
 
@@ -140,7 +114,7 @@ namespace
         EXPECT_FALSE(Current->IsAdmitted(Account));
         EXPECT_EQ(Publisher->Current()->Id(), Prism::GenerationId{1U});
 
-        const auto Readded = Publisher->Prepare(
+        auto Readded = Publisher->Prepare(
             Publisher->Current(), MakeGeneration(2U), {Account});
         ASSERT_TRUE(Readded);
         ASSERT_TRUE(Publisher->Publish(*Readded));

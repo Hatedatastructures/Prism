@@ -29,8 +29,8 @@
     namespace
     {
     namespace Net = boost::asio;
-    namespace Smux = Prism::Mux::Smux::Detail;
-    namespace Yamux = Prism::Mux::Yamux::Detail;
+    namespace SmuxWire = Prism::Mux::Smux::Detail;
+    namespace YamuxWire = Prism::Mux::Yamux::Detail;
     namespace SmuxApi = Prism::Mux::Smux;
     namespace YamuxApi = Prism::Mux::Yamux;
     namespace H2Mux = Prism::Mux::H2Mux;
@@ -70,7 +70,7 @@
     auto RunYamuxSynWindowUpdate(Net::io_context &Ioc, YamuxApi::Server<> &Server,
                                  std::shared_ptr<MemoryStream> Peer) -> Net::awaitable<void>
     {
-        const auto Open = Yamux::Codec::BuildOpen(1);
+        const auto Open = YamuxWire::Codec::BuildOpen(1);
         const auto Write = co_await WriteWire(Peer, Open);
         ExpectIoSuccess(Write, Open.size());
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
@@ -80,11 +80,11 @@
     }
 
     /// 注入无 SYN 的 Yamux 数据并确认会话拒绝隐式开流。
-    auto RunYamuxUnknownData(SessionFixture<Yamux::Codec> &Fixture)
+    auto RunYamuxUnknownData(SessionFixture<YamuxWire::Codec> &Fixture)
         -> Net::awaitable<void>
     {
-        const auto Data = Yamux::BuildData(
-            Yamux::Flags::None, 1,
+        const auto Data = YamuxWire::BuildData(
+            YamuxApi::Flags::None, 1,
             std::span<const std::uint8_t>{reinterpret_cast<const std::uint8_t *>("stray"), 5});
         const auto Write = co_await WriteWire(Fixture.Peer, Data);
         ExpectIoSuccess(Write, Data.size());
@@ -97,10 +97,10 @@
     }
 
     /// 注入无 SYN 的 Smux 数据并确认会话拒绝隐式开流。
-    auto RunSmuxUnknownData(SessionFixture<Smux::Codec> &Fixture)
+    auto RunSmuxUnknownData(SessionFixture<SmuxWire::Codec> &Fixture)
         -> Net::awaitable<void>
     {
-        const auto Data = Smux::Codec::BuildData(
+        const auto Data = SmuxWire::Codec::BuildData(
             1, std::span<const std::uint8_t>{reinterpret_cast<const std::uint8_t *>("stray"), 5});
         const auto Write = co_await WriteWire(Fixture.Peer, Data);
         ExpectIoSuccess(Write, Data.size());
@@ -113,10 +113,10 @@
     }
 
     /// 在对端 FIN 后注入数据，确认会话报告协议错误并收口。
-    auto RunDataAfterPeerFin(SessionFixture<Smux::Codec> &Fixture)
+    auto RunDataAfterPeerFin(SessionFixture<SmuxWire::Codec> &Fixture)
         -> Net::awaitable<void>
     {
-        const auto Open = Smux::Codec::BuildOpen(1);
+        const auto Open = SmuxWire::Codec::BuildOpen(1);
         const auto OpenWrite = co_await WriteWire(Fixture.Peer, Open);
         ExpectIoSuccess(OpenWrite, Open.size());
         auto Stream = co_await Fixture.Session->AcceptStream();
@@ -126,10 +126,10 @@
             co_await DrainSessionFixture(Fixture);
             co_return;
         }
-        const auto Fin = Smux::Codec::BuildFin(1);
+        const auto Fin = SmuxWire::Codec::BuildFin(1);
         const auto FinWrite = co_await WriteWire(Fixture.Peer, Fin);
         ExpectIoSuccess(FinWrite, Fin.size());
-        const auto Data = Smux::Codec::BuildData(
+        const auto Data = SmuxWire::Codec::BuildData(
             1, std::span<const std::uint8_t>{reinterpret_cast<const std::uint8_t *>("late"), 4});
         const auto DataWrite = co_await WriteWire(Fixture.Peer, Data);
         ExpectIoSuccess(DataWrite, Data.size());
@@ -141,10 +141,10 @@
     }
 
     /// 注入重复 Smux SYN，确认重复流被视为协议错误。
-    auto RunDuplicateSmuxSyn(SessionFixture<Smux::Codec> &Fixture)
+    auto RunDuplicateSmuxSyn(SessionFixture<SmuxWire::Codec> &Fixture)
         -> Net::awaitable<void>
     {
-        const auto Open = Smux::Codec::BuildOpen(1);
+        const auto Open = SmuxWire::Codec::BuildOpen(1);
         const auto Write = co_await WriteWire(Fixture.Peer, Open);
         ExpectIoSuccess(Write, Open.size());
         auto Stream = co_await Fixture.Session->AcceptStream();
@@ -168,13 +168,13 @@
     /// 读取 Yamux 数据并核对流级与会话级窗口更新帧。
     auto RunYamuxRxConsumption(
         Net::io_context &Ioc,
-        std::shared_ptr<Prism::Mux::Session<Yamux::Codec>> Session,
+        std::shared_ptr<Prism::Mux::Session<YamuxWire::Codec>> Session,
         std::shared_ptr<MemoryStream> Peer) -> Net::awaitable<void>
     {
-        const auto Open = Yamux::Codec::BuildOpen(1);
+        const auto Open = YamuxWire::Codec::BuildOpen(1);
         const std::string Payload = "window-credit";
-        const auto Data = Yamux::BuildData(
-            Yamux::Flags::None, 1,
+        const auto Data = YamuxWire::BuildData(
+            YamuxApi::Flags::None, 1,
             std::span<const std::uint8_t>{
                 reinterpret_cast<const std::uint8_t *>(Payload.data()), Payload.size()});
         const auto OpenWrite = co_await WriteWire(Peer, Open);
@@ -195,29 +195,29 @@
         EXPECT_EQ(Read, Payload.size());
 
         Peer->SetTimeout(std::chrono::milliseconds(25));
-        std::array<std::uint8_t, Yamux::FrameHdrsize> AckWire{};
+        std::array<std::uint8_t, YamuxApi::FrameHdrsize> AckWire{};
         const auto AckRead = co_await Peer->ReadSome(
             std::span<std::byte>(reinterpret_cast<std::byte *>(AckWire.data()), AckWire.size()));
         ExpectIoSuccess(AckRead, AckWire.size());
         if (AckRead.Bytes == AckWire.size())
         {
-            Yamux::FrameHeader Ack{};
-            EXPECT_EQ(Yamux::ParseHeader(AckWire, Ack), Error::None);
-            EXPECT_EQ(Ack.Type, Yamux::MessageType::WindowUpdate);
-            EXPECT_EQ(Ack.flag, Yamux::Flags::Ack);
+            YamuxApi::FrameHeader Ack{};
+            EXPECT_EQ(YamuxWire::ParseHeader(AckWire, Ack), Error::None);
+            EXPECT_EQ(Ack.Type, YamuxApi::MessageType::WindowUpdate);
+            EXPECT_EQ(Ack.flag, YamuxApi::Flags::Ack);
             EXPECT_EQ(Ack.StreamId, 1u);
-            EXPECT_EQ(Ack.length, Yamux::DefaultWindow);
+            EXPECT_EQ(Ack.length, YamuxApi::DefaultWindow);
         }
-        std::array<std::uint8_t, Yamux::FrameHdrsize> WindowWire{};
+        std::array<std::uint8_t, YamuxApi::FrameHdrsize> WindowWire{};
         const auto WindowRead = co_await Peer->ReadSome(
             std::span<std::byte>(reinterpret_cast<std::byte *>(WindowWire.data()), WindowWire.size()));
         ExpectIoSuccess(WindowRead, WindowWire.size());
         if (WindowRead.Bytes == WindowWire.size())
         {
-            Yamux::FrameHeader Window{};
-            EXPECT_EQ(Yamux::ParseHeader(WindowWire, Window), Error::None);
-            EXPECT_EQ(Window.Type, Yamux::MessageType::WindowUpdate);
-            EXPECT_EQ(Window.flag, Yamux::Flags::None);
+            YamuxApi::FrameHeader Window{};
+            EXPECT_EQ(YamuxWire::ParseHeader(WindowWire, Window), Error::None);
+            EXPECT_EQ(Window.Type, YamuxApi::MessageType::WindowUpdate);
+            EXPECT_EQ(Window.flag, YamuxApi::Flags::None);
             EXPECT_EQ(Window.StreamId, 1u);
             EXPECT_EQ(Window.length, Payload.size());
         }
@@ -240,10 +240,10 @@
     /// 验证对端窗口耗尽时写入保持挂起，补充窗口后再完成。
     auto RunYamuxSendWindow(
         Net::io_context &Ioc,
-        std::shared_ptr<Prism::Mux::Session<Yamux::Codec>> Session,
+        std::shared_ptr<Prism::Mux::Session<YamuxWire::Codec>> Session,
         std::shared_ptr<MemoryStream> Peer) -> Net::awaitable<void>
     {
-        const auto Open = Yamux::BuildWinupd(Yamux::Flags::Syn, 1, 2);
+        const auto Open = YamuxWire::BuildWinupd(YamuxApi::Flags::Syn, 1, 2);
         const auto OpenWrite = co_await WriteWire(
             Peer, std::vector<std::uint8_t>(Open.begin(), Open.end()));
         ExpectIoSuccess(OpenWrite, Open.size());
@@ -278,7 +278,7 @@
             co_await Session->Close();
             co_return;
         }
-        const auto Credit = Yamux::Codec::BuildWindowUpdate(1, 1);
+        const auto Credit = YamuxWire::Codec::BuildWindowUpdate(1, 1);
         const auto CreditWrite = co_await WriteWire(Peer, Credit);
         ExpectIoSuccess(CreditWrite, Credit.size());
         co_await Done->async_receive(Net::use_awaitable);
@@ -292,10 +292,10 @@
     /// 发送 Yamux RST 后读取对端输出，确认不会返回窗口信用。
     auto RunYamuxRst(
         Net::io_context &Ioc,
-        std::shared_ptr<Prism::Mux::Session<Yamux::Codec>> Session,
+        std::shared_ptr<Prism::Mux::Session<YamuxWire::Codec>> Session,
         std::shared_ptr<MemoryStream> Peer) -> Net::awaitable<void>
     {
-        const auto Syn = Yamux::BuildData(Yamux::Flags::Syn, 1, std::span<const std::uint8_t>{});
+        const auto Syn = YamuxWire::BuildData(YamuxApi::Flags::Syn, 1, std::span<const std::uint8_t>{});
         const auto SynWrite = co_await WriteWire(Peer, Syn);
         ExpectIoSuccess(SynWrite, Syn.size());
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
@@ -307,21 +307,21 @@
             co_return;
         }
         Peer->SetTimeout(std::chrono::milliseconds(25));
-        std::array<std::uint8_t, Yamux::FrameHdrsize> AckWire{};
+        std::array<std::uint8_t, YamuxApi::FrameHdrsize> AckWire{};
         const auto AckRead = co_await Peer->ReadSome(
             std::span<std::byte>(reinterpret_cast<std::byte *>(AckWire.data()), AckWire.size()));
         ExpectIoSuccess(AckRead, AckWire.size());
         const auto Payload = std::array<std::uint8_t, 5>{1, 2, 3, 4, 5};
-        const auto Data = Yamux::BuildData(Yamux::Flags::None, 1, Payload);
+        const auto Data = YamuxWire::BuildData(YamuxApi::Flags::None, 1, Payload);
         const auto DataWrite = co_await WriteWire(Peer, Data);
         ExpectIoSuccess(DataWrite, Data.size());
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
-        const auto Reset = Yamux::BuildData(Yamux::Flags::Rst, 1, std::span<const std::uint8_t>{});
+        const auto Reset = YamuxWire::BuildData(YamuxApi::Flags::Rst, 1, std::span<const std::uint8_t>{});
         const auto ResetWrite = co_await WriteWire(Peer, Reset);
         ExpectIoSuccess(ResetWrite, Reset.size());
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
-        std::array<std::uint8_t, Yamux::FrameHdrsize> Unexpected{};
+        std::array<std::uint8_t, YamuxApi::FrameHdrsize> Unexpected{};
         const auto Read = co_await Peer->ReadSome(
             std::span<std::byte>(reinterpret_cast<std::byte *>(Unexpected.data()), Unexpected.size()));
         EXPECT_EQ(Read.Bytes, 0u);
@@ -332,7 +332,7 @@
 
     auto RunTaskRegistryClose(
         Net::io_context &Ioc,
-        std::shared_ptr<Prism::Mux::Session<Smux::Codec>> Session,
+        std::shared_ptr<Prism::Mux::Session<SmuxWire::Codec>> Session,
         std::shared_ptr<Prism::Lifecycle::TaskRegistry> Control) -> Net::awaitable<void>
     {
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
@@ -368,7 +368,7 @@
 
     auto RunTaskRegistryCancel(
         Net::io_context &Ioc,
-        std::shared_ptr<Prism::Mux::Session<Smux::Codec>> Session,
+        std::shared_ptr<Prism::Mux::Session<SmuxWire::Codec>> Session,
         std::shared_ptr<Prism::Lifecycle::TaskRegistry> Control) -> Net::awaitable<void>
     {
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
@@ -380,7 +380,7 @@
 
     auto RunClosingOwner(
         Net::io_context &Ioc,
-        std::shared_ptr<Prism::Mux::Session<Smux::Codec>> Session,
+        std::shared_ptr<Prism::Mux::Session<SmuxWire::Codec>> Session,
         std::shared_ptr<Prism::Lifecycle::TaskRegistry> Control) -> Net::awaitable<void>
     {
         co_await Net::post(Ioc.get_executor(), Net::use_awaitable);
@@ -444,9 +444,9 @@
         auto SessionRaw = std::make_shared<MemoryStream>(std::move(Raw));
         auto Peer = std::make_shared<MemoryStream>(std::move(PeerRaw));
         Prism::Mux::SessionOptions Options;
-        Options.Role = Prism::Role::Server;
-        SessionFixture<Yamux::Codec> Fixture{
-            .Session = Prism::Mux::Session<Yamux::Codec>::Create(SessionRaw, Options),
+        Options.Role = Prism::Mux::Role::Server;
+        SessionFixture<YamuxWire::Codec> Fixture{
+            .Session = Prism::Mux::Session<YamuxWire::Codec>::Create(SessionRaw, Options),
             .Raw = std::move(SessionRaw),
             .Peer = std::move(Peer)};
         ASSERT_TRUE(Fixture.Session);
@@ -462,9 +462,9 @@
         auto SessionRaw = std::make_shared<MemoryStream>(std::move(Raw));
         auto Peer = std::make_shared<MemoryStream>(std::move(PeerRaw));
         Prism::Mux::SessionOptions Options;
-        Options.Role = Prism::Role::Server;
-        SessionFixture<Smux::Codec> Fixture{
-            .Session = Prism::Mux::Session<Smux::Codec>::Create(SessionRaw, Options),
+        Options.Role = Prism::Mux::Role::Server;
+        SessionFixture<SmuxWire::Codec> Fixture{
+            .Session = Prism::Mux::Session<SmuxWire::Codec>::Create(SessionRaw, Options),
             .Raw = std::move(SessionRaw),
             .Peer = std::move(Peer)};
         ASSERT_TRUE(Fixture.Session);
@@ -480,9 +480,9 @@
         auto SessionRaw = std::make_shared<MemoryStream>(std::move(Raw));
         auto Peer = std::make_shared<MemoryStream>(std::move(PeerRaw));
         Prism::Mux::SessionOptions Options;
-        Options.Role = Prism::Role::Server;
-        SessionFixture<Smux::Codec> Fixture{
-            .Session = Prism::Mux::Session<Smux::Codec>::Create(SessionRaw, Options),
+        Options.Role = Prism::Mux::Role::Server;
+        SessionFixture<SmuxWire::Codec> Fixture{
+            .Session = Prism::Mux::Session<SmuxWire::Codec>::Create(SessionRaw, Options),
             .Raw = std::move(SessionRaw),
             .Peer = std::move(Peer)};
         ASSERT_TRUE(Fixture.Session);
@@ -498,9 +498,9 @@
         auto SessionRaw = std::make_shared<MemoryStream>(std::move(Raw));
         auto Peer = std::make_shared<MemoryStream>(std::move(PeerRaw));
         Prism::Mux::SessionOptions Options;
-        Options.Role = Prism::Role::Server;
-        SessionFixture<Smux::Codec> Fixture{
-            .Session = Prism::Mux::Session<Smux::Codec>::Create(SessionRaw, Options),
+        Options.Role = Prism::Mux::Role::Server;
+        SessionFixture<SmuxWire::Codec> Fixture{
+            .Session = Prism::Mux::Session<SmuxWire::Codec>::Create(SessionRaw, Options),
             .Raw = std::move(SessionRaw),
             .Peer = std::move(Peer)};
         ASSERT_TRUE(Fixture.Session);
@@ -515,9 +515,9 @@
         auto [Raw, PeerRaw] = MakeMemoryPair(Ioc.get_executor());
         auto Peer = std::make_shared<MemoryStream>(std::move(PeerRaw));
         Prism::Mux::SessionOptions Options;
-        Options.Role = Prism::Role::Server;
+        Options.Role = Prism::Mux::Role::Server;
         Options.timeout = std::chrono::milliseconds(100);
-        auto Session = Prism::Mux::Session<Yamux::Codec>::Create(
+        auto Session = Prism::Mux::Session<YamuxWire::Codec>::Create(
             std::make_shared<MemoryStream>(std::move(Raw)), Options);
         ASSERT_TRUE(Session);
 
@@ -532,8 +532,8 @@
         auto [Raw, PeerRaw] = MakeMemoryPair(Ioc.get_executor());
         auto Peer = std::make_shared<MemoryStream>(std::move(PeerRaw));
         Prism::Mux::SessionOptions Options;
-        Options.Role = Prism::Role::Server;
-        auto Session = Prism::Mux::Session<Yamux::Codec>::Create(
+        Options.Role = Prism::Mux::Role::Server;
+        auto Session = Prism::Mux::Session<YamuxWire::Codec>::Create(
             std::make_shared<MemoryStream>(std::move(Raw)), Options);
         ASSERT_TRUE(Session);
 
@@ -548,8 +548,8 @@
         auto [Raw, PeerRaw] = MakeMemoryPair(Ioc.get_executor());
         auto Peer = std::make_shared<MemoryStream>(std::move(PeerRaw));
         Prism::Mux::SessionOptions Options;
-        Options.Role = Prism::Role::Server;
-        auto Session = Prism::Mux::Session<Yamux::Codec>::Create(
+        Options.Role = Prism::Mux::Role::Server;
+        auto Session = Prism::Mux::Session<YamuxWire::Codec>::Create(
             std::make_shared<MemoryStream>(std::move(Raw)), Options);
         ASSERT_TRUE(Session);
 
@@ -598,7 +598,7 @@
         Options.Identity.SessionId = Prism::SessionId{41};
         Options.Identity.WorkerId = Prism::WorkerId{2};
         Options.Identity.Generation = Prism::GenerationId{1};
-        auto Session = Prism::Mux::Session<Smux::Codec>::Create(
+        auto Session = Prism::Mux::Session<SmuxWire::Codec>::Create(
             std::make_shared<MemoryStream>(std::move(Raw)), Options);
         ASSERT_TRUE(Session);
 
@@ -618,7 +618,7 @@
         Prism::Mux::SessionOptions Options;
         Options.Registry = Control;
         Options.Identity.SessionId = Prism::SessionId{42};
-        auto Session = Prism::Mux::Session<Smux::Codec>::Create(
+        auto Session = Prism::Mux::Session<SmuxWire::Codec>::Create(
             std::make_shared<MemoryStream>(std::move(Raw)), Options);
         ASSERT_TRUE(Session);
 
@@ -637,7 +637,7 @@
         Prism::Mux::SessionOptions Options;
         Options.Registry = Control;
         Options.Identity.SessionId = Prism::SessionId{43};
-        auto Session = Prism::Mux::Session<Smux::Codec>::Create(
+        auto Session = Prism::Mux::Session<SmuxWire::Codec>::Create(
             std::make_shared<MemoryStream>(std::move(Raw)), Options);
         ASSERT_TRUE(Session);
 

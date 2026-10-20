@@ -329,8 +329,21 @@ namespace Prism::Testing::MuxRealRoot
         -> std::shared_ptr<RealRootState>
     {
         auto State = std::make_shared<RealRootState>(Mode, Executor);
-        const auto Wire = Mode == RealRootMode::Smux ? Prism::Mux::Mode::Smux
-            : Mode == RealRootMode::Yamux ? Prism::Mux::Mode::Yamux : Prism::Mux::Mode::H2Mux;
+        auto Wire = Prism::Mux::Mode::Auto;
+        switch (Mode)
+        {
+        case RealRootMode::Smux:
+            Wire = Prism::Mux::Mode::Smux;
+            break;
+        case RealRootMode::Yamux:
+            Wire = Prism::Mux::Mode::Yamux;
+            break;
+        case RealRootMode::H2Mux:
+            Wire = Prism::Mux::Mode::H2Mux;
+            break;
+        default:
+            return {};
+        }
         State->Harness->Binding = std::make_shared<Prism::Mux::RootBinding>(Prism::Mux::RootOptions{
             .Wire = Wire, .Services = {.Egress = std::make_shared<RealRootEgress>(State)},
             .GenerationUseState = State->Harness->UseState});

@@ -2,11 +2,14 @@
 param(
     [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int]$ProxyPort,
     [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int]$TargetPort,
-    [Parameter(Mandatory = $true)][string]$PayloadText
+    [Parameter(Mandatory = $true)][string]$PayloadText,
+    [ValidateRange(1, 100)][int]$RepeatCount = 1,
+    [ValidateRange(0, 2000)][int]$DelayMilliseconds = 0
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'MihomoTestSupport.ps1')
 
 function Read-ExactBytes {
     param(
@@ -35,7 +38,12 @@ function Read-SocksAddress {
         3 {
             $Length = (Read-ExactBytes $Stream 1)[0]
             $NameBytes = Read-ExactBytes $Stream $Length
-            $Address = [System.Net.Dns]::GetHostAddresses([Text.Encoding]::ASCII.GetString($NameBytes))[0]
+            $RelayName = [Text.Encoding]::ASCII.GetString($NameBytes)
+            if (-not [string]::Equals($RelayName, 'localhost',
+                    [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw 'SOCKS5 domain relay must be localhost'
+            }
+            $Address = [System.Net.IPAddress]::Loopback
         }
         4 { $AddressBytes = Read-ExactBytes $Stream 16; $Address = [System.Net.IPAddress]::new($AddressBytes) }
         default { throw "Unsupported SOCKS5 address type: $AddressType" }
@@ -63,15 +71,7 @@ try {
         throw "Mihomo SOCKS5 UDP ASSOCIATE failed with status $($ReplyHead[1])."
     }
     $Relay = Read-SocksAddress $Stream
-    if ($Relay.Port -eq 0) {
-        throw 'Mihomo returned an empty UDP relay port.'
-    }
-    if ([System.Net.IPAddress]::Any.Equals($Relay.Address)) {
-        $Relay = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Loopback, $Relay.Port)
-    }
-    elseif ([System.Net.IPAddress]::IPv6Any.Equals($Relay.Address)) {
-        $Relay = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::IPv6Loopback, $Relay.Port)
-    }
+    $Relay = Normalize-MihomoLoopbackEndpoint $Relay
 
     $Datagram = [System.Net.Sockets.UdpClient]::new($Relay.AddressFamily)
     $Datagram.Client.ReceiveTimeout = 5000
@@ -85,34 +85,41 @@ try {
     $Request[8] = [byte](($TargetPort -shr 8) -band 0xff)
     $Request[9] = [byte]($TargetPort -band 0xff)
     $Payload.CopyTo($Request, 10)
-    [void]$Datagram.Send($Request, $Request.Length, $Relay)
 
-    $Source = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
-    $Response = $Datagram.Receive([ref]$Source)
-    if ($Response.Length -lt 10 -or $Response[0] -ne 0 -or $Response[1] -ne 0 -or $Response[2] -ne 0) {
-        throw 'Mihomo returned a malformed SOCKS5 UDP packet.'
-    }
-    $AddressLength = switch ($Response[3]) {
-        1 { 4 }
-        3 { [int]$Response[4] + 1 }
-        4 { 16 }
-        default { throw "Unsupported SOCKS5 UDP response address type: $($Response[3])" }
-    }
-    $PayloadOffset = 4 + $AddressLength + 2
-    if ($Response.Length -lt $PayloadOffset) {
-        throw 'Mihomo returned a truncated SOCKS5 UDP packet.'
-    }
-    $ActualPayload = $Response[$PayloadOffset..($Response.Length - 1)]
-    $PayloadMatches = $ActualPayload.Length -eq $Payload.Length
-    for ($Index = 0; $PayloadMatches -and $Index -lt $Payload.Length; $Index++) {
-        $PayloadMatches = $ActualPayload[$Index] -eq $Payload[$Index]
-    }
-    if (-not $PayloadMatches) {
-        throw "UDP echo payload mismatch: expected $($Payload.Length) bytes, got $($ActualPayload.Length)."
+    for ($PacketIndex = 0; $PacketIndex -lt $RepeatCount; $PacketIndex++) {
+        [void]$Datagram.Send($Request, $Request.Length, $Relay)
+        $Source = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
+        $Response = $Datagram.Receive([ref]$Source)
+        if (-not (Test-MihomoSocks5UdpRelaySource $Relay $Source)) {
+            throw 'SOCKS5 UDP response source does not match its loopback relay'
+        }
+        if ($Response.Length -lt 10 -or $Response[0] -ne 0 -or $Response[1] -ne 0 -or $Response[2] -ne 0) {
+            throw 'Mihomo returned a malformed SOCKS5 UDP packet.'
+        }
+        $AddressLength = switch ($Response[3]) {
+            1 { 4 }
+            3 { [int]$Response[4] + 1 }
+            4 { 16 }
+            default { throw "Unsupported SOCKS5 UDP response address type: $($Response[3])" }
+        }
+        $PayloadOffset = 4 + $AddressLength + 2
+        if ($Response.Length -lt $PayloadOffset) {
+            throw 'Mihomo returned a truncated SOCKS5 UDP packet.'
+        }
+        $ActualPayload = $Response[$PayloadOffset..($Response.Length - 1)]
+        $PayloadMatches = $ActualPayload.Length -eq $Payload.Length
+        for ($Index = 0; $PayloadMatches -and $Index -lt $Payload.Length; $Index++) {
+            $PayloadMatches = $ActualPayload[$Index] -eq $Payload[$Index]
+        }
+        if (-not $PayloadMatches) {
+            throw "UDP echo payload mismatch: expected $($Payload.Length) bytes, got $($ActualPayload.Length)."
+        }
+        if ($DelayMilliseconds -gt 0 -and $PacketIndex + 1 -lt $RepeatCount) {
+            Start-Sleep -Milliseconds $DelayMilliseconds
+        }
     }
 
-    Write-Output ("PASS: mihomo SOCKS5 UDP bytes={0} relay={1} target=127.0.0.1:{2}" -f `
-        $ActualPayload.Length, $Relay, $TargetPort)
+    Write-Output ("UDP_ECHO_OK=bytes:{0} packets:{1}" -f $Payload.Length, $RepeatCount)
 }
 finally {
     if ($null -ne $Datagram) { $Datagram.Dispose() }

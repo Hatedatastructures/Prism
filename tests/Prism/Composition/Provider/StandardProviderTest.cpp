@@ -1,7 +1,10 @@
 /** @file StandardProviderTest.cpp @brief 实际服务、材料和 epoch 的发布前拒绝合同。 */
 #include <gtest/gtest.h>
+#include <utility>
 #include "CatalogFixture.hpp"
 #include <Prism/Net/Datagram/Egress.hpp>
+#include <Prism/Net/Dns/Config.hpp>
+#include <Prism/Net/Dns/Resolver.hpp>
 #include <Prism/Composition/Provider/ProtocolCredentialPreparation.hpp>
 namespace
 {
@@ -98,9 +101,13 @@ namespace
         ProviderTesting::Fixture Fixture;
         auto Directory=Prism::Testing::ProviderAccount(Prism::Account::Credential::Psk(std::string(16,'p')));
         auto Resolver=std::make_shared<Prism::Network::Dns::Resolver>(Fixture.Io.get_executor(),Prism::Network::Dns::Config{});
-        auto Prepared=Prism::Shadowsocks2022::Prepare({"ss",Fixture.Pin,{.RawUdp=true}},
-            {Fixture.Io.get_executor(),{Fixture.Pin,Directory->Credentials,Directory->Authenticator},
-                std::make_shared<Prism::Network::DatagramEgress>(Resolver),{},{}});
+        Prism::Shadowsocks2022::BindingServices Services{
+            .Executor=Fixture.Io.get_executor(),
+            .Authentication={Fixture.Pin,Directory->Credentials,Directory->Authenticator},
+            .Egress=std::make_shared<Prism::Network::DatagramEgress>(Resolver),
+        };
+        auto Prepared=Prism::Shadowsocks2022::Prepare(
+            {"ss",Fixture.Pin,{.RawUdp=true}},std::move(Services));
         ASSERT_FALSE(Prepared);EXPECT_EQ(Prepared.error().Code,E::MissingSender);
         EXPECT_EQ(Prepared.error().Path,"Datagrams.Sender");
     }

@@ -28,7 +28,7 @@ namespace
     using Prism::AsU8Span;
     using Prism::Error;
     using Prism::make_error_code;
-    
+
 auto MakeBytes(std::initializer_list<std::uint8_t> List) -> std::vector<std::uint8_t>
     {
         return std::vector<std::uint8_t>(List);

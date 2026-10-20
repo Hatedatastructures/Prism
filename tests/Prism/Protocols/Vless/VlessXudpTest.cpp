@@ -32,7 +32,7 @@
 
 #include <Prism/Protocols/Vless/Xudp/Writer.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
@@ -80,7 +80,7 @@ namespace
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
@@ -121,7 +121,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->ReadPartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};
@@ -132,7 +132,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};
@@ -388,7 +388,7 @@ namespace
         EXPECT_EQ(Parsed->Target.Host, *Prism::Network::ParseHost("127.0.0.1"));
         EXPECT_EQ(Parsed->Target.Port, 443U);
         EXPECT_EQ(Parsed->Payload, Payload);
-        Client->CloseAndDrain(Io, Client);
+        CloseAndDrain(Io, Client);
     }
 
     TEST(VlessXudp, ParsesFqdnAddressWithPortFirst)
@@ -411,7 +411,7 @@ namespace
         EXPECT_EQ(Parsed->Target.Host, *Prism::Network::ParseHost("example.com"));
         EXPECT_EQ(Parsed->Target.Port, 53U);
         EXPECT_EQ(Parsed->Payload, Payload);
-        Client->CloseAndDrain(Io, Client);
+        CloseAndDrain(Io, Client);
     }
 
     TEST(VlessXudp, ParsesKeepShortFrameReusingSessionTarget)
@@ -433,7 +433,7 @@ namespace
         EXPECT_EQ(Parsed->SessionId, 3U);
         EXPECT_FALSE(Parsed->HasTarget);
         EXPECT_EQ(Parsed->Payload, Payload);
-        Client->CloseAndDrain(Io, Client);
+        CloseAndDrain(Io, Client);
     }
 
     TEST(VlessXudp, ParsesKeepLongFrameWithPortFirstAddress)
@@ -458,7 +458,7 @@ namespace
         EXPECT_EQ(Parsed->Target.Host, *Prism::Network::ParseHost("10.0.0.5"));
         EXPECT_EQ(Parsed->Target.Port, 8080U);
         EXPECT_EQ(Parsed->Payload, Payload);
-        Client->CloseAndDrain(Io, Client);
+        CloseAndDrain(Io, Client);
     }
 
     TEST(VlessXudp, WritesKeepFrameWithSessionIdAndPortFirstSourceAddress)
@@ -472,7 +472,8 @@ namespace
 
         constexpr std::size_t ExpectedSize = 2U + 2U + 1U + 1U + 1U + 7U + 2U + 4U;
         auto Tasks = std::make_shared<Prism::Lifecycle::TaskRegistry>(ServerTransport->Executor());
-        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(ServerTransport, Tasks);
+        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(
+            ServerTransport, Tasks, std::make_shared<Prism::Vless::Xudp::RunFailureState>());
         auto Scenario = std::make_shared<WriterScenario>();
         Scenario->Owner = std::move(Writer);
         Scenario->Tasks = std::move(Tasks);
@@ -480,7 +481,7 @@ namespace
         Scenario->Reader = std::move(ClientTransport);
         Scenario->ReadSize = ExpectedSize;
         Prism::Testing::RunCoro(Io, RunWriterScenario(Scenario));
-        EXPECT_TRUE(Scenario->Result.Written);
+        EXPECT_TRUE(Scenario->Result.Succeeded());
         auto Wire = std::move(Scenario->Wire);
 
         ASSERT_EQ(Wire.size(), 20U);
@@ -501,7 +502,7 @@ namespace
         EXPECT_EQ(Wire[14], 0x00U);
         EXPECT_EQ(Wire[15], 0x04U);
         EXPECT_EQ(std::vector<std::uint8_t>(Wire.begin() + 16, Wire.end()), Payload);
-        ServerTransport->CloseAndDrain(Io, ServerTransport);
+        CloseAndDrain(Io, ServerTransport);
     }
 
     TEST(VlessXudp, ParsesIpv6AndWritesIpv6SourceAddress)
@@ -538,7 +539,7 @@ namespace
         {
             EXPECT_EQ(Reply[10U + Index], std::byte{AddressValue.to_bytes()[Index]});
         }
-        Client->CloseAndDrain(Io, Client);
+        CloseAndDrain(Io, Client);
     }
 
     TEST(VlessXudp, RejectsTruncatedAndErrorOptionFrames)
@@ -565,7 +566,8 @@ namespace
         auto Transport = std::make_shared<ScriptedTransmission>(Io.get_executor(),
             WriterScript{{3U, 2U, 100U}, {}, false});
         auto Tasks = std::make_shared<Prism::Lifecycle::TaskRegistry>(Io.get_executor());
-        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(Transport, Tasks);
+        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(
+            Transport, Tasks, std::make_shared<Prism::Vless::Xudp::RunFailureState>());
         auto Scenario = std::make_shared<WriterScenario>();
         Scenario->Owner = std::move(Writer);
         Scenario->Tasks = std::move(Tasks);
@@ -576,8 +578,8 @@ namespace
         Io.run();
 
         EXPECT_FALSE(Failure);
-        EXPECT_TRUE(Scenario->Result.Written);
-        EXPECT_EQ(Scenario->Result.Bytes, 2U);
+        EXPECT_TRUE(Scenario->Result.Succeeded());
+        EXPECT_EQ(Scenario->Result.PayloadBytes, 2U);
         ASSERT_EQ(Transport->Bytes().size(), 5U);
         EXPECT_EQ(Transport->Calls(), 2U);
         EXPECT_FALSE(Transport->Closed());
@@ -589,7 +591,9 @@ namespace
         auto Transport = std::make_shared<ScriptedTransmission>(Io.get_executor(),
             WriterScript{{3U, 0U}, {std::error_code{}, std::make_error_code(std::errc::io_error)}, false});
         auto Tasks = std::make_shared<Prism::Lifecycle::TaskRegistry>(Io.get_executor());
-        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(Transport, Tasks);
+        auto RunFailure = std::make_shared<Prism::Vless::Xudp::RunFailureState>();
+        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(
+            Transport, Tasks, RunFailure);
         auto Scenario = std::make_shared<WriterScenario>();
         Scenario->Owner = std::move(Writer);
         Scenario->Tasks = std::move(Tasks);
@@ -600,7 +604,13 @@ namespace
         Io.run();
 
         EXPECT_FALSE(Failure);
-        EXPECT_FALSE(Scenario->Result.Written);
+        EXPECT_TRUE(Scenario->Result.Failed());
+        EXPECT_EQ(Scenario->Result.PayloadBytes, 0U);
+        EXPECT_EQ(Scenario->Result.WireBytes, 3U);
+        EXPECT_EQ(Scenario->Result.Failure.Code, Prism::Fault::Code::IoError);
+        EXPECT_EQ(Scenario->Result.Failure.Native, std::make_error_code(std::errc::io_error));
+        EXPECT_EQ(RunFailure->First.Code, Prism::Fault::Code::IoError);
+        EXPECT_EQ(RunFailure->First.Native, std::make_error_code(std::errc::io_error));
         EXPECT_TRUE(Transport->Closed());
         EXPECT_TRUE(Transport->Canceled());
         EXPECT_EQ(Transport->Calls(), 2U);
@@ -612,7 +622,9 @@ namespace
         auto Transport = std::make_shared<ScriptedTransmission>(Io.get_executor(),
             WriterScript{{}, {}, true});
         auto Tasks = std::make_shared<Prism::Lifecycle::TaskRegistry>(Io.get_executor());
-        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(Transport, Tasks);
+        auto RunFailure = std::make_shared<Prism::Vless::Xudp::RunFailureState>();
+        auto Writer = std::make_shared<Prism::Vless::Xudp::Writer>(
+            Transport, Tasks, RunFailure);
         auto Scenario = std::make_shared<WriterScenario>();
         Scenario->Owner = std::move(Writer);
         Scenario->Tasks = std::move(Tasks);
@@ -630,7 +642,15 @@ namespace
         Io.run();
 
         EXPECT_FALSE(Failure);
-        EXPECT_FALSE(Scenario->Result.Written);
+        EXPECT_TRUE(Scenario->Result.Failed());
+        EXPECT_EQ(Scenario->Result.PayloadBytes, 0U);
+        EXPECT_EQ(Scenario->Result.WireBytes, 0U);
+        EXPECT_EQ(Scenario->Result.Failure.Code, Prism::Fault::Code::Canceled);
+        EXPECT_EQ(Scenario->Result.Failure.Native,
+            std::make_error_code(std::errc::operation_canceled));
+        EXPECT_EQ(RunFailure->First.Code, Prism::Fault::Code::Canceled);
+        EXPECT_EQ(RunFailure->First.Native,
+            std::make_error_code(std::errc::operation_canceled));
         EXPECT_TRUE(Transport->Closed());
         EXPECT_TRUE(Transport->Canceled());
     }

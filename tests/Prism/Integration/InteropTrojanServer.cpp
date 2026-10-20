@@ -47,6 +47,13 @@ namespace
         std::uint16_t Port{0};
     };
 
+    enum class ConnectionOutcome
+    {
+        Retry,
+        Success,
+        Failure
+    };
+
     [[nodiscard]] auto ParsePort(std::string_view Value) -> std::optional<std::uint16_t>
     {
         if (Value.empty()) return std::nullopt;
@@ -92,7 +99,7 @@ namespace
     }
 
     [[nodiscard]] auto ServeConnection(Tcp::socket Socket, const Options &OptionsValue)
-        -> Net::awaitable<bool>
+        -> Net::awaitable<ConnectionOutcome>
     {
         auto Raw = std::make_shared<Prism::Transport::Reliable>(std::move(Socket));
         const Prism::Trojan::ServerConfig Config{OptionsValue.Password, true, false, false};
@@ -102,10 +109,14 @@ namespace
             const auto Native = Prism::Fault::ToNative(AcceptResult.error());
             const auto Close = Raw->Close();
             const auto Drain = co_await Raw->Activity()->Drain();
-            if (!Close || !Drain) std::fprintf(stderr, "FAIL: Trojan reject close drain\n");
+            if (!Close || !Drain)
+            {
+                std::fprintf(stderr, "FAIL: Trojan reject close drain\n");
+                co_return ConnectionOutcome::Failure;
+            }
             std::fprintf(stderr, "FAIL: Trojan server handshake (%u): %s\n",
                          static_cast<unsigned>(AcceptResult.error().Code), Native.message().c_str());
-            co_return false;
+            co_return ConnectionOutcome::Retry;
         }
         if (!AcceptResult->Connection)
         {
@@ -114,31 +125,73 @@ namespace
             if (!Close || !Drain)
             {
                 std::fprintf(stderr, "FAIL: protocol reject close drain\n");
+                co_return ConnectionOutcome::Failure;
             }
             std::fprintf(stderr, "FAIL: protocol Accept returned an empty owner\n");
-            co_return false;
+            co_return ConnectionOutcome::Retry;
         }
         auto Conn = std::move(AcceptResult->Connection);
 
         std::array<std::byte, 4096> Buffer{};
+        bool EchoedBytes = false;
+        bool PeerClosed = false;
         while (true)
         {
             const auto Read = co_await Conn->ReadSome(Buffer);
-            if (Read.Failure.Failed() || Read.Bytes == 0) break;
-            const auto Write = co_await Conn->WriteExact(
-                std::span<const std::byte>(Buffer.data(), Read.Bytes));
-            if (Write.Failure.Failed() || Write.Bytes != Read.Bytes)
+            if (Read.Bytes > Buffer.size())
             {
                 const auto Close = Conn->Close();
                 const auto Drain = co_await Conn->Activity()->Drain();
-                if (!Close || !Drain) std::fprintf(stderr, "FAIL: Trojan relay close drain\n");
-                co_return true;
+                if (!Close || !Drain) std::fprintf(stderr, "FAIL: Trojan invalid read close drain\n");
+                co_return ConnectionOutcome::Failure;
+            }
+            if (Read.Bytes != 0)
+            {
+                const auto Write = co_await Conn->WriteExact(
+                    std::span<const std::byte>(Buffer.data(), Read.Bytes));
+                if (Write.Failure.Failed() || Write.Bytes != Read.Bytes)
+                {
+                    std::fprintf(stderr, "FAIL: Trojan echo write returned %zu of %zu bytes\n",
+                                 Write.Bytes, Read.Bytes);
+                    const auto Close = Conn->Close();
+                    const auto Drain = co_await Conn->Activity()->Drain();
+                    if (!Close || !Drain)
+                        std::fprintf(stderr, "FAIL: Trojan relay close drain\n");
+                    co_return ConnectionOutcome::Failure;
+                }
+                EchoedBytes = true;
+            }
+            if (Read.Failure.Failed())
+            {
+                if (Read.Failure.Code == Prism::Fault::Code::Eof)
+                {
+                    PeerClosed = true;
+                }
+                else
+                {
+                    const auto Native = Prism::Fault::ToNative(Read.Failure);
+                    std::fprintf(stderr, "FAIL: Trojan relay read (%u): %s\n",
+                                 static_cast<unsigned>(Read.Failure.Code),
+                                 Native.message().c_str());
+                }
+                break;
+            }
+            if (Read.Bytes == 0)
+            {
+                std::fprintf(stderr, "FAIL: Trojan relay read made no progress without EOF\n");
+                break;
             }
         }
         const auto Close = Conn->Close();
         const auto Drain = co_await Conn->Activity()->Drain();
-        if (!Close || !Drain) std::fprintf(stderr, "FAIL: Trojan relay close drain\n");
-        co_return true;
+        if (!Close || !Drain)
+        {
+            std::fprintf(stderr, "FAIL: Trojan relay close drain\n");
+            co_return ConnectionOutcome::Failure;
+        }
+        co_return PeerClosed && EchoedBytes
+            ? ConnectionOutcome::Success
+            : ConnectionOutcome::Failure;
     }
 
     [[nodiscard]] auto RunServer(Options OptionsValue) -> Net::awaitable<int>
@@ -165,6 +218,11 @@ namespace
             co_return 1;
         }
         Acceptor.set_option(Tcp::acceptor::reuse_address(true), Error);
+        if (Error)
+        {
+            std::fprintf(stderr, "FAIL: acceptor reuse address: %s\n", Error.message().c_str());
+            co_return 1;
+        }
         Acceptor.bind(Tcp::endpoint(Address, Listen->Port), Error);
         if (Error)
         {
@@ -185,7 +243,9 @@ namespace
             auto Socket = co_await Acceptor.async_accept(
                 Net::redirect_error(Net::use_awaitable, AcceptError));
             if (AcceptError) co_return 1;
-            if (co_await ServeConnection(std::move(Socket), OptionsValue)) co_return 0;
+            const auto Outcome = co_await ServeConnection(std::move(Socket), OptionsValue);
+            if (Outcome == ConnectionOutcome::Success) co_return 0;
+            if (Outcome == ConnectionOutcome::Failure) co_return 1;
         }
     }
 

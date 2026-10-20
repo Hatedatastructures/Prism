@@ -1,0 +1,42 @@
+set(PrismProtocolXhttpHeaders
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Xhttp/ConnectionTypes.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Xhttp/Entry.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Xhttp/Xhttp.hpp"
+)
+set(PrismProtocolXhttpPrivateHeaders
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/AcceptedTransport.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/CarrierSessionSupport.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/ClientTls.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/FactoryRetirement.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Http2ReadCompletion.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitClient.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitClientState.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitPath.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServer.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServerAccept.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServerState.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServerWireWriter.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitTransport.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamClient.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamClientState.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamServer.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamTransport.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamWriteQueue.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Wire.hpp"
+)
+PrismAddStaticTarget(PrismProtocolXhttp
+    SOURCES
+        Xhttp.cpp
+        Detail/Http2ReadCompletion.cpp
+        SplitClient.cpp
+        SplitServer.cpp
+        SplitServerAccept.cpp
+        Detail/SplitTransport.cpp
+        StreamClient.cpp
+        StreamServer.cpp
+        Detail/StreamTransport.cpp
+        Detail/StreamWriteQueue.cpp
+        Wire.cpp
+    HEADERS ${PrismProtocolXhttpHeaders}
+    PRIVATE_HEADERS ${PrismProtocolXhttpPrivateHeaders}
+)

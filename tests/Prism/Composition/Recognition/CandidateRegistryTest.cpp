@@ -33,6 +33,7 @@
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 #include <Prism/Composition/Recognition/CandidateRegistry.hpp>
 #include <Prism/Composition/Recognition/TrusttunnelCandidate.hpp>
+#include <Prism/Composition/Recognition/TrusttunnelCandidateFailure.hpp>
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Protocols/Trojan/RequestCodec.hpp>
 #include <Prism/Protocols/Vless/RequestCodec.hpp>

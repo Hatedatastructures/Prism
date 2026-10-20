@@ -13,15 +13,16 @@ TEST(RealityRecognition, AllowsConfiguredRealityWithOuterEchExtension)
     Options.Id = 1;
     Options.Name = "vless-reality";
     Options.Scheme = "reality";
+    Options.Carrier = Prism::Composition::Recognition::TlsCarrier::Reality;
     Options.ServerNames = {"example.com"};
 
     const auto Binding = Prism::Composition::Recognition::TlsCandidateFactory::Make(
         std::move(Options),
-        [](Prism::SharedTransmission Inbound)
+        [](Prism::Recognition::CarrierAcceptInput Input)
             -> boost::asio::awaitable<Prism::Recognition::CarrierAcceptResult>
         {
             Prism::Recognition::CarrierAcceptResult Result;
-            Result.Transport = std::move(Inbound);
+            Result.Transport = std::move(Input.Inbound);
             co_return Result;
         });
 

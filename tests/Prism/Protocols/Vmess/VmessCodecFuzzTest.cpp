@@ -9,7 +9,14 @@
 #include <random>
 #include <span>
 #include <vector>
-#include <Prism/Protocols/Vmess/Codec.hpp>
+#include <Prism/Protocols/Vmess/AuthCrypto.hpp>
+#include <Prism/Protocols/Vmess/AuthHeader.hpp>
+#include <Prism/Protocols/Vmess/AuthId.hpp>
+#include <Prism/Protocols/Vmess/AuthKdf.hpp>
+#include <Prism/Protocols/Vmess/ChunkCodec.hpp>
+#include <Prism/Protocols/Vmess/RequestCodec.hpp>
+#include <Prism/Protocols/Vmess/ResponseCodec.hpp>
+#include <Prism/Protocols/Vmess/Types.hpp>
 
 namespace
 {

@@ -25,8 +25,8 @@
 #include <utility>
 #include <vector>
 
-#include <Prism/Protocols/Socks5/AssociationFactory.hpp>
-#include <Prism/Protocols/Vless/AssociationFactory.hpp>
+#include <Prism/Protocols/Socks5/Binding.hpp>
+#include <Prism/Protocols/Vless/IngressFactory.hpp>
 #include <Prism/Protocols/Trojan/DatagramSession.hpp>
 #include <Prism/Protocols/Vmess/DatagramSession.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
@@ -37,11 +37,11 @@
 #include <Prism/Boundary/Datagram/DatagramListener.hpp>
 #include <Prism/Protocols/Quic/Native.hpp>
 #include <Prism/Runtime/Middleware/Context.hpp>
-#include <Prism/Protocols/Socks5/Codec.hpp>
+#include <Prism/Protocols/Socks5/Socks5.hpp>
 #include <Prism/Protocols/Socks5/Conn.hpp>
 #include <Prism/Protocols/Trojan/Dgram.hpp>
 #include <Prism/Protocols/Trojan/Types.hpp>
-#include <Prism/Protocols/Vless/Codec.hpp>
+#include <Prism/Protocols/Vless/Vless.hpp>
 #include <Prism/Protocols/Vless/Conn.hpp>
 #include <Prism/Protocols/Vmess/Vmess.hpp>
 #include <Prism/Protocols/Anytls/IngressFactory.hpp>

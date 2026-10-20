@@ -4,9 +4,15 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <chrono>
+#include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <optional>
 #include <random>
+#include <stdexcept>
+#include <string>
+#include <system_error>
+#include <utility>
 #include <gtest/gtest.h>
 
 namespace Prism::StorageTests
@@ -18,14 +24,64 @@ namespace Prism::StorageTests
         {
             std::random_device Random;
             const auto Root = std::filesystem::temp_directory_path();
-            do { Directory = Root / ("PrismStorageTest-" + std::to_string(Random()) + "-" + std::to_string(Random())); }
-            while (!std::filesystem::create_directory(Directory));
+            std::uint64_t Attempt = 0U;
+            for (;;)
+            {
+                Directory = Root / ("PrismStorageTest-" + std::to_string(Random()) + "-" +
+                    std::to_string(Random()) + "-" + std::to_string(Attempt++));
+                std::error_code CreateError;
+                if (std::filesystem::create_directory(Directory, CreateError)) return;
+                if (CreateError == std::errc::file_exists) continue;
+                if (CreateError)
+                    throw std::filesystem::filesystem_error("create Prism storage test directory",
+                        Directory, CreateError);
+                std::error_code ExistsError;
+                if (std::filesystem::exists(Directory, ExistsError) && !ExistsError) continue;
+                if (ExistsError)
+                    throw std::filesystem::filesystem_error("check Prism storage test directory",
+                        Directory, ExistsError);
+                throw std::filesystem::filesystem_error("create Prism storage test directory",
+                    Directory, std::make_error_code(std::errc::io_error));
+            }
         }
         ~StorageFixture() override
         {
-            if (Owner) { (void)Run(Owner->Shutdown()); Owner->Join(); Owner.reset(); }
-            std::error_code Error;
-            std::filesystem::remove_all(Directory, Error);
+            bool ShutdownFailed = false;
+            bool ShutdownThrew = false;
+            bool JoinThrew = false;
+            bool RemoveThrew = false;
+            int ShutdownCode = 0;
+            std::error_code RemoveError;
+            if (Owner)
+            {
+                try
+                {
+                    const auto Result = Run(Owner->Shutdown());
+                    if (!Result)
+                    {
+                        ShutdownFailed = true;
+                        ShutdownCode = static_cast<int>(Result.error().Code);
+                    }
+                }
+                catch (...) { ShutdownThrew = true; }
+                try { Owner->Join(); }
+                catch (...) { JoinThrew = true; }
+            }
+            try { std::filesystem::remove_all(Directory, RemoveError); }
+            catch (...) { RemoveThrew = true; }
+            Owner.reset();
+            if (RemoveError || RemoveThrew)
+            {
+                RemoveError.clear();
+                RemoveThrew = false;
+                try { std::filesystem::remove_all(Directory, RemoveError); }
+                catch (...) { RemoveThrew = true; }
+            }
+            if (ShutdownFailed) ADD_FAILURE() << "StorageRuntime shutdown returned Fault code " << ShutdownCode;
+            if (ShutdownThrew) ADD_FAILURE() << "StorageRuntime shutdown threw during fixture cleanup";
+            if (JoinThrew) ADD_FAILURE() << "StorageRuntime join threw during fixture cleanup";
+            if (RemoveThrew) ADD_FAILURE() << "Removing the isolated storage test directory threw";
+            if (RemoveError) ADD_FAILURE() << "Removing the isolated storage test directory failed: " << RemoveError.message();
         }
         template<class Result>
         auto Run(boost::asio::awaitable<Result> Work) -> Result

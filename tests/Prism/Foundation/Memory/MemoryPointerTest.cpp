@@ -18,7 +18,7 @@
 #include <Prism/Foundation/Memory/Container.hpp>
 #include <Prism/Foundation/Memory/Pointer.hpp>
 #include <Prism/Foundation/Memory/Pool.hpp>
-#include <Prism/Protocols/Socks5/Codec.hpp>
+#include <Prism/Protocols/Socks5/Socks5.hpp>
 #include <Prism/Protocols/Socks5/Types.hpp>
 
 namespace

@@ -1,11 +1,16 @@
 #include <expected>
 #include <array>
+#include <system_error>
+#include <vector>
 #include <Prism/Transport/Connector.hpp>
 #include <Prism/Transport/Encrypted.hpp>
-#include <Prism/Transport/Detail/TlsStream.hpp>
+#include <Prism/Transport/TlsStream.hpp>
+#include <Prism/Protocols/Trusttunnel/Detail/AcceptedCarrierActivity.hpp>
+#include <Prism/Protocols/Trusttunnel/Detail/AcceptedClientTransport.hpp>
 #include <Prism/Protocols/Trusttunnel/Detail/Http2Client.hpp>
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Contract/Io/CarrierCloseReceipt.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
 #include <memory>
 #include <optional>
 
@@ -134,6 +139,32 @@ namespace
             if (Part.Failure.Failed() || Part.Bytes == 0) co_return;
         }
     }
+
+    struct ReadTerminalObservation final
+    {
+        std::vector<std::byte> Data;
+        std::array<std::size_t, 6> Counts{};
+        std::array<Prism::Fault::Failure, 2> Terminal{};
+    };
+
+    auto ReadQueuedDataAndRepeatTerminal(
+        const std::shared_ptr<Transport> &Stream,
+        const std::shared_ptr<ReadTerminalObservation> &Observation) -> Net::awaitable<void>
+    {
+        std::array<std::byte, 2> Buffer{};
+        for (std::size_t Index = 0; Index < Observation->Counts.size(); ++Index)
+        {
+            const auto Part = co_await Stream->ReadSome(Buffer);
+            EXPECT_LE(Part.Bytes, Buffer.size());
+            if (Part.Bytes > Buffer.size()) co_return;
+            Observation->Counts[Index] = Part.Bytes;
+            Observation->Data.insert(
+                Observation->Data.end(), Buffer.begin(),
+                Buffer.begin() + static_cast<std::ptrdiff_t>(Part.Bytes));
+            if (Index >= 4) Observation->Terminal[Index - 4] = Part.Failure;
+            if (Index < 4) EXPECT_FALSE(Part.Failure.Failed());
+        }
+    }
 }
 
 TEST(TrusttunnelHttp2Transport, EofSurvivesFullReceiveQueue)
@@ -184,6 +215,117 @@ TEST(TrusttunnelHttp2Transport, LargeInboundDataSurvivesWindowRefresh)
     RunCoro(IoContext, ReadLargePayload(Stream, Received));
     EXPECT_EQ(Received, Payload);
 }
+
+TEST(TrusttunnelHttp2Transport, DeliversQueuedDataBeforeStickyNativeReadFailure)
+{
+    Net::io_context IoContext;
+    auto Stream = std::make_shared<Transport>(Transport::Options{
+        IoContext.get_executor(), Transport::WriteCb{NoopHttp2Write},
+        Transport::FinishCb{}, Transport::CloseCb{}});
+    const std::array<std::byte, 3> First{std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
+    const std::array<std::byte, 4> Second{
+        std::byte{'d'}, std::byte{'e'}, std::byte{'f'}, std::byte{'g'}};
+    const auto Native = std::make_error_code(std::errc::connection_reset);
+    const auto Failure = Prism::Fault::FromNative(Native);
+    Stream->Push(First);
+    Stream->Push(Second);
+    Stream->NotifyReadTerminal(Failure);
+    const auto Observation = std::make_shared<ReadTerminalObservation>();
+
+    RunCoro(IoContext, ReadQueuedDataAndRepeatTerminal(Stream, Observation));
+
+    const std::array<std::byte, 7> Expected{
+        std::byte{'a'}, std::byte{'b'}, std::byte{'c'}, std::byte{'d'},
+        std::byte{'e'}, std::byte{'f'}, std::byte{'g'}};
+    EXPECT_EQ(Observation->Data, std::vector<std::byte>(Expected.begin(), Expected.end()));
+    EXPECT_EQ(Observation->Counts, (std::array<std::size_t, 6>{2U, 1U, 2U, 2U, 0U, 0U}));
+    EXPECT_EQ(Observation->Terminal[0].Code, Failure.Code);
+    EXPECT_EQ(Observation->Terminal[0].Native, Native);
+    EXPECT_EQ(Observation->Terminal[1].Code, Failure.Code);
+    EXPECT_EQ(Observation->Terminal[1].Native, Native);
+    const auto Retired = Stream->Close();
+    EXPECT_TRUE(Retired);
+    IoContext.restart();
+    std::expected<void, Prism::Fault::Failure> Drain;
+    RunCoro(IoContext, [&]() -> Net::awaitable<void>
+    {
+        Drain = co_await Stream->Activity()->Drain();
+    }());
+    EXPECT_TRUE(Drain);
+}
+
+TEST(TrusttunnelHttp2Transport, DeliversQueuedDataBeforeStickyCanceledRead)
+{
+    Net::io_context IoContext;
+    auto Stream = std::make_shared<Transport>(Transport::Options{
+        IoContext.get_executor(), Transport::WriteCb{NoopHttp2Write},
+        Transport::FinishCb{}, Transport::CloseCb{}});
+    const std::array<std::byte, 3> First{std::byte{'x'}, std::byte{'y'}, std::byte{'z'}};
+    const std::array<std::byte, 4> Second{
+        std::byte{'1'}, std::byte{'2'}, std::byte{'3'}, std::byte{'4'}};
+    const auto Native = std::make_error_code(std::errc::operation_canceled);
+    const auto Failure = Prism::Fault::FromNative(Native);
+    Stream->Push(First);
+    Stream->Push(Second);
+    Stream->NotifyReadTerminal(Failure);
+    const auto Observation = std::make_shared<ReadTerminalObservation>();
+
+    RunCoro(IoContext, ReadQueuedDataAndRepeatTerminal(Stream, Observation));
+
+    const std::array<std::byte, 7> Expected{
+        std::byte{'x'}, std::byte{'y'}, std::byte{'z'}, std::byte{'1'},
+        std::byte{'2'}, std::byte{'3'}, std::byte{'4'}};
+    EXPECT_EQ(Observation->Data, std::vector<std::byte>(Expected.begin(), Expected.end()));
+    EXPECT_EQ(Observation->Counts, (std::array<std::size_t, 6>{2U, 1U, 2U, 2U, 0U, 0U}));
+    EXPECT_EQ(Observation->Terminal[0].Code, Prism::Fault::Code::Canceled);
+    EXPECT_EQ(Observation->Terminal[0].Native, Native);
+    EXPECT_EQ(Observation->Terminal[1].Code, Prism::Fault::Code::Canceled);
+    EXPECT_EQ(Observation->Terminal[1].Native, Native);
+    const auto Closed = Stream->Close();
+    EXPECT_TRUE(Closed);
+    IoContext.restart();
+    std::expected<void, Prism::Fault::Failure> Drain;
+    RunCoro(IoContext, [&]() -> Net::awaitable<void>
+    {
+        Drain = co_await Stream->Activity()->Drain();
+    }());
+    EXPECT_TRUE(Drain);
+}
+
+TEST(TrusttunnelHttp2Transport, DeliversQueuedDataBeforeStickyReadEof)
+{
+    Net::io_context IoContext;
+    auto Stream = std::make_shared<Transport>(Transport::Options{
+        IoContext.get_executor(), Transport::WriteCb{NoopHttp2Write},
+        Transport::FinishCb{}, Transport::CloseCb{}});
+    const std::array<std::byte, 3> First{std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
+    const std::array<std::byte, 4> Second{
+        std::byte{'d'}, std::byte{'e'}, std::byte{'f'}, std::byte{'g'}};
+    const Prism::Fault::Failure Failure{Prism::Fault::Code::Eof};
+    Stream->Push(First);
+    Stream->Push(Second);
+    Stream->NotifyReadTerminal(Failure);
+    const auto Observation = std::make_shared<ReadTerminalObservation>();
+
+    RunCoro(IoContext, ReadQueuedDataAndRepeatTerminal(Stream, Observation));
+
+    EXPECT_EQ(Observation->Counts, (std::array<std::size_t, 6>{2U, 1U, 2U, 2U, 0U, 0U}));
+    EXPECT_EQ(Observation->Terminal[0].Code, Prism::Fault::Code::Eof);
+    EXPECT_EQ(Observation->Terminal[1].Code, Prism::Fault::Code::Eof);
+    const std::array<std::byte, 7> Expected{
+        std::byte{'a'}, std::byte{'b'}, std::byte{'c'}, std::byte{'d'},
+        std::byte{'e'}, std::byte{'f'}, std::byte{'g'}};
+    EXPECT_EQ(Observation->Data, std::vector<std::byte>(Expected.begin(), Expected.end()));
+    const auto Closed = Stream->Close();
+    EXPECT_TRUE(Closed);
+    IoContext.restart();
+    std::expected<void, Prism::Fault::Failure> Drain;
+    RunCoro(IoContext, [&]() -> Net::awaitable<void>
+    {
+        Drain = co_await Stream->Activity()->Drain();
+    }());
+    EXPECT_TRUE(Drain);
+}
 namespace
 {
     using TlsStreamResult = std::expected<
@@ -209,7 +351,10 @@ namespace
         auto Admission = std::move(*Prepared);
         *Request.Result = co_await Trusttunnel::Detail::ConnectHttp2Tls(
             Trusttunnel::Detail::Http2TlsClientRequest{
-                std::move(Request.Raw), *Request.Context, "example.com", {}},
+                .Raw = std::move(Request.Raw),
+                .SslContext = *Request.Context,
+                .ServerName = "example.com",
+                .Bytes = {}},
             Admission);
     }
 }
@@ -316,7 +461,7 @@ namespace
         std::array<Prism::SharedTransmission, 8> CapacityOwners;
         Ssl::context *Context;
         std::optional<Prism::Fault::Failure> *Result;
-        std::weak_ptr<Prism::Transport::Detail::TlsStream> *TlsReceipt;
+        std::weak_ptr<Prism::Transport::TlsStream> *TlsReceipt;
         bool *HandshakeCompleted;
         Prism::Fault::Failure Cause;
     };
@@ -356,7 +501,7 @@ namespace
                 co_return;
             }
         }
-        auto Stream = std::make_shared<Prism::Transport::Detail::TlsStream>(
+        auto Stream = std::make_shared<Prism::Transport::TlsStream>(
             Prism::Transport::Connector(Request.Inbound), *Request.Context);
         *Request.TlsReceipt = Stream;
         Stream->async_handshake(Net::ssl::stream_base::server,
@@ -387,7 +532,7 @@ TEST(TrusttunnelHttp2Transport, TlsHandshakeCapacityRejectionRetiresEncryptedOwn
     }
     Ssl::context Context(Ssl::context::tlsv13_server);
     std::optional<Prism::Fault::Failure> Result;
-    std::weak_ptr<Prism::Transport::Detail::TlsStream> TlsReceipt;
+    std::weak_ptr<Prism::Transport::TlsStream> TlsReceipt;
     bool HandshakeCompleted = false;
     const auto Native = std::make_error_code(std::errc::broken_pipe);
     const Prism::Fault::Failure Cause{Prism::Fault::Code::TlsHsfail, Native};

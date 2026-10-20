@@ -31,12 +31,14 @@
 #include <utility>
 #include <vector>
 
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/MixedTrialMode.hpp>
 #include <Prism/Runtime/Recognition/Profile.hpp>
 #include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
 #include <Prism/Runtime/Recognition/Protocol.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
 #include <Prism/Composition/Recognition/TlsCandidateFactory.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
 
 namespace
@@ -44,6 +46,13 @@ namespace
 
     namespace Net = boost::asio;
     namespace rec = Prism::Recognition;
+
+    /** @brief 创建混合试探测试使用的有界预读池。 */
+    auto MakeMixedTrialProbeBytePool() -> std::shared_ptr<Prism::Memory::BytePool>
+    {
+        return std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U * 1024U, 64U});
+    }
 
     struct ReadStep
     {
@@ -54,7 +63,10 @@ namespace
     class ScriptedTransport final : public Prism::Transmission
     {
     public:
-        explicit ScriptedTransport(Net::any_io_executor Executor) : Executor_(std::move(Executor)) {}
+        explicit ScriptedTransport(Net::any_io_executor Executor)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor))
+        {
+        }
 
         auto SetPending() -> void
         {
@@ -113,13 +125,13 @@ namespace
         auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
             ++Writes_;
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                                                   Prism::IoResult{Buffer.size(), {}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -148,7 +160,7 @@ namespace
         {
             if (Error)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor_, std::move(Handler),
                     Prism::IoResult{0, Prism::Fault::FromNative(static_cast<std::error_code>(Error))});
                 return;
@@ -156,7 +168,7 @@ namespace
             ReadCompleted_ = true;
             if (Canceled_)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor_, std::move(Handler),
                     Prism::IoResult{0, Prism::Fault::FromNative(std::make_error_code(std::errc::operation_canceled))});
                 return;
@@ -168,7 +180,7 @@ namespace
         {
             if (Steps_.empty())
             {
-                Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+                Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
                 return;
             }
             auto &Step = Steps_.front();
@@ -180,7 +192,7 @@ namespace
             {
                 Steps_.pop_front();
             }
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{Count, std::move(Failure)});
         }
 

@@ -110,7 +110,7 @@ namespace
             Credential::Password("shared-password")});
         auto Materials = std::make_shared<const AccountMaterials>(
             AccountMaterials::CreateRequest{
-                AccountId{7030}, {}, std::move(Credentials)});
+                AccountId{7030}, "test-account-7030", std::move(Credentials)});
         const AccountDefinition Definition{std::move(Materials), {}};
         auto Directory = std::make_shared<AccountStore>();
         ASSERT_TRUE(Publish(*Directory, Definition));
@@ -248,7 +248,7 @@ namespace
         ASSERT_TRUE(Result.has_value());
         EXPECT_EQ(Result->AccountId(), Prism::AccountId{7020});
         EXPECT_TRUE(Result->Identity().empty()); // canonical身份来自材料，不复制任意请求文本。
-        EXPECT_TRUE(Result->DisplayIdentity().empty());
+        EXPECT_EQ(Result->DisplayIdentity(), "test-account-7020");
         EXPECT_TRUE(*Result);
         EXPECT_TRUE(InspectMatch(Auth, CredentialView::Extension("typed-extension")));
         Result->Release();
@@ -263,7 +263,7 @@ namespace
         EXPECT_EQ(AccountIds.front(), Prism::AccountId{7020});
     }
 
-    TEST(Authenticator, UuidCredentialUsesNumericAccountAndKeepsDisplayIdentityEmpty)
+    TEST(Authenticator, UuidCredentialUsesNumericAccountAndStableDisplayIdentity)
     {
         using Prism::Account::AccountStore;
                 using Prism::Account::Credential;
@@ -288,7 +288,7 @@ namespace
 
         ASSERT_TRUE(Result.has_value());
         EXPECT_TRUE(Result->Identity().empty());
-        EXPECT_TRUE(Result->DisplayIdentity().empty());
+        EXPECT_EQ(Result->DisplayIdentity(), "test-account-7021");
         EXPECT_EQ(Result->AccountId(), Prism::AccountId{7021});
         ASSERT_TRUE(*Result);
         EXPECT_EQ(Directory->FindById(Record.Materials->AccountId())->Runtime()->ActiveConnections(), 1U);

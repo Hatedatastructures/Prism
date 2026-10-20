@@ -34,6 +34,7 @@
 
 #include <Prism/Foundation/Fault/Code.hpp>
 #include <Prism/Transport/NativeTls.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
 namespace
@@ -219,7 +220,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 
@@ -371,18 +372,28 @@ namespace
 
         EXPECT_EQ(Result.Failure.Code, Prism::Fault::Code::Success);
         ASSERT_NE(Result.Transport, nullptr);
+        EXPECT_EQ(Raw->ReadsDone, 1U);
 
-        std::array<std::byte, 2> Replayed{};
+        std::array<std::byte, 1> Replayed{};
         Prism::IoResult ReplayResult;
+        Prism::IoResult StickyResult;
+        Prism::Testing::FixtureCloseReceipt CloseReceipt;
         RunCoro(Ioc,
                 [&]() -> Net::awaitable<void>
                 {
                     ReplayResult = co_await ReadReplayBytes(Result.Transport, Replayed);
+                    std::array<std::byte, 1> AfterTerminal{};
+                    StickyResult = co_await Result.Transport->ReadSome(AfterTerminal);
+                    CloseReceipt = co_await Prism::Testing::CloseFixture(Result.Transport);
                 });
 
-        ASSERT_TRUE(ReplayResult.Bytes == Replayed.size() && ReplayResult.Failure.Native == std::make_error_code(std::errc::connection_reset));
+        ASSERT_EQ(ReplayResult.Bytes, Replayed.size());
+        EXPECT_EQ(ReplayResult.Failure.Native, std::make_error_code(std::errc::connection_reset));
         EXPECT_EQ(Replayed[0], std::byte{0x41});
-        EXPECT_EQ(Replayed[1], std::byte{0x42});
+        EXPECT_EQ(StickyResult.Bytes, 0U);
+        EXPECT_EQ(StickyResult.Failure.Native, std::make_error_code(std::errc::connection_reset));
+        EXPECT_EQ(Raw->ReadsDone, 1U);
+        Prism::Testing::ExpectFixtureCloseReceipt(CloseReceipt);
     }
 
     TEST(NativeTls, ReplaysTwoBytePlainPrefixWhenReadReturnsErrorWithBytes)
@@ -403,19 +414,29 @@ namespace
 
         EXPECT_EQ(Result.Failure.Code, Prism::Fault::Code::Success);
         ASSERT_NE(Result.Transport, nullptr);
+        EXPECT_EQ(Raw->ReadsDone, 1U);
 
-        std::array<std::byte, 3> Replayed{};
+        std::array<std::byte, 2> Replayed{};
         Prism::IoResult ReplayResult;
+        Prism::IoResult StickyResult;
+        Prism::Testing::FixtureCloseReceipt CloseReceipt;
         RunCoro(Ioc,
                 [&]() -> Net::awaitable<void>
                 {
                     ReplayResult = co_await ReadReplayBytes(Result.Transport, Replayed);
+                    std::array<std::byte, 1> AfterTerminal{};
+                    StickyResult = co_await Result.Transport->ReadSome(AfterTerminal);
+                    CloseReceipt = co_await Prism::Testing::CloseFixture(Result.Transport);
                 });
 
-        ASSERT_TRUE(ReplayResult.Bytes == Replayed.size() && ReplayResult.Failure.Native == std::make_error_code(std::errc::connection_reset));
+        ASSERT_EQ(ReplayResult.Bytes, Replayed.size());
+        EXPECT_EQ(ReplayResult.Failure.Native, std::make_error_code(std::errc::connection_reset));
         EXPECT_EQ(Replayed[0], std::byte{0x16});
         EXPECT_EQ(Replayed[1], std::byte{0x01});
-        EXPECT_EQ(Replayed[2], std::byte{0x42});
+        EXPECT_EQ(StickyResult.Bytes, 0U);
+        EXPECT_EQ(StickyResult.Failure.Native, std::make_error_code(std::errc::connection_reset));
+        EXPECT_EQ(Raw->ReadsDone, 1U);
+        Prism::Testing::ExpectFixtureCloseReceipt(CloseReceipt);
     }
 
     TEST(NativeTls, ReturnsTerminalCodeForIncompleteTlsPrefixAfterReadError)

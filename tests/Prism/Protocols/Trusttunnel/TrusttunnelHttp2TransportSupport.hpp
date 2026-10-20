@@ -39,6 +39,7 @@
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Protocols/Trusttunnel/Http2.hpp>
 #include <Prism/Protocols/Trusttunnel/Detail/Http2Transport.hpp>
+#include <Prism/Protocols/Trusttunnel/Detail/Http2ClientDriver.hpp>
 #include <Prism/Protocols/Trusttunnel/IngressFactory.hpp>
 #include <Prism/Protocols/Trusttunnel/Detail/Http2Accept.hpp>
 #include <Prism/Protocols/Trusttunnel/Detail/Http2Client.hpp>
@@ -229,7 +230,10 @@ namespace
         -> Net::awaitable<bool>
     {
         std::shared_ptr<Trusttunnel::Detail::CarrierLifecycle> Lifecycle;
-        if (Proof) Lifecycle = Proof->Lifecycle();
+        if (Proof)
+        {
+            Lifecycle = Trusttunnel::Detail::Http2Accept::GetLifecycleForTest(*Proof);
+        }
         if (!Lifecycle || !Lifecycle->Closed)
         {
             co_return false;
@@ -404,7 +408,10 @@ namespace
             auto Carrier = std::move(Accepted->Transport);
             auto Proof = std::dynamic_pointer_cast<Trusttunnel::AuthenticatedTransport>(Carrier);
             std::shared_ptr<Trusttunnel::Detail::CarrierLifecycle> Lifecycle;
-            if (Proof) Lifecycle = Proof->Lifecycle();
+            if (Proof)
+            {
+                Lifecycle = Trusttunnel::Detail::Http2Accept::GetLifecycleForTest(*Proof);
+            }
             std::weak_ptr<const Trusttunnel::Detail::Http2DriverParameters> WeakDriverState;
             if (Lifecycle) WeakDriverState = Lifecycle->DriverState;
             auto Outcome = co_await FactoryA.Accept(Prism::Contract::StreamAcceptInput{
@@ -547,7 +554,10 @@ namespace
             auto Admission = std::move(*Prepared);
             auto Stream = co_await Trusttunnel::Detail::ConnectHttp2Tls(
                 Trusttunnel::Detail::Http2TlsClientRequest{
-                    std::move(Raw), *Result.Tls, "example.com", Bytes},
+                    .Raw = std::move(Raw),
+                    .SslContext = *Result.Tls,
+                    .ServerName = "example.com",
+                    .Bytes = Bytes},
                 Admission);
             if (!Stream)
             {

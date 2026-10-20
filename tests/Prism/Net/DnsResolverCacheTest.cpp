@@ -47,21 +47,34 @@ TEST(DnsResolver, CacheHit)
 TEST(DnsResolver, NegativeCache)
 {
     Net::io_context ioc;
+    auto Server = std::make_shared<MiniDnsServer>(
+        ioc, MiniDnsServer::Behavior::NxDomain);
+    Server->Start();
     Config cfg;
+    cfg.Servers = {Server->MakeConfig()};
     cfg.MaxCacheEntries = 64;
     cfg.CacheTtl = std::chrono::seconds(60);
     cfg.NegativeTtl = std::chrono::seconds(10);
+    cfg.DisableIpv6 = true;
     Prism::Network::Dns::Resolver r(ioc.get_executor(), cfg);
-    ResolveFailure Failure;
+    ResolveFailure FirstFailure;
+    ResolveFailure SecondFailure;
     RunCoro(ioc,
              [&]() -> Net::awaitable<void>
              {
                  CaptureResolveResult(
-                     co_await r.AsyncResolve("nonexistent-host-prism-test.invalid"), Failure);
+                     co_await r.AsyncResolve("nonexistent-host-prism-test.invalid"), FirstFailure);
+                 CaptureResolveResult(
+                     co_await r.AsyncResolve("nonexistent-host-prism-test.invalid"), SecondFailure);
+                 const auto Shutdown = co_await r.Shutdown();
+                 EXPECT_TRUE(Shutdown.has_value());
+                 Server->Close();
              });
-    EXPECT_EQ(Failure.Code, Prism::Fault::Code::DnsFailed);
-    // 负缓存已入
+    EXPECT_EQ(FirstFailure.Code, Prism::Fault::Code::DnsFailed);
+    EXPECT_EQ(SecondFailure.Code, Prism::Fault::Code::DnsFailed);
     EXPECT_EQ(r.Size(), 1u);
+    EXPECT_EQ(r.HitCount(), 1u);
+    EXPECT_EQ(Server->QueryCount(), 1U);
 }
 
 TEST(DnsResolver, CacheExpiry)

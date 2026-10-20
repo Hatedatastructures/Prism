@@ -1,6 +1,8 @@
 # Foundation value and error contracts.
 AddPrismTest(FoundationValuesTest.cpp)
 target_link_libraries(FoundationValuesTest PRIVATE PrismFoundation)
+AddPrismTest(RunContextTest.cpp)
+target_link_libraries(RunContextTest PRIVATE PrismFoundation)
 AddPrismTest(Storage/SqliteTest.cpp)
 target_link_libraries(SqliteTest PRIVATE PrismFoundation)
 AddPrismTest(ByteSpanTest.cpp)

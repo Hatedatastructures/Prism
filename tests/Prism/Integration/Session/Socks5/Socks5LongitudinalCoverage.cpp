@@ -156,13 +156,13 @@ namespace
     {
         return Prism::Runtime::TcpListener(Prism::Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{1}),
             .Factory = [Fixture](Prism::Runtime::SessionAdmission Admission)
                 -> std::shared_ptr<Prism::Runtime::Session>
             {
                 return BuildSession(Fixture, Admission.SourceIp);
-            }});
+            },
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{1})});
     }
 
     auto ReadClose(Prism::SharedTransmission Connection, std::chrono::milliseconds Timeout)
@@ -187,7 +187,7 @@ namespace
 
     struct AuthResult
     {
-        Prism::Error Error{Prism::Error::None};
+        Prism::Fault::Code Code{Prism::Fault::Code::Success};
         std::string Echo;
     };
 
@@ -239,13 +239,15 @@ namespace
         Config.EnableAuth = true;
         Config.Username = "alice";
         Config.Password = Flow.CorrectPassword ? "secret" : "wrong";
-        auto [ErrorValue, Connection] = co_await Prism::Socks5::Connect(
-            std::move(Raw), Config,
-            Prism::Socks5::Address{Prism::Socks5::AddressType::Domain,
-                                     "example.com", 443});
-        Flow.Result.Error = ErrorValue;
-        if (Connection)
+        const Prism::Socks5::Address Target{
+            Prism::Socks5::AddressType::Domain, "example.com", 443};
+        auto ConnectResult = co_await Prism::Socks5::Connect(
+            Prism::Socks5::ConnectParameters{std::move(Raw), Config, Target});
+        Flow.Result.Code = ConnectResult ? Prism::Fault::Code::Success :
+            ConnectResult.error().Code;
+        if (ConnectResult)
         {
+            auto Connection = std::move(*ConnectResult);
             const std::string Payload = "socks5-auth-runtime";
             std::error_code IoError;
             const auto Write = co_await Connection->WriteExact(
@@ -324,13 +326,18 @@ namespace
             co_await Flow.Listener.Shutdown();
             co_return;
         }
-        auto [ConnectError, Connection] = co_await Prism::Socks5::Connect(
-            std::move(Raw), Prism::Socks5::ClientConfig{},
-            Prism::Socks5::Address{Prism::Socks5::AddressType::Domain,
-                                     "example.com", 443});
-        EXPECT_EQ(ConnectError, Prism::Error::None);
+        const auto Config = Prism::Socks5::ClientConfig{};
+        const Prism::Socks5::Address Target{
+            Prism::Socks5::AddressType::Domain, "example.com", 443};
+        auto ConnectResult = co_await Prism::Socks5::Connect(
+            Prism::Socks5::ConnectParameters{std::move(Raw), Config, Target});
+        const auto ConnectError = ConnectResult ? Prism::Fault::Code::Success :
+            ConnectResult.error().Code;
+        auto Connection = ConnectResult ? std::move(*ConnectResult) :
+            Prism::Socks5::SharedConn{};
+        EXPECT_EQ(ConnectError, Prism::Fault::Code::Success);
         EXPECT_NE(Connection, nullptr);
-        if (ConnectError != Prism::Error::None || !Connection)
+        if (ConnectError != Prism::Fault::Code::Success || !Connection)
         {
             boost::system::error_code CloseError;
             Flow.EchoOwner.Acceptor->close(CloseError);
@@ -361,14 +368,14 @@ namespace
     TEST(Socks5Longitudinal, UserPassAuthenticationSuccess)
     {
         const auto Result = RunAuthCase(true);
-        EXPECT_EQ(Result.Error, Prism::Error::None);
+        EXPECT_EQ(Result.Code, Prism::Fault::Code::Success);
         EXPECT_EQ(Result.Echo, "socks5-auth-runtime");
     }
 
     TEST(Socks5Longitudinal, UserPassAuthenticationFailure)
     {
         const auto Result = RunAuthCase(false);
-        EXPECT_EQ(Result.Error, Prism::Error::BadAuth);
+        EXPECT_EQ(Result.Code, Prism::Fault::Code::AuthFailed);
         EXPECT_TRUE(Result.Echo.empty());
     }
 
@@ -434,13 +441,18 @@ namespace
             co_await Flow.Listener.Shutdown();
             co_return;
         }
-        auto [ConnectError, Connection] = co_await Prism::Socks5::Connect(
-            std::move(Raw), Prism::Socks5::ClientConfig{},
-            Prism::Socks5::Address{Prism::Socks5::AddressType::Domain,
-                                     "example.com", 443});
-        EXPECT_EQ(ConnectError, Prism::Error::None);
+        const auto Config = Prism::Socks5::ClientConfig{};
+        const Prism::Socks5::Address Target{
+            Prism::Socks5::AddressType::Domain, "example.com", 443};
+        auto ConnectResult = co_await Prism::Socks5::Connect(
+            Prism::Socks5::ConnectParameters{std::move(Raw), Config, Target});
+        const auto ConnectError = ConnectResult ? Prism::Fault::Code::Success :
+            ConnectResult.error().Code;
+        auto Connection = ConnectResult ? std::move(*ConnectResult) :
+            Prism::Socks5::SharedConn{};
+        EXPECT_EQ(ConnectError, Prism::Fault::Code::Success);
         EXPECT_NE(Connection, nullptr);
-        if (ConnectError != Prism::Error::None || !Connection)
+        if (ConnectError != Prism::Fault::Code::Success || !Connection)
         {
             boost::system::error_code CloseError;
             Flow.EchoOwner.Acceptor->close(CloseError);
@@ -513,13 +525,18 @@ namespace
             co_await Flow.Listener.Shutdown();
             co_return;
         }
-        auto [ConnectError, Connection] = co_await Prism::Socks5::Connect(
-            std::move(Raw), Prism::Socks5::ClientConfig{},
-            Prism::Socks5::Address{Prism::Socks5::AddressType::Domain,
-                                     "example.com", 443});
-        EXPECT_EQ(ConnectError, Prism::Error::None);
+        const auto Config = Prism::Socks5::ClientConfig{};
+        const Prism::Socks5::Address Target{
+            Prism::Socks5::AddressType::Domain, "example.com", 443};
+        auto ConnectResult = co_await Prism::Socks5::Connect(
+            Prism::Socks5::ConnectParameters{std::move(Raw), Config, Target});
+        const auto ConnectError = ConnectResult ? Prism::Fault::Code::Success :
+            ConnectResult.error().Code;
+        auto Connection = ConnectResult ? std::move(*ConnectResult) :
+            Prism::Socks5::SharedConn{};
+        EXPECT_EQ(ConnectError, Prism::Fault::Code::Success);
         EXPECT_NE(Connection, nullptr);
-        if (ConnectError != Prism::Error::None || !Connection)
+        if (ConnectError != Prism::Fault::Code::Success || !Connection)
         {
             co_await Flow.Listener.Shutdown();
             co_return;

@@ -153,14 +153,9 @@ namespace ProtocolTransferBench
         return Round;
     }
 
-    [[nodiscard]] auto RunSocksRound(
-        const std::size_t Total,
-        const std::size_t BlockSize,
-        const std::size_t LaneCount,
-        const std::uint64_t ExpectedInputHash) -> ProtocolRound
+    [[nodiscard]] auto RunSocksRound(const ProtocolRoundOptions &Options) -> ProtocolRound
     {
-        return RunProtocolRound(
-            ProtocolRoundOptions{Total, BlockSize, LaneCount, ExpectedInputHash}, RunSocksLane);
+        return RunProtocolRound(Options, RunSocksLane);
     }
 
 

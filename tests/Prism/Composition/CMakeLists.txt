@@ -1,4 +1,5 @@
 AddPrismTest(Task9BuiltinTest.cpp)
 target_link_libraries(Task9BuiltinTest PRIVATE PrismComposition)
 AddPrismTest(ProfileBootstrapTest.cpp)
-target_link_libraries(ProfileBootstrapTest PRIVATE PrismComposition PrismRuntime PrismTestSupport)
+target_link_libraries(ProfileBootstrapTest PRIVATE
+    PrismComposition PrismRuntime PrismFoundation PrismTestSupport)

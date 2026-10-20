@@ -3,7 +3,7 @@
  * @brief HTTP/1.1 Proxy-Authorization Basic 认证转换测试。
  */
 #include <Prism/Account/Authenticator.hpp>
-#include <Prism/Protocols/Http1/IngressFactory.hpp>
+#include <Prism/Protocols/Http1/Detail/BasicAuthentication.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 
 #include <string_view>

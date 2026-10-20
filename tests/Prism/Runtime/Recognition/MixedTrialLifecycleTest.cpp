@@ -14,7 +14,7 @@ TEST(MixedTrialModeTest, FailedCommitAfterPartialReplayClosesConsumedSuccessor)
         State->ReadOnCommit = true;
         State->CommitStatus = rec::RecognitionStatus::IoError;
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -38,7 +38,7 @@ TEST(MixedTrialModeTest, CommitSuccessReturnsResidualBytesExactlyOnce)
         auto State = MakeState(1, true);
         State->ReadOnCommit = true;
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -51,14 +51,19 @@ TEST(MixedTrialModeTest, CommitSuccessReturnsResidualBytesExactlyOnce)
         ASSERT_NE(Result.transport, nullptr);
         std::array<std::byte, 2> Tail{};
         Prism::IoResult ReadResult{};
+        std::array<std::byte, 1> Extra{};
+        Prism::IoResult ExtraResult{};
         Io.restart();
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
-                    ReadResult = co_await Result.transport->ReadSome(Tail);
+                    ReadResult = co_await Result.transport->ReadExact(Tail);
+                    ExtraResult = co_await Result.transport->ReadSome(Extra);
                     EXPECT_EQ(ReadResult.Bytes, Tail.size());
                 });
         EXPECT_FALSE(ReadResult.Failure.Failed());
         EXPECT_EQ(Tail, (std::array<std::byte, 2>{std::byte{0x01}, std::byte{0x02}}));
+        EXPECT_EQ(ExtraResult.Bytes, 0U);
+        EXPECT_FALSE(ExtraResult.Failure.Failed());
     }
 
 TEST(MixedTrialModeTest, ReusesStableWaitSourceAcrossReadPrepareAndCommit)
@@ -70,7 +75,7 @@ TEST(MixedTrialModeTest, ReusesStableWaitSourceAcrossReadPrepareAndCommit)
         auto Middle = MakeState(2);
         auto Winner = MakeState(3, true);
         auto Profile = MakeMixedProfile({First, Middle, Winner});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         auto WaitCompleted = std::make_shared<std::size_t>(0);
@@ -109,7 +114,7 @@ TEST(MixedTrialModeTest, InFlightReadCancellationClosesTransport)
         auto State = MakeState(1, true);
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{State}, 8, 1});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -152,7 +157,7 @@ TEST(MixedTrialModeTest, ProfileDeadlineWinsOverLongPrepareWait)
         // to start under the full Windows CTest suite.
         State->ProfileTimeout = std::chrono::milliseconds(50);
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -198,7 +203,7 @@ TEST(MixedTrialModeTest, ControlledCommitCleansIndependentSuccessorAndInboundExa
         State->ProfileTimeout = std::chrono::milliseconds(250);
         State->ReturnedTransport = std::make_shared<ScriptedTransport>(Io.get_executor());
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -245,7 +250,7 @@ TEST(MixedTrialModeTest, DirectOperationCancellationSetsCancelledForReadPrepareA
         ReadTransport->Push({}, Canceled);
         auto ReadState = MakeState(1, true);
         auto ReadProfile = MakeMixedProfile({ReadState});
-        rec::ProbeBuffer ReadBuffer(ReadProfile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer ReadBuffer(ReadProfile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode ReadMode(ReadProfile);
         rec::RecognizeResult ReadResult;
         RunCoro(ReadIo, [&]() -> Net::awaitable<void>
@@ -263,7 +268,7 @@ TEST(MixedTrialModeTest, DirectOperationCancellationSetsCancelledForReadPrepareA
         PrepareState->PrepareStatus = rec::RecognitionStatus::NoMatch;
         PrepareState->PrepareError = Canceled;
         auto PrepareProfile = MakeMixedProfile({PrepareState});
-        rec::ProbeBuffer PrepareBuffer(PrepareProfile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer PrepareBuffer(PrepareProfile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode PrepareMode(PrepareProfile);
         rec::RecognizeResult PrepareResult;
         RunCoro(PrepareIo, [&]() -> Net::awaitable<void>
@@ -281,7 +286,8 @@ TEST(MixedTrialModeTest, DirectOperationCancellationSetsCancelledForReadPrepareA
         PrepareState->PrepareStatus = rec::RecognitionStatus::Accepted;
         PrepareState->PrepareError = Canceled;
         PrepareProfile = MakeMixedProfile({PrepareState});
-        PrepareBuffer = rec::ProbeBuffer(PrepareProfile->Budget().MaxProbeBytes);
+        PrepareBuffer = rec::ProbeBuffer(
+            PrepareProfile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         PrepareMode = rec::MixedTrialMode(PrepareProfile);
         PrepareResult = {};
         RunCoro(PrepareIo, [&]() -> Net::awaitable<void>
@@ -299,7 +305,7 @@ TEST(MixedTrialModeTest, DirectOperationCancellationSetsCancelledForReadPrepareA
         CommitState->CommitStatus = rec::RecognitionStatus::NoMatch;
         CommitState->CommitError = Canceled;
         auto CommitProfile = MakeMixedProfile({CommitState});
-        rec::ProbeBuffer CommitBuffer(CommitProfile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer CommitBuffer(CommitProfile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode CommitMode(CommitProfile);
         rec::RecognizeResult CommitResult;
         RunCoro(CommitIo, [&]() -> Net::awaitable<void>
@@ -318,7 +324,8 @@ TEST(MixedTrialModeTest, DirectOperationCancellationSetsCancelledForReadPrepareA
         CommitState->CommitStatus = rec::RecognitionStatus::Accepted;
         CommitState->CommitError = Canceled;
         CommitProfile = MakeMixedProfile({CommitState});
-        CommitBuffer = rec::ProbeBuffer(CommitProfile->Budget().MaxProbeBytes);
+        CommitBuffer = rec::ProbeBuffer(
+            CommitProfile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         CommitMode = rec::MixedTrialMode(CommitProfile);
         CommitResult = {};
         RunCoro(CommitIo, [&]() -> Net::awaitable<void>
@@ -340,7 +347,7 @@ TEST(MixedTrialModeTest, ReturnsEofAndCancellationAsExplicitTerminalResults)
         auto State = MakeState(1, true);
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{State}, 8, 4});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Eof;
 
@@ -355,7 +362,7 @@ TEST(MixedTrialModeTest, ReturnsEofAndCancellationAsExplicitTerminalResults)
         Io.restart();
         auto CanceledTransport = std::make_shared<ScriptedTransport>(Io.get_executor());
         CanceledTransport->Push(Bytes({0xB2, 0x01}));
-        rec::ProbeBuffer CanceledBuffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer CanceledBuffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::RecognitionControl Control;
         Control.Cancelled = [] { return true; };
         rec::RecognizeResult Canceled;
@@ -376,8 +383,9 @@ TEST(MixedTrialModeTest, PipelineProfilePathUsesMixedCoordinator)
         auto Winner = MakeState(1, true);
         auto Loser = MakeState(2);
         auto Profile = MakeMixedProfile({Winner, Loser});
-        rec::Pipeline Pipeline(Profile);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        auto BytePool = MakeMixedTrialProbeBytePool();
+        rec::Pipeline Pipeline(Profile, BytePool);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, BytePool);
         rec::RecognizeResult Result;
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
@@ -401,8 +409,9 @@ TEST(MixedTrialModeTest, PipelineProfilePathUsesDeterministicCoordinator)
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Winner}, 8, 2, {}, 32,
             rec::InvalidCandidate, rec::RecognitionMode::Deterministic});
-        rec::Pipeline Pipeline(Profile);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        auto BytePool = MakeMixedTrialProbeBytePool();
+        rec::Pipeline Pipeline(Profile, BytePool);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, BytePool);
         rec::RecognizeResult Result;
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
@@ -430,7 +439,7 @@ TEST(MixedTrialModeTest, StructuralWinnerDoesNotWaitForOpaqueFallback)
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Winner, OpaqueFallback}, 8, 2, {}, 64});
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -460,7 +469,7 @@ TEST(MixedTrialModeTest, StructuralAuthFailureFallsThroughToOpaqueCandidate)
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Structural, OpaqueFallback}, 8, 2, {}, 64});
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -493,7 +502,7 @@ TEST(MixedTrialModeTest, StructuralAuthFailurePreservesOpaqueEofTerminalStatus)
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Structural, OpaqueFallback}, 8, 2, {}, 64});
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -526,7 +535,7 @@ TEST(MixedTrialModeTest, RestrictsTrialsToCandidateSelectedBySniRoute)
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Winner, Loser}, 8, 2, std::move(Routes), 128});
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(Wire));
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
@@ -566,7 +575,7 @@ TEST(MixedTrialModeTest, KeepsTlsFallbackWhenSniRouteDoesNotMatch)
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Winner, Routed}, 8, 2, std::move(Routes), 128});
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(Wire));
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
@@ -608,7 +617,7 @@ TEST(MixedTrialModeTest, DoesNotApplyTlsRouteToCleartextPrefix)
         auto Storage = std::make_shared<const std::vector<std::byte>>(Bytes({0x47, 0x45}));
         const auto Route = rec::detail::ResolveSniRoute(*Profile, rec::ProbeSnapshot{Storage});
         EXPECT_FALSE(Route.Applicable);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -643,7 +652,7 @@ TEST(MixedTrialModeTest, UsesExplicitDefaultCandidateForMissingSni)
             std::vector<std::shared_ptr<CandidateState>>{Winner, Loser}, 8, 2, std::move(Routes), 128,
             Winner->Id});
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(Wire));
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
@@ -670,11 +679,11 @@ TEST(MixedTrialModeTest, UsesTlsScannerBoundaryInsteadOfByteAtATimeReads)
 
         auto Binding = Prism::Composition::Recognition::TlsCandidateFactory::Make(
             Prism::Composition::Recognition::TlsCandidateOptions{31, "native", "native", {"edge.example"}, {}},
-            [](Prism::SharedTransmission Inbound)
+            [](Prism::Recognition::CarrierAcceptInput Input)
                 -> Net::awaitable<Prism::Recognition::CarrierAcceptResult>
             {
                 Prism::Recognition::CarrierAcceptResult Result;
-                Result.Transport = std::move(Inbound);
+                Result.Transport = std::move(Input.Inbound);
                 co_return Result;
             });
         rec::ProfileSpec Spec;
@@ -685,7 +694,7 @@ TEST(MixedTrialModeTest, UsesTlsScannerBoundaryInsteadOfByteAtATimeReads)
         const auto Compiled = rec::Profile::Compile(std::move(Spec));
         ASSERT_TRUE(Compiled.has_value());
 
-        rec::ProbeBuffer Buffer((*Compiled)->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer((*Compiled)->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::RecognizeResult Result;
         rec::MixedTrialMode Mode(*Compiled);
         RunCoro(Io, [&]() -> Net::awaitable<void>

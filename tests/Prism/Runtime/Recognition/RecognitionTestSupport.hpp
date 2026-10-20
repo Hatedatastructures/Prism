@@ -48,7 +48,7 @@ namespace
     auto RunCoro(Net::io_context &Ioc, Awaitable Coro) -> void
     {
         std::exception_ptr Exception;
-        Net::co_spawn(Ioc, std::move(Coro), [&Exception](std::exception_ptr ErrorValue)
+        Net::co_spawn(Ioc, std::move(Coro), [&Exception, &Ioc](std::exception_ptr ErrorValue)
                       { Exception = ErrorValue; Ioc.stop(); });
         Ioc.run();
         if (Exception)

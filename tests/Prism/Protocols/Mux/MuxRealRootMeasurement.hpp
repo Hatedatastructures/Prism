@@ -423,22 +423,28 @@ namespace Prism::Testing::MuxRealRoot
             [State](std::exception_ptr Error) { if (Error) { State->Failure = Error; State->Harness->Stop(); } });
         Net::co_spawn(State->Harness->Executor, RunRealBackend(State),
             [State](std::exception_ptr Error) { if (Error) { State->Failure = Error; State->Harness->Stop(); } });
-        if (State->Mode == RealRootMode::H2Mux)
+        switch (State->Mode)
         {
+        case RealRootMode::H2Mux:
             co_await RunRealH2Client(State);
-        }
-        else if (State->Mode == RealRootMode::Smux)
-        {
+            break;
+        case RealRootMode::Smux:
             if (co_await AuthenticateRealRoot(State))
             {
                 MarkRealDiagnosticStage(State, RealDiagnosticStage::Authenticate);
                 co_await RunRealMuxClient<Smux::Client<>>(State, Prism::Mux::Mode::Smux);
             }
-        }
-        else if (co_await AuthenticateRealRoot(State))
-        {
-            MarkRealDiagnosticStage(State, RealDiagnosticStage::Authenticate);
-            co_await RunRealMuxClient<Yamux::Client<>>(State, Prism::Mux::Mode::Yamux);
+            break;
+        case RealRootMode::Yamux:
+            if (co_await AuthenticateRealRoot(State))
+            {
+                MarkRealDiagnosticStage(State, RealDiagnosticStage::Authenticate);
+                co_await RunRealMuxClient<Yamux::Client<>>(State, Prism::Mux::Mode::Yamux);
+            }
+            break;
+        default:
+            State->FailureMessage = "real root mode is invalid";
+            break;
         }
         if (State->Window &&
             State->MeasureTerminal.load(std::memory_order_acquire) == RealMeasureTerminal::Pending)

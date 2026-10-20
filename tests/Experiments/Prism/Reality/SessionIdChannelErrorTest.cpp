@@ -6,8 +6,8 @@
 #include "SessionIdChannelTestSupport.hpp"
 #include "SessionIdChannel.hpp"
 
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
-#include <Prism/Protocols/Reality/Types.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
+#include <Prism/Protocols/Reality/CarrierTypes.hpp>
 
 #include <array>
 #include <cstddef>

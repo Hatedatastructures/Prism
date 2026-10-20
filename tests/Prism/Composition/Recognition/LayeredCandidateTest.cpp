@@ -14,17 +14,24 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <span>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
 #include <Prism/Composition/Recognition/LayeredCandidateFactory.hpp>
 #include <Prism/Composition/Recognition/ProfileBuilder.hpp>
+#include <Prism/Composition/Recognition/Detail/InnerProtocolDispatch.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
+#include <Prism/Protocols/Http1/Binding.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
+#include <TestSupport/Prism/PrismMockTransport.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
@@ -116,20 +123,27 @@ namespace
         -> Net::awaitable<Core::CarrierAcceptResult>
     {
         std::array<std::byte, 5> Header{};
-        std::error_code Error;
         Core::CarrierAcceptResult Result;
         Result.Metadata.Carrier = "native";
-        if (co_await Inbound->AsyncRead(Header, Error) != Header.size() || Error)
+        const auto HeaderRead = co_await Inbound->ReadExact(Header);
+        if (HeaderRead.Bytes != Header.size() || HeaderRead.Failure.Failed())
         {
-            Result.Code = Prism::Fault::Code::TlsHsfail;
+            Result.Code = HeaderRead.Failure.Failed()
+                ? HeaderRead.Failure.Code : Prism::Fault::Code::TlsHsfail;
+            if (HeaderRead.Failure.Native)
+                Result.NativeError = HeaderRead.Failure.Native;
             co_return Result;
         }
         const auto Length = (static_cast<std::size_t>(std::to_integer<std::uint8_t>(Header[3])) << 8) |
                             static_cast<std::size_t>(std::to_integer<std::uint8_t>(Header[4]));
         std::vector<std::byte> Body(Length);
-        if (co_await Inbound->AsyncRead(Body, Error) != Body.size() || Error)
+        const auto BodyRead = co_await Inbound->ReadExact(Body);
+        if (BodyRead.Bytes != Body.size() || BodyRead.Failure.Failed())
         {
-            Result.Code = Prism::Fault::Code::TlsHsfail;
+            Result.Code = BodyRead.Failure.Failed()
+                ? BodyRead.Failure.Code : Prism::Fault::Code::TlsHsfail;
+            if (BodyRead.Failure.Native)
+                Result.NativeError = BodyRead.Failure.Native;
             co_return Result;
         }
         Result.Transport = std::move(Inbound);
@@ -160,6 +174,139 @@ namespace
         std::size_t InnerCalls{0};
     };
 
+    struct LayeredReadObservation final
+    {
+        bool InspectedPrefix{false};
+        std::size_t ReadBytes{0};
+        std::byte ReadByte{};
+        Prism::Fault::Failure ReadFailure{};
+        std::size_t StickyReadBytes{0};
+        Prism::Fault::Failure StickyReadFailure{};
+        bool AdmissionSucceeded{false};
+        bool CloseSucceeded{false};
+        bool DrainSucceeded{false};
+        bool RejectedTransportCancelled{false};
+        bool RejectedTransportClosed{false};
+        bool RejectedActivityRetired{false};
+        bool RejectedDrainSucceeded{false};
+        Prism::Fault::Failure AcceptFailure{};
+    };
+
+    auto MakeCombinedReadTransport(Net::any_io_executor Executor)
+        -> std::shared_ptr<Prism::PrismMockTransport>
+    {
+        auto Transport = std::make_shared<Prism::PrismMockTransport>(std::move(Executor));
+        Transport->InjectRead({0xA5U});
+        Transport->ReadErrorBytes = 1U;
+        Transport->SetReadError(std::make_error_code(std::errc::connection_reset));
+        Transport->EofOnDrain = true;
+        return Transport;
+    }
+
+    auto MakeInnerBinding(
+        const std::shared_ptr<LayeredReadObservation> &Observation,
+        const bool AcceptPrefix)
+        -> std::shared_ptr<Composition::CandidateInnerBinding>
+    {
+        auto Binding = std::make_shared<Composition::CandidateInnerBinding>();
+        Binding->Spec.Id = 1U;
+        Binding->Spec.Name = "terminal-read";
+        Binding->Spec.Protocol = Prism::Contract::ProtocolType::Http;
+        Binding->Spec.Priority = 1U;
+        Binding->Spec.Inspect = [Observation, AcceptPrefix](const Core::ProbeSnapshot &Snapshot)
+        {
+            if (Snapshot.Empty())
+            {
+                return Core::MatchState::NeedMore;
+            }
+            Observation->InspectedPrefix = Snapshot.Data().front() == std::byte{0xA5};
+            return AcceptPrefix ? Core::MatchState::Structural : Core::MatchState::NeedMore;
+        };
+        return Binding;
+    }
+
+    auto ObserveReplayedTerminal(
+        const std::shared_ptr<LayeredReadObservation> &Observation,
+        Prism::Contract::StreamAcceptInput Input)
+        -> Net::awaitable<Prism::Contract::AcceptOutcome>
+    {
+        std::array<std::byte, 2> Buffer{};
+        const auto Read = co_await Input.Inbound->ReadSome(Buffer);
+        Observation->ReadBytes = Read.Bytes;
+        Observation->ReadByte = Buffer.front();
+        Observation->ReadFailure = Read.Failure;
+        co_return std::unexpected(
+            Prism::Fault::Failure{Prism::Fault::Code::ProtocolError});
+    }
+
+    auto AcceptTerminalDataPlane(Prism::Contract::StreamAcceptInput Input)
+        -> Net::awaitable<Prism::Contract::AcceptOutcome>
+    {
+        Prism::Contract::ProtocolDataPlane Plane;
+        Plane.Protocol = Prism::Contract::ProtocolType::Http;
+        Plane.Root = Prism::Contract::StreamDataPlane{std::move(Input.Inbound)};
+        co_return Plane;
+    }
+
+    struct LayeredAdmissionScenario final
+    {
+        std::shared_ptr<Prism::Contract::StreamFactory> Factory;
+        std::shared_ptr<Prism::PrismMockTransport> Transport;
+        std::shared_ptr<Prism::Memory::BytePool> Bytes;
+        std::shared_ptr<LayeredReadObservation> Observation;
+    };
+
+    auto RunRejectedAdmissionTerminalScenario(LayeredAdmissionScenario Request)
+        -> Net::awaitable<void>
+    {
+        const auto Result = co_await Request.Factory->Accept(Prism::Contract::StreamAcceptInput{
+            Request.Transport, {}, Request.Bytes});
+        Request.Observation->AdmissionSucceeded = Result.has_value();
+        if (!Result)
+        {
+            Request.Observation->AcceptFailure = Result.error();
+        }
+        Request.Observation->RejectedTransportCancelled = Request.Transport->IsCancelled();
+        Request.Observation->RejectedTransportClosed = Request.Transport->IsClosed();
+        const auto Activity = Request.Transport->Activity();
+        if (Activity)
+        {
+            const auto Drain = co_await Activity->Drain();
+            Request.Observation->RejectedDrainSucceeded = Drain.has_value();
+            Request.Observation->RejectedActivityRetired = Activity->IsRetired();
+        }
+    }
+
+    auto RunSuccessfulAdmissionTerminalScenario(LayeredAdmissionScenario Request)
+        -> Net::awaitable<void>
+    {
+        auto Result = co_await Request.Factory->Accept(Prism::Contract::StreamAcceptInput{
+            Request.Transport, {}, Request.Bytes});
+        Request.Observation->AdmissionSucceeded = Result.has_value();
+        if (!Result)
+        {
+            Request.Observation->AcceptFailure = Result.error();
+            co_return;
+        }
+        const auto *Stream = Result->Stream();
+        if (!Stream)
+        {
+            co_return;
+        }
+        std::array<std::byte, 2> Buffer{};
+        const auto First = co_await Stream->Transport->ReadSome(Buffer);
+        Request.Observation->ReadBytes = First.Bytes;
+        Request.Observation->ReadByte = Buffer.front();
+        Request.Observation->ReadFailure = First.Failure;
+        const auto Second = co_await Stream->Transport->ReadSome(Buffer);
+        Request.Observation->StickyReadBytes = Second.Bytes;
+        Request.Observation->StickyReadFailure = Second.Failure;
+        const auto Close = Stream->Transport->Close();
+        Request.Observation->CloseSucceeded = Close.has_value();
+        const auto Drain = co_await Stream->Transport->Activity()->Drain();
+        Request.Observation->DrainSucceeded = Drain.has_value();
+    }
+
     using LayeredResolver = std::function<std::shared_ptr<Prism::Contract::StreamFactory>(Core::CandidateId)>;
 
     struct LayeredScenarioRequest final
@@ -187,8 +334,14 @@ namespace
             }
             Offset += Written.Bytes;
         }
-        Request.Writer->Shutdown();
-        Core::Pipeline Pipeline(Request.Profile);
+        const auto Shutdown = co_await Request.Writer->WriteShutdown();
+        if (!Shutdown)
+        {
+            co_return;
+        }
+        auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
+        Core::Pipeline Pipeline(Request.Profile, std::move(Bytes));
         Request.Output.Result = co_await Pipeline.Recognize(Request.Reader);
         if (Request.Output.Result.success)
         {
@@ -196,24 +349,30 @@ namespace
             if (Accept)
             {
                 auto Inbound = std::move(Request.Output.Result.transport);
-                Prism::Middleware::Context Context;
-                auto Accepted = co_await Accept->Accept(Inbound, {});
+                auto Accepted = co_await Accept->Accept(Prism::Contract::StreamAcceptInput{
+                    std::move(Inbound), {}, Bytes});
                 Request.Output.AcceptError = Accepted ? Prism::Fault::Code::Success
                     : Accepted.error().Code;
                 if (Accepted)
                 {
-                    Context.SetDataPlane(std::move(*Accepted));
-                    Inbound = Context.Inbound();
+                    const auto *Stream = Accepted->Stream();
+                    if (Stream)
+                    {
+                        Request.Output.Result.transport = Stream->Transport;
+                    }
+                    else
+                    {
+                        Request.Output.AcceptError = Prism::Fault::Code::ProtocolError;
+                    }
                 }
-                Request.Output.Result.transport = std::move(Inbound);
             }
         }
         if (Request.Output.Result.transport)
         {
-            Request.Output.Result.transport->Close();
+            (void)Request.Output.Result.transport->Close();
             Request.Output.Result.transport.reset();
         }
-        Request.Writer->Close();
+        (void)Request.Writer->Close();
     }
 
     auto RunNaturalCoro(Net::io_context &Io, Net::awaitable<void> Operation) -> void
@@ -228,20 +387,34 @@ namespace
         }
     }
 
+    auto MakeHttpCandidate(Composition::CandidateOptions Options)
+        -> Composition::CandidateBinding
+    {
+        auto Factory = std::make_shared<Prism::Http11::Binding>(
+            Prism::Http11::PreparedBinding{
+                .Instance = "layered-candidate-test",
+                .Executor = Net::system_executor(),
+                .RequireAuth = false});
+        return Composition::CandidateFactory::MakeHttp(std::move(Options), std::move(Factory));
+    }
+
     auto RunLayered(bool CarrierSucceeds) -> LayeredRun
     {
         Net::io_context Io;
         auto CarrierCalls = std::make_shared<std::size_t>(0);
         auto InnerCalls = std::make_shared<std::size_t>(0);
-        auto Inner = Composition::CandidateFactory::MakeHttp(Prism::Composition::Recognition::CandidateOptions{8});
-        auto InnerAccept = std::move(Inner.Accept);
+        auto Inner = MakeHttpCandidate(
+            Prism::Composition::Recognition::CandidateOptions{8});
         Inner.Accept = std::make_shared<Prism::Testing::StreamFactory>(
-            [InnerAccept = std::move(InnerAccept), InnerCalls](
-                Prism::SharedTransmission Inbound, Prism::Contract::RequestMetadata Metadata)
+            [InnerCalls](Prism::Contract::StreamAcceptInput Input)
                 -> Net::awaitable<Prism::Contract::AcceptOutcome>
             {
                 ++*InnerCalls;
-                co_return co_await InnerAccept->Accept(std::move(Inbound), std::move(Metadata));
+                Prism::Contract::ProtocolDataPlane Plane;
+                Plane.Protocol = Prism::Contract::ProtocolType::Http;
+                Plane.Root = Prism::Contract::StreamDataPlane{
+                    std::move(Input.Inbound), {}};
+                co_return Plane;
             });
 
         Composition::TlsCandidateOptions Options;
@@ -251,9 +424,9 @@ namespace
         Options.ServerNames = {"edge.example"};
         Options.Alpn = {"h2"};
         Options.Carrier = Composition::TlsCarrier::Native;
-        auto Carrier = [CarrierSucceeds, CarrierCalls](Prism::SharedTransmission Inbound)
+        auto Carrier = [CarrierSucceeds, CarrierCalls](Core::CarrierAcceptInput Input)
             -> Net::awaitable<Core::CarrierAcceptResult>
-        { return RunLayeredCarrier(CarrierSucceeds, CarrierCalls, std::move(Inbound)); };
+        { return RunLayeredCarrier(CarrierSucceeds, CarrierCalls, std::move(Input.Inbound)); };
         auto Layered = Composition::LayeredCandidateFactory::Make(
             std::move(Options), std::move(Carrier), std::move(Inner));
         Composition::ProfileBuilderOptions BuilderOptions;
@@ -300,6 +473,99 @@ namespace
         EXPECT_EQ(Run.CarrierCalls, 1U);
         EXPECT_EQ(Run.InnerCalls, 0U);
         EXPECT_EQ(Run.AcceptError, Prism::Fault::Code::ProtocolError);
+    }
+
+    TEST(LayeredCandidate, ReadFailureAfterPrefixStopsWithoutAnotherRead)
+    {
+        Net::io_context Io;
+        auto Transport = MakeCombinedReadTransport(Io.get_executor());
+        auto Observation = std::make_shared<LayeredReadObservation>();
+        auto Binding = MakeInnerBinding(Observation, false);
+        auto Factory = Composition::MakeInnerProtocolDispatch(
+            std::vector<std::shared_ptr<const Composition::CandidateInnerBinding>>{Binding});
+        auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U, 2U});
+
+        Prism::Testing::RunCoro(Io, [&]() -> Net::awaitable<void>
+        {
+            const auto Result = co_await Factory->Accept(Prism::Contract::StreamAcceptInput{
+                Transport, {}, Bytes});
+            if (!Result)
+            {
+                Observation->AcceptFailure = Result.error();
+            }
+        }());
+
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        EXPECT_TRUE(Observation->InspectedPrefix);
+        EXPECT_EQ(Transport->ReadsDone, 1U);
+        EXPECT_EQ(Observation->AcceptFailure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(Observation->AcceptFailure.Native, Native);
+    }
+
+    TEST(LayeredCandidate, AcceptedPrefixReplaysItsTerminalWithTheLastBytes)
+    {
+        Net::io_context Io;
+        auto Transport = MakeCombinedReadTransport(Io.get_executor());
+        auto Observation = std::make_shared<LayeredReadObservation>();
+        auto Accept = std::make_shared<Prism::Testing::StreamFactory>(
+            [Observation](Prism::Contract::StreamAcceptInput Input)
+            { return ObserveReplayedTerminal(Observation, std::move(Input)); });
+        auto Binding = MakeInnerBinding(Observation, true);
+        Binding->Accept = std::move(Accept);
+        auto Factory = Composition::MakeInnerProtocolDispatch(
+            std::vector<std::shared_ptr<const Composition::CandidateInnerBinding>>{Binding});
+        auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U, 2U});
+
+        Prism::Testing::RunCoro(Io, RunRejectedAdmissionTerminalScenario(
+            LayeredAdmissionScenario{Factory, Transport, Bytes, Observation}));
+
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        EXPECT_FALSE(Observation->AdmissionSucceeded);
+        EXPECT_EQ(Observation->AcceptFailure.Code, Prism::Fault::Code::ProtocolError);
+        EXPECT_TRUE(Observation->RejectedTransportCancelled);
+        EXPECT_TRUE(Observation->RejectedTransportClosed);
+        EXPECT_TRUE(Observation->RejectedDrainSucceeded);
+        EXPECT_TRUE(Observation->RejectedActivityRetired);
+        EXPECT_TRUE(Observation->InspectedPrefix);
+        EXPECT_EQ(Observation->ReadBytes, 1U);
+        EXPECT_EQ(Observation->ReadByte, std::byte{0xA5});
+        EXPECT_EQ(Observation->ReadFailure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(Observation->ReadFailure.Native, Native);
+    }
+
+    TEST(LayeredCandidate, SuccessfulAdmissionKeepsTerminalStickyAfterPrefix)
+    {
+        Net::io_context Io;
+        auto Transport = MakeCombinedReadTransport(Io.get_executor());
+        auto Observation = std::make_shared<LayeredReadObservation>();
+        auto Accept = std::make_shared<Prism::Testing::StreamFactory>(
+            [](Prism::Contract::StreamAcceptInput Input)
+            { return AcceptTerminalDataPlane(std::move(Input)); });
+        auto Binding = MakeInnerBinding(Observation, true);
+        Binding->Accept = std::move(Accept);
+        auto Factory = Composition::MakeInnerProtocolDispatch(
+            std::vector<std::shared_ptr<const Composition::CandidateInnerBinding>>{Binding});
+        auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U, 2U});
+
+        Prism::Testing::RunCoro(Io, RunSuccessfulAdmissionTerminalScenario(
+            LayeredAdmissionScenario{Factory, Transport, Bytes, Observation}));
+
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        EXPECT_TRUE(Observation->InspectedPrefix);
+        EXPECT_TRUE(Observation->AdmissionSucceeded);
+        EXPECT_EQ(Observation->ReadBytes, 1U);
+        EXPECT_EQ(Observation->ReadByte, std::byte{0xA5});
+        EXPECT_EQ(Observation->ReadFailure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(Observation->ReadFailure.Native, Native);
+        EXPECT_EQ(Observation->StickyReadBytes, 0U);
+        EXPECT_EQ(Observation->StickyReadFailure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(Observation->StickyReadFailure.Native, Native);
+        EXPECT_EQ(Transport->ReadsDone, 1U);
+        EXPECT_TRUE(Observation->CloseSucceeded);
+        EXPECT_TRUE(Observation->DrainSucceeded);
     }
 
 } // namespace

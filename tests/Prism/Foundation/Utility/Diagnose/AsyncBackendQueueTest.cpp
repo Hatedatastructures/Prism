@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <Prism/Foundation/Utility/Diagnose/Detail/AsyncSubmission.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionRecord.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Detail/Record.hpp>
 #include <TestSupport/Prism/DiagnoseTestEnvironment.hpp>
 
 #include <chrono>
@@ -70,8 +70,7 @@ namespace
             Prism::Diagnose::ContextState::Empty();
         const auto Receipt = Environment.Runtime().Audit(
             Context, "SessionClosed Status=Failed");
-        EXPECT_TRUE(Receipt.Accepted() ||
-                    Receipt.Status == Prism::Diagnose::SubmissionStatus::Dropped);
+        ASSERT_EQ(Receipt.Status, Prism::Diagnose::SubmissionStatus::Accepted);
 
         const auto Shutdown = Environment.Runtime().Shutdown();
         EXPECT_EQ(Shutdown.Status, Prism::Diagnose::SubmissionStatus::Closed);
@@ -257,9 +256,9 @@ namespace
         CompactContext = {};
         CompactEpoch.reset();
         ASSERT_TRUE(WaitForEpochClose(OldClose));
-        ASSERT_TRUE(WaitForEpochClose(CompactClose));
         const auto Closed = Environment.Runtime().Shutdown();
         EXPECT_EQ(Closed.Status, SubmissionStatus::Closed);
+        ASSERT_TRUE(WaitForEpochClose(CompactClose));
         const auto LogPath = Directory / "prism.log";
         const auto RenamedPath = std::filesystem::path(LogPath.string() + ".closed");
         std::error_code RenameError;

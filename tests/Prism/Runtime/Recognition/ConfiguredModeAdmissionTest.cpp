@@ -31,7 +31,7 @@ TEST(ConfiguredModeTest, InspectsPreparesAndCommitsOnlyConfiguredCandidate)
         Transport->Push(Bytes({0xA1, 0x02, 0x03, 0x04}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -78,7 +78,7 @@ TEST(ConfiguredModeTest, RejectsProfileWithDifferentMode)
         Request.Mode = rec::RecognitionMode::Deterministic;
         auto Profile = MakeConfiguredProfile(std::move(Request));
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -103,7 +103,7 @@ TEST(ConfiguredModeTest, MixedTrialRejectsConfiguredProfile)
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
         ASSERT_NE(Profile, nullptr);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -129,7 +129,7 @@ TEST(ConfiguredModeTest, CredentialFailureDoesNotCommitOrRetry)
         auto Prepare = AcceptedPrepare(7);
         Prepare.Status = rec::RecognitionStatus::NoMatch;
         auto Profile = MakeConfiguredProfile({CallsState, Prepare, AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -156,7 +156,7 @@ TEST(ConfiguredModeTest, CommitFailureIsTerminalAndNotRetried)
         Commit.Status = rec::RecognitionStatus::IoError;
         Commit.Error = std::make_error_code(std::errc::connection_reset);
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), Commit});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -179,7 +179,7 @@ TEST(ConfiguredModeTest, ReturnsBudgetExceededBeforeReadingWhenBufferCannotMeetB
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(2);
+        rec::ProbeBuffer Buffer(2, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -206,7 +206,7 @@ TEST(ConfiguredModeTest, PreservesEofAndPollutedPrepareAsTerminalStates)
         Prepare.Status = rec::RecognitionStatus::Polluted;
         Prepare.Polluted = true;
         auto Profile = MakeConfiguredProfile({CallsState, Prepare, AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -231,7 +231,7 @@ TEST(ConfiguredModeTest, PollutedPrepareStopsBeforeCommit)
         Prepare.Status = rec::RecognitionStatus::NoMatch;
         Prepare.Polluted = true;
         auto Profile = MakeConfiguredProfile({CallsState, Prepare, AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -254,7 +254,7 @@ TEST(ConfiguredModeTest, CancellationIsReportedWithoutTouchingTransport)
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
         rec::RecognitionControl Control;
@@ -280,7 +280,7 @@ TEST(ConfiguredModeTest, EnforcesCallerDeadlineBeforeReading)
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognitionControl Control;
         Control.Deadline = rec::RecognitionControl::Clock::now() - std::chrono::milliseconds(1);
@@ -306,8 +306,9 @@ TEST(ConfiguredModeTest, PipelineProfilePathUsesConfiguredCoordinator)
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::Pipeline Pipeline(Profile);
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        auto BytePool = MakeConfiguredProbeBytePool();
+        rec::Pipeline Pipeline(Profile, BytePool);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, BytePool);
         rec::RecognizeResult Result;
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
@@ -385,7 +386,7 @@ TEST(ConfiguredModeTest, FailedCommitClosesConsumedCallbackTransportAndReturnsNo
         auto Decoy = std::make_shared<ScriptedTransport>(Io.get_executor());
         CallsState->ReturnedTransport = Decoy;
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), Commit});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -411,7 +412,7 @@ TEST(ConfiguredModeTest, SuccessfulEmptyCommitTransportDoesNotReplayAgain)
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
         CallsState->ReturnEmptyOnCommit = true;
@@ -465,7 +466,7 @@ TEST(ConfiguredModeTest, CommitReadsPrefixAndReturnsOnlyUnconsumedSuccessor)
         Spec.Candidates.push_back(std::move(Candidate));
         const auto Compiled = rec::Profile::Compile(std::move(Spec));
         ASSERT_TRUE(Compiled.has_value());
-        rec::ProbeBuffer Buffer(32);
+        rec::ProbeBuffer Buffer(32, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Compiled.value());
         rec::RecognizeResult Result;
 

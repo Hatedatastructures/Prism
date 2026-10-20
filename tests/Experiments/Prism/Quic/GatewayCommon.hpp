@@ -3,8 +3,8 @@
  * @brief 仅供实验测试的 QUIC 连接表与分发骨架。
  * @details QUIC 连接在登记时绑定 ALPN/协议，后续数据流只使用该绑定，
  *          不从每条流的首字节重新猜测协议。
- * 与生产实现 src/prism/runtime/front/quic_gateway.cpp 的
- * 连接状态语义对齐，本文件提供测试可注入的骨架：
+ * 仅将已退役旧版实现 src/prism/runtime/front/quic_gateway.cpp 作为历史语义参考；
+ * 该路径不代表当前生产实现。本文件提供测试可注入的实验骨架：
  * - GatewayCommon：连接表（ConnKey → 连接状态）+ 分发钩子，
  *   子类重写 OnH3Stream / OnTuicStream 实现具体协议接入
  * @note 不属于 Prism 生产 target 或真实 Native QUIC 启动链；这些测试只验证实验骨架。

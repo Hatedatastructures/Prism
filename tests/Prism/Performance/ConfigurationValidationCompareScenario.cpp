@@ -258,7 +258,7 @@ namespace Prism::Application::Configuration::Perf::Scenario
         Result.Kind = Settings.Scenario;
         Result.Expected = MakeExpectedError(Settings.Scenario);
 
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = Result.Json, .Options = MakeValidationOptions(Builtins)});
         const auto ParserError = CaptureError(Parsed);
         if (!MatchesExpected(ParserError, Result.Expected))
@@ -271,9 +271,9 @@ namespace Prism::Application::Configuration::Perf::Scenario
     auto ValidateScenario(const Scenario &ScenarioValue,
                           const SnapshotPointer &Builtins) -> bool
     {
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = ScenarioValue.Json, .Options = MakeValidationOptions(Builtins)});
-        const auto Validated = Parser::Validate(
+        const auto Validated = ConfigurationValidator::Validate(
             ValidationRequest{ScenarioValue.Configuration,
                               MakeValidationOptions(Builtins)});
         const auto ParserError = CaptureError(Parsed);

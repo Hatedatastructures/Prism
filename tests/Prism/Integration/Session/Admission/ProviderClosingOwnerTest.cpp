@@ -2,9 +2,9 @@
 #include <Prism/Application/ClosingFailure.hpp>
 #include <Prism/Application/Shutdown.hpp>
 #include <Prism/Composition/Provider/ProviderCatalog.hpp>
+#include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Protocols/Common/BindingLifetime.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Runtime/WorkerDispatchResult.hpp>
 
@@ -80,7 +80,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
         [[nodiscard]] auto OnClose() -> ControlResult override
         {
@@ -114,7 +114,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(Input.Owner->Executor(),
                     Input.Owner->ReadPartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};
@@ -125,7 +125,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(Input.Owner->Executor(),
                     Input.Owner->WritePartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};
@@ -201,7 +201,7 @@ namespace
         Scenario->ShutdownTimedOut =
             Scenario->State->Phase.load() == Prism::Application::RuntimePhase::Failed;
         Scenario->ShutdownFailed = Scenario->State->ExitCode == 1;
-        Scenario->ProviderSlotReset = !Scenario->State->ProviderBindings.has_value();
+        Scenario->ProviderSlotReset = !Scenario->State->ProviderBindings;
         Scenario->CloseRequestedWhileInflight = Scenario->CarrierState->CloseRequests.load() > 0 &&
             !Scenario->CarrierState->ReadReleased.load() && !Scenario->CarrierState->Destroyed.load();
         Scenario->OwnerRetainedAfterTimeout = !Scenario->WeakBinding.expired();
@@ -234,9 +234,9 @@ namespace
         auto Accounts = Prism::Testing::ProviderAccount(
             Prism::Account::Credential::Password("provider-password"));
         auto Auth = Accounts->Authenticator;
-        P::Preparation Input{Pin,
+        P::Preparation Input{Pin, std::make_shared<Prism::Foundation::GenerationUseState>(),
             {{{"pending", "socks5", "socks5", {}, {}}, true, false,
-                {Pin, Accounts->Credentials, Auth}}}};
+                {Pin, Accounts->Credentials, Auth}}}, {}};
         auto Prepared =
             P::ProviderCatalog::Prepare(std::move(Input), {Scenario->State->Io.get_executor(), {}, {}, {}});
         ASSERT_TRUE(Prepared);
@@ -244,7 +244,7 @@ namespace
         ASSERT_TRUE(Frozen);
         auto Bound = Frozen->Bind({});
         ASSERT_TRUE(Bound);
-        Scenario->State->ProviderBindings.emplace(std::move(*Bound));
+        Scenario->State->ProviderBindings = std::make_shared<P::BoundCatalog>(std::move(*Bound));
         Pin.reset();
         Accounts.reset();
         Auth.reset();
@@ -305,11 +305,11 @@ namespace
         /** @brief 同步确定失败；不引入 co_composed，直接交付正式结果。 */
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {0, NotOpen()});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {0, NotOpen()});
         }
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {0, NotOpen()});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {0, NotOpen()});
         }
         auto StartWriteShutdown(Completion Handler) -> void override
         {
@@ -318,7 +318,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
         [[nodiscard]] auto OnClose() -> ControlResult override
         {
@@ -365,7 +365,8 @@ namespace
         ASSERT_EQ(Worker->Dispatch(Worker->Generation(),
                       [&CommandExecuted] { CommandExecuted = true; }),
             Prism::Runtime::WorkerDispatchResult::Accepted);
-        std::weak_ptr<Prism::Executor::ContextOwner> WeakWorker = Worker->Resources().Execution,
+        std::weak_ptr<Prism::Executor::ContextOwner> WeakWorker =
+                                                       Prism::Executor::ContextOwner::Find(Worker->Executor()),
                                                        WeakControl = State->ControlContext;
         std::weak_ptr<Prism::Application::Application::RuntimeState> WeakState = State;
         auto Status = std::make_shared<Stats>();
@@ -377,7 +378,7 @@ namespace
         auto Activity = Scope->Enter(Inner);
         ASSERT_TRUE(Activity);
         auto Handle = std::make_shared<Prism::Protocols::BoundTransmission>(Activity);
-        Worker->Resources().IoContext.stop();
+        Prism::Executor::ContextOwner::Find(Worker->Executor())->Io.stop();
         Pin.reset();
         Inner.reset();
         Activity.reset();

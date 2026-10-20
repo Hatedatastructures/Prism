@@ -48,7 +48,7 @@ namespace
             "ConnDatagram.hpp"};
         for (const auto Header : Headers)
         {
-            const auto Path = Root / "Prism" / "Protocols" / "Shadowsocks2022" / Header;
+            const auto Path = Root / "Include" / "Prism" / "Protocols" / "Shadowsocks2022" / Header;
             const auto Lines = CountLines(Path);
             ASSERT_GT(Lines, 0u) << Path.string();
             EXPECT_LE(Lines, 600u) << Path.string();

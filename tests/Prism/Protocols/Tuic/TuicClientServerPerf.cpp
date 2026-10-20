@@ -72,6 +72,38 @@ namespace
         std::exception_ptr Exception;
     };
 
+    struct TuicLoopbackStreams final
+    {
+        std::shared_ptr<MemoryStream> Client;
+        std::shared_ptr<MemoryStream> Server;
+        std::shared_ptr<MemoryStream> ClientAuth;
+        std::shared_ptr<MemoryStream> ServerAuth;
+    };
+
+    auto MakeTuicLoopbackStreams(ExecutorType Executor) -> TuicLoopbackStreams
+    {
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(Executor);
+        auto [ClientAuthMemory, ServerAuthMemory] = MakeMemoryPair(Executor);
+        return TuicLoopbackStreams{
+            std::make_shared<MemoryStream>(std::move(ClientMemory)),
+            std::make_shared<MemoryStream>(std::move(ServerMemory)),
+            std::make_shared<MemoryStream>(std::move(ClientAuthMemory)),
+            std::make_shared<MemoryStream>(std::move(ServerAuthMemory))};
+    }
+
+    struct TuicTransferScenarioRequest final
+    {
+        Net::io_context &IoContext;
+        TuicLoopbackStreams Streams;
+        std::size_t TotalBytes{0};
+    };
+
+    struct TuicDatagramScenarioRequest final
+    {
+        Net::io_context &IoContext;
+        TuicLoopbackStreams Streams;
+    };
+
     template <typename Awaitable>
     auto RunCoroutine(Net::io_context &IoContext, Awaitable Coroutine) -> void
     {
@@ -340,97 +372,95 @@ namespace
         Connection->Close();
     }
 
+    auto RunTransferScenario(TuicTransferScenarioRequest Request)
+        -> Net::awaitable<void>
+    {
+        constexpr std::size_t BlockSize = 64 * 1024;
+        const auto ServerStream = Request.Streams.Server;
+        const auto ServerAuthStream = Request.Streams.ServerAuth;
+        auto ServerOperation =
+            [ServerStream, ServerAuthStream, TotalBytes = Request.TotalBytes]()
+            -> Net::awaitable<void>
+        {
+            co_await RunServer(
+                ServerStream,
+                ServerAuthStream,
+                ServerOptions{TotalBytes, BlockSize, false});
+        };
+        const auto ServerTask = SpawnTask(
+            Request.IoContext.get_executor(),
+            ServerOperation());
+
+        const auto ClientAuthStream = Request.Streams.ClientAuth;
+        const auto ClientConfigValue = MakeClientConfig(ClientAuthStream);
+        const auto Destination = MakeDestination();
+        auto [HandshakeError, Client] = co_await Tuic::Connect(
+            Request.Streams.Client,
+            ClientConfigValue,
+            Destination);
+        EXPECT_EQ(HandshakeError, Error::None);
+        EXPECT_NE(Client, nullptr);
+        if (HandshakeError != Error::None || !Client)
+        {
+            CloseStreams(ServerStream, ServerAuthStream);
+            const auto ServerCompleted = co_await WaitTask(ServerTask);
+            EXPECT_TRUE(ServerCompleted);
+            co_return;
+        }
+
+        std::vector<std::uint8_t> Payload(BlockSize, 0x4D);
+        const std::span<const std::byte> PayloadWindow(
+            reinterpret_cast<const std::byte *>(Payload.data()),
+            Payload.size());
+        std::size_t Sent = 0;
+        std::size_t YieldCount = 0;
+        while (Sent < Request.TotalBytes)
+        {
+            ++YieldCount;
+            if (YieldCount % 16 == 0)
+            {
+                co_await Net::post(
+                    Request.IoContext.get_executor(),
+                    Net::use_awaitable);
+            }
+            const auto Chunk = std::min(BlockSize, Request.TotalBytes - Sent);
+            const auto WriteWindow = PayloadWindow.first(Chunk);
+            std::size_t Written = 0;
+            while (Written < Chunk)
+            {
+                const auto Remaining = WriteWindow.subspan(Written);
+                std::error_code WriteError;
+                const auto WriteCount = co_await Client->async_write_some(
+                    Remaining,
+                    WriteError);
+                if (WriteError || WriteCount == 0 ||
+                    WriteCount > Chunk - Written)
+                {
+                    break;
+                }
+                Written += WriteCount;
+            }
+            if (Written < Chunk)
+            {
+                break;
+            }
+            Sent += Chunk;
+        }
+        EXPECT_EQ(Sent, Request.TotalBytes);
+        Client->Close();
+        const auto ServerCompleted = co_await WaitTask(ServerTask);
+        EXPECT_TRUE(ServerCompleted);
+    }
+
     auto RunTransfer(
         Net::io_context &IoContext,
         const std::size_t TotalBytes) -> void
     {
-        constexpr std::size_t BlockSize = 64 * 1024;
-        auto [ClientMemory, ServerMemory] =
-            MakeMemoryPair(IoContext.get_executor());
-        auto [ClientAuthMemory, ServerAuthMemory] =
-            MakeMemoryPair(IoContext.get_executor());
-
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            const auto ServerStream = std::make_shared<MemoryStream>(
-                std::move(ServerMemory));
-            const auto ServerAuthStream = std::make_shared<MemoryStream>(
-                std::move(ServerAuthMemory));
-            auto ServerOperation =
-                [ServerStream, ServerAuthStream, TotalBytes]()
-                -> Net::awaitable<void>
-            {
-                co_await RunServer(
-                    ServerStream,
-                    ServerAuthStream,
-                    ServerOptions{TotalBytes, BlockSize, false});
-            };
-            const auto ServerTask = SpawnTask(
-                IoContext.get_executor(),
-                ServerOperation());
-
-            const auto ClientAuthStream = std::make_shared<MemoryStream>(
-                std::move(ClientAuthMemory));
-            const auto ClientConfigValue = MakeClientConfig(ClientAuthStream);
-            const auto Destination = MakeDestination();
-            auto [HandshakeError, Client] = co_await Tuic::Connect(
-                std::make_shared<MemoryStream>(std::move(ClientMemory)),
-                ClientConfigValue,
-                Destination);
-            EXPECT_EQ(HandshakeError, Error::None);
-            EXPECT_NE(Client, nullptr);
-            if (HandshakeError != Error::None || !Client)
-            {
-                CloseStreams(ServerStream, ServerAuthStream);
-                const auto ServerCompleted = co_await WaitTask(ServerTask);
-                EXPECT_TRUE(ServerCompleted);
-                co_return;
-            }
-
-            std::vector<std::uint8_t> Payload(BlockSize, 0x4D);
-            const std::span<const std::byte> PayloadWindow(
-                reinterpret_cast<const std::byte *>(Payload.data()),
-                Payload.size());
-            std::size_t Sent = 0;
-            std::size_t YieldCount = 0;
-            while (Sent < TotalBytes)
-            {
-                ++YieldCount;
-                if (YieldCount % 16 == 0)
-                {
-                    co_await Net::post(
-                        IoContext.get_executor(),
-                        Net::use_awaitable);
-                }
-                const auto Chunk = std::min(BlockSize, TotalBytes - Sent);
-                const auto WriteWindow = PayloadWindow.first(Chunk);
-                std::size_t Written = 0;
-                while (Written < Chunk)
-                {
-                    const auto Remaining = WriteWindow.subspan(Written);
-                    std::error_code WriteError;
-                    const auto WriteCount = co_await Client->async_write_some(
-                        Remaining,
-                        WriteError);
-                    if (WriteError || WriteCount == 0 ||
-                        WriteCount > Chunk - Written)
-                    {
-                        break;
-                    }
-                    Written += WriteCount;
-                }
-                if (Written < Chunk)
-                {
-                    break;
-                }
-                Sent += Chunk;
-            }
-            EXPECT_EQ(Sent, TotalBytes);
-            Client->Close();
-            const auto ServerCompleted = co_await WaitTask(ServerTask);
-            EXPECT_TRUE(ServerCompleted);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
+        auto Streams = MakeTuicLoopbackStreams(IoContext.get_executor());
+        RunCoroutine(
+            IoContext,
+            RunTransferScenario(TuicTransferScenarioRequest{
+                IoContext, std::move(Streams), TotalBytes}));
     }
 
     auto RunBenchConnection(
@@ -541,79 +571,77 @@ namespace
             LatencyReport.Samples);
     }
 
+    auto RunUdpDatagramScenario(TuicDatagramScenarioRequest Request)
+        -> Net::awaitable<void>
+    {
+        const auto ServerStream = Request.Streams.Server;
+        const auto ServerAuthStream = Request.Streams.ServerAuth;
+        auto ServerOperation = [ServerStream, ServerAuthStream]()
+            -> Net::awaitable<void>
+        {
+            co_await RunUdpServer(ServerStream, ServerAuthStream);
+        };
+        const auto ServerTask = SpawnTask(
+            Request.IoContext.get_executor(),
+            ServerOperation());
+
+        const auto ClientAuthStream = Request.Streams.ClientAuth;
+        const auto ClientConfigValue = MakeClientConfig(ClientAuthStream);
+        const auto Destination = MakeDestination();
+        auto [HandshakeError, Client] = co_await Tuic::Connect(
+            Request.Streams.Client,
+            ClientConfigValue,
+            Destination);
+        EXPECT_EQ(HandshakeError, Error::None);
+        EXPECT_NE(Client, nullptr);
+        if (HandshakeError != Error::None || !Client)
+        {
+            CloseStreams(ServerStream, ServerAuthStream);
+            const auto ServerCompleted = co_await WaitTask(ServerTask);
+            EXPECT_TRUE(ServerCompleted);
+            co_return;
+        }
+
+        const std::string Payload = "hello udp";
+        const std::span<const std::uint8_t> PayloadSpan(
+            reinterpret_cast<const std::uint8_t *>(Payload.data()),
+            Payload.size());
+        const auto SendError = co_await Client->AsyncSendDatagram(
+            Destination,
+            PayloadSpan);
+        EXPECT_EQ(SendError, Error::None);
+        if (SendError != Error::None)
+        {
+            Client->Close();
+            CloseStreams(ServerStream, ServerAuthStream);
+            const auto ServerCompleted = co_await WaitTask(ServerTask);
+            EXPECT_TRUE(ServerCompleted);
+            co_return;
+        }
+
+        Address Source;
+        std::vector<std::uint8_t> Response;
+        const auto ReceiveError = co_await Client->AsyncReceiveDatagram(
+            Source,
+            Response);
+        EXPECT_EQ(ReceiveError, Error::None);
+        const std::string ReceivedPayload(
+            Response.begin(),
+            Response.end());
+        EXPECT_EQ(ReceivedPayload, "pdu olleh");
+        Client->Close();
+        const auto ServerCompleted = co_await WaitTask(ServerTask);
+        EXPECT_TRUE(ServerCompleted);
+    }
+
     TEST(TuicClientServer, UdpDatagramRoundtrip)
     {
         Net::io_context IoContext;
-        auto [ClientMemory, ServerMemory] =
-            MakeMemoryPair(IoContext.get_executor());
-        auto [ClientAuthMemory, ServerAuthMemory] =
-            MakeMemoryPair(IoContext.get_executor());
-
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            const auto ServerStream = std::make_shared<MemoryStream>(
-                std::move(ServerMemory));
-            const auto ServerAuthStream = std::make_shared<MemoryStream>(
-                std::move(ServerAuthMemory));
-            auto ServerOperation = [ServerStream, ServerAuthStream]()
-                -> Net::awaitable<void>
-            {
-                co_await RunUdpServer(ServerStream, ServerAuthStream);
-            };
-            const auto ServerTask = SpawnTask(
-                IoContext.get_executor(),
-                ServerOperation());
-
-            const auto ClientAuthStream = std::make_shared<MemoryStream>(
-                std::move(ClientAuthMemory));
-            const auto ClientConfigValue = MakeClientConfig(ClientAuthStream);
-            const auto Destination = MakeDestination();
-            auto [HandshakeError, Client] = co_await Tuic::Connect(
-                std::make_shared<MemoryStream>(std::move(ClientMemory)),
-                ClientConfigValue,
-                Destination);
-            EXPECT_EQ(HandshakeError, Error::None);
-            EXPECT_NE(Client, nullptr);
-            if (HandshakeError != Error::None || !Client)
-            {
-                CloseStreams(ServerStream, ServerAuthStream);
-                const auto ServerCompleted = co_await WaitTask(ServerTask);
-                EXPECT_TRUE(ServerCompleted);
-                co_return;
-            }
-
-            const std::string Payload = "hello udp";
-            const std::span<const std::uint8_t> PayloadSpan(
-                reinterpret_cast<const std::uint8_t *>(Payload.data()),
-                Payload.size());
-            const auto SendError = co_await Client->AsyncSendDatagram(
-                Destination,
-                PayloadSpan);
-            EXPECT_EQ(SendError, Error::None);
-            if (SendError != Error::None)
-            {
-                Client->Close();
-                CloseStreams(ServerStream, ServerAuthStream);
-                const auto ServerCompleted = co_await WaitTask(ServerTask);
-                EXPECT_TRUE(ServerCompleted);
-                co_return;
-            }
-
-            Address Source;
-            std::vector<std::uint8_t> Response;
-            const auto ReceiveError = co_await Client->AsyncReceiveDatagram(
-                Source,
-                Response);
-            EXPECT_EQ(ReceiveError, Error::None);
-            const std::string ReceivedPayload(
-                Response.begin(),
-                Response.end());
-            EXPECT_EQ(ReceivedPayload, "pdu olleh");
-            Client->Close();
-            const auto ServerCompleted = co_await WaitTask(ServerTask);
-            EXPECT_TRUE(ServerCompleted);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
+        auto Streams = MakeTuicLoopbackStreams(IoContext.get_executor());
+        RunCoroutine(
+            IoContext,
+            RunUdpDatagramScenario(TuicDatagramScenarioRequest{
+                IoContext, std::move(Streams)}));
     }
 
 } // namespace

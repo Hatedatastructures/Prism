@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Composition/Provider/BoundCatalog.hpp>
+#include <Prism/Contract/Ingress/CarrierCatalogOwner.hpp>
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
@@ -9,50 +10,155 @@
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/deferred.hpp>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/use_future.hpp>
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
 #include <atomic>
 #include <cstddef>
+#include <exception>
 #include <expected>
 #include <optional>
 #include <stdexcept>
+#include <system_error>
 #include <thread>
 #include "CatalogFixture.hpp"
 #include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <boost/asio/co_spawn.hpp>
 namespace
 {
     namespace P=Prism::Composition::Provider;
     using E=Prism::Contract::ProviderError;
+
+    /** @brief 按测试脚本返回 Drain 结果并独立报告物理退休的 carrier owner。 */
+    class ScriptedCarrierCatalogOwner final : public Prism::Contract::CarrierCatalogOwner
+    {
+    public:
+        auto Close() noexcept -> void override { ++CloseCalls_; }
+        [[nodiscard]] auto IsRetired() const noexcept -> bool override { return Retired_; }
+        /** @brief 设置下一次 Drain 的失败与该次是否同时完成物理退休。 */
+        auto FailNext(Prism::Fault::Failure Failure, const bool Retire) -> void
+        {
+            NextFailure_ = std::move(Failure);
+            RetireAfterFailure_ = Retire;
+        }
+        /** @brief 在下次 Drain 前独立发布已退休状态。 */
+        auto RetireBeforeDrain() noexcept -> void { Retired_ = true; }
+        [[nodiscard]] auto DrainCalls() const noexcept -> std::size_t { return DrainCalls_; }
+        [[nodiscard]] auto CloseCalls() const noexcept -> std::size_t { return CloseCalls_; }
+        auto Drain() -> boost::asio::awaitable<std::expected<void, Prism::Fault::Failure>> override
+        {
+            ++DrainCalls_;
+            if (NextFailure_)
+            {
+                auto Failure = std::move(*NextFailure_);
+                NextFailure_.reset();
+                if (RetireAfterFailure_) Retired_ = true;
+                RetireAfterFailure_ = false;
+                co_return std::unexpected(std::move(Failure));
+            }
+            Retired_ = true;
+            co_return std::expected<void, Prism::Fault::Failure>{};
+        }
+    private:
+        std::optional<Prism::Fault::Failure> NextFailure_;
+        bool RetireAfterFailure_{false}, Retired_{false};
+        std::size_t DrainCalls_{0}, CloseCalls_{0};
+    };
+
+    /** @brief 驱动一次公开 catalog Drain 并收集其 typed 结果。 */
+    auto DrainBoundCatalog(P::BoundCatalog& Catalog, boost::asio::io_context& Io)
+        -> std::expected<void, Prism::Fault::Failure>
+    {
+        auto Completion = boost::asio::co_spawn(Io, Catalog.Drain(), boost::asio::use_future);
+        Io.run();
+        Io.restart();
+        return Completion.get();
+    }
+
     TEST(BoundCatalogDrainPolicy, RequiresOwnerReceiptForRetiredCancellationAndBlockedAttempts)
     {
+        using Code = Prism::Fault::Code;
         using Failure = Prism::Fault::Failure;
         using Retirement = P::PhysicalRetirementState;
-        using Receipt = P::Detail::DrainOwnerFailureReceipt;
-        const auto Canceled = std::expected<void, Failure>{std::unexpected(
-            Failure{Prism::Fault::Code::Canceled})};
-        const auto Blocked = std::expected<void, Failure>{std::unexpected(
-            Failure{Prism::Fault::Code::Blocked})};
-        const auto IoError = Failure{Prism::Fault::Code::IoError};
-        const auto IoFailure = std::expected<void, Failure>{std::unexpected(IoError)};
+        boost::asio::io_context Io;
 
-        EXPECT_TRUE(P::Detail::IsRetryableDrainAttempt(
-            Canceled, Receipt{{}, Retirement::Active, false}));
-        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(
-            Canceled, Receipt{{}, Retirement::Retired, false}));
-        EXPECT_TRUE(P::Detail::IsRetryableDrainAttempt(
-            Canceled, Receipt{{}, Retirement::Retired, true}));
-        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(Canceled,
-            Receipt{Failure{Prism::Fault::Code::Canceled}, Retirement::Retired, true}));
-        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(Canceled,
-            Receipt{IoError, Retirement::Retired, true}));
-        EXPECT_TRUE(P::Detail::IsRetryableDrainAttempt(
-            Blocked, Receipt{{}, Retirement::Active, true}));
-        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(
-            Blocked, Receipt{{}, Retirement::Active, false}));
-        EXPECT_FALSE(P::Detail::IsRetryableDrainAttempt(
-            IoFailure, Receipt{{}, Retirement::Active, true}));
+        P::BoundCatalog RetryCatalog;
+        auto RetryOwner = std::make_shared<ScriptedCarrierCatalogOwner>();
+        ASSERT_TRUE(RetryCatalog.AdoptCarrierOwner("retry", RetryOwner));
+        RetryOwner->FailNext(Failure{Code::Canceled}, false);
+        const auto CanceledAttempt = DrainBoundCatalog(RetryCatalog, Io);
+        ASSERT_FALSE(CanceledAttempt);
+        EXPECT_EQ(CanceledAttempt.error().Code, Code::Canceled);
+        EXPECT_FALSE(RetryCatalog.DrainFailure());
+        const auto PendingReceipt = RetryCatalog.PhysicalRetirement();
+        ASSERT_EQ(PendingReceipt.Owners.size(), 1U);
+        EXPECT_EQ(PendingReceipt.Owners.front().State, Retirement::Active);
+        EXPECT_FALSE(PendingReceipt.Complete());
+        EXPECT_EQ(RetryOwner->DrainCalls(), 1U);
+
+        const auto RetriedAttempt = DrainBoundCatalog(RetryCatalog, Io);
+        ASSERT_TRUE(RetriedAttempt);
+        EXPECT_FALSE(RetryCatalog.DrainFailure());
+        const auto RetryReceipt = RetryCatalog.PhysicalRetirement();
+        ASSERT_EQ(RetryReceipt.Owners.size(), 1U);
+        EXPECT_EQ(RetryReceipt.Owners.front().State, Retirement::Retired);
+        EXPECT_TRUE(RetryReceipt.Complete());
+        EXPECT_EQ(RetryOwner->DrainCalls(), 2U);
+        EXPECT_EQ(RetryOwner->CloseCalls(), 2U);
+
+        P::BoundCatalog RetiredCancellationCatalog;
+        auto RetiredCancellationOwner = std::make_shared<ScriptedCarrierCatalogOwner>();
+        ASSERT_TRUE(RetiredCancellationCatalog.AdoptCarrierOwner("retired-cancel",
+            RetiredCancellationOwner));
+        RetiredCancellationOwner->RetireBeforeDrain();
+        RetiredCancellationOwner->FailNext(Failure{Code::Canceled}, false);
+        const auto RetiredCancellation = DrainBoundCatalog(RetiredCancellationCatalog, Io);
+        ASSERT_FALSE(RetiredCancellation);
+        EXPECT_EQ(RetiredCancellation.error().Code, Code::Canceled);
+        const auto RetiredCancellationFailure = RetiredCancellationCatalog.DrainFailure();
+        ASSERT_TRUE(RetiredCancellationFailure);
+        EXPECT_EQ(RetiredCancellationFailure->Code, Code::Canceled);
+        EXPECT_TRUE(RetiredCancellationCatalog.PhysicalRetirement().Complete());
+        const auto RetiredCancellationRetry = DrainBoundCatalog(RetiredCancellationCatalog, Io);
+        ASSERT_FALSE(RetiredCancellationRetry);
+        EXPECT_EQ(RetiredCancellationRetry.error().Code, Code::Canceled);
+
+        P::BoundCatalog BlockedCatalog;
+        auto BlockedOwner = std::make_shared<ScriptedCarrierCatalogOwner>();
+        ASSERT_TRUE(BlockedCatalog.AdoptCarrierOwner("blocked", BlockedOwner));
+        BlockedOwner->FailNext(Failure{Code::Blocked}, false);
+        const auto BlockedAttempt = DrainBoundCatalog(BlockedCatalog, Io);
+        ASSERT_FALSE(BlockedAttempt);
+        EXPECT_EQ(BlockedAttempt.error().Code, Code::Blocked);
+        ASSERT_TRUE(BlockedCatalog.DrainFailure());
+        EXPECT_EQ(BlockedCatalog.DrainFailure()->Code, Code::Blocked);
+        EXPECT_FALSE(BlockedCatalog.PhysicalRetirement().Complete());
+        const auto BlockedRetry = DrainBoundCatalog(BlockedCatalog, Io);
+        ASSERT_FALSE(BlockedRetry);
+        EXPECT_EQ(BlockedRetry.error().Code, Code::Blocked);
+        EXPECT_EQ(BlockedCatalog.DrainFailure()->Code, Code::Blocked);
+        EXPECT_TRUE(BlockedCatalog.PhysicalRetirement().Complete());
+        EXPECT_EQ(BlockedOwner->DrainCalls(), 2U);
+
+        P::BoundCatalog IoErrorCatalog;
+        auto IoErrorOwner = std::make_shared<ScriptedCarrierCatalogOwner>();
+        ASSERT_TRUE(IoErrorCatalog.AdoptCarrierOwner("io-error", IoErrorOwner));
+        const auto IoError = Failure{Code::IoError, std::make_error_code(std::errc::io_error)};
+        IoErrorOwner->FailNext(IoError, false);
+        const auto IoErrorAttempt = DrainBoundCatalog(IoErrorCatalog, Io);
+        ASSERT_FALSE(IoErrorAttempt);
+        EXPECT_EQ(IoErrorAttempt.error().Code, Code::IoError);
+        EXPECT_EQ(IoErrorAttempt.error().Native, IoError.Native);
+        ASSERT_TRUE(IoErrorCatalog.DrainFailure());
+        EXPECT_EQ(IoErrorCatalog.DrainFailure()->Code, Code::IoError);
+        EXPECT_EQ(IoErrorCatalog.DrainFailure()->Native, IoError.Native);
+        const auto IoErrorRetry = DrainBoundCatalog(IoErrorCatalog, Io);
+        ASSERT_FALSE(IoErrorRetry);
+        EXPECT_EQ(IoErrorRetry.error().Code, Code::IoError);
+        EXPECT_TRUE(IoErrorCatalog.PhysicalRetirement().Complete());
     }
 
     /** @brief 构造携带有界字节池的真实流接入输入。 */
@@ -239,9 +345,9 @@ namespace
                           Buffer});
         }
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), NotOpen()); }
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), NotOpen()); }
         auto StartWriteShutdown(Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {}); }
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), {}); }
         [[nodiscard]] auto OnCancel() -> ControlResult override
         {
             CheckThread();
@@ -270,7 +376,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(Input.Owner->Executor(),
                     Input.Owner->ReadPartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};

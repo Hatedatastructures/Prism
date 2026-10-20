@@ -10,6 +10,7 @@
  */
 
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/redirect_error.hpp>
@@ -28,7 +29,15 @@
 
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
+#include <Prism/Foundation/Error.hpp>
+#include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Protocols/Restls/Detail/Codec.hpp>
+#include <Prism/Protocols/Restls/Detail/Conn.hpp>
+#include <Prism/Protocols/Restls/Detail/Retirement.hpp>
+#include <Prism/Protocols/Restls/Detail/WireIo.hpp>
 #include <Prism/Protocols/Restls/Restls.hpp>
+#include <Prism/Protocols/Restls/Types.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -58,20 +67,20 @@ namespace
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler), {0, {Prism::Fault::Code::Canceled}});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler),
                 {WriteProgress_, Prism::Fault::FromNative(Native_)});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler), {0, Prism::Fault::FromNative(Native_)});
         }
 

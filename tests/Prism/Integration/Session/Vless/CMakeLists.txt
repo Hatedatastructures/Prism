@@ -9,4 +9,5 @@ target_link_libraries(VlessUpstreamAbortE2ETest PRIVATE
     PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismProtocolVless PrismTestSupport)
 AddPrismTest(VlessUdpE2ETest.cpp)
 target_link_libraries(VlessUdpE2ETest PRIVATE
-    PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismProtocolVless PrismTestSupport)
+    PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismDatagramContract
+    PrismProtocolAnytls PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess PrismTestSupport)

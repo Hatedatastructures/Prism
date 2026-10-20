@@ -36,7 +36,8 @@ TEST(PrismTask3Generation, RejectsUnresolvedSecretReferences)
     {
         GenerationBuildOptions Options;
         Options.Configuration = ParseValid();
-        Options.Configuration.Accounts.push_back({"missing-account", "missing", ""});
+        Options.Configuration.Accounts.push_back(
+            {.Id = "missing-account", .SecretRef = "missing"});
         Options.Builtins = MakeBuiltinSnapshot(CapabilitySet{});
         Options.Generation = Prism::GenerationId{1};
         Options.SecretResolver = [](std::string_view) -> std::optional<std::string> { return std::nullopt; };
@@ -51,7 +52,8 @@ TEST(PrismTask3Generation, RejectsUnresolvedSecretReferencesWithoutResolver)
     {
         GenerationBuildOptions Options;
         Options.Configuration = ParseValid();
-        Options.Configuration.Accounts.push_back({"missing-account", "missing", ""});
+        Options.Configuration.Accounts.push_back(
+            {.Id = "missing-account", .SecretRef = "missing"});
         Options.Builtins = MakeBuiltinSnapshot(CapabilitySet{});
 
         const auto Result = GenerationBuilder::Build(std::move(Options));
@@ -65,7 +67,8 @@ TEST(PrismTask3Generation, RejectsEmptyResolvedSecret)
     {
         GenerationBuildOptions Options;
         Options.Configuration = ParseValid();
-        Options.Configuration.Accounts.push_back({"empty-account", "empty", ""});
+        Options.Configuration.Accounts.push_back(
+            {.Id = "empty-account", .SecretRef = "empty"});
         Options.Builtins = MakeBuiltinSnapshot(CapabilitySet{});
         Options.SecretResolver = [](std::string_view) -> std::optional<std::string>
         {
@@ -83,7 +86,8 @@ TEST(PrismTask3Generation, RejectsThrowingSecretResolver)
     {
         GenerationBuildOptions Options;
         Options.Configuration = ParseValid();
-        Options.Configuration.Accounts.push_back({"throwing-account", "throwing", ""});
+        Options.Configuration.Accounts.push_back(
+            {.Id = "throwing-account", .SecretRef = "throwing"});
         Options.Builtins = MakeBuiltinSnapshot(CapabilitySet{});
         Options.SecretResolver = [](std::string_view) -> std::optional<std::string>
         {
@@ -101,7 +105,8 @@ TEST(PrismTask3Generation, AcceptsResolvedSecretReferences)
     {
         GenerationBuildOptions Options;
         Options.Configuration = ParseValid();
-        Options.Configuration.Accounts.push_back({"resolved-account", "secret/account", ""});
+        Options.Configuration.Accounts.push_back(
+            {.Id = "resolved-account", .SecretRef = "secret/account"});
         Options.SecretResolver = [](std::string_view Reference) -> std::optional<std::string>
         {
             return Reference == "secret/account" ? std::optional<std::string>{"resolved-value"}
@@ -136,7 +141,7 @@ TEST(PrismTask3Generation, AcceptsInlineConfigurationSecretsWithoutExternalResol
             "  \"Accounts\": [{\"Id\": \"local\", \"SecretRef\": \"\", \"Credential\": \"local-token\"}],",
             "  \"Accounts\": [{\"Id\": \"local\", \"SecretRef\": \"\", \"Credential\": \"local-token\"},"
             " {\"Id\": \"inline-account\", \"SecretRef\": \"secret/account\", \"Credential\": \"\"}],");
-        const auto Parsed = Parser::Parse({.Json = Json});
+        const auto Parsed = ConfigurationParser::Parse({.Json = Json});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 
         auto Configuration = *Parsed;
@@ -169,7 +174,7 @@ TEST(PrismTask3Generation, CachesRepeatedCarrierSecretReferences)
             std::string(RealityCarrier) + "," + std::string(ShadowTlsCarrier) + "," +
                 std::string(RestlsCarrier),
             {});
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = Json, .Options = {.CheckSecrets = false}});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 

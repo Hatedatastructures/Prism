@@ -17,9 +17,11 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -27,6 +29,8 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+#include <Prism/Foundation/Executor/ContextOwner.hpp>
 
 namespace
 {
@@ -225,6 +229,7 @@ namespace
         Tcp::socket &Client;
         std::shared_ptr<Prism::Runtime::Detail::ListenerConnectionGate::Quota> Quota;
         Prism::Runtime::AffinityBalancer &Balancer;
+        std::shared_ptr<Prism::Runtime::GenerationPublication> Publication;
         const std::function<void(Prism::Fault::Code)> &OnFailure;
         std::shared_ptr<SessionIdentityEvents> DrainCompleted;
         WorkerId Worker{1};
@@ -263,7 +268,7 @@ namespace
         auto Prepared = Prism::Runtime::Detail::ListenerAdmissionOwner::Prepare(
             std::move(Accepted), Prism::Runtime::Detail::ListenerAdmissionOwner::Dependencies{
                 Probe.Io.get_executor(), Probe.Quota, Probe.Balancer,
-                &Probe.ProcessValue.Workers(), Probe.OnFailure});
+                &Probe.ProcessValue.Workers(), Probe.Publication, Probe.OnFailure});
         if (!Prepared) co_return;
         Probe.Prepared.emplace(std::move(*Prepared));
         Probe.PrepareSucceeded = Probe.Prepared->Worker == Probe.Worker;
@@ -526,6 +531,8 @@ namespace
         Options.Id = ProcessId{42};
         Options.Generation = GenerationId{62};
         Options.WorkerCount = 2;
+        Options.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            Options.Generation);
         Process ProcessValue(Options);
         WorkerGroupRunner WorkerRunner(ProcessValue.Workers());
 
@@ -541,7 +548,7 @@ namespace
             [](Prism::Fault::Code) {};
         auto DrainCompleted = std::make_shared<SessionIdentityEvents>(Io.get_executor(), 1U);
         WorkerAdmissionReceiptProbe Probe{
-            ProcessValue, Io, Acceptor, Client, Quota, Balancer, OnFailure,
+            ProcessValue, Io, Acceptor, Client, Quota, Balancer, Options.Publication, OnFailure,
             DrainCompleted, WorkerId{1}, *WorkerAddress};
 
         RunCoro(Io, RunWorkerAdmissionReceiptProbe(Probe));
@@ -704,12 +711,12 @@ namespace
     {
         std::weak_ptr<Prism::Executor::ContextOwner> Weak;
         {
-            Prism::Resource::WorkerResources Resources;
-            Weak = Resources.Execution;
-            ASSERT_EQ(Resources.Tasks->Stats().Active, 0);
-            std::pmr::vector<std::byte> Buffer(Resources.MemoryResource);
+            Worker Value;
+            Weak = Value.Resources().Execution;
+            ASSERT_EQ(Value.TaskRegistry().Stats().Active, 0);
+            std::pmr::vector<std::byte> Buffer(Value.Resources().MemoryResource);
             Buffer.resize(256);
-            Resources.Stop();
+            Value.Stop();
         }
         EXPECT_TRUE(Weak.expired());
         EXPECT_EQ(Prism::Executor::ClosingStorage::ProcessStorage()->Pending(), 0);

@@ -14,7 +14,9 @@ auto RunRestlsReadBadLength(SharedTransmission ClientEndpoint, SharedTransmissio
     const std::array<std::uint8_t, 33> LongRandom{};
     const auto ErrorValue =
     co_await Server->ReadHandshake(std::span<const std::uint8_t>(LongRandom));
-    EXPECT_EQ(ErrorValue, Error::BadLength);
+    EXPECT_FALSE(ErrorValue);
+    if (ErrorValue) co_return;
+    EXPECT_EQ(ErrorValue.error().Code, Error::BadLength);
     co_await ExpectCloseTransmission(Server);
     co_return;
 }
@@ -30,7 +32,9 @@ auto RunRestlsWriteBadLength(SharedTransmission ClientEndpoint, SharedTransmissi
     const std::array<std::uint8_t, 31> ShortRandom{};
     const auto ErrorValue =
     co_await Client->WriteHandshake(std::span<const std::uint8_t>(ShortRandom));
-    EXPECT_EQ(ErrorValue, Error::BadLength);
+    EXPECT_FALSE(ErrorValue);
+    if (ErrorValue) co_return;
+    EXPECT_EQ(ErrorValue.error().Code, Error::BadLength);
     co_await ExpectCloseTransmission(Client);
     co_return;
 }
@@ -46,9 +50,56 @@ auto RunAnyTlsReadEof(SharedTransmission ClientEndpoint, SharedTransmission Serv
     ServerEndpoint, "pw");
     co_await ExpectCloseTransmission(ClientEndpoint);
     const auto ErrorValue = co_await Server->ReadHandshake();
-    EXPECT_EQ(ErrorValue, Error::UnexpectedEof);
+    EXPECT_FALSE(ErrorValue);
+    if (ErrorValue) co_return;
+    EXPECT_EQ(ErrorValue.error().Code, Prism::Fault::Code::Eof);
     co_await ExpectCloseTransmission(Server);
     co_return;
+}
+
+auto RunAnyTlsWriteHandshakeIoError(
+    SharedTransmission ClientEndpoint,
+    SharedTransmission ServerEndpoint) -> Net::awaitable<void>
+{
+    auto Client = std::make_shared<Anytls::Conn<>>(ClientEndpoint, "pw");
+    co_await ExpectCloseTransmission(ServerEndpoint);
+    const auto ErrorValue = co_await Client->WriteHandshake();
+    EXPECT_FALSE(ErrorValue);
+    if (ErrorValue) co_return;
+    EXPECT_EQ(ErrorValue.error().Code, Prism::Fault::Code::ConnectionAborted);
+    EXPECT_FALSE(ErrorValue.error().Native);
+    co_await ExpectCloseTransmission(Client);
+}
+
+auto RunShadowTlsReadHandshakeEof(
+    SharedTransmission ClientEndpoint,
+    SharedTransmission ServerEndpoint) -> Net::awaitable<void>
+{
+    auto Server = std::make_shared<Shadowtls::Detail::Conn<>>(ServerEndpoint, "pw");
+    co_await ExpectCloseTransmission(ClientEndpoint);
+    const auto ErrorValue = co_await Server->ReadHandshake();
+    EXPECT_FALSE(ErrorValue);
+    if (ErrorValue) co_return;
+    EXPECT_EQ(ErrorValue.error().Code, Prism::Fault::Code::Eof);
+    co_await ExpectCloseTransmission(Server);
+}
+
+auto RunShadowTlsWriteHandshakeIoError(
+    SharedTransmission ClientEndpoint,
+    SharedTransmission ServerEndpoint) -> Net::awaitable<void>
+{
+    const auto ServerRandom = MakeRandom(0x33, Shadowtls::TlsRndSize);
+    const auto ClientRandom = MakeRandom(0x44, Shadowtls::TlsRndSize);
+    auto Client = std::make_shared<Shadowtls::Detail::Conn<>>(ClientEndpoint, "pw");
+    co_await ExpectCloseTransmission(ServerEndpoint);
+    const auto ErrorValue = co_await Client->WriteHandshake(
+        std::span<const std::uint8_t>(ServerRandom),
+        std::span<const std::uint8_t>(ClientRandom));
+    EXPECT_FALSE(ErrorValue);
+    if (ErrorValue) co_return;
+    EXPECT_EQ(ErrorValue.error().Code, Prism::Fault::Code::ConnectionAborted);
+    EXPECT_FALSE(ErrorValue.error().Native);
+    co_await ExpectCloseTransmission(Client);
 }
 
 
@@ -94,15 +145,7 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
         auto& [ClientEndpoint, ServerEndpoint] = Pair;
 
         RunMemoryCase(Context, Pair,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto Client = std::make_shared<Anytls::Conn<>>(
-                         ClientEndpoint, "pw");
-                     co_await ExpectCloseTransmission(ServerEndpoint); // 对端全关 → 发送失败 → io_error
-                     const auto ErrorValue = co_await Client->WriteHandshake();
-                     EXPECT_EQ(ErrorValue, Error::IoError);
-                     co_await ExpectCloseTransmission(Client);
-                 });
+                      RunAnyTlsWriteHandshakeIoError(ClientEndpoint, ServerEndpoint));
     }
 
     TEST(StealthAnyTlsConnError, NotOpenReadWrite)
@@ -125,15 +168,7 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
         auto& [ClientEndpoint, ServerEndpoint] = Pair;
 
         RunMemoryCase(Context, Pair,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto Server = std::make_shared<Shadowtls::Detail::Conn<>>(
-                         ServerEndpoint, "pw");
-                     co_await ExpectCloseTransmission(ClientEndpoint); // 对端关闭 → 读 ClientHello EOF → unexpected_eof
-                     const auto ErrorValue = co_await Server->ReadHandshake();
-                     EXPECT_EQ(ErrorValue, Error::UnexpectedEof);
-                     co_await ExpectCloseTransmission(Server);
-        });
+                      RunShadowTlsReadHandshakeEof(ClientEndpoint, ServerEndpoint));
     }
 
     TEST(StealthShadowTlsConnError, ReadHandshakeRejectsOverreportedRead)
@@ -147,7 +182,10 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
                  [&]() -> Net::awaitable<void>
                  {
                      const auto ErrorValue = co_await Server->ReadHandshake();
-                     EXPECT_EQ(ErrorValue, Error::UnexpectedEof);
+                     EXPECT_FALSE(ErrorValue);
+                     if (ErrorValue) co_return;
+                      EXPECT_EQ(ErrorValue.error().Code, Prism::Fault::Code::IoError);
+                      EXPECT_FALSE(ErrorValue.error().Native);
                      EXPECT_EQ(Raw->ReadsDone, 1u);
                  });
 
@@ -167,20 +205,8 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
         Net::io_context Context;
         auto Pair = MakeOwnedMemoryPair(Context.get_executor());
         auto& [ClientEndpoint, ServerEndpoint] = Pair;
-        const auto ServerRandom = MakeRandom(0x33, Shadowtls::TlsRndSize);
-        const auto ClientRandom = MakeRandom(0x44, Shadowtls::TlsRndSize);
-
         RunMemoryCase(Context, Pair,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto Client = std::make_shared<Shadowtls::Detail::Conn<>>(
-                         ClientEndpoint, "pw");
-                     co_await ExpectCloseTransmission(ServerEndpoint); // 对端全关 → 发送失败 → io_error
-                     const auto ErrorValue = co_await Client->WriteHandshake(
-                         std::span<const std::uint8_t>(ServerRandom), std::span<const std::uint8_t>(ClientRandom));
-                     EXPECT_EQ(ErrorValue, Error::IoError);
-                     co_await ExpectCloseTransmission(Client);
-                 });
+                      RunShadowTlsWriteHandshakeIoError(ClientEndpoint, ServerEndpoint));
     }
 
     TEST(StealthShadowTlsConnError, NotOpenReadWrite)
@@ -207,7 +233,9 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
         const auto Shutdown = co_await Client->WriteShutdown();
         EXPECT_TRUE(Shutdown);
         const auto Result = co_await Connection->ReadHandshake();
-        EXPECT_EQ(Result, Error::UnexpectedEof);
+        EXPECT_FALSE(Result);
+        if (Result) co_return;
+        EXPECT_EQ(Result.error().Code, Prism::Fault::Code::Eof);
         co_await ExpectCloseTransmission(Connection);
     }
 
@@ -221,7 +249,9 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
         const auto Write = co_await Client->WriteSome(AsBytes(AsU8Span(Frame)));
         ExpectFullWrite(Write, Frame.size());
         const auto Result = co_await Connection->ReadHandshake();
-        EXPECT_EQ(Result, Error::BadAuth);
+        EXPECT_FALSE(Result);
+        if (Result) co_return;
+        EXPECT_EQ(Result.error().Code, Prism::Fault::Code::AuthFailed);
         co_await ExpectCloseTransmission(Connection);
     }
 
@@ -235,11 +265,13 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
         const auto WriteResult = co_await ClientConnection->WriteHandshake(
             std::span<const std::uint8_t>(ServerRandom),
             std::span<const std::uint8_t>(ClientRandom));
-        EXPECT_EQ(WriteResult, Error::None);
+        EXPECT_TRUE(WriteResult);
         auto ServerConnection = std::make_shared<Shadowtls::Detail::Conn<>>(
             Server, "Expect-pw");
         const auto ReadResult = co_await ServerConnection->ReadHandshake();
-        EXPECT_EQ(ReadResult, Error::BadAuth);
+        EXPECT_FALSE(ReadResult);
+        if (ReadResult) co_return;
+        EXPECT_EQ(ReadResult.error().Code, Prism::Fault::Code::AuthFailed);
         co_await ExpectCloseTransmission(ClientConnection);
         co_await ExpectCloseTransmission(ServerConnection);
     }

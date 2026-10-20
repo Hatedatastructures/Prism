@@ -9,8 +9,10 @@
 #include <gtest/gtest.h>
 
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/deferred.hpp>
 #include <boost/asio/io_context.hpp>
 
+#include <algorithm>
 #include <array>
 #include <exception>
 #include <memory>
@@ -19,6 +21,7 @@
 
 #include <Prism/Runtime/Middleware/Builtin/Relay.hpp>
 #include <Prism/Runtime/Middleware/Context.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Transport/Transmission.hpp>
 
 namespace
@@ -64,7 +67,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -94,10 +97,9 @@ namespace
             template <class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
-                std::error_code Error;
-                const auto Count = co_await Input.Owner->ReadPartial(Input.Buffer, Error);
-                co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(Error)}};
+                Prism::Transmission::ConfigureIo(Operation);
+                co_return std::tuple{co_await Net::co_spawn(
+                    Input.Owner->Executor(), Input.Owner->ReadSome(Input.Buffer), Net::deferred)};
             }
         };
         struct WriteWork final
@@ -105,32 +107,30 @@ namespace
             template <class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
-                std::error_code Error;
-                const auto Count = co_await Input.Owner->WritePartial(Input.Buffer, Error);
-                co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(Error)}};
+                Prism::Transmission::ConfigureIo(Operation);
+                co_return std::tuple{co_await Net::co_spawn(
+                    Input.Owner->Executor(), Input.Owner->WriteSome(Input.Buffer), Net::deferred)};
             }
         };
-        [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer, std::error_code &Error)
-            -> Net::awaitable<std::size_t>
+        [[nodiscard]] auto ReadSome(std::span<std::byte> Buffer)
+            -> Net::awaitable<Prism::IoResult>
         {
-            if (Remaining_ == 0)
+            if (Remaining_ == 0U)
             {
-                Error.clear();
-                co_return 0;
+                co_return Prism::IoResult{
+                    0, Prism::Fault::Failure{Prism::Fault::Code::Eof}};
             }
-            const auto Count = std::min(Buffer.size(), Remaining_);
+            const auto Count = (std::min)(Buffer.size(), Remaining_);
+            std::fill_n(Buffer.begin(), Count, std::byte{});
             Remaining_ -= Count;
-            Error.clear();
-            co_return Count;
+            co_return Prism::IoResult{Count, {}};
         }
-        [[nodiscard]] auto WritePartial(std::span<const std::byte> Buffer, std::error_code &Error)
-            -> Net::awaitable<std::size_t>
+        [[nodiscard]] auto WriteSome(std::span<const std::byte> Buffer)
+            -> Net::awaitable<Prism::IoResult>
         {
             // 黑洞对端：吸收全部写入（返回 0 会被组合 AsyncWrite 判定为
             // broken_pipe 而中断 relay，与"可写对端"的桩意图不符）
-            Error.clear();
-            co_return Buffer.size();
+            co_return Prism::IoResult{Buffer.size(), {}};
         }
         Net::any_io_executor Ex_;
         std::size_t Remaining_;
@@ -184,6 +184,8 @@ namespace
         Context.Identity() = Request.Identity;
         Context.DataPlane.AccountId = Request.Account;
         Context.BufferSize = 4096;
+        Context.Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockSize = Context.BufferSize, .BlockCount = 2});
 
         auto Inbound = std::make_shared<MemTx>(Request.IoContext.get_executor(), Request.Remaining);
         auto Outbound = std::make_shared<MemTx>(Request.IoContext.get_executor(), 0);
@@ -195,14 +197,14 @@ namespace
         const auto Code = co_await Relay.Handle(SharedInbound, Context);
         if (Request.CheckAbsent)
         {
-            EXPECT_EQ(Code, Prism::Fault::Code::Success);
+            EXPECT_TRUE(Code.Succeeded());
             EXPECT_EQ(Sink->ByAccount_.count(Request.Account.Value()), 1U);
             EXPECT_EQ(Sink->ByAccount_.count(Request.AbsentAccount), 0U);
             EXPECT_EQ(Sink->ByAccount_[Request.Account.Value()].first, Request.Remaining);
         }
         else
         {
-            EXPECT_EQ(Code, Prism::Fault::Code::Success);
+            EXPECT_TRUE(Code.Succeeded());
             const auto Iterator = Sink->ByAccount_.find(Request.Account.Value());
             EXPECT_NE(Iterator, Sink->ByAccount_.end());
             if (Iterator != Sink->ByAccount_.end())

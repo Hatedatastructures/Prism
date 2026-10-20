@@ -21,7 +21,7 @@
 #include <vector>
 
 #include <Prism/Transport/Reliable.hpp>
-#include <Prism/Protocols/Vmess/Codec.hpp>
+#include <Prism/Protocols/Vmess/Vmess.hpp>
 
 using Clock = std::chrono::steady_clock;
 namespace Net = boost::asio;

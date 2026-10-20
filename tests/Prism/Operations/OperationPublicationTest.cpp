@@ -1,6 +1,7 @@
 /** @file OperationPublicationTest.cpp @brief 终态提交事实与等待者通知失败的独立回执。 */
 #include <gtest/gtest.h>
 #include <Prism/Operations/Router.hpp>
+#include <Prism/Operations/Detail/RouterState.hpp>
 #include <boost/asio/io_context.hpp>
 
 namespace

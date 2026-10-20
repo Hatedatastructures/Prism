@@ -34,7 +34,6 @@
 
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
-#include <Prism/Protocols/Socks5/Detail/UdpAssocFailureState.hpp>
 #include <Prism/Protocols/Socks5/UdpAssoc.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Reliable.hpp>
@@ -414,7 +413,6 @@ namespace
         EXPECT_EQ(Scenario.RunResultValue.error().Code,
                   Prism::Fault::Code::Canceled);
     }
-
 
     constexpr auto ReplySize = std::size_t{10};
     constexpr auto WatchdogDuration = std::chrono::seconds{1};

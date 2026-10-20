@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <expected>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <system_error>
 #include <vector>
@@ -40,7 +41,7 @@
 #include <Prism/Protocols/Mux/H2Mux/Http2Server.hpp>
 #include <Prism/Protocols/Http2/Session.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Transmission.hpp>
 
 namespace
 {
@@ -97,6 +98,7 @@ namespace
         bool Threw{false};
         bool Retired{false};
         Prism::Fault::Failure Failure{};
+        std::function<void()> OnCompleted;
     };
 
     struct ServerRunCompletion final
@@ -114,6 +116,7 @@ namespace
             if (Exception) Observation->Failure = {Prism::Fault::Code::IoError};
             else if (!Outcome) Observation->Failure = Outcome.error();
             else Observation->Succeeded = true;
+            if (Observation->OnCompleted) Observation->OnCompleted();
         }
     };
 
@@ -179,7 +182,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};
@@ -251,7 +254,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};

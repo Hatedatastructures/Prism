@@ -20,7 +20,7 @@
 #include <span>
 #include <vector>
 
-#include <Prism/Protocols/Restls/Detail/Record.hpp>
+#include <Prism/Protocols/Restls/Detail/Codec.hpp>
 #include <Prism/Protocols/Restls/Types.hpp>
 
 namespace

@@ -290,6 +290,107 @@ namespace
         if (Exception) std::rethrow_exception(Exception);
     }
 
+    /** @brief 驱动显式 Close 后的 Drain 与 Run 顺序，并记录真实退休和控制次数。 */
+    struct CloseBeforeRunInput final
+    {
+        std::shared_ptr<Relay> Protocol;
+        std::shared_ptr<BlockingWireState> Wire;
+        std::shared_ptr<Prism::Contract::CarrierActivity> Activity;
+        RelayScenario &Scenario;
+    };
+
+    [[nodiscard]] auto RunCloseBeforeRun(CloseBeforeRunInput Input)
+        -> Net::awaitable<void>
+    {
+        Input.Protocol->Close();
+        const auto Closed = co_await Input.Activity->Drain();
+        EXPECT_TRUE(Closed);
+        const auto Run = co_await Input.Protocol->Run();
+        EXPECT_TRUE(Run);
+        Input.Scenario.Retired = Input.Activity->IsRetired();
+        Input.Scenario.CancelCalls = Input.Wire->CancelCalls.load(std::memory_order_relaxed);
+        Input.Scenario.CloseCalls = Input.Wire->CloseCalls.load(std::memory_order_relaxed);
+    }
+
+    /** @brief 在指定 wire 上保持 resolver 挂起，直到关闭或原有超时路径结束。 */
+    class BlockingResolver final
+    {
+    public:
+        explicit BlockingResolver(std::shared_ptr<BlockingWireState> State)
+            : State_(std::move(State))
+        {
+        }
+
+        [[nodiscard]] auto operator()(Prism::Network::Target) const
+            -> Net::awaitable<std::expected<Udp::endpoint, Failure>>
+        {
+            (void)State_->ResolverStarted.try_send(boost::system::error_code{});
+            boost::system::error_code Error;
+            co_await State_->ResolverBlock.async_wait(
+                Net::redirect_error(Net::use_awaitable, Error));
+            if (Error)
+                co_return std::unexpected(Prism::Fault::FromNative(
+                    static_cast<std::error_code>(Error)));
+            co_return std::unexpected(Failure{Prism::Fault::Code::Timeout});
+        }
+
+    private:
+        std::shared_ptr<BlockingWireState> State_;
+    };
+
+    /** @brief Resolver-close 测试协程所需的资源与结果引用。 */
+    struct ResolverCloseInput final
+    {
+        Net::io_context &Io;
+        RelayScenario &Scenario;
+        std::shared_ptr<BlockingWireState> Wire;
+        std::shared_ptr<Relay> Protocol;
+        std::shared_ptr<Prism::Contract::CarrierActivity> Activity;
+        std::shared_ptr<RelayCompletion> Completion;
+    };
+
+    [[nodiscard]] auto RunResolverClose(ResolverCloseInput Input)
+        -> Net::awaitable<void>
+    {
+        const auto Completion = Input.Completion;
+        Net::co_spawn(Input.Io, Input.Protocol->Run(),
+            [Completion](std::exception_ptr Error, Result Value)
+            {
+                Completion->Exception = std::move(Error);
+                Completion->Value = std::move(Value);
+                (void)Completion->Finished.try_send(
+                    boost::system::error_code{});
+            });
+
+        using Net::experimental::awaitable_operators::operator||;
+        Net::steady_timer Watchdog(Input.Io.get_executor());
+        boost::system::error_code Error;
+        Watchdog.expires_after(std::chrono::seconds(3));
+        const auto ResolveRace = co_await (
+            Input.Wire->ResolverStarted.async_receive(
+                Net::redirect_error(Net::use_awaitable, Error)) ||
+            Watchdog.async_wait(Net::use_awaitable));
+        Input.Scenario.ReceiveStarted = ResolveRace.index() == 0U && !Error;
+        Input.Protocol->Close();
+        Watchdog.expires_after(std::chrono::seconds(3));
+        Error.clear();
+        const auto FinishRace = co_await (
+            Completion->Finished.async_receive(
+                Net::redirect_error(Net::use_awaitable, Error)) ||
+            Watchdog.async_wait(Net::use_awaitable));
+        Watchdog.cancel();
+        Input.Scenario.RunFinished = FinishRace.index() == 0U && !Error;
+        if (Input.Scenario.RunFinished)
+        {
+            Input.Scenario.RunSucceeded = static_cast<bool>(Completion->Value);
+            if (!Completion->Value)
+                Input.Scenario.RunFailure = Completion->Value.error().Code;
+            Input.Scenario.Exception = Completion->Exception;
+            Input.Scenario.Retired = Input.Activity->IsRetired();
+        }
+        co_return;
+    }
+
     TEST(DatagramRelayClose, NormalCloseDoesNotReportExplicitCancellation)
     {
         Net::io_context Io;
@@ -375,18 +476,8 @@ namespace
             BlockingWire(State, Io.get_executor()), Relay::Options{});
         const auto Activity = Protocol->Activity();
 
-        auto TestCoroutine = [&]() -> Net::awaitable<void>
-        {
-            Protocol->Close();
-            const auto Closed = co_await Activity->Drain();
-            EXPECT_TRUE(Closed);
-            const auto Run = co_await Protocol->Run();
-            EXPECT_TRUE(Run);
-            Scenario.Retired = Activity->IsRetired();
-            Scenario.CancelCalls = State->CancelCalls.load(std::memory_order_relaxed);
-            Scenario.CloseCalls = State->CloseCalls.load(std::memory_order_relaxed);
-        };
-        RunCoroutine(Io, TestCoroutine());
+        RunCoroutine(Io, RunCloseBeforeRun(CloseBeforeRunInput{
+            Protocol, State, Activity, Scenario}));
 
         EXPECT_TRUE(Scenario.Retired);
         EXPECT_EQ(Scenario.CancelCalls, 0U);
@@ -402,62 +493,13 @@ namespace
         State->ResolverBlock.expires_after(std::chrono::seconds(4));
         Relay::Options Options;
         Options.Services.IdleTimeout = std::chrono::milliseconds::zero();
-        Options.Services.Resolve = [State](Prism::Network::Target)
-            -> Net::awaitable<std::expected<Udp::endpoint, Failure>>
-        {
-            (void)State->ResolverStarted.try_send(boost::system::error_code{});
-            boost::system::error_code Error;
-            co_await State->ResolverBlock.async_wait(
-                Net::redirect_error(Net::use_awaitable, Error));
-            if (Error)
-                co_return std::unexpected(Prism::Fault::FromNative(
-                    static_cast<std::error_code>(Error)));
-            co_return std::unexpected(Failure{Prism::Fault::Code::Timeout});
-        };
+        Options.Services.Resolve = BlockingResolver{State};
         auto Protocol = std::make_shared<Relay>(
             BlockingWire(State, Io.get_executor()), std::move(Options));
         const auto Activity = Protocol->Activity();
         auto Completion = std::make_shared<RelayCompletion>(Io.get_executor());
-        auto TestCoroutine = [&]() -> Net::awaitable<void>
-        {
-            Net::co_spawn(Io, Protocol->Run(),
-                [Completion](std::exception_ptr Error, Result Value)
-                {
-                    Completion->Exception = std::move(Error);
-                    Completion->Value = std::move(Value);
-                    (void)Completion->Finished.try_send(
-                        boost::system::error_code{});
-                });
-
-            using Net::experimental::awaitable_operators::operator||;
-            Net::steady_timer Watchdog(Io.get_executor());
-            boost::system::error_code Error;
-            Watchdog.expires_after(std::chrono::seconds(3));
-            const auto ResolveRace = co_await (
-                State->ResolverStarted.async_receive(
-                    Net::redirect_error(Net::use_awaitable, Error)) ||
-                Watchdog.async_wait(Net::use_awaitable));
-            Scenario.ReceiveStarted = ResolveRace.index() == 0U && !Error;
-            Protocol->Close();
-            Watchdog.expires_after(std::chrono::seconds(3));
-            Error.clear();
-            const auto FinishRace = co_await (
-                Completion->Finished.async_receive(
-                    Net::redirect_error(Net::use_awaitable, Error)) ||
-                Watchdog.async_wait(Net::use_awaitable));
-            Watchdog.cancel();
-            Scenario.RunFinished = FinishRace.index() == 0U && !Error;
-            if (Scenario.RunFinished)
-            {
-                Scenario.RunSucceeded = static_cast<bool>(Completion->Value);
-                if (!Completion->Value)
-                    Scenario.RunFailure = Completion->Value.error().Code;
-                Scenario.Exception = Completion->Exception;
-                Scenario.Retired = Activity->IsRetired();
-            }
-            co_return;
-        };
-        RunCoroutine(Io, TestCoroutine());
+        RunCoroutine(Io, RunResolverClose(ResolverCloseInput{
+            Io, Scenario, State, Protocol, Activity, Completion}));
 
         EXPECT_TRUE(Scenario.ReceiveStarted);
         EXPECT_TRUE(Scenario.RunFinished);

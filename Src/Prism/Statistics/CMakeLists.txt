@@ -1,0 +1,20 @@
+PrismAddStaticTarget(PrismStatistics
+    SOURCES
+        Analysis/HistoryModels.cpp
+        Analysis/HistorySeries.cpp
+        EventRing.cpp
+        SparseCounters.cpp
+        TrafficDelta.cpp
+        TrafficHistory.cpp
+    HEADERS
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/Analysis/HistoryCatalog.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/Analysis/HistoryModels.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/Analysis/HistorySeries.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/EventRing.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/Snapshots.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/SparseCounters.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/Statistics.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/TrafficDelta.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/TrafficHistory.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Statistics/Types.hpp"
+)

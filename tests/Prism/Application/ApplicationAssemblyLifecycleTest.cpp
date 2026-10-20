@@ -4,14 +4,21 @@
  */
 
 #include "ApplicationTestSupport.hpp"
+#include <Prism/Account/Policy.hpp>
+#include <Prism/Account/UsagePersistence.hpp>
+#include <Prism/Application/Reload/PublicationTransaction.hpp>
+#include <Prism/Application/ClosingFailure.hpp>
+#include <Prism/Application/Configuration/GenerationBuilder.hpp>
+#include <Prism/Application/StorageLifecycle.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Application/Shutdown/DrainStages.hpp>
 #include <Prism/Application/Shutdown/GenerationRetirement.hpp>
-#include <Prism/Application/Startup/Start.hpp>
+#include <Prism/Application/Startup/StartupRuntime.hpp>
 #include <Prism/Composition/Provider/ProviderCatalog.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/deferred.hpp>
 #include <atomic>
+#include <optional>
 
 namespace
 {
@@ -48,6 +55,24 @@ auto VerifyIdleRelayClosesBothTransports() -> void
     EXPECT_EQ(Failure, nullptr);
     EXPECT_FALSE(Inbound->IsOpen());
     EXPECT_FALSE(Outbound->IsOpen());
+}
+
+/** @brief 请求关闭 owner 再试一次，并在同一 timer 上安排下一次检查。 */
+template <typename StorageValue>
+auto ScheduleCloseRetry(const std::shared_ptr<StorageValue> &Storage,
+                       Net::steady_timer &Timer) -> void
+{
+    Storage->Retry();
+    Timer.expires_after(std::chrono::milliseconds(1));
+}
+
+/** @brief 发布关闭重试是否耗尽；超时时停止测试执行器。 */
+auto FinishCloseRetryWait(Net::io_context &Io,
+                          const std::shared_ptr<std::atomic<unsigned>> &CloseAttempts,
+                          bool &RetryTimedOut) -> void
+{
+    RetryTimedOut = CloseAttempts->load(std::memory_order_acquire) < 2;
+    if (RetryTimedOut) Io.stop();
 }
 
 class FailOnceOnCloseTransport final : public Prism::Transmission
@@ -98,6 +123,88 @@ private:
     std::shared_ptr<Prism::PrismMockTransport> Inner_;
     std::shared_ptr<std::atomic<unsigned>> CloseAttempts_;
 };
+
+class ReloadPolicySource final : public Prism::Account::PolicySource
+{
+public:
+    ReloadPolicySource()
+        : Policy_(std::make_shared<const Prism::Account::PolicySnapshot>(
+              Prism::Account::PolicySnapshot::CreateRequest{
+                  Prism::Account::PolicyVersion{1U},
+                  Prism::Account::PolicySettings{
+                      {}, {}, Prism::Account::TransferPolicy{
+                          std::optional<std::uint64_t>{1024U}, {}, {}, {}}},
+                  {}}))
+    {
+    }
+
+    [[nodiscard]] auto Load(Prism::AccountId) const noexcept
+        -> std::shared_ptr<const Prism::Account::PolicySnapshot> override
+    {
+        return Policy_;
+    }
+
+private:
+    std::shared_ptr<const Prism::Account::PolicySnapshot> Policy_;
+};
+
+class ReloadUsagePersistence final : public Prism::Account::UsagePersistence
+{
+public:
+    auto ResolveCycle(Prism::Account::UsageCycleRequest)
+        -> Net::awaitable<std::expected<Prism::Account::UsageCycle,
+            Prism::Fault::Failure>> override
+    {
+        co_return Prism::Account::UsageCycle{1000, std::nullopt};
+    }
+
+    auto Read(Prism::Account::UsageReadRequest)
+        -> Net::awaitable<std::expected<Prism::Account::UsageSnapshot,
+            Prism::Fault::Failure>> override
+    {
+        co_return std::unexpected(
+            Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+    }
+
+    auto Reserve(Prism::Account::UsageReservationRequest)
+        -> Net::awaitable<std::expected<Prism::Account::UsageReservation,
+            Prism::Fault::Failure>> override
+    {
+        co_return std::unexpected(
+            Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+    }
+
+    auto Settle(Prism::Account::UsageSettlementRequest)
+        -> Net::awaitable<std::expected<Prism::Account::UsageSnapshot,
+            Prism::Fault::Failure>> override
+    {
+        co_return std::unexpected(
+            Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+    }
+
+    auto Adjust(Prism::Account::UsageAdjustmentRequest)
+        -> Net::awaitable<std::expected<Prism::Account::UsageSnapshot,
+            Prism::Fault::Failure>> override
+    {
+        co_return std::unexpected(
+            Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+    }
+};
+
+[[nodiscard]] auto MakeReloadAccount(
+    const Prism::AccountId Id,
+    const std::string_view CredentialIdentity)
+    -> Prism::Account::AccountDefinition
+{
+    std::vector<Prism::Account::CredentialMaterial> Credentials;
+    Credentials.push_back({Prism::Account::CredentialScope{1U},
+        std::string(CredentialIdentity),
+        Prism::Account::Credential::Password(std::string(CredentialIdentity))});
+    auto Materials = std::make_shared<const Prism::Account::AccountMaterials>(
+        Prism::Account::AccountMaterials::CreateRequest{
+            Id, "reload-stable-account", std::move(Credentials)});
+    return {std::move(Materials), {}};
+}
 }
 
 TEST(PrismApplication, ProfileFailureReleasesBackendWhileFailedApplicationLives)
@@ -213,7 +320,11 @@ TEST(PrismApplicationStatistics, ConfiguredIntervalFlushesTheSameOperationsCount
     Prism::Application::Startup::StartupTransaction Transaction(Runtime);
     Runtime->Generation = Phase->Generation;
     Runtime->Accounts = Phase->Accounts;
-    const auto Started = Prism::Application::StartupRuntime(Runtime, *Phase, Config.Path());
+    const auto StorageOpened =
+        Prism::Application::StorageLifecycle::Open(Runtime, Config.Path());
+    ASSERT_TRUE(StorageOpened) << StorageOpened.error().Path
+                               << ": " << StorageOpened.error().Message;
+    const auto Started = Prism::Application::Startup::RunStartup(Runtime, *Phase, Config.Path());
     ASSERT_TRUE(Started.has_value()) << Started.error().Path << ": " << Started.error().Message;
     ASSERT_TRUE(Runtime->GenerationPublisher->Contains(Phase->Generation->Id()));
     ASSERT_TRUE(Runtime->Traffic);
@@ -259,7 +370,11 @@ TEST(PrismApplicationStatistics, ShutdownConsumesPendingBytesBeforeReleasingGene
     Prism::Application::Startup::StartupTransaction Transaction(Runtime);
     Runtime->Generation = Phase->Generation;
     Runtime->Accounts = Phase->Accounts;
-    const auto Started = Prism::Application::StartupRuntime(Runtime, *Phase, Config.Path());
+    const auto StorageOpened =
+        Prism::Application::StorageLifecycle::Open(Runtime, Config.Path());
+    ASSERT_TRUE(StorageOpened) << StorageOpened.error().Path
+                               << ": " << StorageOpened.error().Message;
+    const auto Started = Prism::Application::Startup::RunStartup(Runtime, *Phase, Config.Path());
     ASSERT_TRUE(Started.has_value()) << Started.error().Path << ": " << Started.error().Message;
     auto Counter = Runtime->Traffic;
     ASSERT_TRUE(Counter);
@@ -373,8 +488,8 @@ TEST(PrismApplicationMux, SingMuxHandlerRelaysBothDirectionsAndReleasesTrafficAf
     auto Relay = std::make_shared<Prism::Network::StreamRelayService>(
         Prism::Network::StreamRelayOptions{.Traffic = Services->Traffic,
             .Bytes = std::make_shared<Prism::Memory::BytePool>(Prism::Memory::BytePoolOptions{.BlockCount = 8})});
-    auto Operation = Relay->Run({std::make_shared<Prism::Mux::SingMux::ServerStream>(Inbound, Target),
-        Outbound, Target});
+    auto Operation = Relay->Run({std::make_shared<Prism::Mux::SingMux::ServerStream>(
+        Inbound, Target, std::optional<Prism::Fault::Failure>{}), Outbound, Target});
     Services.reset();
     EXPECT_TRUE(WeakRoot.expired()); EXPECT_FALSE(WeakTraffic.expired());
     bool Completed = false, OwnerObservedDuringRelay = false;
@@ -440,15 +555,12 @@ TEST(PrismApplicationMux, RelayStrandDrainsIdleAndWriteErrorOnTwoWorkers)
     const auto RetryClose = [&]() -> Net::awaitable<void>
     {
         Net::steady_timer Timer(Io);
-        for (std::size_t Attempt = 0;
-            Attempt < 5000 && CloseAttempts->load(std::memory_order_acquire) < 2; ++Attempt)
+        for (std::size_t Attempt = 0; Attempt < 5000 && CloseAttempts->load(std::memory_order_acquire) < 2; ++Attempt)
         {
-            Storage->Retry();
-            Timer.expires_after(std::chrono::milliseconds(1));
+            ScheduleCloseRetry(Storage, Timer);
             co_await Timer.async_wait(Net::use_awaitable);
         }
-        RetryTimedOut = CloseAttempts->load(std::memory_order_acquire) < 2;
-        if (RetryTimedOut) Io.stop();
+        FinishCloseRetryWait(Io, CloseAttempts, RetryTimedOut);
     };
     Net::co_spawn(Io, RetryClose(), Net::detached);
     RunWorkers();
@@ -487,4 +599,118 @@ TEST(PrismApplicationMux, RelayStrandDrainsIdleAndWriteErrorOnTwoWorkers)
     EXPECT_EQ(ErrorFailure, nullptr);
     EXPECT_TRUE(ErrorInbound->IsOpen() == false);
     EXPECT_TRUE(ErrorOutbound->IsOpen() == false);
+}
+
+TEST(PrismApplicationReload, RuntimePublishFailurePreservesGenerationBeforeCas)
+{
+    TemporaryConfiguration Config(FindFreePort(),
+        ConfigurationShape{.OperationsPort = FindFreePort()});
+    const auto Phase = Prism::Application::Startup::GenerationPhase::Build(
+        {Config.Path(), {}});
+    ASSERT_TRUE(Phase);
+    const auto Id = Prism::AccountId{324U};
+
+    auto State = std::make_shared<Prism::Application::Application::RuntimeState>(
+        1, Prism::GenerationId{1}, Prism::Network::Dns::Config{});
+    State->Phase.store(Prism::Application::RuntimePhase::Ready);
+    const auto CurrentGeneration = Phase->Generation;
+    Prism::Application::Configuration::GenerationBuildOptions CandidateOptions;
+    CandidateOptions.Configuration = Phase->Generation->Configuration();
+    CandidateOptions.Builtins = Phase->Generation->Builtins();
+    CandidateOptions.AvailableCapabilities = Phase->Generation->Capabilities();
+    CandidateOptions.Generation = Prism::GenerationId{2};
+    const auto CandidateGeneration =
+        Prism::Application::Configuration::GenerationBuilder::Build(
+            std::move(CandidateOptions));
+    ASSERT_TRUE(CandidateGeneration) << CandidateGeneration.error().Message;
+    auto InitialToken = State->GenerationPublisher->Prepare({}, CurrentGeneration, {Id});
+    ASSERT_TRUE(InitialToken);
+    ASSERT_TRUE(State->GenerationPublisher->Publish(*InitialToken));
+    ASSERT_TRUE(State->GenerationPublisher->Load()->IsAdmitted(Id));
+    auto CandidateToken = State->GenerationPublisher->Prepare(
+        CurrentGeneration, *CandidateGeneration, {});
+    ASSERT_TRUE(CandidateToken);
+
+    auto Identities = std::make_shared<Prism::Application::AccountIdentityRegistry>();
+    const auto IdentityPreparation = Identities->BeginPreparation();
+    ASSERT_TRUE(IdentityPreparation);
+    const auto &RuntimeRegistry = Identities->RuntimeRegistry();
+    ASSERT_TRUE(RuntimeRegistry->AttachAdmissionAuthority(State->GenerationPublisher));
+    ASSERT_TRUE(RuntimeRegistry->AttachPolicySource(std::make_shared<ReloadPolicySource>()));
+    ASSERT_TRUE(RuntimeRegistry->AttachUsagePersistence(
+        std::make_shared<ReloadUsagePersistence>(), "reload-publication"));
+
+    auto OldStore = std::make_shared<Prism::Account::AccountStore>(
+        Prism::Account::StoreOptions{.WorkerCount = 1U,
+            .RuntimeRegistry = RuntimeRegistry, .RevokeRuntimesOnSeal = false});
+    const auto OldDefinition = MakeReloadAccount(Id, "reload-old-identity");
+    auto OldPrepared = OldStore->PrepareUpsert(OldDefinition);
+    ASSERT_TRUE(OldPrepared);
+    ASSERT_TRUE(OldStore->Commit(*OldPrepared));
+    const auto OldBinding = OldStore->FindById(Id);
+    ASSERT_TRUE(OldBinding);
+    const auto OldRuntime = OldBinding->Runtime();
+    const auto OldTransfer = OldRuntime->Transfer();
+    ASSERT_TRUE(OldTransfer);
+
+    auto CandidateStore = std::make_shared<Prism::Account::AccountStore>(
+        Prism::Account::StoreOptions{.WorkerCount = 1U,
+            .RuntimeRegistry = RuntimeRegistry, .RevokeRuntimesOnSeal = false});
+    const auto CandidateDefinition = MakeReloadAccount(Id, "reload-new-identity");
+    const std::array CandidateDefinitions{CandidateDefinition};
+    auto CandidateUpdate = CandidateStore->PrepareReplacement(CandidateDefinitions);
+    ASSERT_TRUE(CandidateUpdate);
+    const auto RuntimeTransaction =
+        CandidateStore->PrepareRuntimeTransaction(*CandidateUpdate);
+    ASSERT_TRUE(RuntimeTransaction);
+    ASSERT_TRUE(CandidateStore->CommitSnapshot(*CandidateUpdate));
+    (*RuntimeTransaction)->Rollback();
+
+    Prism::Application::AccountCatalog CandidateAccounts;
+    CandidateAccounts.Store = CandidateStore;
+    CandidateAccounts.Identities = Identities;
+    CandidateAccounts.IdentityPreparation = *IdentityPreparation;
+    CandidateAccounts.RuntimeTransaction = *RuntimeTransaction;
+    const auto CurrentSnapshot = std::make_shared<
+        Prism::Application::RuntimeGenerationSnapshot>(
+        CurrentGeneration, Prism::Application::AccountCatalog{},
+        Prism::Application::RuntimeGenerationServices{});
+    const auto CandidateSnapshot = std::make_shared<
+        Prism::Application::RuntimeGenerationSnapshot>(
+        *CandidateGeneration, std::move(CandidateAccounts),
+        Prism::Application::RuntimeGenerationServices{});
+    Prism::Application::Reload::PreparedGenerationReload Prepared{
+        CandidateSnapshot, CurrentSnapshot, std::move(*CandidateToken),
+        *IdentityPreparation, {}, std::chrono::steady_clock::now() +
+            std::chrono::seconds{5}};
+
+    bool Completed = false;
+    std::optional<std::expected<void, Prism::Fault::Failure>> Published;
+    std::exception_ptr Exception;
+    Net::co_spawn(State->Io,
+        Prism::Application::Reload::PublicationTransaction::PublishPreparedReload(
+            State, std::move(Prepared)),
+        [&](std::exception_ptr Error, std::expected<void, Prism::Fault::Failure> Result)
+        {
+            Exception = Error;
+            Published = std::move(Result);
+            Completed = true;
+        });
+    State->Io.run();
+
+    ASSERT_FALSE(Exception);
+    ASSERT_TRUE(Completed);
+    ASSERT_TRUE(Published);
+    ASSERT_FALSE(*Published);
+    EXPECT_EQ(Published->error().Code, Prism::Fault::Code::InvalidArgument);
+    EXPECT_EQ(State->GenerationPublisher->Current(), CurrentGeneration);
+    EXPECT_TRUE(State->GenerationPublisher->Load()->IsAdmitted(Id));
+    EXPECT_EQ(State->Phase.load(), Prism::Application::RuntimePhase::Ready);
+    EXPECT_EQ(State->ExitCode, 0);
+    EXPECT_FALSE(State->ShutdownFailure);
+    EXPECT_EQ(OldRuntime->StableKey(), "reload-stable-account");
+    EXPECT_EQ(OldRuntime->Transfer(), OldTransfer);
+    const auto Registered = RuntimeRegistry->FindOrCreate(Id, 1U);
+    ASSERT_TRUE(Registered);
+    EXPECT_EQ(*Registered, OldRuntime);
 }

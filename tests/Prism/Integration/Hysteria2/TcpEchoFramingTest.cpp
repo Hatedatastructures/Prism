@@ -20,7 +20,7 @@ namespace
         return Header;
     }
 
-    TEST(Hysteria2TcpEcho, RequestHeaderWithoutPayloadKeepsWriteSideOpen)
+    TEST(Hysteria2TcpEcho, RequestHeaderParsesTargetWithoutGeneratingResponse)
     {
         Echo::StreamState State;
         Echo::TcpEchoEvidence Evidence;
@@ -28,14 +28,16 @@ namespace
         const auto Action = Echo::HandleTcpData(Echo::TcpDataInput{State, Header, false, Evidence});
         ASSERT_TRUE(State.RequestDone);
         EXPECT_TRUE(Evidence.RequestParsed);
-        EXPECT_EQ(Action.Data, (std::vector<std::byte>{std::byte{0}, std::byte{0}, std::byte{0}}));
+        EXPECT_EQ(State.Target, "127.0.0.1:443");
+        EXPECT_TRUE(State.InitialPayload.empty());
+        EXPECT_TRUE(Action.Data.empty());
         EXPECT_FALSE(Action.Stop);
         EXPECT_FALSE(Action.Fin);
         EXPECT_FALSE(Evidence.ResponseWriteCompleted);
         EXPECT_EQ(Evidence.PayloadBytes, 0U);
     }
 
-    TEST(Hysteria2TcpEcho, FragmentedRequestHeaderProducesOneResponseHeader)
+    TEST(Hysteria2TcpEcho, FragmentedRequestHeaderAndPayloadParseOnce)
     {
         Echo::StreamState State;
         Echo::TcpEchoEvidence Evidence;
@@ -48,13 +50,29 @@ namespace
         const auto Completed = Echo::HandleTcpData(Echo::TcpDataInput{
             State, std::span<const std::byte>(Header).subspan(1), false, Evidence});
         ASSERT_TRUE(State.RequestDone);
-        EXPECT_EQ(Completed.Data.size(), 3U);
+        EXPECT_EQ(State.Target, "127.0.0.1:443");
+        EXPECT_TRUE(State.InitialPayload.empty());
+        EXPECT_TRUE(Completed.Data.empty());
         EXPECT_FALSE(Completed.Stop);
-        const std::array<std::byte, 3> Payload{std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
-        const auto Data = Echo::HandleTcpData(Echo::TcpDataInput{State, Payload, false, Evidence});
-        EXPECT_EQ(Data.Data, std::vector<std::byte>(Payload.begin(), Payload.end()));
-        EXPECT_FALSE(Data.Stop);
-        EXPECT_FALSE(Data.Fin);
+    }
+
+    TEST(Hysteria2TcpEcho, RequestHeaderAndInitialPayloadShareOneFragment)
+    {
+        Echo::StreamState State;
+        Echo::TcpEchoEvidence Evidence;
+        auto Header = MakeRequestHeader();
+        const std::array<std::byte, 3> Payload{
+            std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
+        Header.insert(Header.end(), Payload.begin(), Payload.end());
+        const auto Action = Echo::HandleTcpData(
+            Echo::TcpDataInput{State, Header, false, Evidence});
+        ASSERT_TRUE(State.RequestDone);
+        EXPECT_TRUE(Evidence.RequestParsed);
+        EXPECT_EQ(State.Target, "127.0.0.1:443");
+        EXPECT_EQ(State.InitialPayload, std::vector<std::byte>(Payload.begin(), Payload.end()));
+        EXPECT_TRUE(Action.Data.empty());
+        EXPECT_FALSE(Action.Stop);
+        EXPECT_FALSE(Action.Fin);
     }
 
     TEST(Hysteria2TcpEcho, CompletionRequiresAllPayloadWrites)

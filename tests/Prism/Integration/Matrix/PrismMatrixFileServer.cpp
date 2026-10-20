@@ -170,6 +170,24 @@ namespace
         std::array<char, FileChunkBytes> FileBuffer_{};
         std::ifstream File_;
     };
+
+    struct MatrixFileAcceptor final
+    {
+        net::ip::tcp::acceptor& Acceptor;
+        net::io_context& IoContext;
+        const std::filesystem::path& Root;
+
+        auto AcceptNext() -> void
+        {
+            Acceptor.async_accept(IoContext,
+                [this](const boost::system::error_code& ErrorCode, net::ip::tcp::socket Socket)
+                {
+                    if (ErrorCode) return;
+                    std::make_shared<MatrixFileSession>(std::move(Socket), Root)->Start();
+                    AcceptNext();
+                });
+        }
+    };
 } // namespace
 
 auto main(int ArgumentCount, char **Arguments) -> int
@@ -196,21 +214,8 @@ auto main(int ArgumentCount, char **Arguments) -> int
             IoContext, net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"),
                                               static_cast<std::uint16_t>(PortValue)));
 
-        auto AcceptNext = [&](auto &&Self) -> void
-        {
-            Acceptor.async_accept(IoContext,
-                [&, Self = std::forward<decltype(Self)>(Self)]
-                (const boost::system::error_code &ErrorCode, net::ip::tcp::socket Socket) mutable
-                {
-                    if (ErrorCode)
-                    {
-                        return;
-                    }
-                    std::make_shared<MatrixFileSession>(std::move(Socket), Root)->Start();
-                    Self(Self);
-                });
-        };
-        AcceptNext(AcceptNext);
+        MatrixFileAcceptor FileAcceptor{Acceptor, IoContext, Root};
+        FileAcceptor.AcceptNext();
 
         std::vector<std::thread> ThreadPool;
         ThreadPool.reserve(static_cast<std::size_t>(ThreadValue));

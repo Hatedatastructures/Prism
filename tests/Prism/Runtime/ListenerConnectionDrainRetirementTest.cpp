@@ -32,6 +32,7 @@
 #include <Prism/Runtime/CarrierDomain.hpp>
 #include <Prism/Runtime/ListenerConnectionDrain.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
@@ -124,18 +125,18 @@ namespace
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler), {0, {Prism::Fault::Code::Eof}});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override

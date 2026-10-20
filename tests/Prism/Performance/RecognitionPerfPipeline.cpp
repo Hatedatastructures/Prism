@@ -61,7 +61,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -114,7 +114,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Input.Owner->ReadPartial(Input.Buffer, Error);
                 co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(Error)}};
@@ -125,7 +125,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 const auto Count = co_await Input.Owner->WritePartial(Input.Buffer, Error);
                 co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(Error)}};

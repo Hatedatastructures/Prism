@@ -32,12 +32,14 @@
 #include <utility>
 #include <vector>
 
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/ConfiguredMode.hpp>
 #include <Prism/Runtime/Recognition/MixedTrialMode.hpp>
 #include <Prism/Runtime/Recognition/Profile.hpp>
 #include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
 #include <Prism/Runtime/Recognition/Protocol.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
 
 namespace
@@ -45,6 +47,13 @@ namespace
 
     namespace Net = boost::asio;
     namespace rec = Prism::Recognition;
+
+    /** @brief 创建配置模式探测测试使用的有界预读池。 */
+    auto MakeConfiguredProbeBytePool() -> std::shared_ptr<Prism::Memory::BytePool>
+    {
+        return std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U * 1024U, 64U});
+    }
 
     struct ReadStep
     {
@@ -55,7 +64,10 @@ namespace
     class ScriptedTransport final : public Prism::Transmission
     {
     public:
-        explicit ScriptedTransport(Net::any_io_executor Executor) : Executor_(std::move(Executor)) {}
+        explicit ScriptedTransport(Net::any_io_executor Executor)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor))
+        {
+        }
 
         auto SetPending() -> void
         {
@@ -67,14 +79,14 @@ namespace
             Steps_.push_back(ReadStep{std::move(Data), Error});
         }
 
-        auto ThrowOnCancel() -> void
+        auto FailOnCancel() -> void
         {
-            ThrowCancel_ = true;
+            FailCancel_ = true;
         }
 
-        auto ThrowOnClose() -> void
+        auto FailOnClose() -> void
         {
-            ThrowClose_ = true;
+            FailClose_ = true;
         }
 
         auto ReadRequests() const -> const std::vector<std::size_t> &
@@ -124,22 +136,22 @@ namespace
         auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
             ++Writes_;
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                                                   Prism::IoResult{Buffer.size(), {}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
         {
             ++Closes_;
             (void)ReadWake_.try_send(boost::system::error_code{});
-            if (ThrowClose_)
+            if (FailClose_)
             {
-                throw std::runtime_error("scripted close failure");
+                return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
             }
             return {};
         }
@@ -149,9 +161,9 @@ namespace
             ++Cancels_;
             Canceled_ = true;
             (void)ReadWake_.try_send(boost::system::error_code{});
-            if (ThrowCancel_)
+            if (FailCancel_)
             {
-                throw std::runtime_error("scripted cancel failure");
+                return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
             }
             return {};
         }
@@ -167,7 +179,7 @@ namespace
         {
             if (Error)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor_, std::move(Handler),
                     Prism::IoResult{0, Prism::Fault::FromNative(static_cast<std::error_code>(Error))});
                 return;
@@ -175,7 +187,7 @@ namespace
             ReadCompleted_ = true;
             if (Canceled_)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor_, std::move(Handler),
                     Prism::IoResult{0, Prism::Fault::FromNative(std::make_error_code(std::errc::operation_canceled))});
                 return;
@@ -187,7 +199,7 @@ namespace
         {
             if (Steps_.empty())
             {
-                Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+                Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
                 return;
             }
             auto &Step = Steps_.front();
@@ -199,7 +211,7 @@ namespace
             {
                 Steps_.pop_front();
             }
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{Count, std::move(Failure)});
         }
 
@@ -213,8 +225,8 @@ namespace
         bool Pending_{false};
         bool Canceled_{false};
         bool ReadCompleted_{false};
-        bool ThrowCancel_{false};
-        bool ThrowClose_{false};
+        bool FailCancel_{false};
+        bool FailClose_{false};
     };
 
     struct Calls
@@ -227,6 +239,7 @@ namespace
         bool CloseReturnedTransportBeforeReturn{false};
         Prism::SharedTransmission ReturnedTransport{};
         std::shared_ptr<boost::asio::experimental::channel<void(boost::system::error_code)>> CommitGate{};
+        std::shared_ptr<boost::asio::experimental::channel<void(boost::system::error_code)>> CommitEntered{};
         bool PendingCommit{false};
         bool PrepareCompleted{false};
         bool CommitCompleted{false};
@@ -277,6 +290,10 @@ namespace
             }
             if (State->PendingCommit && State->CommitGate)
             {
+                if (State->CommitEntered)
+                {
+                    (void)State->CommitEntered->try_send(boost::system::error_code{});
+                }
                 co_await State->CommitGate->async_receive(Net::use_awaitable);
             }
             if (State->ConsumeCommitReplay && Context.Inbound)

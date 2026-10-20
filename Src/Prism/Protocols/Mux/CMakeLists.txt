@@ -1,0 +1,65 @@
+set(PrismProtocolMuxHeaders
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Client.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Codec.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Root/RootChild.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Root/RootRegistry.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Root/RootRetirement.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Root/RootSession.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Root/RootState.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Session/SessionContract.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Session/SessionFlowControl.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Session/SessionFrames.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Session/SessionState.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Session/SessionTeardown.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Session/SessionWriteLoop.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Session/SessionWriter.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Detail/Stream/StreamState.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/Codec.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/H2Mux.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/Http2Dispatch.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/Http2Server.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/Http2State.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/Http2Stream.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/Http2StreamControl.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/H2Mux/Types.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/RootBinding.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/RootOptions.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Server.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Session.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/SessionOptions.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Types.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/SingMux/SingMux.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/SingMux/Stream.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/SingMux/Types.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Smux/Smux.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Smux/Types.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Stream.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Yamux/Detail/Wire/Codec.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Yamux/Yamux.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Mux/Yamux/Types.hpp"
+)
+
+PrismAddStaticTarget(PrismProtocolMux
+    SOURCES
+        H2MuxState.cpp
+        H2MuxServer.cpp
+        H2MuxStream.cpp
+        H2MuxStreamControl.cpp
+        H2MuxCodec.cpp
+        RootChild.cpp
+        RootLifecycle.cpp
+        SingMuxCodec.cpp
+        SingMuxRequests.cpp
+        SingMuxStream.cpp
+        SessionWriteLoop.cpp
+        StreamTransmission.cpp
+        SmuxCodec.cpp
+        YamuxCodec.cpp
+    PRIVATE_HEADERS
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Mux/Detail/RootChildOwner.hpp"
+        Detail/SingMux/Codec.hpp
+        Detail/SingMux/SingMux.hpp
+    HEADERS
+        ${PrismProtocolMuxHeaders}
+)

@@ -1,2 +1,5 @@
 AddPrismTest(YamuxCodecError.cpp)
 target_link_libraries(YamuxCodecError PRIVATE PrismProtocolMux PrismTestSupport)
+
+AddPrismTest(YamuxFrameTest.cpp)
+target_link_libraries(YamuxFrameTest PRIVATE PrismProtocolMux)

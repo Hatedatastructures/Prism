@@ -11,15 +11,20 @@
 #include <string_view>
 #include <vector>
 
+#include <Prism/Protocols/Mux/Codec.hpp>
 #include <Prism/Protocols/Mux/H2Mux/Codec.hpp>
 #include <Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Smux/Types.hpp>
 #include <Prism/Protocols/Mux/Yamux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Yamux/Types.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    namespace Smux = Prism::Mux::Smux::Detail;
-    namespace Yamux = Prism::Mux::Yamux::Detail;
+    namespace Smux = Prism::Mux::Smux;
+    namespace SmuxWire = Prism::Mux::Smux::Detail;
+    namespace Yamux = Prism::Mux::Yamux;
+    namespace YamuxWire = Prism::Mux::Yamux::Detail;
     namespace H2Mux = Prism::Mux::H2Mux;
     using Error = Prism::Error;
 
@@ -34,9 +39,9 @@ namespace
     TEST(MuxCodec, SmuxRoundtrip)
     {
         const std::string payload = "smux payload";
-        const auto wire = Smux::BuildPush(0x01020304, Bytes(payload));
+        const auto wire = SmuxWire::BuildPush(0x01020304, Bytes(payload));
         Smux::FrameHeader out{};
-        EXPECT_EQ(Smux::ParseHeader(wire, out), Error::None);
+        EXPECT_EQ(SmuxWire::ParseHeader(wire, out), Error::None);
         EXPECT_EQ(out.cmd, Smux::Command::Push);
         EXPECT_EQ(out.length, payload.size());
         EXPECT_EQ(out.StreamId, 0x01020304u);
@@ -53,47 +58,47 @@ namespace
     {
         const std::array<std::uint8_t, 3> short_data{0x01, 0x02, 0x03};
         Smux::FrameHeader out{};
-        EXPECT_EQ(Smux::ParseHeader(short_data, out), Error::NeedMore);
+        EXPECT_EQ(SmuxWire::ParseHeader(short_data, out), Error::NeedMore);
     }
 
     TEST(MuxCodec, SmuxBadVersion)
     {
         // smux 版本错误（0x02 ≠ 0x01）
         {
-            auto wire = Smux::BuildPush(1, Bytes(std::string_view("x")));
+            auto wire = SmuxWire::BuildPush(1, Bytes(std::string_view("x")));
             wire[0] = 0x02;
             Smux::FrameHeader out{};
-            EXPECT_EQ(Smux::ParseHeader(wire, out), Error::BadMagic);
+            EXPECT_EQ(SmuxWire::ParseHeader(wire, out), Error::BadMagic);
         }
         // yamux 版本错误（0x01 ≠ 0x00）
         {
-            auto wire = Yamux::BuildData(Yamux::Flags::None, 1, Bytes(std::string_view("x")));
+            auto wire = YamuxWire::BuildData(Yamux::Flags::None, 1, Bytes(std::string_view("x")));
             wire[0] = 0x01;
             Yamux::FrameHeader out{};
-            EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::BadMagic);
+            EXPECT_EQ(YamuxWire::ParseHeader(wire, out), Error::BadMagic);
         }
         // smux 非法命令（cmd = 0x09）
         {
-            auto wire = Smux::BuildPush(1, Bytes(std::string_view("x")));
+            auto wire = SmuxWire::BuildPush(1, Bytes(std::string_view("x")));
             wire[1] = 0x09;
             Smux::FrameHeader out{};
-            EXPECT_EQ(Smux::ParseHeader(wire, out), Error::BadMessage);
+            EXPECT_EQ(SmuxWire::ParseHeader(wire, out), Error::BadMessage);
         }
         // yamux 非法类型（Type = 0x05）
         {
-            auto wire = Yamux::BuildData(Yamux::Flags::None, 1, Bytes(std::string_view("x")));
+            auto wire = YamuxWire::BuildData(Yamux::Flags::None, 1, Bytes(std::string_view("x")));
             wire[1] = 0x05;
             Yamux::FrameHeader out{};
-            EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::BadMessage);
+            EXPECT_EQ(YamuxWire::ParseHeader(wire, out), Error::BadMessage);
         }
     }
 
     TEST(MuxCodec, YamuxRoundtrip)
     {
         const std::string payload = "yamux payload";
-        const auto wire = Yamux::BuildData(Yamux::Flags::Ack, 7, Bytes(payload));
+        const auto wire = YamuxWire::BuildData(Yamux::Flags::Ack, 7, Bytes(payload));
         Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::None);
+        EXPECT_EQ(YamuxWire::ParseHeader(wire, out), Error::None);
         EXPECT_EQ(out.Type, Yamux::MessageType::Data);
         EXPECT_TRUE(Yamux::HasFlag(out.flag, Yamux::Flags::Ack));
         EXPECT_EQ(out.StreamId, 7u);
@@ -109,9 +114,9 @@ namespace
 
     TEST(MuxCodec, YamuxWindowUpdate)
     {
-        const auto wire = Yamux::BuildWinupd(Yamux::Flags::Syn, 3, 0x00040000u);
+        const auto wire = YamuxWire::BuildWinupd(Yamux::Flags::Syn, 3, 0x00040000u);
         Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::None);
+        EXPECT_EQ(YamuxWire::ParseHeader(wire, out), Error::None);
         EXPECT_EQ(out.Type, Yamux::MessageType::WindowUpdate);
         EXPECT_EQ(out.StreamId, 3u);
         EXPECT_EQ(out.length, 0x00040000u);
@@ -124,15 +129,15 @@ namespace
 
     TEST(MuxCodec, YamuxSynWindowUpdateOpensStream)
     {
-        const auto wire = Yamux::Codec::BuildOpen(1);
+        const auto wire = YamuxWire::Codec::BuildOpen(1);
         Yamux::FrameHeader out{};
-        ASSERT_EQ(Yamux::Codec::ParseHeader(wire, out), Error::None);
+        ASSERT_EQ(YamuxWire::Codec::ParseHeader(wire, out), Error::None);
         EXPECT_EQ(out.Type, Yamux::MessageType::WindowUpdate);
         EXPECT_TRUE(Yamux::HasFlag(out.flag, Yamux::Flags::Syn));
         EXPECT_EQ(out.StreamId, 1u);
         EXPECT_EQ(out.length, Yamux::DefaultWindow);
-        EXPECT_EQ(Yamux::Codec::FrameEvent(out), Prism::Mux::StreamEvent::Open);
-        EXPECT_FALSE(Yamux::Codec::IsControl(out));
+        EXPECT_EQ(YamuxWire::Codec::FrameEvent(out), Prism::Mux::StreamEvent::Open);
+        EXPECT_FALSE(YamuxWire::Codec::IsControl(out));
     }
 
     TEST(MuxCodec, H2muxRoundtrip)

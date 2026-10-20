@@ -3,10 +3,16 @@
  * @brief Reality BoringSSL carrier 最小配置入口 RED 测试。
  */
 
+#include <Prism/Foundation/Error.hpp>
+#include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Protocols/Reality/CarrierTypes.hpp>
 #include <Prism/Protocols/Reality/Prepared.hpp>
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
-#include <Prism/Foundation/Fault/Handling.hpp>
+#include <Prism/Protocols/Reality/Detail/CarrierStream.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
+#include <Prism/Protocols/Reality/Detail/Tls13.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include "RealityCarrierTestSupport.hpp"
 
 #include <boost/asio/co_spawn.hpp>

@@ -99,6 +99,21 @@ namespace
         (void)Request.Datagram->Close();
         (void)Request.Server->Close();
     }
+
+    auto RunUdpTunnelCancelBeforeRun(
+        std::shared_ptr<Vless::UdpTunnel> Tunnel) -> Net::awaitable<void>
+    {
+        co_await Net::dispatch(Tunnel->Executor(), Net::use_awaitable);
+        Tunnel->Cancel();
+        const auto Run = co_await Tunnel->Run();
+        EXPECT_FALSE(Run);
+        if (!Run) EXPECT_EQ(Run.error().Code, Prism::Fault::Code::Canceled);
+        const auto Drained = co_await Tunnel->Drain();
+        EXPECT_FALSE(Drained);
+        if (!Drained)
+            EXPECT_EQ(Drained.error().Code, Prism::Fault::Code::Canceled);
+        EXPECT_TRUE(Tunnel->IsRetired());
+    }
 }
 
 TEST(VlessDgramSession, SendToClosedPeer)
@@ -266,19 +281,6 @@ TEST(VlessDgramSession, SendToClosedPeer)
         auto Tunnel = std::make_shared<Vless::UdpTunnel>(
             std::move(Connection), std::move(Options));
 
-        auto TestCoroutine = [&]() -> Net::awaitable<void>
-        {
-            co_await Net::dispatch(Tunnel->Executor(), Net::use_awaitable);
-            Tunnel->Cancel();
-            const auto Run = co_await Tunnel->Run();
-            EXPECT_FALSE(Run);
-            if (!Run) EXPECT_EQ(Run.error().Code, Prism::Fault::Code::Canceled);
-            const auto Drained = co_await Tunnel->Drain();
-            EXPECT_FALSE(Drained);
-            if (!Drained)
-                EXPECT_EQ(Drained.error().Code, Prism::Fault::Code::Canceled);
-            EXPECT_TRUE(Tunnel->IsRetired());
-        };
-        RunCoro(IoContext, std::move(TestCoroutine));
+        RunCoro(IoContext, RunUdpTunnelCancelBeforeRun(Tunnel));
     }
 

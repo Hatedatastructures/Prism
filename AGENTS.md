@@ -6,7 +6,7 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 ## 当前主线：Prism（下一代实现）
 
-`Prism/`、`tests/Prism/` 和 `Prism` 是当前唯一正式实现。默认沿 `Prism/Application/Startup/Start.hpp` 的真实启动路径和 `Prism/Runtime/Session.hpp`、`Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
+`Include/Prism/` 与 `Src/Prism/`、`tests/Prism/` 和 `Prism` 是当前唯一正式实现。公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`；`Src/Prism/Application/Startup/StartupTransaction.hpp` 是私有启动回滚实现。默认沿此启动路径和 `Include/Prism/Runtime/Session.hpp`、`Include/Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
 
 Prism 的当前文档入口见 [docs/index.md](docs/index.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/prism/README.md](docs/prism/README.md)。文档只描述当前实现与可复核的验收边界；不保留旧任务报告作为当前执行状态。
 
@@ -20,7 +20,7 @@ Prism 的当前文档入口见 [docs/index.md](docs/index.md)、[docs/ARCHITECTU
 | `Runtime/` | worker、listener、session 调度、识别与通用数据面生命周期 | 具体协议的 wire/auth 实现和 Composition 的注册细节 |
 | `Application/` | 读取已编译配置、创建进程级服务、启动/回滚/停机 | `TuicAdmission` 一类协议处理器或 Hysteria2 stream/datagram 业务 lambda |
 
-当前 Prism 生产实现采用 header-only owner：`Prism/` 下生产 `.cpp` 不得重新引入，最终入口也由 `Application/Main/PrismMain.hpp` 作为 CMake CXX source 编译；每个生产 header 必须不超过 600 行。超长文件按完整 owner、状态机和依赖闭包拆分，不能用作用域 include 或文本拼接伪造拆分。
+当前 Prism 生产实现按公共接口与实现分离：公共头文件位于 `Include/Prism/`，实现源文件和私有头文件位于 `Src/Prism/`。按模块 CMake target 登记公开头、私有头与 `.cpp`；含有真实 `.cpp` 的 target 使用编译库，纯契约、值类型和开放模板保持 `INTERFACE`，不得创建空库。`PrismMain.cpp` 是最终可执行程序的编译单元。公共生产头必须不超过 600 行；模板定义留在可实例化位置，其他非模板实现按 owner 移入 `.cpp`。超长文件按完整 owner、状态机和依赖闭包拆分，不能用作用域 include 或文本拼接伪造拆分。
 
 - 协议需要在监听前准备资源时，由 `Composition` 的类型化注册、prepare、bind/start 槽位装配；协议模块仍拥有其认证、会话和关闭行为。只在配置/启动冷路径按名称查找，热路径使用已编译绑定。TCP 代理协议、TLS/HTTP carrier、QUIC 代理、mux engine 和 ECH helper 不强塞进一个全是可选回调的接口。
 - 依赖方向必须可由源码 include 和 CMake target 同时验证。`Protocols` 不反向依赖 `Composition`/`Application`，`Runtime`/`Boundary` 不引用具体协议装配实现；确需共享的纯契约下沉到中立模块。禁止通过 `INTERFACE` target 名称、类/命名空间作用域 `#include "Detail/..."` 或文本片段拼装制造虚假的模块边界。
@@ -38,33 +38,13 @@ Prism 的当前文档入口见 [docs/index.md](docs/index.md)、[docs/ARCHITECTU
 
 **统一构建目录：`build/`。禁止新建任何其他构建目录（如 build_debug、build_release 等），除非提前告知用户并获得明确同意。**
 
-Prism 默认 target 是 `Prism`，配置源为 `Prism/Application/Configuration/PrismConfiguration.json`，构建后复制到 `build/src/PrismConfiguration.json`。获得构建同意后，白天可用 `cmake --build build --config Release --target Prism -j 16`；夜间必须改为 `-j 1`。运行入口为 `build/src/Prism.exe`。测试应按当前 CTest 注册名筛选 `tests/Prism` 的相关用例，并记录所用源码、配置和可执行文件版本。
+Prism 默认生产 target 是 `Prism`，配置源为 `Include/Prism/Application/Configuration/PrismConfiguration.json`。构建 `Prism` 后，CMake 将此配置作为侧车文件复制到可执行文件目录；使用 `build/` 时路径为 `build/src/PrismConfiguration.json`。Windows 运行入口为 `build/src/Prism.exe`，Linux 运行入口为 `build/src/Prism`。获得构建同意后，白天可用 `cmake --build build --config Release --target Prism -j 16`；夜间必须改为 `-j 1`。
 
-以下 `Prism.exe`、`src/configuration.json` 与旧测试示例只适用于旧版实现：
+`PrismWeb` 是独立 opt-in target，不属于默认 `all`，也不是 `Prism` 的依赖；默认 `cmake --build build` 和显式 `cmake --build build --target Prism` 都不会生成 Web 资源。需要管理 UI 时显式构建 `PrismWeb`，例如 `cmake --build build --config Release --target PrismWeb -j 16`；生成资源时需要 Node.js 与 npm，资源及 `catalog.json` 生成在 `${CMAKE_BINARY_DIR}/Web/`（使用 `build/` 时为 `build/Web/`）。运行时默认从该目录查找资源。配置中的 `Operations.WebDirectory` 可覆盖该目录；若选定目录没有 `catalog.json`，运行时跳过 Web catalog 加载。
 
-```bash
-# 首次配置
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+全量功能验收需先构建默认功能测试目标，再用 `ctest --test-dir build --output-on-failure -j 1 --timeout 30` 运行当前发现的用例；聚焦验收按当前 CTest 注册名筛选 `tests/Prism` 相关用例。报告须记录所用源码、配置和可执行文件版本，不引用旧版 CTest 数量。
 
-# 构建（白天 16 线程，晚间 22:00-08:00 强制 1 线程）
-cmake --build build --config Release -j 16
-
-# 运行所有测试（约 250 个独立可执行文件，ctest 注册约 2600 个用例；HandshakeTimeout 已知 flaky）
-ctest --test-dir build --output-on-failure -j 1 --timeout 30
-
-# 运行单个测试（直接运行 exe 或按名字筛选）
-build/tests/Socks5.exe
-ctest --test-dir build -R Socks5 --output-on-failure
-
-# 运行基准测试 (PRISM_ENABLE_BENCHMARK=ON)
-build/benchmarks/MuxBench.exe
-
-# 运行压力测试 (PRISM_ENABLE_STRESS=ON)
-build/stresses/MuxStress.exe
-
-# 运行代理服务器
-build/src/Prism.exe
-```
+旧版测试程序路径、旧 CTest 数量和旧 benchmark/stress 可执行文件已退役，不在本节重复旧命令。当前 Prism 的构建入口为 `--target Prism`，运行路径按上文平台说明；功能测试按重新生成的当前 CTest 注册名验收。
 
 ### 构建线程规则
 
@@ -83,7 +63,7 @@ cmake -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Debug \
   -DPRISM_ENABLE_COVERAGE=ON
 cmake --build build -j 16
 ctest --test-dir build --output-on-failure -j 1
-gcovr --root . --filter "Prism/" --exclude ".*_deps.*" --exclude ".*tests.*" \
+gcovr --root . --filter "(Include|Src)/Prism/" --exclude ".*_deps.*" --exclude ".*tests.*" \
   --html-details build/coverage.html --print-summary
 
 # AddressSanitizer（内存泄漏检测）
@@ -106,8 +86,8 @@ ctest --test-dir build --output-on-failure -j 1
 - **Boost.Asio 1.89.0** (header-only，协程支持) / **BoringSSL** (OpenSSL API 兼容) / **spdlog 1.17.0** / **glaze 6.5.1** (JSON) / **BLAKE3 v1.8.1** / **nghttp2 1.69.0** / **Google Benchmark 1.9.5**
 - Windows 系统库依赖: `ws2_32`, `mswsock`, `crypt32`
 构建选项:
-- `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 OFF，相关测试尚未迁移)
-- `PRISM_ENABLE_STRESS=ON/OFF` (默认 OFF，相关测试尚未迁移)
+- `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 OFF；`tests/Prism/Performance` 基准源码保留，按当前迁移范围暂不接入/构建)
+- `PRISM_ENABLE_STRESS=ON/OFF` (默认 OFF；`tests/Prism/Stress` 压力源码保留，按当前迁移范围暂不接入/构建)
 
 ## 旧版 Prism 架构参考（已退役实现的历史说明）
 
@@ -309,7 +289,7 @@ Prism 测试位于 `tests/Prism/`，按配置、Composition、协议 codec/sessi
 ### Prism 测试组织规则（2026-10-08 用户明确要求）
 
 - `tests/Prism/` 内项目自有目录、文件及标识符统一 PascalCase；工程惯例文件 `CMakeLists.txt`、第三方 API 和外部 wire/config 字段保留规定名称。文件名表达实际功能或场景，避免无意义编号、过长名称和同名 target 冲突。Windows 纯大小写改名使用可核查的中间名称，保留当前脏文件；受跟踪路径使用两步 `git mv`，不执行 checkout/reset/clean。
-- 测试模块按当前 `Prism/` 的真实源码 owner 与 CMake 责任对齐，不保留 `Core/Coroutine`、`Stealth` 等历史分类作为独立模块或转发目录。TaskRegistry/cancellation/drain 覆盖归实际 `Lifecycle`，编译装配归 `Composition`，配置归 `Application/Configuration`；跨协议集成场景明确标注其集成责任，独立实验覆盖归 `tests/Experiments`。旧空目录、旧接口名称及已退役 target 都不能作为测试模块存在的依据。
+- 测试模块按当前 `Include/Prism/` 与 `Src/Prism/` 的真实源码 owner 与 CMake 责任对齐，不保留 `Core/Coroutine`、`Stealth` 等历史分类作为独立模块或转发目录。TaskRegistry/cancellation/drain 覆盖归实际 `Lifecycle`，编译装配归 `Composition`，配置归 `Application/Configuration`；跨协议集成场景明确标注其集成责任，独立实验覆盖归 `tests/Experiments`。旧空目录、旧接口名称及已退役 target 都不能作为测试模块存在的依据。
 - 模块映射必须逐用例核对实际被测生产接口和源码路径。独立协议 codec/session 用例归对应 `Protocols/<Name>`，`Protocols/Common` 只覆盖真实 Common 契约；只有单个场景实际跨越多个模块时才归 `Integration`，并按场景和协议拆分。不得将互不相关的用例集中到 `Common`、`Runtime` 或一个万能集成目录。
 - 测试实现和 GoogleTest 的 `TEST`/`TEST_F`/参数化用例放在 `.cpp`，每个测试 CPP 不超过 **800 行**。按真实功能、行为契约、fixture 生命周期和模块职责拆分，不以固定行数截断、不把测试正文放入 HPP、不用作用域 include 或文本片段拼装规避上限。
 - 测试同样遵循项目代码风格：项目自有标识符 PascalCase、中文 Doxygen、尾随返回类型、函数体不超过 120 行、lambda 不超过 10 行。通常最多 2 个参数，复杂边界最多 3 个；先按职责提取真实 owner 或操作，禁止万能参数包。官方接口、GoogleTest 宏和第三方回调 ABI 保留规定名称与签名，例外需精确到接口，不豁免整个测试文件。异步 fixture 使用 `co_spawn + io_context.run()`，完整等待自身任务、半关闭和最终资源释放。
@@ -365,7 +345,7 @@ ctx->ioc.run_for(std::chrono::milliseconds(300));  // ← 崩溃！
 
 **根本原因：** `multiplexer::start()` 通过 `co_spawn` 将 run()（帧循环）投递到 transport 的 executor 上，协程需要完整的 io_context 调度才能正确启动。`poll()`/`run_for()` 不提供足够的调度保障导致 Access violation。
 
-默认配置文件: `Prism/Application/Configuration/PrismConfiguration.json`
+默认配置文件: `Include/Prism/Application/Configuration/PrismConfiguration.json`
 
 ## 静态分析
 
@@ -374,6 +354,13 @@ ctx->ioc.run_for(std::chrono::milliseconds(300));  // ← 崩溃！
 ```bash
 cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 C:/msys64/ucrt64/bin/clang-tidy.exe -p build <file.cpp> --config-file=.clang-tidy
+```
+
+Prism 结构与风格门禁默认检查 `Include/Prism` 与 `Src/Prism`；可用 `--scope <目录>` 指定测试或单个模块目录。生产 `.hpp` 不超过 600 行，测试 `.cpp/.hpp` 不超过 800 行；生产 `.cpp` 没有文件长度上限，但函数体、lambda 和参数仍按上方规范检查：
+
+```bash
+node scripts/check_prism_style.mjs
+node scripts/check_prism_style.mjs --scope tests/Prism
 ```
 
 ## 行尾
@@ -388,7 +375,7 @@ C:/msys64/ucrt64/bin/clang-tidy.exe -p build <file.cpp> --config-file=.clang-tid
 
 ## 旧版任务记录
 
-旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Prism/`、`tests/Prism/` 及 [docs/index.md](docs/index.md)。
+旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Include/Prism/`、`Src/Prism/`、`tests/Prism/` 及 [docs/index.md](docs/index.md)。
 
 ## 已知问题
 

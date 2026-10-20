@@ -3,9 +3,11 @@ AddPrismTest(AnytlsProviderRetirementTest.cpp)
 AddPrismTest(QuicProviderTest.cpp)
 target_sources(AnytlsProviderRetirementTest PRIVATE CatalogFixture.hpp)
 target_link_libraries(AnytlsProviderRetirementTest PRIVATE
-    PrismFoundation PrismTransport PrismRuntime PrismComposition
+    PrismFoundation PrismAccount PrismTransport PrismRuntime PrismComposition
     PrismProtocolAnytls PrismTestSupport)
-target_link_libraries(QuicProviderTest PRIVATE PrismComposition)
+target_link_libraries(QuicProviderTest PRIVATE
+    PrismComposition PrismFoundation PrismAccount PrismNet PrismIngressContract
+    PrismProtocolQuic PrismProtocolQuicNative)
 target_sources(QuicProviderTest PRIVATE QuicFixture.hpp CatalogFixture.hpp ../../../TestSupport/Prism/QuicFactory.hpp)
 
 AddPrismTest(Hysteria2FactoryTest.cpp)
@@ -15,37 +17,18 @@ target_link_libraries(Hysteria2FactoryTest PRIVATE
     PrismComposition PrismProtocolQuic PrismProtocolQuicNative
     PrismProtocolHysteria2 PrismProtocolHttp3 PrismTestSupport)
 
-AddPrismTest(TuicFactoryTest.cpp)
-target_sources(TuicFactoryTest PRIVATE TuicFactoryFixture.hpp)
-target_link_libraries(
-    TuicFactoryTest PRIVATE PrismFoundation PrismAccount PrismTransport PrismNet
-                            PrismRuntime PrismProtocolQuic PrismProtocolQuicNative
-                            PrismProtocolTuic PrismComposition PrismTestSupport)
-
-AddPrismTest(TuicConnectionLeaseTest.cpp)
-target_sources(TuicConnectionLeaseTest PRIVATE TuicFactoryFixture.hpp)
-target_link_libraries(
-    TuicConnectionLeaseTest PRIVATE PrismFoundation PrismAccount PrismTransport PrismNet
-                                   PrismRuntime PrismProtocolQuic PrismProtocolQuicNative
-                                   PrismProtocolTuic PrismComposition PrismTestSupport)
-
-AddPrismTest(TuicUdpAdmissionTest.cpp)
-target_sources(TuicUdpAdmissionTest PRIVATE TuicFactoryFixture.hpp)
-target_link_libraries(
-    TuicUdpAdmissionTest PRIVATE PrismApplication PrismFoundation PrismAccount PrismTransport
-                                PrismNet PrismRuntime PrismComposition PrismProtocolQuic
-                                PrismProtocolQuicNative PrismProtocolTuic PrismTestSupport)
-
-AddPrismTest(BindingLifetimeTest.cpp)
-target_sources(BindingLifetimeTest PRIVATE BindingRetentionTest.cpp)
-target_link_libraries(BindingLifetimeTest PRIVATE PrismProtocolsCommon PrismTestSupport)
-target_link_libraries(ProviderCatalogTest PRIVATE PrismComposition)
+target_link_libraries(ProviderCatalogTest PRIVATE
+    PrismComposition PrismFoundation PrismAccount PrismIoContracts PrismIngressModel
+    PrismIngressContract PrismStreamContract PrismTransport PrismProtocolShadowsocks2022)
 AddPrismTest(StandardProviderTest.cpp)
 target_sources(StandardProviderTest PRIVATE CatalogFixture.hpp)
-target_link_libraries(StandardProviderTest PRIVATE PrismComposition)
+target_link_libraries(StandardProviderTest PRIVATE
+    PrismComposition PrismFoundation PrismAccount PrismNet PrismProtocolSocks5
+    PrismProtocolShadowsocks2022)
 
 # 本卡实际 provider/认证/入口消费者的单一并行构建门禁。
-add_custom_target(PrismProviderValidation DEPENDS
+add_custom_target(PrismProviderValidation)
+add_dependencies(PrismProviderValidation
     QuicProviderTest
     QuicConnectionRegistryTest
     QuicOwnershipTest
@@ -57,18 +40,18 @@ add_custom_target(PrismProviderValidation DEPENDS
     Hysteria2Http3AuthTest
     Hysteria2ConnSession
     Hysteria2ConnErrorMatrix
-    Hysteria2TuicBeastTest
-    Hysteria2StressTest
-    Hysteria2ClientServerPerf
+    Hysteria2CodecRoundtripTest
+    TuicCodecRoundtripTest
     TuicFactoryTest
+    TuicFactoryAccountLeaseTest
     TuicConnectionLeaseTest
     TuicAdmissionTest
     TuicConnSession
     TuicConnErrorMatrix
     TuicDgramDeep
-    TuicClientServerPerf
     NativeHttp3Session
     NativeQuicLoopback
+    NativeQuicLoopbackOwnershipTest
     NativeDatagramInboxTest
     HttpQuicCoverage
     RecognitionQuicCarrier
@@ -135,6 +118,7 @@ add_custom_target(PrismProviderValidation DEPENDS
     ProviderAcceptPathTest
     ProviderCatalogTest
     AnytlsProviderRetirementTest
+    AnytlsAdmissionOwnerTest
     RealityCarrierStartupTest
     RealityRecognition
     RecognitionCarrierSelectionTest
@@ -142,9 +126,7 @@ add_custom_target(PrismProviderValidation DEPENDS
     RecognitionProtocolTest
     RecognitionProbeRouteTest
     RecognitionTlsTest
-    RecognitionPipelineTest
     RestlsStartupTest
-    SchemeExecutorTest
     SecretResolutionStageTest
     SessionRecognitionAdmissionTest
     SessionRecognitionCancellationTest
@@ -152,18 +134,15 @@ add_custom_target(PrismProviderValidation DEPENDS
     Socks5AccountIngressBasicTest
     Socks5AccountIngressCancellationTest
     Socks5BeastTest
-    Socks5ClientServerPerf
     Socks5CodecOwnerTest
     Socks5ConnErrorMatrix
     Socks5ConnSession
     Socks5DeferredReplyTest
     Socks5DgramSession
     Socks5LongitudinalCoverage
-    Socks5StressTest
     Socks5TcpE2ETest
     Socks5TypedHandoffTest
     Socks5UdpE2ETest
-    Ss2022ClientServerPerf
     Ss2022CodecDeep
     Ss2022ConnErrorMatrix
     Ss2022DgramSession
@@ -173,9 +152,20 @@ add_custom_target(PrismProviderValidation DEPENDS
     Ss2022UdpWireOrder
     StandardProviderTest
     TlsRecordReassemblyTest
-    TlsRouteTableTest
     TlsRecognitionPipelineTest
     TrustTunnelStartupTest
     TuicStartupTest
     TuicUdpAdmissionTest
 )
+
+if(PRISM_ENABLE_STRESS)
+    add_dependencies(PrismProviderValidation Hysteria2StressTest Socks5StressTest)
+endif()
+
+if(PRISM_ENABLE_BENCHMARK)
+    add_dependencies(PrismProviderValidation
+        Hysteria2ClientServerPerf
+        TuicClientServerPerf
+        Socks5ClientServerPerf
+        Ss2022ClientServerPerf)
+endif()

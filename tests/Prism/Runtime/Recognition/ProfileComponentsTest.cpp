@@ -5,7 +5,7 @@
 
 #include <Prism/Runtime/Recognition/Candidate.hpp>
 #include <Prism/Runtime/Recognition/CandidateHandle.hpp>
-#include <Prism/Runtime/Recognition/ProfileDecision.hpp>
+#include <Prism/Runtime/Recognition/Profile.hpp>
 #include <Prism/Runtime/Recognition/ProfileRoutes.hpp>
 #include <Prism/Runtime/Recognition/ProfileTypes.hpp>
 #include <Prism/Runtime/Recognition/ProfileValidation.hpp>

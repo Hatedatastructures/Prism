@@ -265,7 +265,8 @@ namespace
         ASSERT_FALSE(Duplicate.has_value());
         EXPECT_EQ(Duplicate.error(), Prism::Hysteria2::AuthError::AlreadyAuthenticated);
         EXPECT_EQ(First.AccountId(), Prism::AccountId{77});
-        EXPECT_TRUE(First.Identity().empty() || First.Identity() == "");
+        EXPECT_EQ(First.Identity(), "provider-fixture");
+        EXPECT_NE(First.Identity(), "Provider Fixture");
 
         Prism::Hysteria2::Http3AuthSession Second(
             Prism::Hysteria2::Http3AuthSessionOptions{Io.get_executor(), Authenticator});

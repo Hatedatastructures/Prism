@@ -7,7 +7,7 @@ description: 修改 Prism smux、yamux、h2mux 帧处理、流状态、窗口、
 
 ## 审计范围
 
-当前 mux 实现位于 `src/prism/protocol/multiplex/`，包含核心、smux、yamux 和 h2mux。先读取目标 codec、session、stream、control 和 transport，再判断适用协议，不混用不同 mux 的线格式。
+当前 mux 实现位于 `Include/Prism/Protocols/Mux/` 与 `Src/Prism/Protocols/Mux/`，按实际 owner 检查 Smux、Yamux、H2Mux 的 codec、session、stream、control 与对应测试。协议 mux owner 管理帧和流状态；底层 transport、Runtime 调度及 Composition 装配分别由各自模块负责。修改前核对模块 CMake 和真实调用者，不把跨模块关闭责任挪入 mux。
 
 ## 审计步骤
 

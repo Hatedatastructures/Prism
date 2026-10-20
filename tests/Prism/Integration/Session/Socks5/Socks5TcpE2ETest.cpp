@@ -151,6 +151,8 @@ namespace
             -> std::shared_ptr<Runtime::Session>
         {
             Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
             Options.Services->RelayIdleTimeout = std::chrono::milliseconds(500);
             Socks5::ServerConfig Configuration;
             Configuration.EnableTcp = true;
@@ -396,6 +398,8 @@ namespace
             -> std::shared_ptr<Runtime::Session>
         {
             Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
             Socks5::ServerConfig Configuration;
             Configuration.EnableTcp = true;
             Options.Services->AcceptProtocol =

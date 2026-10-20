@@ -5,6 +5,8 @@
 
 #include "H2MuxStreamLifetimeTestSupport.hpp"
 
+#include <Prism/Protocols/Http2/Detail/Frame.hpp>
+
 namespace
 {
 
@@ -43,30 +45,60 @@ namespace
 
     struct ShutdownWriteScenario final
     {
-        std::shared_ptr<Http2Stream> Stream;
-        Prism::SharedTransmission Transport;
-        std::shared_ptr<Http2State> State;
+        std::shared_ptr<Prism::Mux::H2Mux::Http2Server> Server;
+        Prism::SharedTransmission ServerTransport;
+        Prism::SharedTransmission ClientTransport;
         std::size_t &Written;
         std::error_code &WriteError;
-        Net::io_context &Io;
+        bool &ShutdownSucceeded;
     };
 
-    /// 关闭虚拟流后继续使用共享传输，验证传输所有权没有被提前销毁。
+    /// 建立正式 CONNECT stream，关闭写方向后继续使用共享连接传输。
     auto RunShutdownWrite(ShutdownWriteScenario Scenario) -> Net::awaitable<void>
     {
-        const auto ShutdownResult = co_await Scenario.Stream->WriteShutdown();
+        auto Client = std::make_shared<Prism::Http2::Session>(
+            Scenario.ClientTransport->Executor(), false);
+        Client->SendSettings();
+        const Prism::Http2::HeaderList Headers{
+            {":method", "CONNECT"}, {":authority", "example.test:443"}};
+        const auto Opened = Client->OpenStream(Headers, false);
+        if (!Opened)
+        {
+            ADD_FAILURE() << "failed to open CONNECT stream";
+            Scenario.Server->Close();
+            co_return;
+        }
+        std::vector<std::byte> Wire;
+        if (!Client->Collect(Wire))
+        {
+            ADD_FAILURE() << "failed to collect CONNECT request";
+            Scenario.Server->Close();
+            co_return;
+        }
+        const auto RequestWrite = co_await Scenario.ClientTransport->WriteExact(Wire);
+        if (RequestWrite.Failure.Failed() || RequestWrite.Bytes != Wire.size())
+        {
+            ADD_FAILURE() << "failed to deliver CONNECT request";
+            Scenario.Server->Close();
+            co_return;
+        }
+        const auto Stream = co_await Scenario.Server->AcceptStream();
+        if (!Stream)
+        {
+            ADD_FAILURE() << "server did not admit CONNECT stream";
+            Scenario.Server->Close();
+            co_return;
+        }
+        const auto ShutdownResult = co_await Stream->WriteShutdown();
+        Scenario.ShutdownSucceeded = static_cast<bool>(ShutdownResult);
         EXPECT_TRUE(ShutdownResult);
-        const auto TerminationDrain = co_await Scenario.Stream->DrainTerminations();
-        EXPECT_TRUE(TerminationDrain);
-        co_await Net::post(Scenario.State->Strand, Net::use_awaitable);
         const std::array<std::byte, 4> Payload{
             std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
-        const auto WriteResult = co_await Scenario.Transport->WriteSome(Payload);
+        const auto WriteResult = co_await Scenario.ServerTransport->WriteSome(Payload);
         Scenario.Written = WriteResult.Bytes;
         Scenario.WriteError = Prism::Fault::ToNative(WriteResult.Failure);
-        const auto ActivityDrain = co_await Scenario.Stream->Activity()->Drain();
-        EXPECT_TRUE(ActivityDrain);
-        Scenario.Io.stop();
+        EXPECT_TRUE(Stream->Close());
+        Scenario.Server->Close();
     }
 
     struct AcceptStreamsScenario final
@@ -74,7 +106,6 @@ namespace
         std::shared_ptr<Prism::Mux::H2Mux::Http2Server> Server;
         Prism::SharedTransmission ClientTransport;
         std::size_t &Accepted;
-        Watchdog Guard;
         Net::io_context &Io;
     };
 
@@ -93,7 +124,6 @@ namespace
             {
                 ADD_FAILURE() << "failed to open reset streams";
                 co_await DrainHttp2Server(Scenario.Server);
-                Scenario.Guard.Cancel();
                 co_return;
             }
         }
@@ -101,7 +131,6 @@ namespace
         if (!Client->Collect(Wire))
         {
             co_await DrainHttp2Server(Scenario.Server);
-            Scenario.Guard.Cancel();
             co_return;
         }
         const auto WriteResult = co_await Scenario.ClientTransport->WriteSome(
@@ -110,7 +139,6 @@ namespace
         if (WriteResult.Failure.Failed())
         {
             co_await DrainHttp2Server(Scenario.Server);
-            Scenario.Guard.Cancel();
             co_return;
         }
 
@@ -122,9 +150,9 @@ namespace
                 break;
             }
             ++Scenario.Accepted;
+            EXPECT_TRUE(Stream->Close());
         }
         Scenario.Server->Close();
-        Scenario.Guard.Cancel();
     }
 
     struct ServerCloseReadScenario final
@@ -210,6 +238,7 @@ namespace
         Net::steady_timer Settle(Stream->Executor());
         Settle.expires_after(std::chrono::milliseconds(50));
         co_await Settle.async_wait(Net::use_awaitable);
+        EXPECT_TRUE(Stream->Close());
         const auto ActivityDrain = co_await Stream->Activity()->Drain();
         EXPECT_TRUE(ActivityDrain);
         const auto TerminationDrain = co_await Stream->DrainTerminations();
@@ -236,6 +265,8 @@ namespace
         }
         Watchdog Guard;
         bool Completed{false};
+        bool UnacceptedActivityDrained{false};
+        bool UnacceptedActivityRetired{false};
         std::exception_ptr Failure;
     };
 
@@ -406,9 +437,17 @@ namespace
         EXPECT_EQ(State->Streams.size(), 1U);
         EXPECT_EQ(State->Incoming.size(), 1U);
         EXPECT_EQ(State->Incoming.front()->StreamId(), FifthId);
+        const auto Unaccepted = State->Incoming.front();
+        const auto UnacceptedActivity = Unaccepted->Activity();
         State->Close();
         const auto Drained = co_await State->Tasks->Drain();
         EXPECT_TRUE(Drained);
+        const auto ActivityDrained = co_await UnacceptedActivity->Drain();
+        const auto StreamsDrained = co_await State->DrainStreams();
+        Result.UnacceptedActivityDrained =
+            static_cast<bool>(ActivityDrained) && StreamsDrained;
+        Result.UnacceptedActivityRetired = UnacceptedActivity->IsRetired();
+        EXPECT_TRUE(StreamsDrained);
         EXPECT_TRUE(State->Streams.empty());
         Result.Guard.Cancel();
         Result.Completed = true;
@@ -441,20 +480,32 @@ TEST(H2MuxStreamLifetime, ShutdownKeepsSharedTransportWritable)
     {
         Net::io_context Io;
         auto [ServerRaw, ClientRaw] = Prism::MakeMemoryPair(Io.get_executor());
-        auto ServerTransport = std::make_shared<Prism::MemoryStream>(std::move(ServerRaw));
-        auto State = std::make_shared<Http2State>(ServerTransport, 1U);
-        State->Session =
-            std::make_shared<Prism::Http2::Session>(State->Strand, true);
-        auto Stream = std::make_shared<Http2Stream>(State, 3);
+        auto ServerTransport =
+            std::make_shared<Prism::MemoryStream>(std::move(ServerRaw));
+        auto ClientTransport =
+            std::make_shared<Prism::MemoryStream>(std::move(ClientRaw));
+        auto Server = std::make_shared<Prism::Mux::H2Mux::Http2Server>(
+            ServerTransport, 1U);
         std::size_t Written = 0;
         std::error_code WriteError = std::make_error_code(std::errc::io_error);
+        bool ShutdownSucceeded = false;
+        auto RunResult = std::make_shared<ServerRunObservation>();
+        Watchdog Guard(Io, std::chrono::seconds(3));
+        RunResult->OnCompleted = [&Guard] { Guard.Cancel(); };
 
+        StartServerRun(Io.get_executor(), Server, RunResult);
         Net::co_spawn(Io, RunShutdownWrite(ShutdownWriteScenario{
-                                Stream, ServerTransport, State, Written, WriteError, Io}),
+                                Server, ServerTransport, ClientTransport, Written, WriteError,
+                                ShutdownSucceeded}),
                       Net::detached);
 
         Io.run();
 
+        EXPECT_FALSE(*Guard.Timeouted);
+        EXPECT_TRUE(RunResult->Completed);
+        EXPECT_TRUE(RunResult->Succeeded);
+        EXPECT_TRUE(RunResult->Retired);
+        EXPECT_TRUE(ShutdownSucceeded);
         EXPECT_FALSE(WriteError);
         EXPECT_EQ(Written, 4U);
     }
@@ -476,10 +527,11 @@ TEST(H2MuxStreamLifetime, AcceptStreamDeliversAllQueuedStreamsWithoutLoss)
         std::size_t Accepted = 0;
         Watchdog Guard(Io, std::chrono::seconds(3));
         auto RunResult = std::make_shared<ServerRunObservation>();
+        RunResult->OnCompleted = [&Guard] { Guard.Cancel(); };
 
         StartServerRun(Io.get_executor(), Server, RunResult);
         Net::co_spawn(Io, RunAcceptStreams(AcceptStreamsScenario{
-                                Server, ClientTransport, Accepted, Guard, Io}),
+                                Server, ClientTransport, Accepted, Io}),
                       Net::detached);
 
         Io.run();
@@ -556,5 +608,7 @@ TEST(H2MuxStreamLifetime, AdmissionWaitsForRemoteAndLocalTerminalAndTrackedIo)
         EXPECT_FALSE(*Result.Guard.Timeouted);
         EXPECT_FALSE(Result.Failure);
         EXPECT_TRUE(Result.Completed);
+        EXPECT_TRUE(Result.UnacceptedActivityDrained);
+        EXPECT_TRUE(Result.UnacceptedActivityRetired);
         EXPECT_TRUE(State->Streams.empty());
     }

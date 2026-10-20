@@ -11,9 +11,10 @@
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Protocols/Common/Address.hpp>
 #include <Prism/Protocols/Hysteria2/Codec.hpp>
-#include <Prism/Protocols/Shadowsocks2022/RequestCodec.hpp>
-#include <Prism/Protocols/Socks5/Codec.hpp>
-#include <Prism/Protocols/Trojan/Codec.hpp>
+#include <Prism/Protocols/Shadowsocks2022/RequestState.hpp>
+#include <Prism/Protocols/Shadowsocks2022/RequestWire.hpp>
+#include <Prism/Protocols/Socks5/Socks5.hpp>
+#include <Prism/Protocols/Trojan/Trojan.hpp>
 #include <Prism/Protocols/Tuic/Codec.hpp>
 
 namespace

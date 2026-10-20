@@ -1,0 +1,78 @@
+set(PrismCompositionPublicHeaders
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Builtin/Builtin.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Builtin/Capability.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Builtin/Descriptor.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Builtin/ProtocolBuiltins.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Builtin/Registry.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Builtin/Snapshot.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Protocol/ProtocolCatalog.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/BoundCatalog.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/MuxProvider.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProtocolCredentialPreparation.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProviderBindingVariants.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProviderCatalog.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProviderCatalogInputs.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/TlsCarrierCatalogOwner.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/TlsCarrierProvider.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/AnytlsCarrier.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/CandidateFactory.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/CandidateModel.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/CandidateRegistry.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/LayeredCandidateFactory.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/ProfileBuilder.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/ProtocolMatrix.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/RestlsCarrier.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/ShadowtlsCarrier.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/TlsCandidateFactory.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/TlsCandidateModel.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/TlsCarrierHelpers.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Recognition/TrusttunnelCandidate.hpp"
+)
+
+set(PrismCompositionPrivateHeaders
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/BoundCatalogOwnerClosure.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/CandidateProviderProjection.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/TlsCarrierCatalogInvocation.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/TlsCarrierMaterialBinding.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Provider/ProviderInstancePreparation.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TlsCarrierFailure.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TrusttunnelCandidateFailure.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/CandidateFactoryHelpers.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/InnerProtocolDispatch.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TlsRecognitionHelpers.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TlsCarrierRunners.hpp")
+
+PrismAddStaticTarget(PrismComposition
+    SOURCES
+        Provider/BoundCatalog.cpp
+        Provider/MuxProvider.cpp
+        Provider/ProviderCatalog.cpp
+        Provider/ProtocolCredentialPreparation.cpp
+        Provider/ProviderInstancePreparation.cpp
+        Provider/TlsCarrierCatalogOwner.cpp
+        Provider/TlsCarrierProvider.cpp
+        Builtin/Registry.cpp
+        Builtin/Snapshot.cpp
+        Builtin/ProtocolBuiltins.cpp
+        Protocol/ProtocolCatalog.cpp
+        Recognition/TlsCandidateFactory.cpp
+        Recognition/ProtocolMatrix.cpp
+        Recognition/CandidateFactory.cpp
+        Recognition/CandidateFactoryHelpers.cpp
+        Recognition/CandidateRegistry.cpp
+        Recognition/TlsCarrierHelpers.cpp
+        Recognition/WebsocketCarrier.cpp
+        Recognition/XhttpCarrier.cpp
+        Recognition/GunCarrier.cpp
+        Recognition/RealityCarrier.cpp
+        Recognition/NativeTlsCarrier.cpp
+        Recognition/AnytlsCarrier.cpp
+        Recognition/RestlsCarrier.cpp
+        Recognition/ShadowtlsCarrier.cpp
+        Recognition/TrusttunnelCandidate.cpp
+        Recognition/LayeredCandidateFactory.cpp
+        Recognition/ProfileBuilder.cpp
+        Recognition/TlsCandidateModel.cpp
+        Recognition/TlsRecognitionHelpers.cpp
+    HEADERS ${PrismCompositionPublicHeaders}
+    PRIVATE_HEADERS ${PrismCompositionPrivateHeaders})

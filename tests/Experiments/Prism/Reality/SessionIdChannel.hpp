@@ -18,10 +18,9 @@
 #include <Prism/Foundation/Memory/Container.hpp>
 #include <Prism/Foundation/Memory/Pointer.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Facade.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
-#include <Prism/Protocols/Reality/Types.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
+#include <Prism/Protocols/Reality/CarrierTypes.hpp>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -190,7 +189,7 @@ namespace Prism::Reality::Detail
         {
             if (!NextLayer_ || !Handshaken_)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor(),
                     std::move(Handler),
                     Prism::IoResult{0, Prism::Fault::FromNative(make_error_code(Error::NotOpen))});
@@ -208,7 +207,7 @@ namespace Prism::Reality::Detail
         {
             if (!NextLayer_ || !Handshaken_)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor(),
                     std::move(Handler),
                     Prism::IoResult{0, Prism::Fault::FromNative(make_error_code(Error::NotOpen))});
@@ -224,7 +223,7 @@ namespace Prism::Reality::Detail
         {
             if (!NextLayer_)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor(),
                     std::move(Handler),
                     Prism::IoResult{0, Prism::Fault::FromNative(make_error_code(Error::NotOpen))});

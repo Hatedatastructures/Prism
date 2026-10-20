@@ -6,6 +6,7 @@
  *          转换、首个客户端 C 方向 application-data 认证和内层回注。
  */
 
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
@@ -29,7 +30,10 @@
 
 #include <gtest/gtest.h>
 
-#include <Prism/Protocols/Shadowtls/Server.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/ClientHello.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/RecordProtector.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/Retirement.hpp>
+#include <Prism/Protocols/Shadowtls/Shadowtls.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 
 namespace

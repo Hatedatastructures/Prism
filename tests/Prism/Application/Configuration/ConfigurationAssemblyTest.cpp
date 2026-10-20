@@ -4,6 +4,7 @@
  */
 
 #include "ConfigurationTestSupport.hpp"
+#include <Prism/Application/Assembly/DnsAssembly.hpp>
 #include <Prism/Composition/Provider/ProviderCatalog.hpp>
 #include <Prism/Composition/Protocol/ProtocolCatalog.hpp>
 #include <Prism/Protocols/Vless/Binding.hpp>
@@ -113,7 +114,7 @@ namespace
     {
         const auto Json = MakeConfigurationJson(
             NativeProtocol, MakeTypedFacadeCarrierJson(), {});
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = Json, .Options = {.CheckSecrets = false}});
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -195,7 +196,7 @@ TEST(PrismConfigurationAssembly, KeepsPureConfigurationHelpersSelfContained)
 TEST(PrismTask4Configuration, ParsesTypedCarrierMatchAndNativeTlsOptions)
     {
         const auto Json = MakeConfigurationJson(NativeProtocol, NativeCarrier, {});
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = Json, .Options = {.CheckSecrets = false}});
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -233,7 +234,7 @@ TEST(PrismTask4Configuration, AcceptsXhttpModes)
   }
 }
 )json";
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, XhttpOnly, {}),
              .Options = {.CheckSecrets = false}});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -243,7 +244,7 @@ TEST(PrismTask4Configuration, AcceptsXhttpModes)
             std::get<Prism::Contract::XhttpOptions>(
                 Configuration.Carriers[0].Options)
                 .Mode = Mode;
-            const auto Result = Parser::Validate(
+            const auto Result = ConfigurationValidator::Validate(
                 Prism::Application::Configuration::ValidationRequest{
                     Configuration,
                     Prism::Application::Configuration::ValidationOptions{
@@ -255,7 +256,7 @@ TEST(PrismTask4Configuration, AcceptsXhttpModes)
         std::get<Prism::Contract::XhttpOptions>(
             InvalidConfiguration.Carriers[0].Options)
             .Mode = "Unknown";
-        const auto InvalidResult = Parser::Validate(
+        const auto InvalidResult = ConfigurationValidator::Validate(
             Prism::Application::Configuration::ValidationRequest{
                 InvalidConfiguration,
                 Prism::Application::Configuration::ValidationOptions{
@@ -271,10 +272,10 @@ TEST(PrismTask4Configuration, RejectsLegacyRealityFieldNames)
             std::string(RealityCarrier), "\"HandshakeTarget\"", "\"Dest\"");
         const auto LegacyPrivateKeyRef = ReplaceFirst(
             std::string(RealityCarrier), "\"PrivateKeyRef\"", "\"PrivateKeySecretRef\"");
-        const auto TargetResult = Parser::Parse(
+        const auto TargetResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, LegacyTarget, {}),
              .Options = {.CheckSecrets = false}});
-        const auto PrivateKeyResult = Parser::Parse(
+        const auto PrivateKeyResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, LegacyPrivateKeyRef, {}),
              .Options = {.CheckSecrets = false}});
 
@@ -287,7 +288,7 @@ TEST(PrismTask4Configuration, RejectsLegacyRealityFieldNames)
 TEST(PrismTask4Configuration, ParsesProtocolBindingAndRecognitionRoute)
     {
         const auto Json = MakeConfigurationJson(NativeProtocol, NativeCarrier, NativeBinding);
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = Json, .Options = {.CheckSecrets = false}});
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -310,7 +311,7 @@ TEST(PrismTask4Configuration, ParsesTopLevelRecognitionMode)
             std::string(ValidJson),
             "  \"ProtocolBindings\": [],",
             "  \"ProtocolBindings\": [],\n  \"Recognition\": {\"Mode\": \"Configured\", \"ConfiguredCandidate\": 1},");
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = Json, .Options = {.CheckSecrets = false}});
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -322,7 +323,7 @@ TEST(PrismTask4Configuration, RejectsRetiredDeterministicRouteSpelling)
     {
         const auto Json = ReplaceFirst(std::string(ValidJson), "  \"ProtocolBindings\": [],",
             "  \"ProtocolBindings\": [],\n  \"Recognition\": {\"Mode\": \"DeterministicRoute\"},");
-        const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+        const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
         ASSERT_FALSE(Parsed);
         EXPECT_EQ(Parsed.error().Code, ConfigurationErrorCode::InvalidValue);
         EXPECT_EQ(Parsed.error().Path, "Recognition.Mode");
@@ -332,7 +333,7 @@ TEST(PrismTask4Configuration, AcceptsCanonicalDeterministicSpelling)
     {
         const auto Json = ReplaceFirst(std::string(ValidJson), "  \"ProtocolBindings\": [],",
             "  \"ProtocolBindings\": [],\n  \"Recognition\": {\"Mode\": \"Deterministic\"},");
-        const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+        const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
         ASSERT_TRUE(Parsed) << Parsed.error().Message;
         EXPECT_EQ(Parsed->Recognition.Mode, "Deterministic");
     }
@@ -351,7 +352,7 @@ TEST(PrismTask4Configuration, AllowsAnyTlsAsAProtocolWithoutAnyTlsCarrier)
 }
 )json";
         const auto Json = MakeConfigurationJson(AnyTlsProtocol, {}, AnyTlsBinding);
-        const auto Parsed = Parser::Parse(
+        const auto Parsed = ConfigurationParser::Parse(
             {.Json = Json, .Options = {.CheckSecrets = false}});
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -398,21 +399,21 @@ TEST(PrismTask4Configuration, RejectsTypedBindingContractViolations)
                           "\"Builtin\": \"anytls\""),
             {});
 
-        const auto UnknownResult = Parser::Parse(
+        const auto UnknownResult = ConfigurationParser::Parse(
             {.Json = UnknownField, .Options = {.CheckSecrets = false}});
-        const auto DuplicateResult = Parser::Parse(
+        const auto DuplicateResult = ConfigurationParser::Parse(
             {.Json = DuplicateBinding, .Options = {.CheckSecrets = false}});
-        const auto MissingResult = Parser::Parse(
+        const auto MissingResult = ConfigurationParser::Parse(
             {.Json = MissingProtocol, .Options = {.CheckSecrets = false}});
-        const auto DuplicateProtocolIdResult = Parser::Parse(
+        const auto DuplicateProtocolIdResult = ConfigurationParser::Parse(
             {.Json = DuplicateProtocolId, .Options = {.CheckSecrets = false}});
-        const auto MissingCarrierResult = Parser::Parse(
+        const auto MissingCarrierResult = ConfigurationParser::Parse(
             {.Json = MissingCarrier, .Options = {.CheckSecrets = false}});
-        const auto EmptyResult = Parser::Parse(
+        const auto EmptyResult = ConfigurationParser::Parse(
             {.Json = EmptyCarrier, .Options = {.CheckSecrets = false}});
-        const auto MuxResult = Parser::Parse(
+        const auto MuxResult = ConfigurationParser::Parse(
             {.Json = UnknownMuxMode, .Options = {.CheckSecrets = false}});
-        const auto AnyTlsResult = Parser::Parse(
+        const auto AnyTlsResult = ConfigurationParser::Parse(
             {.Json = AnyTlsCarrier, .Options = {.CheckSecrets = false}});
 
         ASSERT_FALSE(UnknownResult.has_value());

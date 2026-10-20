@@ -29,6 +29,7 @@
 
 #include <TestSupport/Benchmark/Bench.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/Quic/MemoryDatagramProvider.hpp>
 #include <Prism/Protocols/Hysteria2/Hysteria2.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 

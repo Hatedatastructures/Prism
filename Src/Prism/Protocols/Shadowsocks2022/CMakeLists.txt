@@ -1,0 +1,33 @@
+PrismAddStaticTarget(PrismProtocolShadowsocks2022
+    SOURCES
+        Codec.cpp
+        KeyDerivation.cpp
+        RequestState.cpp
+        Detail/Target.cpp
+        Binding.cpp
+        GatewayProcess.cpp
+        Shadowsocks2022.cpp
+        TcpAdmission.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Binding.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ChunkCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Conn.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnDatagram.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnHandshake.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnOptions.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnRecord.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Dgram.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/GatewayState.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/KeyDerivation.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Prepared.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/RequestState.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/RequestWire.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ResponseCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Ss2022Gateway.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/TcpAdmission.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Types.hpp
+    PRIVATE_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Target.hpp
+)

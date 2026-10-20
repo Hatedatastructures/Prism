@@ -1,0 +1,32 @@
+PrismAddStaticTarget(PrismProtocolSocks5
+    SOURCES
+        Codec.cpp
+        Binding.cpp
+        Socks5.cpp
+        Detail/Target.cpp
+        Detail/UdpAddress.cpp
+        UdpAssoc.cpp
+        UdpAssocBindGate.cpp
+        UdpAssocRetirement.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/AddressCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/AuthCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/BeastCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/Binding.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/Conn.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/ConnAuth.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/ConnHandshake.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/ConnTransport.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/Dgram.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/MessageCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/Reply.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/Socks5.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/TransportCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/Types.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/UdpAssoc.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/UdpAssocBindGate.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Socks5/UdpAssocRetirement.hpp
+    PRIVATE_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Target.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/UdpAddress.hpp
+)

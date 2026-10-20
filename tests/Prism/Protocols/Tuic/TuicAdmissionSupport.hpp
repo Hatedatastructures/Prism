@@ -9,6 +9,7 @@
 #include <Prism/Account/Account.hpp>
 #include <Prism/Protocols/Tuic/Admission.hpp>
 #include <Prism/Protocols/Common/IoBridge.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 #include <TestSupport/Prism/QuicStreamProviderActivity.hpp>
 
@@ -103,7 +104,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
 
         /** @brief 测试传输的有界部分读取；字节数与原生失败在同一 IoResult 中返回。 */
@@ -735,7 +736,7 @@ namespace
             Io_.restart();
             Admission_->OnClosed();
             Io_.run();
-            bool DrainCompleted = false;
+            bool DrainCompleted = !Admission_;
             bool DrainThrew = false;
             std::optional<Prism::Fault::Failure> DrainFailure;
             Io_.restart();
@@ -745,21 +746,15 @@ namespace
                 {
                     DrainThrew = static_cast<bool>(Error);
                     if (!Error && !Result) DrainFailure = Result.error();
-                    DrainCompleted = !Error && static_cast<bool>(Result);
+                    DrainCompleted = !Error;
                 });
             Io_.run();
             EXPECT_FALSE(DrainThrew);
-            if (DrainFailure)
-            {
-                EXPECT_TRUE(DrainCompleted) << "Drain code="
-                    << static_cast<int>(DrainFailure->Code)
-                    << " native=" << DrainFailure->Native.value()
-                    << " category=" << DrainFailure->Native.category().name();
-            }
-            else
-            {
-                EXPECT_TRUE(DrainCompleted);
-            }
+            EXPECT_TRUE(DrainCompleted);
+            ASSERT_FALSE(DrainFailure) << "Drain code="
+                << static_cast<int>(DrainFailure->Code)
+                << " native=" << DrainFailure->Native.value()
+                << " category=" << DrainFailure->Native.category().name();
             EXPECT_EQ(CloseOwnerCalls_, ExpectedCloseOwnerCalls_);
             EXPECT_EQ(Record_->Runtime()->ActiveConnections(), 0U);
             EXPECT_EQ(Record_->Runtime()->ActiveStreams(), 0U);

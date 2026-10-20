@@ -13,6 +13,7 @@
 #include <span>
 #include <vector>
 #include <Prism/Transport/Pad.hpp>
+#include <Prism/Transport/Transmission.hpp>
 namespace
 {
     namespace Net = boost::asio;
@@ -43,7 +44,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 }

@@ -1,0 +1,46 @@
+---
+Checks: >
+  -*,
+  bugprone-unchecked-optional-access,
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-suspicious-semicolon,
+  bugprone-inc-dec-in-condition,
+  concurrency-*,
+  -concurrency-mt-unsafe,
+  cppcoreguidelines-prefer-member-initializer,
+  cppcoreguidelines-special-member-functions,
+  cppcoreguidelines-virtual-class-destructor,
+  google-build-using-namespace,
+  google-explicit-constructor,
+  misc-unused-parameters,
+  misc-unused-using-decls,
+  modernize-use-override,
+  modernize-use-auto,
+  modernize-redundant-void-arg,
+  performance-*,
+  -performance-avoid-endl,
+  performance-noexcept-destructor,
+  performance-noexcept-move-constructor,
+  performance-noexcept-swap,
+  performance-move-constant-argument,
+  readability-container-size-empty,
+  readability-duplicate-include,
+  readability-redundant-access-specifiers,
+  readability-simplify-boolean-expr,
+  readability-static-accessed-through-instance,
+  readability-convert-member-functions-to-static
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '[Ii]nclude/[Pp]rism/.*\.hpp'
+
+CheckOptions:
+  - key: modernize-use-auto.MinTypeNameLength
+    value: 16
+  - key: modernize-use-auto.RemoveStars
+    value: false
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'std::string_view,std::span'
+  - key: performance-move-constant-argument.CheckTriviallyCopyable
+    value: false

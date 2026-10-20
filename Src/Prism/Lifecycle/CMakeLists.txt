@@ -1,0 +1,22 @@
+PrismAddStaticTarget(PrismLifecycle
+    SOURCES
+        CancellationDomain.cpp
+        DrainBarrier.cpp
+        DrainNotification.cpp
+        TaskIdSet.cpp
+        TaskRegistry.cpp
+        TaskRegistryState.cpp
+        TaskRetirementReceipt.cpp
+        TaskState.cpp
+    HEADERS
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/CancellationDomain.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/DrainBarrier.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskIdSet.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskRegistry.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskRegistryState.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskRetirementReceipt.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskState.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskSubmission.hpp"
+    PRIVATE_HEADERS
+        Detail/DrainNotification.hpp
+)

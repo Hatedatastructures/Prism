@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-#include <Prism/Transport/Algorithm.hpp>
+#include <Prism/Transport/StreamAlgorithms.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <gtest/gtest.h>
 
@@ -124,7 +124,7 @@ namespace
     private:
         bool ReadFailureConsumed{false};
         bool WriteFailureConsumed{false};
-        auto StartWriteShutdown(Completion Handler) -> void override { Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {}); }
+        auto StartWriteShutdown(Completion Handler) -> void override { Prism::Transmission::PostResult(Executor(), std::move(Handler), {}); }
     };
 
     static_assert(Prism::Stream<AlgorithmStream>);

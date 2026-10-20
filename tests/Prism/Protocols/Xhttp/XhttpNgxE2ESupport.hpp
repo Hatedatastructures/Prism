@@ -276,11 +276,11 @@ namespace
         {
             co_return;
         }
-        const auto Stream = *StreamId;
+        const auto Http2StreamId = *StreamId;
 
         const auto PayloadBytes = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(Request.Payload.data()), Request.Payload.size());
-        if (Session->SubmitData(Stream, PayloadBytes, true) !=
+        if (Session->SubmitData(Http2StreamId, PayloadBytes, true) !=
             Prism::Http2::SubmitDataStatus::Accepted)
         {
             co_return;

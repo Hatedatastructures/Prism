@@ -58,7 +58,7 @@ namespace
             std::error_code Error;
             std::memset(Buffer.data(), 0, Buffer.size());
             Error.clear();
-            Prism::Transport::Detail::PostResult(Ex_,
+            Prism::Transmission::PostResult(Ex_,
                 std::move(Handler), Prism::IoResult{Buffer.size(), Prism::Fault::FromNative(Error)});
         }
 
@@ -67,7 +67,7 @@ namespace
             std::error_code Error;
             (void)Buffer;
             Error.clear();
-            Prism::Transport::Detail::PostResult(Ex_,
+            Prism::Transmission::PostResult(Ex_,
                 std::move(Handler), Prism::IoResult{Buffer.size(), Prism::Fault::FromNative(Error)});
         }
 
@@ -79,7 +79,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(Ex_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Ex_, std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -111,12 +111,12 @@ namespace
         }
 
         auto Handle(SharedTransmission &Inbound, MiddlewareNamespace::Context &Context)
-            -> Net::awaitable<Fault::Code> override
+            -> Net::awaitable<Fault::Failure> override
         {
             (void)Inbound;
             (void)Context;
             Log_.push_back(std::string(Name_));
-            co_return Result_;
+            co_return Fault::Failure{Result_};
         }
 
     private:
@@ -153,11 +153,12 @@ namespace
 
         auto Inbound = std::make_shared<StubTransmission>(IoContext.get_executor());
         MiddlewareNamespace::Context MiddlewareContext;
+        MiddlewareContext.Inbound() = Inbound;
 
         RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
                  {
-            const auto ErrorCode = co_await [&]() -> Net::awaitable<Prism::Fault::Code> { MiddlewareContext.Inbound() = Inbound; co_return co_await Pipeline.Run(MiddlewareContext); }();
-            EXPECT_EQ(ErrorCode, Fault::Code::Success); });
+            const auto Result = co_await Pipeline.Run(MiddlewareContext);
+            EXPECT_TRUE(Result.Succeeded()); });
 
         ASSERT_EQ(Log.size(), 2U);
         EXPECT_EQ(Log[0], "a");
@@ -175,11 +176,12 @@ namespace
 
         auto Inbound = std::make_shared<StubTransmission>(IoContext.get_executor());
         MiddlewareNamespace::Context MiddlewareContext;
+        MiddlewareContext.Inbound() = Inbound;
 
         RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
                  {
-            const auto ErrorCode = co_await [&]() -> Net::awaitable<Prism::Fault::Code> { MiddlewareContext.Inbound() = Inbound; co_return co_await Pipeline.Run(MiddlewareContext); }();
-            EXPECT_EQ(ErrorCode, Fault::Code::AuthFailed); });
+            const auto Result = co_await Pipeline.Run(MiddlewareContext);
+            EXPECT_EQ(Result.Code, Fault::Code::AuthFailed); });
 
         // b 失败后 c 不执行
         ASSERT_EQ(Log.size(), 2U);
@@ -201,10 +203,10 @@ namespace
             }
 
             auto Handle(SharedTransmission &, MiddlewareNamespace::Context &MiddlewareContext)
-                -> Net::awaitable<Fault::Code> override
+                -> Net::awaitable<Fault::Failure> override
             {
                 MiddlewareContext.Identity() = "alice";
-                co_return Fault::Code::Success;
+                co_return Fault::Failure{};
             }
         };
 
@@ -223,10 +225,10 @@ namespace
             }
 
             auto Handle(SharedTransmission &, MiddlewareNamespace::Context &MiddlewareContext)
-                -> Net::awaitable<Fault::Code> override
+                -> Net::awaitable<Fault::Failure> override
             {
                 *Output = MiddlewareContext.Identity();
-                co_return Fault::Code::Success;
+                co_return Fault::Failure{};
             }
         };
 
@@ -236,11 +238,12 @@ namespace
 
         auto Inbound = std::make_shared<StubTransmission>(IoContext.get_executor());
         MiddlewareNamespace::Context MiddlewareContext;
+        MiddlewareContext.Inbound() = Inbound;
 
         RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
                  {
-            const auto ErrorCode = co_await [&]() -> Net::awaitable<Prism::Fault::Code> { MiddlewareContext.Inbound() = Inbound; co_return co_await Pipeline.Run(MiddlewareContext); }();
-            EXPECT_EQ(ErrorCode, Fault::Code::Success); });
+            const auto Result = co_await Pipeline.Run(MiddlewareContext);
+            EXPECT_TRUE(Result.Succeeded()); });
 
         EXPECT_EQ(Seen, "alice");
         EXPECT_EQ(MiddlewareContext.Identity(), "alice");

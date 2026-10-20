@@ -1,12 +1,12 @@
 /** @file MuxServiceTest.cpp @brief 正式协议 owner 的真实 wire、子流与冷 binding 生命周期。 */
 #include <TestSupport/Fixtures/MuxRoot.hpp>
 #include <TestSupport/Fixtures/StreamFactory.hpp>
-#include <Prism/Protocols/Mux/Detail/SingMux/Handshake.hpp>
+#include <Prism/Protocols/Mux/SingMux/SingMux.hpp>
 #include <Prism/Protocols/Mux/Detail/Root/RootChild.hpp>
 #include <Prism/Protocols/Mux/Detail/Root/RootSession.hpp>
 #include <Prism/Protocols/Mux/Detail/Root/RootState.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/use_awaitable.hpp>
@@ -36,21 +36,21 @@ namespace
             if (Reads_++ == 0)
             {
                 Buffer.front() = std::byte{0};
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor_, std::move(Handler), Prism::IoResult{1U, {}});
                 return;
             }
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{0U, Failure_});
         }
         auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{Buffer.size(), {}});
         }
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{});
         }
         auto OnClose() -> ControlResult override { return {}; }

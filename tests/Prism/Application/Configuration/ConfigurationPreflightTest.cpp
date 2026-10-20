@@ -10,7 +10,7 @@ TEST(PrismConfigPreflight, RejectsCarrierBuiltinConfiguredAsProtocol)
         const auto MisclassifiedProtocol = ReplaceFirst(
             std::string(NativeProtocol), "\"Builtin\": \"socks5\"",
             "\"Builtin\": \"native\"");
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(MisclassifiedProtocol, {}, {}),
              .Options = {.CheckSecrets = false}});
 
@@ -21,7 +21,7 @@ TEST(PrismConfigPreflight, RejectsCarrierBuiltinConfiguredAsProtocol)
 
 TEST(PrismConfigPreflight, RejectsTrustTunnelConfiguredAsCarrier)
     {
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, TrustTunnelCarrier, {}),
              .Options = {.CheckSecrets = false}});
 
@@ -35,7 +35,7 @@ TEST(PrismConfigPreflight, RejectsAnyTlsBoundToReality)
         const auto Binding = ReplaceFirst(
             ReplaceFirst(std::string(NativeBinding), "protocol-socks5", "protocol-anytls"),
             "carrier-native", "carrier-reality");
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(AnyTlsProtocol, RealityCarrier, Binding),
              .Options = {.CheckSecrets = false}});
 
@@ -56,7 +56,7 @@ TEST(PrismConfigPreflight, RejectsEqualEffectiveTcpCarrierPriority)
                                   {"binding-one", "carrier-native", 5, true, false}) +
                               "," + MakeCarrierBindingJson(
                                   {"binding-two", "carrier-native-2", 5, true, false});
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(
                  NativeProtocol, FirstCarrier + "," + SecondCarrier, Bindings),
              .Options = {.CheckSecrets = false}});
@@ -78,7 +78,7 @@ TEST(PrismConfigPreflight, AllowsDifferentEffectiveTcpCarrierPriorities)
                                   {"binding-one", "carrier-native", 5, true, false}) +
                               "," + MakeCarrierBindingJson(
                                   {"binding-two", "carrier-native-2", 6, true, false});
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(
                  NativeProtocol, FirstCarrier + "," + SecondCarrier, Bindings),
              .Options = {.CheckSecrets = false}});
@@ -91,14 +91,14 @@ TEST(PrismConfigPreflight, IgnoresCarrierSelectorsWithoutTcpBindings)
         const auto SecondCarrier = ReplaceFirst(
             std::string(NativeCarrier), "carrier-native", "carrier-native-2");
         const auto Carriers = std::string(NativeCarrier) + "," + SecondCarrier;
-        const auto NoBindingResult = Parser::Parse(
+        const auto NoBindingResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, Carriers, {}),
              .Options = {.CheckSecrets = false}});
         const auto UdpBindings = MakeCarrierBindingJson(
                                     {"binding-one", "carrier-native", 5, false, true}) +
                                 "," + MakeCarrierBindingJson(
                                     {"binding-two", "carrier-native-2", 5, false, true});
-        const auto UdpOnlyResult = Parser::Parse(
+        const auto UdpOnlyResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, Carriers, UdpBindings),
              .Options = {.CheckSecrets = false}});
 
@@ -110,7 +110,7 @@ TEST(PrismConfigPreflight, RejectsAmbiguousProtocolRecognitionRoutes)
     {
         const auto SecondBinding = ReplaceFirst(
             std::string(NativeBinding), "binding-socks5", "binding-socks5-2");
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(
                  NativeProtocol, NativeCarrier, std::string(NativeBinding) + "," + SecondBinding),
              .Options = {.CheckSecrets = false}});
@@ -126,10 +126,10 @@ TEST(PrismConfigPreflight, RejectsMalformedCarrierSniAndAlpn)
             std::string(NativeCarrier), "example.com", "bad..example.com");
         const auto BadAlpn = ReplaceFirst(
             std::string(NativeCarrier), "\"h2\", \"http/1.1\"", "\"\"");
-        const auto ServerNameResult = Parser::Parse(
+        const auto ServerNameResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, BadServerName, {}),
              .Options = {.CheckSecrets = false}});
-        const auto AlpnResult = Parser::Parse(
+        const auto AlpnResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, BadAlpn, {}),
              .Options = {.CheckSecrets = false}});
 
@@ -151,10 +151,10 @@ TEST(PrismConfigPreflight, ValidatesRealityShortIdAndHandshakeTargetFormats)
             std::string(RealityCarrier), "45587ac66ce007e4", "abc");
         const auto BadTarget = ReplaceFirst(
             std::string(RealityCarrier), "www.microsoft.com:443", "www.microsoft.com");
-        const auto ShortIdResult = Parser::Parse(
+        const auto ShortIdResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, BadShortId, {}),
              .Options = {.CheckSecrets = false}});
-        const auto TargetResult = Parser::Parse(
+        const auto TargetResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, BadTarget, {}),
              .Options = {.CheckSecrets = false}});
         const auto EmptyShortId = ReplaceFirst(
@@ -163,10 +163,10 @@ TEST(PrismConfigPreflight, ValidatesRealityShortIdAndHandshakeTargetFormats)
             std::string(RealityCarrier),
             "\"ServerNames\": [\"www.microsoft.com\"],\n    \"PrivateKeyRef\"",
             "\"ServerNames\": [\"*.microsoft.com\"],\n    \"PrivateKeyRef\"");
-        const auto EmptyShortIdResult = Parser::Parse(
+        const auto EmptyShortIdResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, EmptyShortId, {}),
              .Options = {.CheckSecrets = false}});
-        const auto WildcardNameResult = Parser::Parse(
+        const auto WildcardNameResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, WildcardRealityName, {}),
              .Options = {.CheckSecrets = false}});
 
@@ -198,7 +198,7 @@ TEST(PrismConfigPreflight, ValidatesRealityShortIdAndHandshakeTargetFormats)
             .PrivateKeyRef = "secret/reality/private-key",
             .ShortIds = {""}};
         NoSniConfiguration.Carriers.push_back(std::move(NoSniReality));
-        const auto NoSniResult = Parser::Validate(
+        const auto NoSniResult = ConfigurationValidator::Validate(
             Prism::Application::Configuration::ValidationRequest{
                 NoSniConfiguration,
                 Prism::Application::Configuration::ValidationOptions{
@@ -231,28 +231,28 @@ TEST(PrismConfigPreflight, RejectsMissingRequiredTypedCarrierFields)
         const auto MissingWebSocketPath = ReplaceFirst(
             std::string(WebSocketCarrier), "\"Path\": \"/ws\"", "\"Path\": \"\"");
 
-        const auto CertificateResult = Parser::Parse(
+        const auto CertificateResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, MissingCertificate, {}),
              .Options = {.CheckSecrets = false}});
-        const auto PrivateKeyResult = Parser::Parse(
+        const auto PrivateKeyResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, MissingPrivateKey, {}),
              .Options = {.CheckSecrets = false}});
-        const auto RealityTargetResult = Parser::Parse(
+        const auto RealityTargetResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, MissingRealityTarget, {}),
              .Options = {.CheckSecrets = false}});
-        const auto MissingRealityPrivateKeyResult = Parser::Parse(
+        const auto MissingRealityPrivateKeyResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, MissingRealityPrivateKeyRef, {}),
              .Options = {.CheckSecrets = false}});
-        const auto UnresolvedRealityPrivateKeyResult = Parser::Parse(
+        const auto UnresolvedRealityPrivateKeyResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, RealityCarrier, {}),
              .Options = {.CheckSecrets = true}});
-        const auto RealityShortIdsResult = Parser::Parse(
+        const auto RealityShortIdsResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, MissingRealityShortIds, {}),
              .Options = {.CheckSecrets = false}});
-        const auto RestlsScriptResult = Parser::Parse(
+        const auto RestlsScriptResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, MissingRestlsScript, {}),
              .Options = {.CheckSecrets = false}});
-        const auto WebSocketPathResult = Parser::Parse(
+        const auto WebSocketPathResult = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, MissingWebSocketPath, {}),
              .Options = {.CheckSecrets = false}});
 
@@ -280,7 +280,7 @@ TEST(PrismConfigPreflight, RejectsMalformedRestlsScript)
     {
         const auto BadScript = ReplaceFirst(
             std::string(RestlsCarrier), "300?100<1", "not-a-script");
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, BadScript, {}),
              .Options = {.CheckSecrets = false}});
 
@@ -292,7 +292,7 @@ TEST(PrismConfigPreflight, RejectsMalformedWebSocketPath)
     {
         const auto BadPath = ReplaceFirst(
             std::string(WebSocketCarrier), "\"Path\": \"/ws\"", "\"Path\": \"ws\"");
-        const auto Result = Parser::Parse(
+        const auto Result = ConfigurationParser::Parse(
             {.Json = MakeConfigurationJson(NativeProtocol, BadPath, {}),
              .Options = {.CheckSecrets = false}});
 

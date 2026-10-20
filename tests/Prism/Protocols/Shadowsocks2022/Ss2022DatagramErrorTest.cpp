@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -123,8 +124,9 @@ namespace
     struct DatagramPacketRequest final
     {
         std::array<std::uint8_t, 16> Key;
-        std::uint8_t Type;
-        std::vector<std::uint8_t> Address;
+        std::uint8_t Type{0x00};
+        std::vector<std::uint8_t> Address{0x01, 1, 2, 3, 4, 0x00, 0x50};
+        std::vector<std::uint8_t> Padding{};
     };
 
     auto MakeShadowsocks2022Packet(DatagramPacketRequest Request)
@@ -155,10 +157,23 @@ namespace
             Nonce.data() + Shadowsocks2022::SessionIdLen / 2,
             SeparatePlain.data() + Shadowsocks2022::SessionIdLen,
             Shadowsocks2022::PacketIdLen);
+        const auto Now = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count());
         std::vector<std::uint8_t> Plain{Request.Type};
-        Plain.insert(Plain.end(), 8, 0);
+        for (std::size_t Index = 0; Index < Shadowsocks2022::UdpTsLen; ++Index)
+        {
+            Plain.push_back(static_cast<std::uint8_t>(
+                (Now >> (56U - Index * 8U)) & 0xFFU));
+        }
+        Plain.push_back(static_cast<std::uint8_t>(
+            (Request.Padding.size() >> 8U) & 0xFFU));
+        Plain.push_back(static_cast<std::uint8_t>(
+            Request.Padding.size() & 0xFFU));
+        Plain.insert(
+            Plain.end(), Request.Padding.begin(), Request.Padding.end());
         Plain.insert(Plain.end(), Request.Address.begin(), Request.Address.end());
-        Plain.insert(Plain.end(), {0, 0});
         const auto Body = Shadowsocks2022::detail::UdpSeal(
             Shadowsocks2022::detail::UdpSealInput{Subkey, Nonce, Plain, {}});
         if (Body.empty())
@@ -237,6 +252,18 @@ namespace
         -> Net::awaitable<void>
     {
         DatagramCleanup Cleanup{DatagramValue};
+        const auto Activity = DatagramValue->Activity();
+        EXPECT_TRUE(Activity);
+        if (!Activity)
+        {
+            co_return;
+        }
+        const auto Drained = co_await Activity->Drain();
+        EXPECT_TRUE(Drained);
+        if (!Drained)
+        {
+            co_return;
+        }
         const std::string Payload = "x";
         EXPECT_EQ(
             co_await DatagramValue->AsyncSendTo(
@@ -312,7 +339,7 @@ TEST(Ss2022DgramErr, ReceiveBadSessionId)
     Net::io_context IoContext;
     auto Key = MakeShadowsocks2022Key();
     auto Packet = MakeShadowsocks2022Packet(
-        DatagramPacketRequest{Key, 0x01, {}});
+        DatagramPacketRequest{Key, 0x01, {}, {}});
     Packet[0] ^= 0xFF;
     RunCoroutine(
         IoContext,
@@ -348,7 +375,8 @@ TEST(Ss2022DgramErr, ReceiveDomainTruncated)
             IoContext,
             DatagramCase{
                 MakeShadowsocks2022Packet(
-                    DatagramPacketRequest{Key, 0x00, {0x03, 0xFF}}),
+                    DatagramPacketRequest{
+                        Key, 0x00, {0x03, 0xFF}, {}}),
                 Error::BadMessage,
                 DatagramOperation{}},
             DatagramFaults{false, false}}));

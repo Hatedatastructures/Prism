@@ -76,6 +76,6 @@ namespace
         Query.From = Now - 60'000U;
         EXPECT_EQ(Statistics::HistoryResolution(Query, Now), 1'000U);
         Query.MaxPoints = 0;
-        EXPECT_FALSE(ValidStatistics::HistoryQuery(Query));
+        EXPECT_FALSE(Statistics::ValidHistoryQuery(Query));
     }
 }

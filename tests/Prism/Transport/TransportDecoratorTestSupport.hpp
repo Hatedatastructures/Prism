@@ -40,6 +40,8 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <Prism/Transport/Transmission.hpp>
+
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -159,7 +161,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 
@@ -214,7 +216,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 
@@ -276,7 +278,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 
@@ -330,7 +332,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 

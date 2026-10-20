@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <expected>
 #include <memory>
 #include <span>
 #include <string>
@@ -35,8 +36,10 @@
 
 #include <Prism/Composition/Recognition/AnytlsCarrier.hpp>
 #include <Prism/Composition/Recognition/ProfileBuilder.hpp>
+#include <Prism/Contract/Ingress/StreamFactory.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
-#include <Prism/Runtime/Middleware/Context.hpp>
+#include <Prism/Foundation/Generation/Lifetime.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
 #include <Prism/Transport/Reliable.hpp>
 
@@ -70,8 +73,8 @@ namespace
     struct ScenarioState final
     {
         std::shared_ptr<Tcp::acceptor> Acceptor;
-        Prism::Recognition::SharedProfile Profile;
-        Prism::Runtime::SessionServices::ResolveCandidateFn Resolver;
+        Composition::ProfileBuildResult BuiltProfile;
+        std::shared_ptr<Prism::Foundation::GenerationUseState> GenerationUseState;
         std::string ClientPassword;
         std::uint16_t Port{0};
         Prism::SharedTransmission ActiveTransport;
@@ -165,6 +168,17 @@ namespace
         co_return true;
     }
 
+    [[nodiscard]] auto CloseAndDrain(Prism::SharedTransmission Transport)
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
+    {
+        const auto Closed = Transport->Close();
+        if (!Closed)
+        {
+            co_return std::unexpected(Closed.error());
+        }
+        co_return co_await Transport->Activity()->Drain();
+    }
+
     auto RunServer(std::shared_ptr<ScenarioState> State) -> Net::awaitable<void>
     {
         try
@@ -179,46 +193,67 @@ namespace
 
             auto Raw = std::make_shared<Prism::Transport::Reliable>(std::move(Socket));
             State->ActiveTransport = Raw;
-            Core::Pipeline Pipeline(State->Profile);
+            auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
+            Core::Pipeline Pipeline(State->BuiltProfile.Profile, Bytes);
             const auto Recognition = co_await Pipeline.Recognize(Raw);
             State->Result.RecognitionStatus = Recognition.Status;
             State->Result.Protocol = Recognition.detected;
             State->Result.Carrier = Recognition.Carrier.Carrier;
             if (!Recognition.success)
             {
-                Raw->Close();
+                const auto Drained = co_await CloseAndDrain(Raw);
+                EXPECT_TRUE(Drained);
+                State->ActiveTransport.reset();
                 co_return;
             }
 
-            auto Accept = State->Resolver(Recognition.Candidate);
+            auto Accept = State->BuiltProfile.Resolve(Recognition.Candidate);
             if (!Accept)
             {
                 State->Result.AcceptError = Prism::Fault::Code::ProtocolError;
-                Raw->Close();
+                const auto Drained = co_await CloseAndDrain(Raw);
+                EXPECT_TRUE(Drained);
+                State->ActiveTransport.reset();
                 co_return;
             }
 
             auto Inbound = std::move(Recognition.transport);
-            Prism::Middleware::Context Context;
-            auto Accepted = co_await Accept->Accept(std::move(Inbound), {});
+            Prism::Contract::StreamAcceptInput Input;
+            Input.Inbound = std::move(Inbound);
+            Input.Bytes = Bytes;
+            Input.GenerationUseState = State->GenerationUseState;
+            auto Accepted = co_await Accept->Accept(std::move(Input));
             State->Result.AcceptError = Accepted ? Prism::Fault::Code::Success
-                : Prism::Fault::ToCode(Prism::make_error_code(Accepted.error()));
-            if (Accepted) Context.SetDataPlane(std::move(*Accepted));
-            State->Result.ProtocolAuthenticated = Context.ProtocolAuthenticated();
-            State->Result.IsMux = Context.DataPlane.IsMux();
-            State->Result.HasTransport = Context.DataPlane.HasTransport();
-            const auto Transport = Context.DataPlane.Transport();
-            if (State->Result.AcceptError != Prism::Fault::Code::Success || !Transport)
+                : Accepted.error().Code;
+            if (!Accepted)
             {
+                const auto Drained = co_await CloseAndDrain(Raw);
+                EXPECT_TRUE(Drained);
+                State->ActiveTransport.reset();
                 co_return;
             }
 
+            auto DataPlane = std::move(*Accepted);
+            State->Result.ProtocolAuthenticated = DataPlane.ProtocolAuthenticated;
+            State->Result.IsMux = DataPlane.IsMux();
+            const auto Mux = DataPlane.Mux();
+            if (!Mux || !Mux->Transport)
+            {
+                const auto Drained = co_await CloseAndDrain(Raw);
+                EXPECT_TRUE(Drained);
+                State->ActiveTransport.reset();
+                co_return;
+            }
+            const auto Transport = Mux->Transport;
+            State->Result.HasTransport = true;
             State->ActiveTransport = Transport;
             std::array<std::byte, Payload.size()> Received{};
             const auto ReadOk = co_await ReadExact(Transport, Received);
             const auto WriteOk = ReadOk && co_await WriteAll(Transport, Received);
             State->Result.PayloadRoundTrip = ReadOk && WriteOk;
-            Transport->Close();
+            const auto Drained = co_await CloseAndDrain(Transport);
+            EXPECT_TRUE(Drained);
             State->ActiveTransport.reset();
         }
         catch (...)
@@ -318,8 +353,10 @@ namespace
             State->Acceptor->close(Error);
             if (State->ActiveTransport)
             {
-                State->ActiveTransport->Cancel();
-                State->ActiveTransport->Close();
+                const auto Canceled = State->ActiveTransport->Cancel();
+                EXPECT_TRUE(Canceled);
+                const auto Closed = State->ActiveTransport->Close();
+                EXPECT_TRUE(Closed);
             }
         }
         co_return;
@@ -344,8 +381,9 @@ namespace
 
         auto State = std::make_shared<ScenarioState>();
         State->Acceptor = Acceptor;
-        State->Profile = Built->Profile;
-        State->Resolver = Built->Resolver;
+        State->BuiltProfile = std::move(*Built);
+        State->GenerationUseState =
+            std::make_shared<Prism::Foundation::GenerationUseState>();
         State->ClientPassword = std::move(ClientPassword);
         State->Port = Acceptor->local_endpoint().port();
         State->Result.ProfileBuilt = true;

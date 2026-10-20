@@ -7,6 +7,7 @@
 #include <Prism/Runtime/SessionAdmissionTestSupport.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <Prism/Transport/Reliable.hpp>
+#include <Prism/Net/HostText.hpp>
 #include <Prism/Protocols/Socks5/Socks5.hpp>
 #include <Prism/Protocols/Shadowsocks2022/Ss2022Gateway.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
@@ -24,7 +25,7 @@ namespace
         SharedTransmission, Prism::Protocols::DatagramBinding>);
     static_assert(!std::is_constructible_v<
         Vmess::DatagramSession, SharedTransmission,
-        Vmess::DatagramSession::Relay::Options>);
+        Vmess::DatagramSession::Options>);
     static_assert(!std::is_invocable_v<
         decltype(&Prism::Shadowsocks2022::Ss2022Gateway::Consume),
         Prism::Shadowsocks2022::Ss2022Gateway *, SharedTransmission>);
@@ -449,8 +450,8 @@ TEST(ProtocolDatagramSession, ClosesSocks5OwnerWhenControlCarrierEnds)
         EXPECT_EQ(Completion->ClientHandshake, Error::None);
         EXPECT_EQ(Completion->Handshake, Error::None);
         EXPECT_EQ(Completion->Command, Socks5::Command::UdpAssociate);
-        ASSERT_FALSE(Completion->Result);
-        EXPECT_EQ(Completion->Result.error().Code, Fault::Code::Canceled);
+        // 控制通道的干净 EOF 由 TcpWatch 返回 Success，Run 完成 Drain 后应成功结束。
+        ASSERT_TRUE(Completion->Result);
         ASSERT_TRUE(Completion->Carrier);
         EXPECT_FALSE(Completion->Carrier->IsOpen());
     }
@@ -692,8 +693,11 @@ TEST(ProtocolDatagramSession, RejectsVmessTargetPortZero)
         auto Traffic = std::make_shared<TrafficRecorder>();
         Prism::Contract::DatagramServices Services;
         Services.Traffic = Traffic;
-        auto Service = std::make_shared<Vmess::DatagramSession>(Vmess::DatagramWire{Datagram, {*Prism::Network::ParseHost("127.0.0.1"), 0}},
-            Vmess::DatagramSession::Relay::Options{std::move(Services), {}});
+        auto ServiceResult = Vmess::DatagramSession::Create(
+            Datagram, {*Prism::Network::ParseHost("127.0.0.1"), 0},
+            Vmess::DatagramSession::Options{std::move(Services), {}});
+        ASSERT_TRUE(ServiceResult);
+        auto Service = std::move(*ServiceResult);
         std::expected<void, Fault::Failure> Result{
             std::unexpected(Fault::Failure{Fault::Code::GenericError})};
 

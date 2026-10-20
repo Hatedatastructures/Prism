@@ -7,10 +7,52 @@
 
 #include <boost/asio/this_coro.hpp>
 
+#include <cstddef>
 #include <functional>
+#include <thread>
+#include <vector>
 
 namespace
 {
+    /** @brief 确保测试提前返回时先停止 io_context，再 join 所有 runner。 */
+    class IoThreadGroup final
+    {
+    public:
+        explicit IoThreadGroup(Net::io_context &Io) noexcept
+            : Io_(Io)
+        {
+        }
+
+        ~IoThreadGroup() noexcept
+        {
+            Io_.stop();
+            Join();
+        }
+
+        auto Start(const std::size_t Count) -> void
+        {
+            for (std::size_t Index = 0U; Index < Count; ++Index)
+            {
+                Threads_.emplace_back([this] { Io_.run(); });
+            }
+        }
+
+        auto Join() noexcept -> void
+        {
+            for (auto &Thread : Threads_)
+            {
+                if (Thread.joinable())
+                {
+                    Thread.join();
+                }
+            }
+        }
+
+    private:
+        Net::io_context &Io_;
+        std::vector<std::thread> Threads_;
+    };
+
     auto WaitForSignalAndMarkIgnoringCancellation(
         std::shared_ptr<Signal> Ready,
         std::shared_ptr<std::atomic<bool>> Started,
@@ -114,11 +156,8 @@ TEST(TaskLifecycle, DrainRemainsIncompleteBeforePendingTaskRelease)
             WaitForSignalAndMarkIgnoringCancellation(Release, Started, Completed));
         ASSERT_TRUE(Task);
 
-        std::vector<std::thread> IoThreads;
-        for (std::size_t Index = 0; Index < 2; ++Index)
-        {
-            IoThreads.emplace_back([&Ioc] { Ioc.run(); });
-        }
+        IoThreadGroup IoThreads(Ioc);
+        IoThreads.Start(2U);
         while (!Started->load(std::memory_order_acquire))
         {
             Started->wait(false, std::memory_order_acquire);
@@ -153,10 +192,7 @@ TEST(TaskLifecycle, DrainRemainsIncompleteBeforePendingTaskRelease)
         EXPECT_EQ(Registry.Stats().Active, 0U);
 
         Work.reset();
-        for (auto &IoThread : IoThreads)
-        {
-            IoThread.join();
-        }
+        IoThreads.Join();
     }
 
 TEST(TaskLifecycle, TeardownCancellationDispatchesOnMultiThreadExecutor)
@@ -170,7 +206,7 @@ TEST(TaskLifecycle, TeardownCancellationDispatchesOnMultiThreadExecutor)
         auto Completed = std::make_shared<std::atomic<bool>>(false);
         std::atomic<std::size_t> CancelCalls{0};
         std::optional<Prism::Lifecycle::TaskHandle> Task;
-        std::vector<std::thread> IoThreads;
+        IoThreadGroup IoThreads(Ioc);
         auto CancelStatus = std::future_status::timeout;
 
         {
@@ -190,10 +226,7 @@ TEST(TaskLifecycle, TeardownCancellationDispatchesOnMultiThreadExecutor)
             ASSERT_TRUE(Submitted);
             Task.emplace(std::move(*Submitted));
 
-            for (std::size_t Index = 0; Index < 2; ++Index)
-            {
-                IoThreads.emplace_back([&Ioc] { Ioc.run(); });
-            }
+            IoThreads.Start(2U);
             while (!Started->load(std::memory_order_acquire))
             {
                 Started->wait(false, std::memory_order_acquire);
@@ -207,10 +240,7 @@ TEST(TaskLifecycle, TeardownCancellationDispatchesOnMultiThreadExecutor)
                 Completed->wait(false, std::memory_order_acquire);
             }
             Work.reset();
-            for (auto &IoThread : IoThreads)
-            {
-                IoThread.join();
-            }
+            IoThreads.Join();
         }
 
         EXPECT_EQ(CancelStatus, std::future_status::ready);
@@ -253,7 +283,8 @@ TEST(TaskLifecycle, ReclaimerFailureBlocksDrainInsteadOfHanging)
             WaitForSignalAndMark(Release, Started, Completed));
         ASSERT_TRUE(Task);
 
-        std::thread IoThread([&Ioc] { Ioc.run(); });
+        IoThreadGroup IoThreads(Ioc);
+        IoThreads.Start(1U);
         while (!Started->load(std::memory_order_acquire))
         {
             Started->wait(false, std::memory_order_acquire);
@@ -275,7 +306,7 @@ TEST(TaskLifecycle, ReclaimerFailureBlocksDrainInsteadOfHanging)
             });
         const auto Status = DrainedFuture.wait_for(std::chrono::milliseconds(100));
         Ioc.stop();
-        IoThread.join();
+        IoThreads.Join();
 
         EXPECT_EQ(Status, std::future_status::ready);
         EXPECT_TRUE(Registry.IsDrainBlocked());
@@ -358,7 +389,8 @@ TEST(TaskLifecycle, ParentStatsAggregateChildScopesWithoutDoubleCounting)
         ASSERT_TRUE(FirstTask);
         ASSERT_TRUE(SecondTask);
 
-        std::thread IoThread([&Ioc] { Ioc.run(); });
+        IoThreadGroup IoThreads(Ioc);
+        IoThreads.Start(1U);
         while (!FirstStarted->load(std::memory_order_acquire) ||
                !SecondStarted->load(std::memory_order_acquire))
         {
@@ -427,7 +459,7 @@ TEST(TaskLifecycle, ParentStatsAggregateChildScopesWithoutDoubleCounting)
 
         Work.reset();
         Ioc.stop();
-        IoThread.join();
+        IoThreads.Join();
     }
 
 TEST(TaskLifecycle, ParentStatsRetainNestedChildHistoryAfterRegistryRetire)
@@ -481,7 +513,10 @@ TEST(TaskLifecycle, ParentStatsFollowGrandchildAfterMiddleRegistryRetires)
             WaitForSignalAndMark(Release, Started, Completed));
         ASSERT_TRUE(Task);
 
-        std::thread IoThread([&Ioc] { Ioc.run(); });
+        auto DrainReady = std::promise<void>();
+        auto DrainFuture = DrainReady.get_future();
+        IoThreadGroup IoThreads(Ioc);
+        IoThreads.Start(1U);
         while (!Started->load(std::memory_order_acquire))
         {
             Started->wait(false, std::memory_order_acquire);
@@ -493,8 +528,6 @@ TEST(TaskLifecycle, ParentStatsFollowGrandchildAfterMiddleRegistryRetires)
         EXPECT_EQ(BeforeCompletion.Started, 1U);
         EXPECT_EQ(BeforeCompletion.Completed, 0U);
 
-        auto DrainReady = std::promise<void>();
-        auto DrainFuture = DrainReady.get_future();
         Net::co_spawn(Ioc, Grandchild->Drain(),
                       [&DrainReady](std::exception_ptr Failure,
                                     std::expected<void, Prism::Fault::Failure> Result)
@@ -523,7 +556,7 @@ TEST(TaskLifecycle, ParentStatsFollowGrandchildAfterMiddleRegistryRetires)
 
         Work.reset();
         Ioc.stop();
-        IoThread.join();
+        IoThreads.Join();
     }
 
 TEST(TaskLifecycle, AutomaticTaskIdsAreUniqueAcrossRegistries)

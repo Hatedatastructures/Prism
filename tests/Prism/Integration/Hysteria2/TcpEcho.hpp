@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 #include <Prism/Foundation/Fault/Failure.hpp>
@@ -22,6 +23,8 @@ namespace Prism::Testing::Integration::Hysteria2
     {
         std::vector<std::byte> Pending;
         bool RequestDone{false};
+        std::string Target;
+        std::vector<std::byte> InitialPayload;
     };
 
     struct TcpEchoEvidence final
@@ -151,6 +154,7 @@ namespace Prism::Testing::Integration::Hysteria2
             }
             return Action;
         }
+        const auto AddressOffset = Offset;
         Offset += static_cast<std::size_t>(AddressLength);
         if (!ReadVarint(Input.State.Pending, Offset, PaddingLength) || PaddingLength > 4096 ||
             Offset + PaddingLength > Input.State.Pending.size())
@@ -164,8 +168,12 @@ namespace Prism::Testing::Integration::Hysteria2
         Offset += static_cast<std::size_t>(PaddingLength);
         Input.State.RequestDone = true;
         Input.Evidence.RequestParsed = true;
-        Action.Data = MakeTcpResponse(std::span<const std::byte>(Input.State.Pending).subspan(Offset));
-        Action.ResponseHeaderBytes = 3;
+        Input.State.Target.assign(
+            reinterpret_cast<const char *>(Input.State.Pending.data() + AddressOffset),
+            static_cast<std::size_t>(AddressLength));
+        Input.State.InitialPayload = std::vector<std::byte>(
+            std::span<const std::byte>(Input.State.Pending).subspan(Offset).begin(),
+            std::span<const std::byte>(Input.State.Pending).subspan(Offset).end());
         Input.State.Pending.clear();
         Action.Fin = Input.Fin;
         Action.Stop = Input.Fin;

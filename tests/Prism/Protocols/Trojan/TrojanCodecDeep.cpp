@@ -20,8 +20,8 @@
 #include <Prism/Protocols/Trojan/BeastCodec.hpp>
 #include <Prism/Protocols/Trojan/CredentialCodec.hpp>
 #include <Prism/Protocols/Trojan/RequestCodec.hpp>
+#include <Prism/Protocols/Trojan/Types.hpp>
 #include <Prism/Protocols/Trojan/UdpCodec.hpp>
-#include <Prism/Protocols/Trojan/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace

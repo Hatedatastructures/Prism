@@ -23,6 +23,7 @@
 #include <exception>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <Prism/Runtime/Middleware/Builtin/Relay.hpp>
@@ -51,7 +52,7 @@ namespace
         std::array<Prism::Fault::Failure, 2> DirectionFailure{};
         std::shared_ptr<Prism::Memory::BytePool> Bytes{std::make_shared<Prism::Memory::BytePool>(
             Prism::Memory::BytePoolOptions{.BlockCount = 8})};
-        Prism::Fault::Code Result{Prism::Fault::Code::Success};
+        Prism::Fault::Failure Result{};
     };
 
     struct RelayStartRequest
@@ -208,7 +209,7 @@ namespace
                 {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
-            EXPECT_EQ(Relay.State->Result, Prism::Fault::Code::Timeout);
+            EXPECT_EQ(Relay.State->Result.Code, Prism::Fault::Code::Timeout);
         }
 
         /** @brief 验证超过空闲阈值的持续双向活动保持 relay，并在双方关闭后排空。 */
@@ -253,7 +254,7 @@ namespace
                 {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
-            EXPECT_EQ(Relay.State->Result, Prism::Fault::Code::Success);
+            EXPECT_TRUE(Relay.State->Result.Succeeded());
         }
 
         /** @brief 验证零空闲阈值禁用超时并由显式双向关闭结束。 */
@@ -283,7 +284,7 @@ namespace
                 {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
-            EXPECT_EQ(Relay.State->Result, Prism::Fault::Code::Timeout);
+            EXPECT_EQ(Relay.State->Result.Code, Prism::Fault::Code::Timeout);
         }
 
         /** @brief 验证 outbound 对端关闭后的写失败立即结束 relay。 */
@@ -304,7 +305,7 @@ namespace
                 {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
-            EXPECT_EQ(Relay.State->Result, Prism::Fault::Code::ConnectionAborted);
+            EXPECT_EQ(Relay.State->Result.Code, Prism::Fault::Code::ConnectionAborted);
         }
 
         /** @brief 验证 mock 写失败返回 IoError 并关闭两个 transport。 */
@@ -312,7 +313,7 @@ namespace
         {
             const auto Inbound = RelayFixture.Inbound;
             const auto Outbound = RelayFixture.Outbound;
-            Prism::Fault::Code Result = Prism::Fault::Code::Success;
+            Prism::Fault::Failure Result{};
 
             Net::post(IoContext_, [Inbound]
                       { Inbound->InjectRead({0x01U, 0x02U, 0x03U}); });
@@ -325,7 +326,7 @@ namespace
             auto Input = Context.Inbound();
             Result = co_await Relay.Handle(Input, Context);
 
-            EXPECT_EQ(Result, Prism::Fault::Code::IoError);
+            EXPECT_EQ(Result.Code, Prism::Fault::Code::IoError);
             EXPECT_TRUE(Inbound->IsClosed());
             EXPECT_TRUE(Outbound->IsClosed());
         }
@@ -336,7 +337,7 @@ namespace
         {
             const auto Inbound = RelayFixture.Inbound;
             const auto Outbound = RelayFixture.Outbound;
-            Prism::Fault::Code Result = Prism::Fault::Code::Success;
+            Prism::Fault::Failure Result{};
 
             Prism::Middleware::Context Context;
             Context.Inbound() = Inbound;
@@ -347,7 +348,8 @@ namespace
             auto Input = Context.Inbound();
             Result = co_await Relay.Handle(Input, Context);
 
-            EXPECT_EQ(Result, Prism::Fault::Code::Timeout);
+            EXPECT_EQ(Result.Code, Prism::Fault::Code::Timeout);
+            EXPECT_EQ(Result.Native, std::make_error_code(std::errc::timed_out));
             EXPECT_EQ(Outbound->Written, (std::vector<std::uint8_t>{0x01U, 0x02U, 0x03U}));
             EXPECT_TRUE(Inbound->IsClosed());
             EXPECT_TRUE(Outbound->IsClosed());
@@ -359,7 +361,7 @@ namespace
         {
             const auto Inbound = RelayFixture.Inbound;
             const auto Outbound = RelayFixture.Outbound;
-            Prism::Fault::Code Result = Prism::Fault::Code::Success;
+            Prism::Fault::Failure Result{};
 
             Prism::Middleware::Context Context;
             Context.Inbound() = Inbound;
@@ -370,7 +372,8 @@ namespace
             auto Input = Context.Inbound();
             Result = co_await Relay.Handle(Input, Context);
 
-            EXPECT_EQ(Result, Prism::Fault::Code::Timeout);
+            EXPECT_EQ(Result.Code, Prism::Fault::Code::Timeout);
+            EXPECT_EQ(Result.Native, std::make_error_code(std::errc::timed_out));
             EXPECT_EQ(Outbound->Written, (std::vector<std::uint8_t>{0x11U, 0x12U, 0x13U}));
             EXPECT_TRUE(Inbound->IsClosed());
             EXPECT_TRUE(Outbound->IsClosed());

@@ -6,10 +6,77 @@
 #include "ApplicationTestSupport.hpp"
 
 #include <Prism/Application/BoundaryStartup.hpp>
-#include <Prism/Application/OperationsBootstrap.hpp>
+#include <Prism/Application/Startup/OperationsPhase.hpp>
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <system_error>
+#include <utility>
 
 namespace
 {
+
+    class TemporaryWebDirectory final
+    {
+    public:
+        explicit TemporaryWebDirectory(const std::filesystem::path &ConfigurationPath)
+            : Path_(ConfigurationPath.parent_path() /
+                   (ConfigurationPath.stem().string() + "-web"))
+        {
+        }
+
+        ~TemporaryWebDirectory()
+        {
+            if (Created_)
+            {
+                std::error_code Error;
+                std::filesystem::remove_all(Path_, Error);
+            }
+        }
+
+        TemporaryWebDirectory(const TemporaryWebDirectory &) = delete;
+        auto operator=(const TemporaryWebDirectory &) -> TemporaryWebDirectory & = delete;
+
+        [[nodiscard]] auto Path() const -> const std::filesystem::path &
+        {
+            return Path_;
+        }
+
+        [[nodiscard]] auto RelativeEmptyChild() const -> std::filesystem::path
+        {
+            return Path_.filename() / "empty";
+        }
+
+        [[nodiscard]] auto CreateInvalidCatalog() const -> bool
+        {
+            std::error_code Error;
+            Created_ = std::filesystem::create_directory(Path_, Error);
+            if (Error || !Created_)
+            {
+                return false;
+            }
+            std::ofstream File(Path_ / "catalog.json", std::ios::binary);
+            File << "invalid catalog";
+            File.flush();
+            return static_cast<bool>(File);
+        }
+
+        [[nodiscard]] auto CreateEmptyChild() const -> bool
+        {
+            if (!Created_)
+            {
+                return false;
+            }
+            std::error_code Error;
+            return std::filesystem::create_directory(Path_ / "empty", Error) && !Error;
+        }
+
+    private:
+        std::filesystem::path Path_;
+        mutable bool Created_{false};
+    };
 
     /**
      * @brief 等待应用运行线程自然返回或达到原有 watchdog 上限。
@@ -34,11 +101,83 @@ namespace
 
 }
 
+TEST(PrismApplication, WebDirectoryIsOptionalAndConfigurableAtStartup)
+{
+    {
+        TemporaryConfiguration Configuration(FindFreePort(), ConfigurationShape{
+            .OperationsPort = FindFreePort(),
+            .OperationsWebDirectoryJson = "null"});
+        TemporaryWebDirectory WebDirectory(Configuration.Path());
+        auto Options = MakeOptions(Configuration.Path());
+        Options.OperationsWebDirectory = WebDirectory.Path() / "missing";
+        Prism::Application::Application Application(std::move(Options));
+
+        const auto Started = Application.Start();
+
+        ASSERT_TRUE(Started.has_value()) << "missing optional web directory blocked startup";
+        Application.Stop();
+        EXPECT_EQ(Application.Run(), 0);
+    }
+    {
+        TemporaryConfiguration Configuration(FindFreePort(), ConfigurationShape{
+            .OperationsPort = FindFreePort(),
+            .OperationsWebDirectoryJson = "null"});
+        TemporaryWebDirectory WebDirectory(Configuration.Path());
+        ASSERT_TRUE(WebDirectory.CreateInvalidCatalog());
+        auto Options = MakeOptions(Configuration.Path());
+        Options.OperationsWebDirectory = WebDirectory.Path();
+        Prism::Application::Application Application(std::move(Options));
+
+        const auto Started = Application.Start();
+
+        ASSERT_FALSE(Started.has_value());
+        EXPECT_EQ(Started.error().Code, Prism::Application::StartupErrorCode::Runtime);
+        EXPECT_EQ(Started.error().Path, "Operations.Web");
+    }
+    {
+        TemporaryConfiguration Configuration(FindFreePort(), ConfigurationShape{
+            .OperationsPort = FindFreePort(),
+            .OperationsWebDirectoryJson = "\"\""});
+        TemporaryWebDirectory WebDirectory(Configuration.Path());
+        ASSERT_TRUE(WebDirectory.CreateInvalidCatalog());
+        auto Options = MakeOptions(Configuration.Path());
+        Options.OperationsWebDirectory = WebDirectory.Path();
+        Prism::Application::Application Application(std::move(Options));
+
+        const auto Started = Application.Start();
+
+        ASSERT_TRUE(Started.has_value()) << "empty web directory enabled host fallback";
+        Application.Stop();
+        EXPECT_EQ(Application.Run(), 0);
+    }
+    {
+        TemporaryWebDirectory WebDirectory(std::filesystem::temp_directory_path() /
+            ("PrismApplication-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()) + ".json"));
+        ASSERT_TRUE(WebDirectory.CreateInvalidCatalog());
+        ASSERT_TRUE(WebDirectory.CreateEmptyChild());
+        const auto RelativeDirectory = WebDirectory.RelativeEmptyChild().generic_string();
+        const auto WebDirectoryJson = std::string("\"") + RelativeDirectory + "\"";
+        TemporaryConfiguration Configuration(FindFreePort(), ConfigurationShape{
+            .OperationsPort = FindFreePort(),
+            .OperationsWebDirectoryJson = WebDirectoryJson});
+        auto Options = MakeOptions(Configuration.Path());
+        Options.OperationsWebDirectory = WebDirectory.Path();
+        Prism::Application::Application Application(std::move(Options));
+
+        const auto Started = Application.Start();
+
+        ASSERT_TRUE(Started.has_value()) << "missing catalog in configured directory blocked startup";
+        Application.Stop();
+        EXPECT_EQ(Application.Run(), 0);
+    }
+}
+
 TEST(PrismApplication, BootstrapIdentityCreationUsesFreshValues)
 {
-    const auto First = Prism::Application::OperationsBootstrap::CreateIdentity(
+    const auto First = Prism::Application::Startup::OperationsPhase::CreateIdentity(
         Prism::ProcessId{7});
-    const auto Second = Prism::Application::OperationsBootstrap::CreateIdentity(
+    const auto Second = Prism::Application::Startup::OperationsPhase::CreateIdentity(
         Prism::ProcessId{7});
 
     ASSERT_TRUE(First.has_value());

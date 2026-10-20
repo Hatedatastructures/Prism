@@ -21,8 +21,8 @@
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include "SessionIdChannel.hpp"
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
-#include <Prism/Protocols/Reality/Types.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
+#include <Prism/Protocols/Reality/CarrierTypes.hpp>
 
 namespace Prism::Reality::Detail::Experiments
 {

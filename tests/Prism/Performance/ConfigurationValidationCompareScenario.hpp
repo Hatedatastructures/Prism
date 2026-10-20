@@ -21,7 +21,8 @@ namespace Prism::Application::Configuration::Perf::Scenario
 
     using ConfigurationErrorCode =
         Prism::Application::Configuration::ConfigurationErrorCode;
-    using Parser = Prism::Application::Configuration::Parser;
+    using ConfigurationParser = Prism::Application::Configuration::ConfigurationParser;
+    using ConfigurationValidator = Prism::Application::Configuration::ConfigurationValidator;
     using PreviewConfiguration =
         Prism::Application::Configuration::PreviewConfiguration;
     using ValidationOptions =

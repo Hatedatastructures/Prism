@@ -41,4 +41,4 @@ namespace Prism::Tests::WsFactorySupport
         return Prism::Ws::AcceptOptions{
             std::move(Transport), WebSocketTestBytes(), std::move(Options)};
     }
-} // namespace Prism::Tests::WsFactorySupport
+} // namespace Prism::Tests::WsFactorySuppor

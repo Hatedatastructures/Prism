@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include <boost/asio/io_context.hpp>
+
 #include <Prism/Runtime/Statistics.hpp>
 #include <Prism/Runtime/SessionRegistry.hpp>
 
@@ -24,7 +26,7 @@ TEST(RuntimeSnapshot, SessionListAndTrafficValues)
 
     Prism::Runtime::TrafficCounter Traffic({
         .Process = Prism::ProcessId{1}, .Generation = Prism::GenerationId{1},
-        .Workers = 1, .MaxCounterEntries = 256});
+        .Workers = 1, .MaxCounterEntries = 256}, Io.get_executor());
     Traffic.Report(Prism::Foundation::TrafficEvent{
         .Generation = Prism::GenerationId{1}, .Worker = Prism::WorkerId{0},
         .Session = Prism::SessionId{7}, .Account = Prism::AccountId{7},
@@ -47,9 +49,10 @@ TEST(RuntimeSnapshot, SessionListAndTrafficValues)
 TEST(RuntimeSnapshot, EmptyValuesRemainEmpty)
 {
     Prism::Runtime::SessionRegistry Registry;
+    boost::asio::io_context Io;
     Prism::Runtime::TrafficCounter Traffic({
         .Process = Prism::ProcessId{1}, .Generation = Prism::GenerationId{1},
-        .Workers = 1, .MaxCounterEntries = 256});
+        .Workers = 1, .MaxCounterEntries = 256}, Io.get_executor());
 
     EXPECT_TRUE(Registry.Snapshot()->empty());
     EXPECT_EQ(Traffic.Value(Prism::Statistics::Scope::Account, 7).UpBytes, 0U);
@@ -58,9 +61,10 @@ TEST(RuntimeSnapshot, EmptyValuesRemainEmpty)
 
 TEST(RuntimeSnapshot, NumericTrafficCountsCurrentOwners)
 {
+    boost::asio::io_context Io;
     Prism::Runtime::TrafficCounter Counter({
         .Process = Prism::ProcessId{1}, .Generation = Prism::GenerationId{1},
-        .Workers = 1, .MaxCounterEntries = 256});
+        .Workers = 1, .MaxCounterEntries = 256}, Io.get_executor());
     Counter.Report(Prism::Foundation::TrafficEvent{
         .Generation = Prism::GenerationId{1}, .Worker = Prism::WorkerId{0},
         .Account = Prism::AccountId{1}, .Up = 10, .Down = 20});
@@ -74,4 +78,44 @@ TEST(RuntimeSnapshot, NumericTrafficCountsCurrentOwners)
     EXPECT_EQ(Counter.Value(Prism::Statistics::Scope::Account, 1).UpBytes, 10U);
     EXPECT_EQ(Counter.Value(Prism::Statistics::Scope::Account, 2).DownBytes, 40U);
     EXPECT_EQ(Counter.Value(Prism::Statistics::Scope::Account, 3).UpBytes, 1U);
+}
+
+TEST(RuntimeSnapshot, RecognitionLatencyTraversesQueueHistogramAndRecentTracer)
+{
+    boost::asio::io_context Io;
+    Prism::Runtime::TrafficCounter Counter({
+        .Process = Prism::ProcessId{1}, .Generation = Prism::GenerationId{1},
+        .Workers = 1, .MaxCounterEntries = 256}, Io.get_executor());
+    Counter.ReportRecognitionLatency({
+        .Generation = Prism::GenerationId{1}, .Worker = Prism::WorkerId{0},
+        .Session = Prism::SessionId{8}, .DurationMicroseconds = 52U});
+    Counter.ReportRecognitionLatency({
+        .Generation = Prism::GenerationId{1}, .Worker = Prism::WorkerId{0},
+        .Session = Prism::SessionId{9}, .DurationMicroseconds = 49U});
+    Counter.ReportRecognitionLatency({
+        .Generation = Prism::GenerationId{1}, .Worker = Prism::WorkerId{0},
+        .Session = Prism::SessionId{10}, .DurationMicroseconds = 300'000'001U});
+
+    EXPECT_EQ(Counter.Accepted(), 3U);
+    EXPECT_EQ(Counter.ConsumedObservations(), 0U);
+    Counter.Flush();
+
+    const auto Snapshot = Counter.RecognitionLatency(Prism::GenerationId{1});
+    EXPECT_EQ(Counter.ConsumedObservations(), 3U);
+    EXPECT_EQ(Counter.RecognitionLatencyQueueDrops(), 0U);
+    EXPECT_EQ(Counter.RecognitionLatencyAggregationFailures(), 0U);
+    EXPECT_EQ(Snapshot.Generation, Prism::GenerationId{1});
+    EXPECT_EQ(Snapshot.SampleCount, 3U);
+    EXPECT_EQ(Snapshot.TracerWrittenCount, 3U);
+    EXPECT_EQ(Snapshot.TracerDroppedCount, 0U);
+    EXPECT_EQ(Snapshot.HistogramRangeExceeded, 1U);
+    ASSERT_EQ(Snapshot.RecentCount, 3U);
+    EXPECT_EQ(Snapshot.RecentMicroseconds[0], 300'000'001U);
+    EXPECT_EQ(Snapshot.RecentMicroseconds[1], 49U);
+    EXPECT_EQ(Snapshot.RecentMicroseconds[2], 52U);
+    ASSERT_TRUE(Snapshot.P50BucketLowerBoundMicroseconds.has_value());
+    ASSERT_TRUE(Snapshot.MaximumObservedMicroseconds.has_value());
+    EXPECT_LE(*Snapshot.P50BucketLowerBoundMicroseconds,
+        *Snapshot.MaximumObservedMicroseconds);
+    EXPECT_EQ(*Snapshot.MaximumObservedMicroseconds, 300'000'001U);
 }

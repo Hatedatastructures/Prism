@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <Prism/Operations/HttpServer.hpp>
+#include <Prism/Operations/HttpServerStartResult.hpp>
 #include "OperationsHttpAuthTestSupport.hpp"
 
 #include <boost/asio/co_spawn.hpp>
@@ -432,7 +433,7 @@ namespace
     struct StartAttemptRequest final
     {
         HttpServer &Server;
-        std::optional<HttpServer::StartResult> &Result;
+        std::optional<Prism::Operations::HttpServerStartResult> &Result;
         std::exception_ptr &Failure;
         Net::io_context &Io;
     };
@@ -534,7 +535,7 @@ TEST(OperationsDrainContract, StopBeforeStartIsLinearizedOnStateStrand)
     HttpServer Server(Options);
     (void)Server.CloseAdmission();
 
-    std::optional<HttpServer::StartResult> Result;
+    std::optional<Prism::Operations::HttpServerStartResult> Result;
     std::exception_ptr Failure;
     Net::co_spawn(
         Io,
@@ -567,7 +568,7 @@ TEST(OperationsDrainContract, StartFailureRollsBackRunningState)
         MakeTestBootstrap()};
     HttpServer Server(Options);
 
-    std::optional<HttpServer::StartResult> Result;
+    std::optional<Prism::Operations::HttpServerStartResult> Result;
     std::exception_ptr Failure;
     Net::co_spawn(
         Io,

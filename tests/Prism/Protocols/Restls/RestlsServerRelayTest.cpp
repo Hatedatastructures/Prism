@@ -3,16 +3,20 @@
  * @brief Restls 服务端中间人 relay 的真实内存 wire 测试。
  */
 
-#include <Prism/Protocols/Restls/Detail/Control.hpp>
-#include <Prism/Protocols/Restls/Detail/Session.hpp>
-#include <Prism/Protocols/Restls/Server.hpp>
+#include <Prism/Foundation/Error.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Protocols/Restls/Detail/Codec.hpp>
+#include <Prism/Protocols/Restls/Detail/Retirement.hpp>
+#include <Prism/Protocols/Restls/Detail/Conn.hpp>
+#include <Prism/Protocols/Restls/Restls.hpp>
 #include <Prism/Protocols/Restls/Types.hpp>
-#include <Prism/Protocols/Restls/Detail/Io.hpp>
+#include <Prism/Protocols/Restls/Detail/WireIo.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/io_context.hpp>
 
 #include <array>
@@ -21,8 +25,10 @@
 #include <exception>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -357,7 +363,9 @@ namespace
             co_await RetireAndVerify(Request.Server);
             co_return;
         }
-        const auto HandshakeRead = co_await Restls::Detail::ReadRecordWire(Request.Server);
+        std::optional<Restls::Failure> PendingTerminal;
+        const auto HandshakeRead = co_await Restls::Detail::ReadRecordWire(
+            Request.Server, PendingTerminal);
         EXPECT_TRUE(HandshakeRead);
         if (!HandshakeRead)
         {
@@ -377,7 +385,8 @@ namespace
             co_await RetireAndVerify(Request.Server);
             co_return;
         }
-        const auto ApplicationRead = co_await Restls::Detail::ReadRecordWire(Request.Server);
+        const auto ApplicationRead = co_await Restls::Detail::ReadRecordWire(
+            Request.Server, PendingTerminal);
         EXPECT_FALSE(ApplicationRead);
         if (!ApplicationRead)
         {

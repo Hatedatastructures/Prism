@@ -48,6 +48,24 @@ namespace
     namespace exc = Prism::Exception;
 
     /**
+     * @brief 将一个十六进制字符转换为四位数值。
+     * @param Character 输入字符。
+     * @return 字符对应的半字节。
+     */
+    [[nodiscard]] auto HexNibble(const char Character) -> std::uint8_t
+    {
+        if (Character >= '0' && Character <= '9')
+        {
+            return static_cast<std::uint8_t>(Character - '0');
+        }
+        if (Character >= 'a' && Character <= 'f')
+        {
+            return static_cast<std::uint8_t>(Character - 'a' + 10);
+        }
+        return static_cast<std::uint8_t>(Character - 'A' + 10);
+    }
+
+    /**
      * @brief 十六进制字符串转字节数组
      * @param hex 十六进制字符串（无 0x 前缀，成对字符）
      * @return 解码后的字节序列
@@ -58,20 +76,8 @@ namespace
         Output.reserve(Hex.size() / 2);
         for (std::size_t Index = 0; Index + 1 < Hex.size(); Index += 2)
         {
-            const auto Nibble = [](const char Character) -> std::uint8_t
-            {
-                if (Character >= '0' && Character <= '9')
-                {
-                    return static_cast<std::uint8_t>(Character - '0');
-                }
-                if (Character >= 'a' && Character <= 'f')
-                {
-                    return static_cast<std::uint8_t>(Character - 'a' + 10);
-                }
-                return static_cast<std::uint8_t>(Character - 'A' + 10);
-            };
-            Output.push_back(static_cast<std::uint8_t>((Nibble(Hex[Index]) << 4) |
-                                                        Nibble(Hex[Index + 1])));
+            Output.push_back(static_cast<std::uint8_t>((HexNibble(Hex[Index]) << 4) |
+                                                        HexNibble(Hex[Index + 1])));
         }
         return Output;
     }

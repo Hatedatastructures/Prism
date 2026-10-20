@@ -18,6 +18,7 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Protocols/Ws/Detail/StreamOwner.hpp>
 #include <Prism/Protocols/Ws/Ws.hpp>

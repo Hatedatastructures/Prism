@@ -201,10 +201,14 @@ namespace
         std::shared_ptr<trojan_udp_state> State;
         std::chrono::milliseconds IdleTimeout;
 
-        auto operator()(SharedTransmission Inbound, std::size_t, std::string_view) const
-            -> std::shared_ptr<Runtime::Session>
+        auto operator()(Runtime::SessionAdmission Admission) const
+            -> Runtime::SessionAdmissionResult
         {
             Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
+            auto Inbound = std::move(Admission.Inbound);
+            Options.SourceIp = std::move(Admission.SourceIp);
             Prism::Trojan::ServerConfig Configuration;
             Configuration.Password = "Secret";
             Configuration.EnableUdp = true;
@@ -214,7 +218,8 @@ namespace
             Options.Services->AcceptProtocol = Prism::Testing::MakeTrojanIngress(
                 std::move(Configuration), Prism::Testing::ProtocolIngressResources{
                     std::move(Datagrams), UseState, Inbound->Executor()}, Prism::Trojan::IngressRoute{});
-            return std::make_shared<Runtime::Session>(std::move(Options));
+            return Runtime::SessionAdmissionResult{
+                std::make_shared<Runtime::Session>(std::move(Options))};
         }
     };
 
@@ -513,10 +518,10 @@ namespace
     TEST(TcpListener, TrojanUdpAssociateEcho)
     {
         Net::io_context IoContext;
-        auto Echo = StartTrojanUdpEcho(IoContext);
-        ASSERT_FALSE(Echo.OpenError);
-        const auto EchoPort = Echo.Socket->local_endpoint().port();
-        auto EchoEndpointPointer = Echo.Failure;
+        auto EchoOwner = StartTrojanUdpEcho(IoContext);
+        ASSERT_FALSE(EchoOwner.OpenError);
+        const auto EchoPort = EchoOwner.Socket->local_endpoint().port();
+        auto EchoEndpointPointer = EchoOwner.Failure;
 
         auto State = std::make_shared<trojan_udp_state>(
             trojan_udp_state{IoContext.get_executor(), EchoPort});
@@ -527,11 +532,11 @@ namespace
             .Factory = TrojanUdpSessionFactory{State, std::chrono::seconds(5)}});
 
         bool Ok = false;
-        std::string Echo;
+        std::string EchoPayload;
         RunCoro(IoContext, RunTrojanUdpEchoFlow(
-            TrojanUdpEchoFlow{IoContext, Listener, Echo, Ok, Echo}));
+            TrojanUdpEchoFlow{IoContext, Listener, EchoOwner, Ok, EchoPayload}));
         EXPECT_TRUE(Ok);
-        EXPECT_EQ(Echo, "trojan udp payload");
+        EXPECT_EQ(EchoPayload, "trojan udp payload");
         EXPECT_FALSE(*EchoEndpointPointer);
     }
 

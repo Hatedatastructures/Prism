@@ -1,9 +1,10 @@
-/** @file ConfiguredMuxProviderTest.cpp @brief 真实冷配置、原 provider 材料、认证/lease/literal 到正式 mux producer。 */
+/** @file ConfiguredMuxProviderTest.cpp @brief 真实冷配置、认证租约、原始数据与 mux owner 发布/退休。 */
 #include <TestSupport/Fixtures/StreamFactory.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
+#include <TestSupport/Prism/GenerationPublication.hpp>
 #include <Prism/Application/Startup/GenerationPhase.hpp>
 #include <Prism/Application/ProtocolAcceptors.hpp>
-#include <Prism/Composition/Provider/ConfigurationCompiler.hpp>
+#include <Prism/Composition/Provider/ProviderCatalog.hpp>
 #include <Prism/Contract/Services/Datagram.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
@@ -18,14 +19,17 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <expected>
 #include <array>
+#include <exception>
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <stdexcept>
 namespace
 {
     namespace Net=boost::asio;
     namespace P=Prism::Composition::Provider;
     namespace A=Prism::Application;
-    using Signal=Net::experimental::channel<void(boost::system::error_code)>;
     auto MakeUnavailableMuxServices() -> Prism::Contract::StreamServices
     {
         Prism::Contract::StreamServices Services;
@@ -45,17 +49,43 @@ namespace
     struct Result
     {
         bool ColdMode{false},Authenticated{false},Lease{false},Mux{false},Literal{false},Complete{false};
+        bool MuxOwnerDrained{false};
         std::exception_ptr Failure;
     };
     struct State final : Result
     {
-        explicit State(Net::any_io_executor Ex):Ready(Ex,1),Deadline(Ex)
+        explicit State(Net::any_io_executor Ex):Deadline(Ex)
         {auto [C,S]=Prism::MakeMemoryPair(Ex);Client=std::make_shared<Prism::MemoryStream>(std::move(C));Server=std::make_shared<Prism::MemoryStream>(std::move(S));}
-        Signal Ready;Net::steady_timer Deadline;Prism::SharedTransmission Client,Server;
+        Net::steady_timer Deadline;Prism::SharedTransmission Client,Server;
         std::shared_ptr<Prism::Contract::StreamFactory> Factory;
+        std::shared_ptr<Prism::Contract::MuxSession> MuxOwner;
+        std::shared_ptr<Prism::Contract::DatagramSession> DatagramOwner;
+        bool DatagramOwnerDrained{false};
         std::vector<std::byte> Wire;
         bool Ss{false};
     };
+    template<typename TOwner>
+    auto CloseAndDrain(std::shared_ptr<TOwner> Owner)
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
+    {
+        if (!Owner) co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
+        decltype(Owner->Activity()) Activity;
+        bool Failed = false;
+        try { Activity = Owner->Activity(); } catch (...) { Failed = true; }
+        try { Owner->Close(); } catch (...) { Failed = true; }
+        if (!Activity) co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::IoError});
+        try
+        {
+            const auto Drained = co_await Activity->Drain();
+            if (!Drained) co_return std::unexpected(Drained.error());
+            if (!Activity->IsRetired()) co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+            if constexpr (requires { Owner->IsRetired(); })
+                if (!Owner->IsRetired()) co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+            if (Failed) co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::IoError});
+            co_return std::expected<void, Prism::Fault::Failure>{};
+        }
+        catch (...) { co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::IoError}); }
+    }
     auto LiteralWire()->std::vector<std::byte>
     {
         std::vector<std::byte> Wire{std::byte{0},std::byte{0},std::byte{1},std::byte{0},std::byte{0},std::byte{0},
@@ -71,38 +101,79 @@ namespace
         auto Plane=co_await S->Factory->Accept(MakeStreamAcceptInput(S->Server));
         if (!Plane)
         {
-            const auto Error = Prism::make_error_code(Plane.error());
+            const auto Error = Prism::Fault::ToNative(Plane.error());
             ADD_FAILURE() << "category=" << Error.category().name()
                           << " message=" << Error.message()
-                          << " value=" << static_cast<int>(Plane.error());
+                          << " code=" << static_cast<int>(Plane.error().Code);
         }
         if(Plane)
         {
+            if (const auto* Mux = Plane->Mux(); Mux && Mux->Session) S->MuxOwner = Mux->Session;
+            if (const auto* Datagram = Plane->Datagram(); Datagram && Datagram->Session)
+                S->DatagramOwner = Datagram->Session;
             S->Authenticated=Plane->ProtocolAuthenticated;S->Lease=bool(Plane->AccountLease);S->Mux=Plane->IsMux();
             EXPECT_TRUE(S->Mux)<<"配置smux的实际provider仍发布普通TCP plane";
-            if(Plane->PostDial)EXPECT_EQ(co_await Plane->PostDial(Prism::Fault::Code::Success),Prism::Fault::Code::Success);
-            (void)S->Ready.try_send(boost::system::error_code{});
+            if (Plane->PostDial)
+            {
+                const auto PostDialFailure =
+                    co_await Plane->PostDial(Prism::Fault::Failure{});
+                EXPECT_TRUE(PostDialFailure.Succeeded());
+            }
             std::vector<std::byte> Incoming(S->Wire.size());std::error_code Error;
             const auto Read=co_await Plane->Transport()->ReadExact(Incoming);Error=Prism::Fault::ToNative(Read.Failure);S->Literal=!Error&&Incoming==S->Wire;
-            (void)Plane->Transport()->Close();if(Plane->Mux())Plane->Mux()->Session->Close();
+            if (const auto* Mux = Plane->Mux(); Mux && Mux->Session)
+            {
+                const auto Drained = co_await CloseAndDrain(S->MuxOwner);
+                S->MuxOwnerDrained = static_cast<bool>(Drained);
+                EXPECT_TRUE(Drained);
+                EXPECT_TRUE(S->MuxOwner->IsRetired());
+            }
+            else if (const auto* Datagram = Plane->Datagram(); Datagram && Datagram->Session)
+            {
+                const auto Drained = co_await CloseAndDrain(S->DatagramOwner);
+                S->DatagramOwnerDrained = static_cast<bool>(Drained);
+                EXPECT_TRUE(Drained);
+            }
         }
-        S->Complete=true;(void)S->Client->Close();(void)S->Server->Close();S->Deadline.cancel();
+        S->Complete=true;(void)S->Client->Close();
+        if (!S->MuxOwner && !S->DatagramOwner)
+            (void)S->Server->Close();
+        S->Deadline.cancel();
     }
     auto Client(std::shared_ptr<State> S)->Net::awaitable<void>
     {
         Prism::SharedTransmission Connection;
         if(!S->Ss)
         {
-            auto [Error,Value]=co_await Prism::Socks5::Connect(S->Client,{true,"configured-account","task4-provider-password"},
-                {Prism::Socks5::AddressType::Ipv4,"127.0.0.1",80});EXPECT_EQ(Error,Prism::Error::None);Connection=std::move(Value);
+            const Prism::Socks5::ClientConfig Configuration{
+                true, "configured-account", "task4-provider-password"};
+            const Prism::Socks5::Address Target{
+                Prism::Socks5::AddressType::Ipv4, "127.0.0.1", 80};
+            auto Connected = co_await Prism::Socks5::Connect(
+                Prism::Socks5::ConnectParameters{S->Client, Configuration, Target});
+            if (!Connected)
+            {
+                ADD_FAILURE() << "SOCKS5 client connect failed: "
+                              << Prism::Fault::ToNative(Connected.error()).message();
+                co_return;
+            }
+            Connection = std::move(*Connected);
         }
         else
         {
             Prism::Shadowsocks2022::ClientConfig Configuration;
             const auto Psk=Prism::Shadowsocks2022::DecodePsk("d3d3d3d3d3d3d3d3d3d3dw==");EXPECT_TRUE(Psk);if(!Psk)co_return;
             Configuration.Psk=*Psk;
-            auto [Error,Value]=co_await Prism::Shadowsocks2022::Connect(S->Client,Configuration,
-                {Prism::Shadowsocks2022::AddressType::Ipv4,"127.0.0.1",80});EXPECT_EQ(Error,Prism::Error::None);Connection=std::move(Value);
+            auto Connected = co_await Prism::Shadowsocks2022::Connect(
+                S->Client, Configuration,
+                {Prism::Shadowsocks2022::AddressType::Ipv4, "127.0.0.1", 80});
+            if (!Connected)
+            {
+                ADD_FAILURE() << "SS2022 client connect failed: "
+                              << Prism::Fault::ToNative(Connected.error()).message();
+                co_return;
+            }
+            Connection = std::move(*Connected);
         }
         EXPECT_TRUE(Connection);if(!Connection)co_return;
         std::error_code Error;const auto Write=co_await Connection->WriteExact(S->Wire);Error=Prism::Fault::ToNative(Write.Failure);EXPECT_FALSE(Error);
@@ -111,13 +182,73 @@ namespace
     {
         S->Deadline.expires_after(std::chrono::seconds(2));boost::system::error_code Error;
         co_await S->Deadline.async_wait(Net::redirect_error(Net::use_awaitable,Error));
-        if(!Error){ADD_FAILURE()<<"cold provider真实握手未完成";(void)S->Server->Close();(void)S->Client->Close();}
+        if (!Error)
+        {
+            ADD_FAILURE() << "cold provider真实握手未完成";
+            if (S->MuxOwner) S->MuxOwner->Close();
+            else if (S->DatagramOwner) S->DatagramOwner->Close();
+            else (void)S->Server->Close();
+            (void)S->Client->Close();
+        }
+    }
+    auto RecordScenarioFailure(const std::shared_ptr<State>& StateValue,
+                               std::exception_ptr Error) -> void
+    {
+        if (!Error) return;
+        StateValue->Failure = std::move(Error);
+        try
+        {
+            if (StateValue->MuxOwner) StateValue->MuxOwner->Close();
+            else if (StateValue->DatagramOwner) StateValue->DatagramOwner->Close();
+            else (void)StateValue->Server->Close();
+        }
+        catch (...) {}
+        try { (void)StateValue->Client->Close(); } catch (...) {}
+        try { StateValue->Deadline.cancel(); } catch (...) {}
+    }
+    auto DrainScenarioOwners(const std::shared_ptr<State>& StateValue,
+                             P::BoundCatalog& Bound) -> Net::awaitable<bool>
+    {
+        if (StateValue->MuxOwner && !StateValue->MuxOwnerDrained)
+        {
+            try
+            {
+                const auto OwnerDrain = co_await CloseAndDrain(StateValue->MuxOwner);
+                StateValue->MuxOwnerDrained = static_cast<bool>(OwnerDrain);
+                EXPECT_TRUE(OwnerDrain);
+                EXPECT_TRUE(StateValue->MuxOwner->IsRetired());
+            }
+            catch (...) { if (!StateValue->Failure) StateValue->Failure = std::current_exception(); }
+        }
+        if (StateValue->DatagramOwner && !StateValue->DatagramOwnerDrained)
+        {
+            try
+            {
+                const auto OwnerDrain = co_await CloseAndDrain(StateValue->DatagramOwner);
+                StateValue->DatagramOwnerDrained = static_cast<bool>(OwnerDrain);
+                EXPECT_TRUE(OwnerDrain);
+            }
+            catch (...) { if (!StateValue->Failure) StateValue->Failure = std::current_exception(); }
+        }
+        try { Bound.Close(); } catch (...) { if (!StateValue->Failure) StateValue->Failure = std::current_exception(); }
+        try { co_return static_cast<bool>(co_await Bound.Drain()); }
+        catch (...) { if (!StateValue->Failure) StateValue->Failure = std::current_exception(); co_return false; }
     }
     auto Scenario(std::string Family)->Result
     {
         const auto Root=std::filesystem::path{PRISM_TEST_REPO_ROOT};
         auto Phase=A::Startup::GenerationPhase::Build({Root/"tests/TestSupport/Prism/ConfiguredMux"/(Family+".json"),{}});
         if(!Phase){ADD_FAILURE()<<Phase.error().Path<<": "<<Phase.error().Message;return {};}
+        auto PublishedAccounts = Prism::Testing::PublishConfiguredAccountCatalog(
+            Phase->Accounts, Phase->Generation);
+        if (!PublishedAccounts)
+        {
+            ADD_FAILURE() << "configured account publication failed: "
+                          << Prism::Fault::ToNative(PublishedAccounts.error()).message();
+            return {};
+        }
+        auto AccountPublication = std::move(*PublishedAccounts);
+        (void)AccountPublication;
         Net::io_context Io;auto S=std::make_shared<State>(Io.get_executor());S->Ss=Family=="ss2022";S->Wire=LiteralWire();
         auto UseState = std::make_shared<Prism::Foundation::GenerationUseState>();
         P::ConfigurationInput Input{Phase->Generation, UseState,
@@ -139,13 +270,15 @@ namespace
         const auto CandidateId=Profile->Profile->CandidateIdAt(0);
         S->ColdMode=Phase->Generation->Configuration().ProtocolBindings.front().MuxModes.front()=="Smux";
         S->Factory=Profile->Resolver(CandidateId);EXPECT_TRUE(S->Factory);
-        const auto Done=[S](std::exception_ptr Error){if(Error){S->Failure=Error;(void)S->Client->Close();(void)S->Server->Close();S->Deadline.cancel();}};
+        const auto Done = [S](std::exception_ptr Error)
+        { RecordScenarioFailure(S, std::move(Error)); };
         Net::co_spawn(Io,Server(S),Done);Net::co_spawn(Io,Client(S),Done);Net::co_spawn(Io,Watchdog(S),Done);Io.run();
-        bool Drained=false;const auto Drain=[&]()->Net::awaitable<void>{Bound->Close();Drained=static_cast<bool>(co_await Bound->Drain());};
+        bool Drained = false;
+        const auto Drain = [&]() -> Net::awaitable<void>
+        { Drained = co_await DrainScenarioOwners(S, *Bound); };
         Io.restart();Net::co_spawn(Io,Drain(),Done);Io.run();EXPECT_TRUE(Drained);
         return static_cast<const Result&>(*S);
     }
-
     struct UdpBindingAttempt final
     {
         bool Accepted{false};
@@ -155,11 +288,13 @@ namespace
         bool TimedOut{false};
         bool HasAcceptError{false};
         bool Lease{false};
-        Prism::Error AcceptError{Prism::Error::None};
+        bool OwnerDrained{false};
+        bool OwnerRetired{false};
+        Prism::Fault::Failure AcceptError{};
+        Prism::Fault::Failure OwnerDrainFailure{};
         Prism::Socks5::ReplyCode Reply{Prism::Socks5::ReplyCode::GeneralFailure};
         std::exception_ptr Failure;
     };
-
     struct UdpBindingOrderResult final
     {
         UdpBindingAttempt Disabled;
@@ -168,21 +303,20 @@ namespace
         bool AccountReleased{false};
         std::exception_ptr Failure;
     };
-
     struct UdpAttemptState final
     {
         Prism::SharedTransmission Client;
         Prism::SharedTransmission Server;
+        std::shared_ptr<Prism::Contract::MuxSession> MuxOwner;
+        std::shared_ptr<Prism::Contract::DatagramSession> DatagramOwner;
         UdpBindingAttempt Result;
     };
-
     enum class WireReadStatus : std::uint8_t
     {
         Complete,
         Closed,
         TimedOut,
     };
-
     auto WriteWire(const Prism::SharedTransmission& Transport,
                    std::span<const std::uint8_t> Bytes) -> Net::awaitable<bool>
     {
@@ -206,7 +340,6 @@ namespace
         }
         co_return true;
     }
-
     auto ReadWire(const Prism::SharedTransmission& Transport,
                   std::span<std::byte> Bytes) -> Net::awaitable<WireReadStatus>
     {
@@ -233,7 +366,17 @@ namespace
         }
         co_return WireReadStatus::Complete;
     }
-
+    template<typename TOwner>
+    auto DrainUdpOwner(const std::shared_ptr<TOwner>& Owner, UdpBindingAttempt& Result)
+        -> Net::awaitable<void>
+    {
+        auto Drained = co_await CloseAndDrain(Owner);
+        if (!Drained) Drained = co_await CloseAndDrain(Owner);
+        Result.OwnerDrainFailure = {};
+        Result.OwnerDrained = Result.OwnerRetired = static_cast<bool>(Drained);
+        if (!Drained) Result.OwnerDrainFailure = Drained.error();
+        else if (!Result.OwnerRetired) Result.OwnerDrainFailure = Prism::Fault::Failure{Prism::Fault::Code::Blocked};
+    }
     auto RunUdpBindingServer(const std::shared_ptr<UdpAttemptState>& State,
                              const std::shared_ptr<Prism::Contract::StreamFactory>& Factory)
         -> Net::awaitable<void>
@@ -243,17 +386,13 @@ namespace
             auto Plane = co_await Factory->Accept(MakeStreamAcceptInput(State->Server));
             if (Plane)
             {
+                if (const auto* Mux = Plane->Mux(); Mux && Mux->Session)
+                    State->MuxOwner = Mux->Session;
+                if (const auto* Datagram = Plane->Datagram(); Datagram && Datagram->Session)
+                    State->DatagramOwner = Datagram->Session;
                 State->Result.Accepted = true;
                 State->Result.Datagram = Plane->IsDatagram();
                 State->Result.Lease = static_cast<bool>(Plane->AccountLease);
-                if (const auto* Datagram = Plane->Datagram())
-                {
-                    Datagram->Session->Close();
-                }
-                if (const auto Transport = Plane->Transport())
-                {
-                    (void)Transport->Close();
-                }
             }
             else
             {
@@ -264,10 +403,6 @@ namespace
         catch (...)
         {
             State->Result.Failure = std::current_exception();
-        }
-        if (State->Server)
-        {
-            (void)State->Server->Close();
         }
     }
 
@@ -281,7 +416,6 @@ namespace
             {
                 co_return;
             }
-
             std::array<std::byte, 2> MethodReplyWire{};
             const auto MethodStatus = co_await ReadWire(State->Client, MethodReplyWire);
             if (MethodStatus != WireReadStatus::Complete)
@@ -298,7 +432,6 @@ namespace
             {
                 co_return;
             }
-
             const auto AuthWire = Prism::Socks5::BuildUserpass(
                 "configured-account", "task4-provider-password");
             if (!co_await WriteWire(State->Client, AuthWire))
@@ -318,14 +451,12 @@ namespace
             {
                 co_return;
             }
-
             constexpr std::array<std::uint8_t, 10> RequestWire{
                 0x05, 0x03, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0x00, 0x00};
             if (!co_await WriteWire(State->Client, RequestWire))
             {
                 co_return;
             }
-
             std::array<std::byte, 10> ReplyWire{};
             const auto ReplyStatus = co_await ReadWire(State->Client, ReplyWire);
             if (ReplyStatus != WireReadStatus::Complete)
@@ -344,7 +475,6 @@ namespace
                 co_return;
             }
             State->Result.Reply = Reply.Code;
-
             std::array<std::byte, 1> EofProbe{};
             const auto EofStatus = co_await ReadWire(State->Client, EofProbe);
             State->Result.PeerClosed = EofStatus == WireReadStatus::Closed;
@@ -360,7 +490,6 @@ namespace
             (void)State->Client->Close();
         }
     }
-
     /** @brief UDP 关联需要真实 TCP 的本地与对端地址；按值返回双方完整传输 owner。 */
     auto MakeUdpControlPair()
         -> Net::awaitable<std::pair<Prism::SharedTransmission, Prism::SharedTransmission>>
@@ -375,7 +504,6 @@ namespace
             std::make_shared<Prism::Transport::Reliable>(std::move(Client)),
             std::make_shared<Prism::Transport::Reliable>(std::move(Server))};
     }
-
     auto RunUdpBindingAttempt(const std::shared_ptr<Prism::Contract::StreamFactory>& Factory)
         -> Net::awaitable<UdpBindingAttempt>
     {
@@ -386,10 +514,44 @@ namespace
         State->Client->SetTimeout(std::chrono::milliseconds(1500));
         State->Server->SetTimeout(std::chrono::milliseconds(1500));
         using Net::experimental::awaitable_operators::operator&&;
-        co_await (RunUdpBindingServer(State, Factory) && RunUdpBindingClient(State));
+        try { co_await (RunUdpBindingServer(State, Factory) && RunUdpBindingClient(State)); }
+        catch (...) { State->Result.Failure = std::current_exception(); }
+        if (State->MuxOwner) co_await DrainUdpOwner(State->MuxOwner, State->Result);
+        else if (State->DatagramOwner) co_await DrainUdpOwner(State->DatagramOwner, State->Result);
+        else if (State->Server) (void)State->Server->Close();
+        if (State->Client) (void)State->Client->Close();
         co_return std::move(State->Result);
     }
+    struct UdpBindingDriver final
+    {
+        std::shared_ptr<P::BoundCatalog> BoundOwner;
+        std::shared_ptr<Prism::Contract::StreamFactory> DisabledFactory;
+        std::shared_ptr<Prism::Contract::StreamFactory> EnabledFactory;
+        std::shared_ptr<UdpBindingOrderResult> Summary;
 
+        auto Run() -> Net::awaitable<void>
+        {
+            try
+            {
+                Summary->Disabled = co_await RunUdpBindingAttempt(DisabledFactory);
+                Summary->Enabled = co_await RunUdpBindingAttempt(EnabledFactory);
+            }
+            catch (...)
+            {
+                Summary->Failure = std::current_exception();
+            }
+            BoundOwner->Close();
+            try
+            {
+                const auto Drained = co_await BoundOwner->Drain();
+                Summary->Drained = static_cast<bool>(Drained);
+            }
+            catch (...)
+            {
+                if (!Summary->Failure) Summary->Failure = std::current_exception();
+            }
+        }
+    };
     auto BuildUdpBindingPhase(const bool EnabledFirst)
         -> std::expected<A::Startup::GenerationPhase::Result, std::string>
     {
@@ -400,7 +562,6 @@ namespace
         {
             return std::unexpected(Base.error().Path + ": " + Base.error().Message);
         }
-
         auto Configuration = Base->Generation->Configuration();
         auto& Protocol = Configuration.Protocols.front();
         Protocol.Id = "provider-socks5";
@@ -429,7 +590,6 @@ namespace
             AddBinding("binding-disabled", false);
             AddBinding("binding-enabled", true);
         }
-
         auto Generation = Prism::Application::Configuration::GenerationBuilder::Build({
             .Configuration = std::move(Configuration),
             .Builtins = Base->Generation->Builtins(),
@@ -439,7 +599,6 @@ namespace
         {
             return std::unexpected(Generation.error().Path + ": " + Generation.error().Message);
         }
-
         auto Result = std::move(*Base);
         Result.Generation = std::move(*Generation);
         if (const auto Accounts = A::Startup::GenerationPhase::BuildAccounts(Result); !Accounts)
@@ -454,7 +613,6 @@ namespace
         -> Net::awaitable<std::expected<Net::ip::udp::endpoint,
             Prism::Fault::Failure>>
     {
-        boost::system::error_code Error;
         const auto Address = Prism::Network::IpAddress(Target.Host);
         if (!Address || Target.Port == 0)
         {
@@ -464,16 +622,39 @@ namespace
         co_return Net::ip::udp::endpoint{*Address, Target.Port};
     }
 
+    template<typename TProfile>
+    auto FindCandidateIdByName(const TProfile& Profile, const std::string_view CandidateName)
+        -> std::optional<decltype(Profile->Profile->CandidateIdAt(0))>
+    {
+        for (std::size_t Index = 0; Index < Profile->Profile->CandidateCount(); ++Index)
+        {
+            const auto Id = Profile->Profile->CandidateIdAt(Index);
+            if (Profile->Profile->CandidateName(Id) == CandidateName) return Id;
+        }
+        return std::nullopt;
+    }
+
     auto RunUdpBindingOrder(const bool EnabledFirst) -> UdpBindingOrderResult
     {
         auto Summary = std::make_shared<UdpBindingOrderResult>();
-        const auto Phase = BuildUdpBindingPhase(EnabledFirst);
+        auto Phase = BuildUdpBindingPhase(EnabledFirst);
         if (!Phase)
         {
             ADD_FAILURE() << Phase.error();
             Summary->Failure = std::make_exception_ptr(std::runtime_error(Phase.error()));
             return *Summary;
         }
+        auto PublishedAccounts = Prism::Testing::PublishConfiguredAccountCatalog(
+            Phase->Accounts, Phase->Generation);
+        if (!PublishedAccounts)
+        {
+            ADD_FAILURE() << "configured UDP account publication failed: "
+                          << Prism::Fault::ToNative(PublishedAccounts.error()).message();
+            Summary->Failure = std::make_exception_ptr(std::runtime_error("account publication failed"));
+            return *Summary;
+        }
+        auto AccountPublication = std::move(*PublishedAccounts);
+        (void)AccountPublication;
         Net::io_context Io;
         auto UseState = std::make_shared<Prism::Foundation::GenerationUseState>();
         P::ConfigurationInput Input{
@@ -487,7 +668,6 @@ namespace
             return *Summary;
         }
         Input.Authentication.emplace("provider-socks5", *Authentication);
-
         Prism::Contract::DatagramServices Datagram;
         Datagram.Resolve = ResolveUdpBindingTarget;
         P::BindingServices Services{.Executor=Io.get_executor(), .Associations=Datagram,
@@ -526,10 +706,19 @@ namespace
         {
             return *Summary;
         }
-        const auto DisabledIndex = static_cast<std::size_t>(EnabledFirst);
-        const auto EnabledIndex = static_cast<std::size_t>(!EnabledFirst);
-        const auto DisabledFactory = Profile->Resolver(Profile->Profile->CandidateIdAt(DisabledIndex));
-        const auto EnabledFactory = Profile->Resolver(Profile->Profile->CandidateIdAt(EnabledIndex));
+        const auto DisabledId = FindCandidateIdByName(
+            Profile, "provider-socks5+binding-disabled");
+        const auto EnabledId = FindCandidateIdByName(
+            Profile, "provider-socks5+binding-enabled");
+        EXPECT_TRUE(DisabledId.has_value());
+        EXPECT_TRUE(EnabledId.has_value());
+        EXPECT_NE(DisabledId, EnabledId);
+        if (!DisabledId || !EnabledId)
+        {
+            return *Summary;
+        }
+        const auto DisabledFactory = Profile->Resolver(*DisabledId);
+        const auto EnabledFactory = Profile->Resolver(*EnabledId);
         EXPECT_TRUE(DisabledFactory);
         EXPECT_TRUE(EnabledFactory);
         if (!DisabledFactory || !EnabledFactory)
@@ -537,20 +726,16 @@ namespace
             return *Summary;
         }
 
-        const auto Failure = std::make_shared<std::exception_ptr>();
-        auto Driver = [BoundOwner, DisabledFactory, EnabledFactory, Summary]() -> Net::awaitable<void>
-        {
-            Summary->Disabled = co_await RunUdpBindingAttempt(DisabledFactory);
-            Summary->Enabled = co_await RunUdpBindingAttempt(EnabledFactory);
-            BoundOwner->Close();
-            Summary->Drained = static_cast<bool>(co_await BoundOwner->Drain());
-        };
-        Net::co_spawn(Io, Driver(), [Failure](std::exception_ptr Error)
-        { *Failure = std::move(Error); });
+        auto Driver = std::make_shared<UdpBindingDriver>();
+        Driver->BoundOwner = std::move(BoundOwner);
+        Driver->DisabledFactory = DisabledFactory;
+        Driver->EnabledFactory = EnabledFactory;
+        Driver->Summary = Summary;
+        Net::co_spawn(Io, Driver->Run(), [Summary](std::exception_ptr Error)
+        { if (Error && !Summary->Failure) Summary->Failure = std::move(Error); });
         Io.run();
-        if (*Failure)
+        if (Summary->Failure)
         {
-            Summary->Failure = *Failure;
             return *Summary;
         }
         const auto Record = Phase->Accounts.Store->FindById(Prism::AccountId{1});
@@ -560,10 +745,29 @@ namespace
     }
 }
 TEST(ConfiguredMuxProvider, Socks5ColdModeAuthLeaseAndLiteralPublishesMuxOwner)
-{const auto R=Scenario("socks5");EXPECT_FALSE(R.Failure);EXPECT_TRUE(R.ColdMode);EXPECT_TRUE(R.Authenticated);EXPECT_TRUE(R.Lease);EXPECT_TRUE(R.Literal);EXPECT_TRUE(R.Complete);EXPECT_TRUE(R.Mux);}
+{
+    const auto R = Scenario("socks5");
+    EXPECT_FALSE(R.Failure);
+    EXPECT_TRUE(R.ColdMode);
+    EXPECT_TRUE(R.Authenticated);
+    EXPECT_TRUE(R.Lease);
+    EXPECT_TRUE(R.Literal);
+    EXPECT_TRUE(R.Complete);
+    EXPECT_TRUE(R.Mux);
+    EXPECT_TRUE(R.MuxOwnerDrained);
+}
 TEST(ConfiguredMuxProvider, Ss2022ColdModeAuthLeaseAndLiteralPublishesMuxOwner)
-{const auto R=Scenario("ss2022");EXPECT_FALSE(R.Failure);EXPECT_TRUE(R.ColdMode);EXPECT_TRUE(R.Authenticated);EXPECT_TRUE(R.Lease);EXPECT_TRUE(R.Literal);EXPECT_TRUE(R.Complete);EXPECT_TRUE(R.Mux);}
-
+{
+    const auto R = Scenario("ss2022");
+    EXPECT_FALSE(R.Failure);
+    EXPECT_TRUE(R.ColdMode);
+    EXPECT_TRUE(R.Authenticated);
+    EXPECT_TRUE(R.Lease);
+    EXPECT_TRUE(R.Literal);
+    EXPECT_TRUE(R.Complete);
+    EXPECT_TRUE(R.Mux);
+    EXPECT_TRUE(R.MuxOwnerDrained);
+}
 TEST(ConfiguredMuxProvider, Socks5UdpAdmissionRemainsBindingSpecificInEitherOrder)
 {
     for (const bool EnabledFirst : {false, true})
@@ -575,7 +779,8 @@ TEST(ConfiguredMuxProvider, Socks5UdpAdmissionRemainsBindingSpecificInEitherOrde
         EXPECT_FALSE(Result.Disabled.Failure);
         EXPECT_FALSE(Result.Enabled.Failure);
         EXPECT_TRUE(Result.Disabled.HasAcceptError);
-        EXPECT_EQ(Result.Disabled.AcceptError, Prism::Error::NotSupported);
+        EXPECT_EQ(Result.Disabled.AcceptError.Code, Prism::Fault::Code::NotSupported);
+        EXPECT_FALSE(Result.Disabled.AcceptError.Native);
         EXPECT_EQ(Result.Disabled.Reply, Prism::Socks5::ReplyCode::CommandNotSupported);
         EXPECT_FALSE(Result.Disabled.Accepted);
         EXPECT_TRUE(Result.Disabled.PeerClosed);
@@ -584,108 +789,12 @@ TEST(ConfiguredMuxProvider, Socks5UdpAdmissionRemainsBindingSpecificInEitherOrde
         EXPECT_TRUE(Result.Enabled.Accepted);
         EXPECT_TRUE(Result.Enabled.Datagram);
         EXPECT_TRUE(Result.Enabled.Lease);
+        EXPECT_TRUE(Result.Enabled.OwnerDrained);
+        EXPECT_TRUE(Result.Enabled.OwnerRetired);
+        EXPECT_FALSE(Result.Enabled.OwnerDrainFailure.Failed());
         EXPECT_EQ(Result.Enabled.Reply, Prism::Socks5::ReplyCode::Success);
         EXPECT_TRUE(Result.Enabled.PeerClosed);
         EXPECT_TRUE(Result.Enabled.ClientCompleted);
         EXPECT_FALSE(Result.Enabled.TimedOut);
     }
 }
-
-TEST(ConfiguredMuxProvider, ExplicitWebsocketCarrierFallbackReachesCompiledTlsPolicy)
-{
-    const auto Root = std::filesystem::path{PRISM_TEST_REPO_ROOT};
-    const auto Phase = A::Startup::GenerationPhase::Build({
-        Root / "tests/TestSupport/Prism/ConfiguredMux/socks5.json", {}});
-    if (!Phase)
-    {
-        ADD_FAILURE() << Phase.error().Message;
-        return;
-    }
-
-    auto Configuration = Phase->Generation->Configuration();
-    Prism::Application::Configuration::CarrierConfiguration Carrier;
-    Carrier.Id = "carrier-ws-fallback";
-    Carrier.Name = "websocket-fallback";
-    Carrier.Builtin = "ws";
-    Carrier.Match.ServerNames = {"edge.example.com"};
-    Carrier.Match.Fallback = true;
-    Carrier.Options = Prism::Application::Configuration::WebSocketOptions{
-        "/ws", "edge.example.com"};
-    Configuration.Carriers.push_back(Carrier);
-    ASSERT_FALSE(Configuration.ProtocolBindings.empty());
-    Configuration.ProtocolBindings.front().CarrierId = Carrier.Id;
-    Configuration.ProtocolBindings.front().Recognition.Pattern.clear();
-    Configuration.ProtocolBindings.front().Recognition.Fallback = false;
-
-    const auto Generation = Prism::Application::Configuration::GenerationBuilder::Build({
-        .Configuration = std::move(Configuration),
-        .Builtins = Phase->Generation->Builtins(),
-        .AvailableCapabilities = Phase->Generation->Capabilities(),
-        .Generation = Prism::GenerationId{Phase->Generation->Id().Value() + 1U}});
-    if (!Generation)
-    {
-        ADD_FAILURE() << Generation.error().Message;
-        return;
-    }
-
-    auto CarrierPhase = *Phase;
-    CarrierPhase.Generation = *Generation;
-    const auto Accounts = A::Startup::GenerationPhase::BuildAccounts(CarrierPhase);
-    if (!Accounts)
-    {
-        ADD_FAILURE() << Accounts.error().Message;
-        return;
-    }
-
-    Net::io_context Io;
-    auto UseState = std::make_shared<Prism::Foundation::GenerationUseState>();
-    P::ConfigurationInput Input{
-        *Generation, UseState, (*Generation)->Configuration().Protocols,
-        (*Generation)->Configuration().ProtocolBindings, {}};
-    const auto ProtocolId = (*Generation)->Configuration().Protocols.front().Id;
-    const auto *CarrierAuthentication = Accounts->Find(ProtocolId);
-    ASSERT_TRUE(CarrierAuthentication);
-    Input.Authentication.emplace(ProtocolId, *CarrierAuthentication);
-    P::BindingServices Services{.Executor=Io.get_executor(),
-        .Streams=MakeUnavailableMuxServices()};
-    auto Prepared = P::Compile(std::move(Input), std::move(Services));
-    if (!Prepared)
-    {
-        ADD_FAILURE() << Prepared.error().Instance << ": " << Prepared.error().Path;
-        return;
-    }
-    auto Frozen = Prepared->Freeze();
-    ASSERT_TRUE(Frozen);
-    auto Bound = Frozen->Bind({});
-    ASSERT_TRUE(Bound);
-
-    A::ProtocolProfile::ProtocolFactoryContext Context{
-        (*Generation)->Configuration(), **Generation,
-        *Accounts,
-        {}, {}, &*Bound, {}, {.Egress = Prism::Testing::UnavailableEgress()}};
-    const auto Profile = A::ProtocolProfile::MakeTcpProfile(Context);
-    if (!Profile)
-    {
-        ADD_FAILURE() << Profile.error().Message;
-        return;
-    }
-    ASSERT_NE(Profile->Profile, nullptr);
-    ASSERT_EQ(Profile->Profile->CandidateCount(), 1U);
-
-    const auto CandidateId = Profile->Profile->CandidateIdAt(0);
-    EXPECT_TRUE(Profile->Profile->FallbackCandidates().Test(CandidateId));
-    const auto Candidate = Profile->Profile->FindCandidate(CandidateId);
-    ASSERT_TRUE(Candidate.IsValid());
-    EXPECT_TRUE(Candidate.HasCommit());
-
-    auto Bytes = std::make_shared<Prism::Memory::BytePool>(
-        Prism::Memory::BytePoolOptions{.BlockCount = 8});
-    Prism::Recognition::ProbeBuffer Buffer(4096, std::move(Bytes));
-    const auto Hello = Prism::Testing::RecognitionWire::MakeTlsClientHello("wrong.example.com");
-    ASSERT_TRUE(Buffer.Seed(Hello));
-    EXPECT_EQ(Candidate.Inspect(Buffer.Snapshot()), Prism::Recognition::MatchState::Structural);
-}
-
-
-
-

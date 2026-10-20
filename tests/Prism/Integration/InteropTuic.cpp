@@ -1,25 +1,27 @@
 /**
  * @file InteropTuic.cpp
- * @brief Prism TUIC v5 与独立 reference 的双向 TCP/UDP 互操作端点
+ * @brief Prism TUIC v5 client 与独立 reference 的 TCP/UDP 互操作端点
  * @details 使用 Prism 原生 QUIC 的单向认证流、bidi Connect 流、DATAGRAM
- *          packet 和 TLS exporter，覆盖服务端与客户端两个方向。
+ *          packet 和 TLS exporter，覆盖客户端方向。
  * @note standalone Native harness；不启动 Prism::Application，不能作为
  *       Application ingress 路径的互操作证据。
  */
 
+#include "InteropTuicOptions.hpp"
+#include "InteropTuicLifecycle.hpp"
+#include "InteropTuicTerminalIo.hpp"
+
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/udp.hpp>
-#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/this_coro.hpp>
-#include <boost/asio/use_awaitable.hpp>
 
-#include <openssl/evp.h>
-#include <openssl/rsa.h>
+#include <boost/system/error_code.hpp>
+
 #include <openssl/ssl.h>
-#include <openssl/x509.h>
 
 #include <array>
 #include <charconv>
@@ -34,46 +36,20 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Protocols/Quic/Native.hpp>
-#include "../../TestSupport/Prism/QuicFactory.hpp"
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
 #include <Prism/Protocols/Tuic/Tuic.hpp>
 
-namespace
+namespace Prism::Testing::TuicInterop
 {
 
     namespace Net = boost::asio;
     namespace Ssl = Net::ssl;
     using Udp = Net::ip::udp;
-
-    auto CaptureDrainFailure(std::exception_ptr& FirstError,
-        std::expected<void, Prism::Fault::Failure> Result) -> void
-    {
-        if (!Result && !FirstError)
-            FirstError = std::make_exception_ptr(std::system_error(Prism::Fault::ToNative(Result.error())));
-    }
-
-    struct Options
-    {
-        std::string Mode{"server"};
-        std::string Address{"127.0.0.1:19087"};
-        std::string Password{"tuic_password"};
-        bool Udp{false};
-        std::array<std::uint8_t, 16> Uuid{
-            0x12, 0x3e, 0x45, 0x67, 0xe8, 0x9b, 0x12, 0xd3,
-            0xa4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00};
-    };
-
-    struct HostPort
-    {
-        std::string Host;
-        std::uint16_t Port{0};
-    };
 
     [[nodiscard]] auto ParsePort(std::string_view Value) -> std::optional<std::uint16_t>
     {
@@ -224,6 +200,68 @@ namespace
         co_return true;
     }
 
+    using DrainResult = std::expected<void, Prism::Fault::Failure>;
+
+    auto PreserveDrainFailure(DrainResult &FirstFailure, DrainResult Candidate) -> void
+    {
+        if (!Candidate && FirstFailure)
+        {
+            FirstFailure = std::unexpected(Candidate.error());
+        }
+    }
+
+    /** @brief 关闭 TUIC datagram 装饰器，并等待 Dgram 与 QUIC adapter 的活动退栈。 */
+    auto CloseAndDrainTuicDgram(const Prism::Tuic::SharedDgram &Datagram)
+        -> Net::awaitable<DrainResult>
+    {
+        if (!Datagram)
+        {
+            co_return std::unexpected(
+                Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
+        }
+        const auto Underlying = Datagram->Stream();
+        const auto Closed = Datagram->Close();
+        DrainResult FirstFailure{};
+        if (!Closed)
+        {
+            PreserveDrainFailure(FirstFailure, std::unexpected(Closed.error()));
+        }
+
+        const std::array<Prism::SharedTransmission, 2> Chain{
+            std::static_pointer_cast<Prism::Transmission>(Datagram),
+            Underlying};
+        for (std::size_t Index = 0; Index < Chain.size(); ++Index)
+        {
+            const auto &Carrier = Chain[Index];
+            if (!Carrier || (Index != 0 && Carrier == Chain[0]))
+            {
+                continue;
+            }
+            const auto Activity = Carrier->Activity();
+            if (!Activity)
+            {
+                PreserveDrainFailure(FirstFailure, std::unexpected(
+                    Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument}));
+                continue;
+            }
+            PreserveDrainFailure(FirstFailure, co_await Activity->Drain());
+        }
+        co_return FirstFailure;
+    }
+
+    /** @brief 关闭 QUIC 客户端并等待 Native connection owner 退栈。 */
+    auto CloseAndDrainTuicClient(
+        const std::shared_ptr<Prism::Quic::Client> &Connection)
+        -> Net::awaitable<DrainResult>
+    {
+        if (!Connection)
+        {
+            co_return DrainResult{};
+        }
+        Connection->Close();
+        co_return co_await Connection->Drain();
+    }
+
     struct ClientContext final
     {
         Net::any_io_executor Executor;
@@ -233,12 +271,13 @@ namespace
 
     auto RunTcpClient(ClientContext &Context) -> Net::awaitable<bool>
     {
-        auto DataProvider = co_await Context.Connection->OpenBidirectionalStream();
-        if (!DataProvider)
+        auto DataProviderResult = co_await Context.Connection->OpenBidirectionalStream();
+        if (!DataProviderResult)
         {
             std::fprintf(stderr, "FAIL: TUIC data stream\n");
             co_return false;
         }
+        auto DataProvider = std::move(*DataProviderResult);
         auto DataStream = std::make_shared<Prism::Quic::StreamAdapter>(
             Context.Executor, DataProvider);
         const Prism::Tuic::Address Target{
@@ -249,66 +288,85 @@ namespace
         {
             std::fprintf(stderr, "FAIL: TUIC TCP handshake (%u)\n",
                          static_cast<unsigned>(HandshakeError));
+            const auto Drained = co_await Detail::CloseAndDrainStreamChain(
+                DataStream, Prism::SharedTransmission{});
+            if (!Drained)
+            {
+                std::fprintf(stderr, "FAIL: TUIC data stream drain after handshake failure\n");
+            }
             co_return false;
         }
         auto &Carrier = static_cast<Prism::Transmission &>(*Conn);
         constexpr std::string_view Text{"prism-tuic-external-tcp-payload"};
         const auto Payload = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(Text.data()), Text.size());
-        if (!co_await WriteAll(Conn, Payload))
+        bool Succeeded = co_await WriteAll(Conn, Payload);
+        if (!Succeeded)
         {
-            (void)Conn->Close();
-            co_return false;
+            std::fprintf(stderr, "FAIL: TUIC TCP client write payload\n");
+        }
+        if (Succeeded)
+        {
+            const auto Shutdown = co_await Conn->WriteShutdown();
+            Succeeded = static_cast<bool>(Shutdown);
+            if (!Succeeded)
+            {
+                std::fprintf(stderr, "FAIL: TUIC TCP client write half-close\n");
+            }
         }
         std::vector<std::byte> Echo(Text.size());
-        std::size_t Offset = 0;
-        while (Offset < Echo.size())
+        if (Succeeded)
         {
-            const auto Read = co_await Carrier.ReadSome(
-                std::span<std::byte>(Echo).subspan(Offset));
-            if (Read.Failure.Failed() || Read.Bytes == 0)
+            const auto ReadResult = co_await Detail::ReadExpectedPayload(
+                Carrier, std::span<std::byte>(Echo));
+            Succeeded = ReadResult && ReadResult->Bytes == Echo.size();
+            if (!Succeeded)
             {
-                (void)Conn->Close();
-                co_return false;
+                std::fprintf(stderr, "FAIL: TUIC TCP client echo read\n");
             }
-            Offset += Read.Bytes;
         }
-        (void)Conn->Close();
-        if (std::memcmp(Echo.data(), Payload.data(), Payload.size()) != 0)
+        const auto Drained = co_await Detail::CloseAndDrainTuicConnection(Conn);
+        if (!Drained)
+        {
+            std::fprintf(stderr, "FAIL: TUIC TCP stream activity drain\n");
+            Succeeded = false;
+        }
+        if (Succeeded && std::memcmp(Echo.data(), Payload.data(), Payload.size()) != 0)
         {
             std::fprintf(stderr, "FAIL: TUIC TCP echo mismatch\n");
-            co_return false;
+            Succeeded = false;
         }
-        co_return true;
+        co_return Succeeded;
     }
 
     auto RunUdpClient(ClientContext &Context) -> Net::awaitable<bool>
     {
-        auto Datagram = Prism::Tuic::ConnectPacket(
+        auto DatagramResult = Prism::Tuic::ConnectPacket(
             Context.Connection->Datagram(), Context.Config);
-        if (!Datagram)
+        if (!DatagramResult)
         {
             std::fprintf(stderr, "FAIL: TUIC UDP datagram provider\n");
             co_return false;
         }
+        auto Datagram = std::move(*DatagramResult);
         const std::string Text{"prism-tuic-external-udp-payload"};
         const auto Payload = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(Text.data()), Text.size());
         const Prism::Tuic::Address Target{
             Prism::Tuic::AddressType::Ipv4, "127.0.0.1", 53};
         const auto SendError = co_await Datagram->AsyncSendTo(Target, Payload);
-        if (SendError != Prism::Error::None)
-        {
-            Datagram->Close();
-            co_return false;
-        }
+        bool Valid = SendError == Prism::Error::None;
         Prism::Tuic::Address EchoTarget;
         std::vector<std::uint8_t> Echo;
-        const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(EchoTarget, Echo);
-        const bool Valid = ReceiveError == Prism::Error::None &&
-                           Echo.size() == Payload.size() &&
-                           std::equal(Echo.begin(), Echo.end(), Payload.begin());
-        Datagram->Close();
+        if (Valid)
+        {
+            const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(EchoTarget, Echo);
+            Valid = ReceiveError == Prism::Error::None &&
+                    Echo.size() == Payload.size() &&
+                    std::equal(Echo.begin(), Echo.end(), Payload.begin());
+        }
+        const auto Closed = co_await CloseAndDrainTuicDgram(Datagram);
+        Valid = Valid && static_cast<bool>(Closed);
         if (!Valid)
         {
             std::fprintf(stderr, "FAIL: TUIC UDP echo mismatch\n");
@@ -348,17 +406,26 @@ namespace
         Connection->Start();
         if (!co_await Connection->WaitHandshake())
         {
-            Connection->Close();
+            const auto Closed = co_await CloseAndDrainTuicClient(Connection);
+            if (!Closed)
+            {
+                std::fprintf(stderr, "FAIL: TUIC QUIC drain after handshake failure\n");
+            }
             std::fprintf(stderr, "FAIL: TUIC QUIC handshake\n");
             co_return 1;
         }
-        auto AuthProvider = co_await Connection->OpenUnidirectionalStream();
-        if (!AuthProvider)
+        auto AuthProviderResult = co_await Connection->OpenUnidirectionalStream();
+        if (!AuthProviderResult)
         {
-            Connection->Close();
+            const auto Closed = co_await CloseAndDrainTuicClient(Connection);
+            if (!Closed)
+            {
+                std::fprintf(stderr, "FAIL: TUIC QUIC drain after auth stream failure\n");
+            }
             std::fprintf(stderr, "FAIL: TUIC auth stream\n");
             co_return 1;
         }
+        auto AuthProvider = std::move(*AuthProviderResult);
         auto AuthStream = std::make_shared<Prism::Quic::StreamAdapter>(Executor, AuthProvider);
         const auto Exporter = [Connection](std::span<std::uint8_t> Output,
                                             std::span<const std::uint8_t> Label,
@@ -371,330 +438,43 @@ namespace
         Context.Config.password = OptionsValue.Password;
         Context.Config.AuthStream = AuthStream;
         Context.Config.Exporter = Exporter;
+        bool Succeeded = false;
         if (OptionsValue.Udp)
         {
             auto AuthOnly = std::make_shared<Prism::Tuic::Conn<>>(
-                Prism::SharedTransmission{}, Context.Config.uuid);
+                AuthStream, Context.Config.uuid);
             const auto AuthError = co_await AuthOnly->WriteAuthentication(
                 Context.Config.AuthStream, Context.Config.Exporter, Context.Config.password);
             if (AuthError != Prism::Error::None)
             {
-                Connection->Close();
+                const auto Closed = co_await CloseAndDrainTuicClient(Connection);
+                if (!Closed)
+                {
+                    std::fprintf(stderr, "FAIL: TUIC QUIC drain after UDP auth failure\n");
+                }
                 std::fprintf(stderr, "FAIL: TUIC UDP authentication (%u)\n",
                              static_cast<unsigned>(AuthError));
                 co_return 1;
             }
+            Succeeded = co_await RunUdpClient(Context);
         }
-        if (!OptionsValue.Udp)
+        else
         {
-            const auto TcpSucceeded = co_await RunTcpClient(Context);
-            if (!TcpSucceeded)
+            Succeeded = co_await RunTcpClient(Context);
+        }
+        const auto Closed = co_await CloseAndDrainTuicClient(Connection);
+        if (!Succeeded || !Closed)
+        {
+            if (!Succeeded)
             {
-                Connection->Close();
-                co_return 1;
+                std::fprintf(stderr, "FAIL: TUIC %s endpoint\n",
+                             OptionsValue.Udp ? "UDP" : "TCP");
             }
-        }
-        const bool UdpOk = co_await RunUdpClient(Context);
-        Connection->Close();
-        if (!UdpOk)
-        {
             co_return 1;
         }
-        std::printf("PASS: Prism TUIC client -> reference server TCP+UDP\n");
+        std::printf("PASS: Prism TUIC client -> reference server %s\n",
+                    OptionsValue.Udp ? "UDP" : "TCP");
         co_return 0;
-    }
-
-    [[nodiscard]] auto LoadSelfSigned(Ssl::context &Context) -> bool
-    {
-        auto *KeyContext = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
-        EVP_PKEY *Key = nullptr;
-        if (!KeyContext || EVP_PKEY_keygen_init(KeyContext) <= 0 ||
-            EVP_PKEY_CTX_set_rsa_keygen_bits(KeyContext, 2048) <= 0 ||
-            EVP_PKEY_keygen(KeyContext, &Key) <= 0)
-        {
-            EVP_PKEY_CTX_free(KeyContext);
-            return false;
-        }
-        EVP_PKEY_CTX_free(KeyContext);
-        auto *Certificate = X509_new();
-        auto *Name = X509_NAME_new();
-        const bool Ready = Certificate && Name && X509_set_version(Certificate, 2) > 0 &&
-                           ASN1_INTEGER_set(X509_get_serialNumber(Certificate), 1) > 0 &&
-                           X509_gmtime_adj(X509_get_notBefore(Certificate), 0) != nullptr &&
-                           X509_gmtime_adj(X509_get_notAfter(Certificate), 3600) != nullptr &&
-                           X509_NAME_add_entry_by_txt(Name, "CN", MBSTRING_ASC,
-                                                      reinterpret_cast<const unsigned char *>("localhost"), -1, -1,
-                                                      0) > 0 &&
-                           X509_set_subject_name(Certificate, Name) > 0 &&
-                           X509_set_issuer_name(Certificate, Name) > 0 &&
-                           X509_set_pubkey(Certificate, Key) > 0 &&
-                           X509_sign(Certificate, Key, EVP_sha256()) > 0 &&
-                           SSL_CTX_use_certificate(Context.native_handle(), Certificate) == 1 &&
-                           SSL_CTX_use_PrivateKey(Context.native_handle(), Key) == 1;
-        X509_NAME_free(Name);
-        X509_free(Certificate);
-        EVP_PKEY_free(Key);
-        return Ready;
-    }
-
-    auto Echo(Prism::Tuic::SharedConn Conn) -> Net::awaitable<bool>
-    {
-        auto &Carrier = static_cast<Prism::Transmission &>(*Conn);
-        std::array<std::byte, 4096> Buffer{};
-        const auto Read = co_await Carrier.ReadSome(Buffer);
-        if (Read.Failure.Failed() || Read.Bytes == 0)
-        {
-            (void)Conn->Close();
-            co_return false;
-        }
-        std::size_t Offset = 0;
-        while (Offset < Read.Bytes)
-        {
-            const auto WriteWindow = std::span<const std::byte>(Buffer).subspan(
-                Offset, Read.Bytes - Offset);
-            const auto Written = co_await Carrier.WriteSome(WriteWindow);
-            if (Written.Failure.Failed() || Written.Bytes == 0)
-            {
-                (void)Conn->Close();
-                co_return false;
-            }
-            Offset += Written.Bytes;
-        }
-        // 保持连接直到对端收完响应并主动关闭，避免仅入队的 QUIC 包
-        // 在本端立即 Close 时被丢弃。
-        std::array<std::byte, 1> Drain{};
-        (void)co_await Carrier.ReadSome(Drain);
-        (void)Conn->Close();
-        co_return true;
-    }
-
-    auto RunUdpServer(std::shared_ptr<Prism::Quic::Server> Server,
-                      Prism::Tuic::ServerConfig Config) -> Net::awaitable<bool>
-    {
-        auto AuthOnly = std::make_shared<Prism::Tuic::Conn<>>(
-            Prism::SharedTransmission{}, Config.uuid);
-        const auto AuthError = co_await AuthOnly->ReadAuthentication(
-            std::move(Config.AuthStream),
-            Prism::Tuic::ServerAuthenticationMaterial{
-                .Exporter = Config.Exporter,
-                .ExporterContext = Config.password,
-                .Credential = {}});
-        if (AuthError != Prism::Error::None)
-        {
-            co_return false;
-        }
-        auto Datagram = Prism::Tuic::AcceptPacket(Server->Datagram(), Config);
-        if (!Datagram)
-        {
-            co_return false;
-        }
-        Prism::Tuic::Address Target;
-        std::vector<std::uint8_t> Payload;
-        const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(Target, Payload);
-        auto PacketError = ReceiveError;
-        if (PacketError == Prism::Error::None)
-        {
-            PacketError = co_await Datagram->AsyncSendTo(
-                Target, std::span<const std::uint8_t>(Payload));
-        }
-        Datagram->Close();
-        co_return PacketError == Prism::Error::None;
-    }
-
-    auto RunTcpServer(Net::any_io_executor Executor,
-                      std::shared_ptr<Prism::Quic::Server> Server,
-                      Prism::Tuic::ServerConfig Config) -> Net::awaitable<bool>
-    {
-        const auto DataProvider = co_await Server->AcceptBidirectionalStream();
-        if (!DataProvider)
-        {
-            co_return false;
-        }
-        auto DataStream = std::make_shared<Prism::Quic::StreamAdapter>(Executor, DataProvider);
-        auto [AuthError, Request, Conn] = co_await Prism::Tuic::Accept(DataStream, Config);
-        (void)Request;
-        if (AuthError != Prism::Error::None || !Conn)
-        {
-            co_return false;
-        }
-        co_return co_await Echo(Conn);
-    }
-
-    /// 关闭并等待 TUIC server 的 QUIC native pump 完成。
-    auto DrainTuicServer(const std::shared_ptr<Prism::Quic::Server> &Server)
-        -> Net::awaitable<void>
-    {
-        std::exception_ptr FirstError;
-        Server->Close();
-        try
-        {
-            CaptureDrainFailure(FirstError, co_await Server->Drain());
-        }
-        catch (...)
-        {
-            FirstError = std::current_exception();
-        }
-        if (FirstError)
-        {
-            std::rethrow_exception(FirstError);
-        }
-    }
-
-    struct TuicServerDataRequest final
-    {
-        Options OptionsValue;
-        Net::any_io_executor Executor;
-        std::shared_ptr<Prism::Quic::Server> Server;
-        Prism::Tuic::ServerConfig Config;
-    };
-
-    auto RunTuicServerData(TuicServerDataRequest Request) -> Net::awaitable<int>
-    {
-        std::exception_ptr FirstError;
-        bool Succeeded = false;
-        try
-        {
-            Succeeded = Request.OptionsValue.Udp
-                            ? co_await RunUdpServer(Request.Server, std::move(Request.Config))
-                            : co_await RunTcpServer(Request.Executor, Request.Server,
-                                                     std::move(Request.Config));
-        }
-        catch (...)
-        {
-            FirstError = std::current_exception();
-        }
-        try
-        {
-            co_await DrainTuicServer(Request.Server);
-        }
-        catch (...)
-        {
-            if (!FirstError)
-            {
-                FirstError = std::current_exception();
-            }
-        }
-        if (FirstError)
-        {
-            std::rethrow_exception(FirstError);
-        }
-        if (!Succeeded)
-        {
-            std::fprintf(stderr, "FAIL: TUIC %s echo\n",
-                         Request.OptionsValue.Udp ? "UDP" : "TCP");
-            co_return 1;
-        }
-        std::printf("PASS: Prism TUIC server authenticated %s echo\n",
-                    Request.OptionsValue.Udp ? "UDP" : "TCP");
-        co_return 0;
-    }
-
-    auto RunServer(Options OptionsValue) -> Net::awaitable<int>
-    {
-        const auto Listen = SplitHostPort(OptionsValue.Address);
-        if (!Listen)
-        {
-            std::fprintf(stderr, "FAIL: malformed TUIC listen address\n");
-            co_return 2;
-        }
-        boost::system::error_code AddressError;
-        const auto Address = Net::ip::make_address(Listen->Host, AddressError);
-        if (AddressError)
-        {
-            std::fprintf(stderr, "FAIL: TUIC listen address is not an IP literal\n");
-            co_return 2;
-        }
-        auto Tls = std::make_shared<Ssl::context>(Ssl::context::tlsv13_server);
-        if (!LoadSelfSigned(*Tls))
-        {
-            std::fprintf(stderr, "FAIL: cannot create TUIC self-signed certificate\n");
-            co_return 1;
-        }
-        const auto SelectH3 = [](SSL *, const unsigned char **Out, unsigned char *OutLength,
-                                 const unsigned char *In, unsigned int InLength, void *) -> int
-        {
-            static constexpr unsigned char H3[] = {0x02, 'h', '3'};
-            const auto Negotiated = SSL_select_next_proto(
-                const_cast<unsigned char **>(Out), OutLength, H3, sizeof(H3), In, InLength);
-            return Negotiated == OPENSSL_NPN_NEGOTIATED ? SSL_TLSEXT_ERR_OK
-                                                         : SSL_TLSEXT_ERR_ALERT_FATAL;
-        };
-        SSL_CTX_set_alpn_select_cb(Tls->native_handle(), SelectH3, nullptr);
-        const auto Executor = co_await Net::this_coro::executor;
-        auto Socket = std::make_shared<Udp::socket>(
-            Executor, Udp::endpoint(Address, Listen->Port));
-        auto Server = std::make_shared<Prism::Quic::Server>(
-            Prism::Quic::ServerOptions{
-                Executor, Socket, Tls, Prism::Testing::Quic::MakeSender(Socket)});
-        Server->Start();
-        std::printf("READY: Prism TUIC server on %s\n", OptionsValue.Address.c_str());
-        std::fflush(stdout);
-        std::exception_ptr StartupError;
-        bool HandshakeReady = false;
-        try
-        {
-            HandshakeReady = co_await Server->WaitHandshake();
-        }
-        catch (...)
-        {
-            StartupError = std::current_exception();
-        }
-        if (StartupError)
-        {
-            try
-            {
-                co_await DrainTuicServer(Server);
-            }
-            catch (...)
-            {
-            }
-            std::rethrow_exception(StartupError);
-        }
-        if (!HandshakeReady)
-        {
-            co_await DrainTuicServer(Server);
-            co_return 1;
-        }
-        Prism::Quic::SharedStreamProvider AuthProvider;
-        std::exception_ptr AuthError;
-        try
-        {
-            AuthProvider = co_await Server->AcceptUnidirectionalStream();
-        }
-        catch (...)
-        {
-            AuthError = std::current_exception();
-        }
-        if (AuthError)
-        {
-            try
-            {
-                co_await DrainTuicServer(Server);
-            }
-            catch (...)
-            {
-            }
-            std::rethrow_exception(AuthError);
-        }
-        if (!AuthProvider)
-        {
-            co_await DrainTuicServer(Server);
-            co_return 1;
-        }
-        auto AuthStream = std::make_shared<Prism::Quic::StreamAdapter>(Executor, AuthProvider);
-        const auto Exporter = [Server](std::span<std::uint8_t> Output,
-                                       std::span<const std::uint8_t> Label,
-                                       std::string_view Context)
-        {
-            return Server->ExportKeyingMaterial(Output, Label, Context);
-        };
-        Prism::Tuic::ServerConfig Config;
-        Config.uuid = OptionsValue.Uuid;
-        Config.password = OptionsValue.Password;
-        Config.AuthStream = std::move(AuthStream);
-        Config.Exporter = Exporter;
-        co_return co_await RunTuicServerData(
-            TuicServerDataRequest{OptionsValue, Executor, Server, std::move(Config)});
     }
 
     auto RunInterop(Options OptionsValue, int &ExitCode) -> Net::awaitable<void>
@@ -709,20 +489,20 @@ namespace
         }
     }
 
-} // namespace
+} // namespace Prism::Testing::TuicInterop
 
 auto main(const int Argc, char **Argv) -> int
 {
-    const auto Options = ParseOptions(Argc, Argv);
+    const auto Options = Prism::Testing::TuicInterop::ParseOptions(Argc, Argv);
     if (!Options)
     {
         std::fprintf(stderr, "FAIL: malformed TUIC options\n");
         return 2;
     }
-    Net::io_context Io;
+    boost::asio::io_context Io;
     int ExitCode = 1;
     std::exception_ptr Failure;
-    Net::co_spawn(Io, RunInterop(*Options, ExitCode),
+    boost::asio::co_spawn(Io, Prism::Testing::TuicInterop::RunInterop(*Options, ExitCode),
                   [&Failure](std::exception_ptr Exception) { Failure = std::move(Exception); });
     Io.run();
     if (Failure)

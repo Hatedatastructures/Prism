@@ -108,9 +108,9 @@ function Invoke-GoClient($Request) {
         throw "Go Hysteria2 client $($Request.Name) failed with exit $ExitCode"
     }
     $Pattern = switch ($Request.Mode) {
-        'bad-auth' { '(?m)^BAD_AUTH_CLOSE=.*egress=none target_bytes=0 TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT$' }
-        'tcp' { '(?m)^PAYLOAD TCP bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true TARGET_BYTES=\d+ TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT$' }
-        'udp' { '(?m)^PAYLOAD UDP bytes=\d+ SHA256=[0-9a-f]{64} TARGET_PACKETS=1 TARGET_BYTES=\d+ TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT$' }
+        'bad-auth' { '(?m)^BAD_AUTH_CLOSE=.*egress=none target_bytes=0 TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT\r?$' }
+        'tcp' { '(?m)^PAYLOAD TCP bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true TARGET_BYTES=\d+ TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT\r?$' }
+        'udp' { '(?m)^PAYLOAD UDP bytes=\d+ SHA256=[0-9a-f]{64} TARGET_PACKETS=1 TARGET_BYTES=\d+ TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT\r?$' }
         default { throw "Unknown Hysteria2 mode $($Request.Mode)" }
     }
     if ($Output -notmatch $Pattern) {

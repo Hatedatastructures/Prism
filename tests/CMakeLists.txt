@@ -17,7 +17,7 @@ function(AddPrismTest source_file)
     target_sources(${test_name} PRIVATE ${_prism_test_main})
     target_include_directories(${test_name} BEFORE PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
-        ${CMAKE_SOURCE_DIR}/Prism)
+        ${CMAKE_SOURCE_DIR}/Include)
     target_link_libraries(${test_name} PRIVATE GTest::gtest PrismTestSupport)
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -37,6 +37,8 @@ function(AddPrismTest source_file)
        "${test_name}" STREQUAL "SessionControlLifecycleTest" OR
        "${test_name}" STREQUAL "SessionDeliveryLifecycleTest")
         set(_test_prefix TEST_PREFIX "SessionLifecycleTest.")
+    elseif("${test_name}" STREQUAL "RuntimeSnapshotTest")
+        set(_test_prefix TEST_PREFIX "RuntimeSnapshotTest.")
     else()
         set(_test_prefix)
     endif()
@@ -78,7 +80,7 @@ function(AddExperimentTest source_file)
     target_sources(${experiment_target} PRIVATE ${_prism_test_main})
     target_include_directories(${experiment_target} BEFORE PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
-        ${CMAKE_SOURCE_DIR}/Prism)
+        ${CMAKE_SOURCE_DIR}/Include)
     target_link_libraries(${experiment_target} PRIVATE GTest::gtest PrismTestSupport)
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -161,7 +163,7 @@ function(AssertPrismTestBoundaries)
 endfunction()
 
 function(AssertPrismProductionBoundaries)
-    CollectPrismDirectoryTargets("${CMAKE_SOURCE_DIR}/Prism" _production_targets)
+    CollectPrismDirectoryTargets("${CMAKE_SOURCE_DIR}/Src/Prism" _production_targets)
     foreach(_target IN LISTS _production_targets)
         if(NOT _target MATCHES "^Prism")
             continue()
@@ -174,19 +176,8 @@ function(AssertPrismProductionBoundaries)
     message(STATUS "AssertPrismProductionBoundaries passed: production targets exclude test support")
 endfunction()
 
-function(CollectPrismDirectoryTargets Directory OutVariable)
-    get_property(_targets DIRECTORY "${Directory}" PROPERTY BUILDSYSTEM_TARGETS)
-    get_property(_subdirectories DIRECTORY "${Directory}" PROPERTY SUBDIRECTORIES)
-    foreach(_subdirectory IN LISTS _subdirectories)
-        CollectPrismDirectoryTargets("${_subdirectory}" _nested_targets)
-        list(APPEND _targets ${_nested_targets})
-    endforeach()
-    list(REMOVE_DUPLICATES _targets)
-    set(${OutVariable} "${_targets}" PARENT_SCOPE)
-endfunction()
-
 function(AssertPrismDnsResolverBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/Prism/Net/Dns/Resolver.hpp" _resolver_source)
+    file(READ "${CMAKE_SOURCE_DIR}/Include/Prism/Net/Dns/Resolver.hpp" _resolver_source)
     if(_resolver_source MATCHES "\\[this, *&name")
         message(FATAL_ERROR "Prism DNS resolver must not capture Resolver or borrowed name")
     endif()
@@ -194,13 +185,15 @@ function(AssertPrismDnsResolverBoundaries)
 endfunction()
 
 function(AssertPrismTrafficBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/Prism/Runtime/Statistics.hpp" _statistics_source)
-    if(_statistics_source MATCHES "class (IdentityTraffic|PerWorkerTraffic)|unordered_map<.*string|std::mutex|lock_guard|scoped_lock|unique_lock")
+    file(READ "${CMAKE_SOURCE_DIR}/Include/Prism/Runtime/Statistics.hpp" _statistics_header)
+    file(READ "${CMAKE_SOURCE_DIR}/Src/Prism/Runtime/Statistics.cpp" _statistics_implementation)
+    if(_statistics_header MATCHES "class (IdentityTraffic|PerWorkerTraffic)|unordered_map<.*string|std::mutex|lock_guard|scoped_lock|unique_lock")
         message(FATAL_ERROR "Prism traffic must use numeric ownership and avoid blocking locks")
     endif()
-    if(NOT _statistics_source MATCHES "boost::lockfree::queue" OR
-       NOT _statistics_source MATCHES "bounded_push" OR
-       NOT _statistics_source MATCHES "capacity<1024>")
+    set(_statistics_contract "${_statistics_header}\n${_statistics_implementation}")
+    if(NOT _statistics_contract MATCHES "boost::lockfree::queue" OR
+       NOT _statistics_contract MATCHES "bounded_push" OR
+       NOT _statistics_contract MATCHES "capacity<1024>")
         message(FATAL_ERROR "Prism traffic must retain its preallocated bounded observation queue")
     endif()
     message(STATUS "AssertPrismTrafficBoundaries passed: bounded numeric traffic observations")

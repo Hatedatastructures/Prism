@@ -117,9 +117,9 @@ namespace Prism::Application::Configuration::Perf::Report
     {
         std::puts("construction_boundary=generated PreviewConfiguration plus glz JSON serialization; "
                   "--input reports construction_ns=0 and excludes file/decode setup");
-        std::puts("parser_boundary=full Parser::Parse including required-root precheck, glaze "
+        std::puts("parser_boundary=full ConfigurationParser::Parse including required-root precheck, glaze "
                   "decode, secret option setup, and ConfigurationValidator");
-        std::puts("validator_boundary=Parser::Validate on the same structured configuration "
+        std::puts("validator_boundary=ConfigurationValidator::Validate on the same structured configuration "
                   "with the frozen static builtin snapshot");
         std::puts("execution_boundary=single-threaded cold-start path; Validator mutates no "
                   "shared runtime state, so extra workers would measure scheduling instead "

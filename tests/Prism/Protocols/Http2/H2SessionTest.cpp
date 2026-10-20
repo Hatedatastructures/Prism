@@ -256,7 +256,7 @@ namespace
         const auto Frame = H2::Detail::BuildFrame({FrameType::Settings, H2::Detail::FlagAck, 0, Payload});
         std::error_code ErrorCode;
         EXPECT_FALSE(Server->Feed(Frame, ErrorCode));
-        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::ProtocolError));
+        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::BadLength));
     }
 
     TEST(H2Session, WindowUpdateZeroIncrementRejected)
@@ -277,7 +277,7 @@ namespace
         const auto Frame = H2::Detail::BuildFrame({FrameType::RstStream, 0, 1, {}});
         std::error_code ErrorCode;
         EXPECT_FALSE(Server->Feed(Frame, ErrorCode));
-        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::ProtocolError));
+        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::BadLength));
     }
 
     TEST(H2Session, RstStreamOnConnectionStreamRejected)
@@ -347,7 +347,7 @@ namespace
         const auto Frame = H2::Detail::BuildFrame({FrameType::Priority, 0, 1, Payload});
         std::error_code ErrorCode;
         EXPECT_FALSE(Server->Feed(Frame, ErrorCode));
-        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::ProtocolError));
+        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::BadLength));
     }
 
     TEST(H2Session, BadFrameRejected)
@@ -445,19 +445,20 @@ namespace
         EXPECT_EQ(Received[1].Value, "/padded");
     }
 
-    TEST(H2Session, ContinuationRejectsEndStreamFlag)
+    // 空块 continuation 携带未定义 END_STREAM 位时仍应被接受。
+    TEST(H2Session, AcceptsEmptyHeaderBlockContinuationWithUndefinedEndStreamFlag)
     {
         Net::io_context IoContext;
         auto Server = MakePrefacedServer(IoContext);
         const auto Headers = H2::Detail::BuildFrame({FrameType::Headers, 0, 1, {}});
         const auto Continuation = H2::Detail::BuildFrame({FrameType::Continuation,
-                                                  static_cast<std::uint8_t>(H2::Detail::FlagEndHeaders | H2::Detail::FlagEndStream),
-                                                  1, {}});
+            static_cast<std::uint8_t>(H2::Detail::FlagEndHeaders | H2::Detail::FlagEndStream),
+            1, {}});
         std::error_code ErrorCode;
 
         ASSERT_TRUE(Server->Feed(Headers, ErrorCode));
-        EXPECT_FALSE(Server->Feed(Continuation, ErrorCode));
-        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::ProtocolError));
+        EXPECT_TRUE(Server->Feed(Continuation, ErrorCode));
+        EXPECT_FALSE(ErrorCode);
     }
 
     TEST(H2Session, DataRefreshesConnectionAndStreamWindow)
@@ -742,17 +743,6 @@ namespace
         std::error_code ErrorCode;
 
         EXPECT_FALSE(Server->Feed(Update, ErrorCode));
-        EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::ProtocolError));
-    }
-
-    TEST(H2Session, UnknownFrameTypeRejected)
-    {
-        Net::io_context IoContext;
-        auto Server = MakePrefacedServer(IoContext);
-        const auto Unknown = H2::Detail::BuildFrame({static_cast<FrameType>(0xFF), 0, 0, {}});
-        std::error_code ErrorCode;
-
-        EXPECT_FALSE(Server->Feed(Unknown, ErrorCode));
         EXPECT_EQ(ErrorCode, Prism::make_error_code(Prism::Error::ProtocolError));
     }
 

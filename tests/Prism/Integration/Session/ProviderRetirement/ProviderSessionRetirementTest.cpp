@@ -31,10 +31,11 @@
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
-#include <Prism/Protocols/Common/ProviderBindingLifecycle.hpp>
+#include <Prism/Protocols/ProviderLifecycle/ProviderBindingLifecycle.hpp>
 #include <Prism/Protocols/Vless/Conn.hpp>
 #include <Prism/Runtime/ActiveTransports.hpp>
 #include <Prism/Runtime/CarrierDomain.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
 namespace Prism::Testing
@@ -237,19 +238,19 @@ namespace Prism::Testing
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                 {0U, {Prism::Fault::Code::Eof}});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                 {0U, {Prism::Fault::Code::Eof}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override

@@ -1,0 +1,50 @@
+set(PrismProtocolsCommonHeaders
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Address.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Authentication/ScopedMaterial.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/BindingLifetime.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramBinding.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramDeadline.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramFailure.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramObservation.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramOperationDeadline.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRelay.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRelayPump.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRelayState.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRetirement.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRetirementActions.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ExactIo.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Framing.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/IoBridge.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProtocolActivity.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderMuxRootState.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderSessionDrainAttempt.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderSessionResources.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderSessionRetirement.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/QuicBindingState.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/QuicPreparation.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Read.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/UuidCredentialSelection.hpp"
+)
+
+PrismAddStaticTarget(PrismProtocolsCommon
+    SOURCES
+        Address.cpp
+        BindingLifetime.cpp
+        DatagramBinding.cpp
+        DatagramDeadline.cpp
+        DatagramFailure.cpp
+        DatagramObservation.cpp
+        ExactIo.cpp
+        Framing.cpp
+        ProtocolActivity.cpp
+        ProviderMuxRootState.cpp
+        ProviderSessionDrainAttempt.cpp
+        ProviderSessionResources.cpp
+        QuicBindingState.cpp
+        QuicPreparation.cpp
+        Read.cpp
+        ScopedMaterial.cpp
+        UuidCredentialSelection.cpp
+    HEADERS
+        ${PrismProtocolsCommonHeaders}
+)

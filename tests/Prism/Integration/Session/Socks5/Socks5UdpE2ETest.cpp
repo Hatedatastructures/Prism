@@ -93,9 +93,9 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
+            .Factory = Socks5UdpSessionFactory{EchoPort, std::chrono::seconds(5), Recorder, {}},
             .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{1}),
-            .Factory = Socks5UdpSessionFactory{EchoPort, std::chrono::seconds(5), Recorder, {}}});
+                Prism::GenerationId{1})});
         bool RogueAccepted = false;
         bool ControlAccepted = false;
         RunCoro(IoContext, RunSocks5UdpPeerFlow(
@@ -142,9 +142,9 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
+            .Factory = Socks5UdpSessionFactory{0, std::chrono::seconds(5), Recorder, {}},
             .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{2}),
-            .Factory = Socks5UdpSessionFactory{0, std::chrono::seconds(5), Recorder, {}}});
+                Prism::GenerationId{2})});
         bool RequestSent = false;
         RunCoro(IoContext, RunSocks5UdpReplyFailureFlow(
             Socks5UdpReplyFailureFlow{IoContext, Listener, RequestSent}));
@@ -172,16 +172,16 @@ namespace
             co_return;
         }
         auto Raw = std::move(*Dialed);
-        auto [ErrorValue, Connection] = co_await Socks5::Connect({
+        auto ConnectResult = co_await Socks5::Connect({
             std::move(Raw), Socks5::ClientConfig{},
             Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
             Socks5::Command::UdpAssociate});
-        (void)ErrorValue;
-        if (!Connection)
+        if (!ConnectResult || !*ConnectResult)
         {
             co_await Flow.Listener.Shutdown();
             co_return;
         }
+        auto Connection = std::move(*ConnectResult);
         const auto Bind = Connection->BindEndpoint();
         const Udp::endpoint BindEndpoint(
             Net::ip::make_address(Bind.Host), Bind.Port);
@@ -226,16 +226,16 @@ namespace
             co_return;
         }
         auto Raw = std::move(*Dialed);
-        auto [ErrorValue, Connection] = co_await Socks5::Connect({
+        auto ConnectResult = co_await Socks5::Connect({
             std::move(Raw), Socks5::ClientConfig{},
             Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
             Socks5::Command::UdpAssociate});
-        (void)ErrorValue;
-        if (!Connection)
+        if (!ConnectResult || !*ConnectResult)
         {
             co_await Flow.Listener.Shutdown();
             co_return;
         }
+        auto Connection = std::move(*ConnectResult);
         const auto Bind = Connection->BindEndpoint();
         const Udp::endpoint BindEndpoint(
             Net::ip::make_address(Bind.Host), Bind.Port);
@@ -291,16 +291,16 @@ namespace
             co_return;
         }
         auto Raw = std::move(*Dialed);
-        auto [ErrorValue, Connection] = co_await Socks5::Connect({
+        auto ConnectResult = co_await Socks5::Connect({
             std::move(Raw), Socks5::ClientConfig{},
             Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
             Socks5::Command::UdpAssociate});
-        (void)ErrorValue;
-        if (!Connection)
+        if (!ConnectResult || !*ConnectResult)
         {
             co_await Flow.Listener.Shutdown();
             co_return;
         }
+        auto Connection = std::move(*ConnectResult);
         const auto Bind = Connection->BindEndpoint();
         const Udp::endpoint BindEndpoint(
             Net::ip::make_address(Bind.Host), Bind.Port);
@@ -396,17 +396,17 @@ namespace
         }
         auto Raw = std::move(*Dialed);
         *Flow.Watchdog->Connection = Raw;
-        auto [ErrorValue, Connection] = co_await Socks5::Connect({
+        auto ConnectResult = co_await Socks5::Connect({
             std::move(Raw), Socks5::ClientConfig{},
             Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
             Socks5::Command::UdpAssociate});
-        (void)ErrorValue;
-        if (!Connection)
+        if (!ConnectResult || !*ConnectResult)
         {
             Flow.Watchdog->Timer->cancel();
             co_await Flow.Listener.Shutdown();
             co_return;
         }
+        auto Connection = std::move(*ConnectResult);
         *Flow.Watchdog->Connection = Connection;
         const auto Bind = Connection->BindEndpoint();
         const Udp::endpoint BindEndpoint(
@@ -529,10 +529,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{3}),
             .Factory = Socks5UdpSessionFactory{
-                EchoPort, std::chrono::seconds(5), {}, {}}});
+                EchoPort, std::chrono::seconds(5), {}, {}},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{3})});
 
         std::string EchoAfterBadRequest;
         RunCoro(IoContext, RunSocks5UdpBadFrameFlow(
@@ -565,10 +565,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{4}),
             .Factory = Socks5UdpSessionFactory{
-                EchoPort, std::chrono::milliseconds(120), {}, {}}});
+                EchoPort, std::chrono::milliseconds(120), {}, {}},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{4})});
 
         bool TimeoutClosed = false;
         RunCoro(IoContext, RunSocks5UdpIdleFlow(
@@ -601,10 +601,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{5}),
             .Factory = Socks5UdpSessionFactory{
-                EchoPort, std::chrono::seconds(5), {}, {}}});
+                EchoPort, std::chrono::seconds(5), {}, {}},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{5})});
 
         bool Terminated = false;
         RunCoro(IoContext, RunSocks5UdpTcpCloseFlow(
@@ -632,9 +632,9 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
+            .Factory = Socks5UdpSessionFactory{0, IdleTimeout, {}, SilentResolver},
             .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{6}),
-            .Factory = Socks5UdpSessionFactory{0, IdleTimeout, {}, SilentResolver}});
+                Prism::GenerationId{6})});
 
         bool ClosedByIdle = false;
         bool WatchdogFired = false;

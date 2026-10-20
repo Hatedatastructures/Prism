@@ -33,19 +33,19 @@ namespace Prism::Experiments::Recognition
         /**
          * 从 IPv4 地址构造(写入前 4 字节,其余置零)
          */
-        [[nodiscard]] static auto FromV4(std::uint32_t Ip) noexcept 
+        [[nodiscard]] static auto FromV4(std::uint32_t Ip) noexcept
             -> AddressHash;
 
         /**
          * 从 IPv6 地址构造(取前 16 字节作为 key)
          */
-        [[nodiscard]] static auto FromV6(std::span<const std::byte, 16> addr) noexcept 
+        [[nodiscard]] static auto FromV6(std::span<const std::byte, 16> addr) noexcept
             -> AddressHash;
 
         /**
          * 从 boost::asio Endpoint 构造(IPv4/IPv6 自动判断)
          */
-        [[nodiscard]] static auto FromEndpoint(bool is_v6, std::uint8_t *AddrBytes, std::size_t addr_len) noexcept 
+        [[nodiscard]] static auto FromEndpoint(bool is_v6, std::uint8_t *AddrBytes, std::size_t addr_len) noexcept
             -> AddressHash;
     };
 
@@ -112,7 +112,7 @@ namespace Prism::Experiments::Recognition
          * @param src 来源地址哈希
          * @param tier 探测层级
          */
-        auto Record(const AddressHash &src, std::uint16_t tier) 
+        auto Record(const AddressHash &src, std::uint16_t tier)
             -> void;
 
         /**
@@ -120,7 +120,7 @@ namespace Prism::Experiments::Recognition
          * @param src 来源地址哈希
          * @return 连续失败次数
          */
-        [[nodiscard]] auto FailCount(const AddressHash &src) const noexcept 
+        [[nodiscard]] auto FailCount(const AddressHash &src) const noexcept
             -> std::uint16_t;
 
         /**
@@ -128,7 +128,7 @@ namespace Prism::Experiments::Recognition
          * @param src 来源地址哈希
          * @return 是否应触发挑战
          */
-        [[nodiscard]] auto ShouldChallenge(const AddressHash &src) const noexcept 
+        [[nodiscard]] auto ShouldChallenge(const AddressHash &src) const noexcept
             -> bool;
 
         /**
@@ -152,7 +152,7 @@ namespace Prism::Experiments::Recognition
 
 
 
-    inline auto AddressHash::FromV4(std::uint32_t Ip) noexcept 
+    inline auto AddressHash::FromV4(std::uint32_t Ip) noexcept
         -> AddressHash
     {
         AddressHash H{};
@@ -164,7 +164,7 @@ namespace Prism::Experiments::Recognition
         return H;
     }
 
-    inline auto AddressHash::FromV6(std::span<const std::byte, 16> addr) noexcept 
+    inline auto AddressHash::FromV6(std::span<const std::byte, 16> addr) noexcept
         -> AddressHash
     {
         AddressHash H{};
@@ -172,7 +172,7 @@ namespace Prism::Experiments::Recognition
         return H;
     }
 
-    inline auto AddressHash::FromEndpoint(bool is_v6, std::uint8_t *AddrBytes, std::size_t addr_len) noexcept 
+    inline auto AddressHash::FromEndpoint(bool is_v6, std::uint8_t *AddrBytes, std::size_t addr_len) noexcept
         -> AddressHash
     {
         if (is_v6 && addr_len >= 16)
@@ -251,7 +251,7 @@ namespace Prism::Experiments::Recognition
         }
     }
 
-    inline auto ProbeDefenseTracker::FailCount(const AddressHash &src) const noexcept 
+    inline auto ProbeDefenseTracker::FailCount(const AddressHash &src) const noexcept
         -> std::uint16_t
     {
         Expire();

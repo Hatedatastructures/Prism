@@ -11,7 +11,7 @@ TEST(PrismTask3Generation, RequiresFrozenSnapshotForConfiguredBuiltins)
             std::string(ValidJson), "\"Builtins\": [],",
             "\"Builtins\": [{\"Id\":\"builtin-no-snapshot\",\"Kind\":\"protocol\","
             "\"Name\":\"core-only\",\"Requires\":[],\"Provides\":[]}],");
-        const auto Parsed = Parser::ParseJson(Json);
+        const auto Parsed = ConfigurationParser::ParseJson(Json);
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 
         GenerationBuildOptions Options;
@@ -152,7 +152,7 @@ TEST(PrismTask3Generation, RequiresFrozenSnapshotForConfiguredProtocol)
 
 TEST(PrismTask3Generation, RejectsUnknownCarrierBuiltinAgainstFrozenSnapshot)
     {
-        const auto Parsed = Parser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
+        const auto Parsed = ConfigurationParser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 
         GenerationBuildOptions Options;
@@ -168,7 +168,7 @@ TEST(PrismTask3Generation, RejectsUnknownCarrierBuiltinAgainstFrozenSnapshot)
 
 TEST(PrismTask3Generation, RejectsCarrierBuiltinRegisteredUnderProtocolKind)
     {
-        const auto Parsed = Parser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
+        const auto Parsed = ConfigurationParser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 
         GenerationBuildOptions Options;
@@ -185,7 +185,7 @@ TEST(PrismTask3Generation, RejectsCarrierBuiltinRegisteredUnderProtocolKind)
 
 TEST(PrismTask3Generation, RequiresFrozenSnapshotForConfiguredCarrier)
     {
-        const auto Parsed = Parser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
+        const auto Parsed = ConfigurationParser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 
         GenerationBuildOptions Options;
@@ -338,7 +338,7 @@ TEST(PrismTask3Generation, ResolvesShadowsocks2022AliasToSs2022)
 
 TEST(PrismTask3Generation, ResolvesCarrierFromFrozenSnapshot)
     {
-        const auto Parsed = Parser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
+        const auto Parsed = ConfigurationParser::ParseJson(MakeConfigurationJson({}, NativeCarrier, {}));
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 
         GenerationBuildOptions Options;

@@ -33,9 +33,9 @@
 
 #include <Prism/Protocols/Mux/Session.hpp>
 #include <Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
-#include <Prism/Protocols/Mux/Smux/Detail/Wire/Types.hpp>
+#include <Prism/Protocols/Mux/Smux/Types.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Transmission.hpp>
 
 namespace
 {
@@ -85,7 +85,7 @@ namespace
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Ex_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
@@ -129,7 +129,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->ReadPartial(), Net::deferred);
                 co_return std::tuple{Result};
@@ -140,7 +140,7 @@ namespace
             template <class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 try
                 {
                     const auto Result = co_await Net::co_spawn(Input.Owner->Executor(),
@@ -221,7 +221,7 @@ namespace
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Ex_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
@@ -268,7 +268,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->ReadPartial(), Net::deferred);
                 co_return std::tuple{Result};
@@ -279,7 +279,7 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};
@@ -657,7 +657,7 @@ namespace
         Net::io_context Ioc;
         auto Transport = std::make_shared<BlockingWriteTransport>(Ioc.get_executor());
         Prism::Mux::SessionOptions Options{};
-        Options.MaxPendingWriteBytes = Prism::Mux::Smux::Detail::FrameHdrsize + 2;
+        Options.MaxPendingWriteBytes = Prism::Mux::Smux::FrameHdrsize + 2;
         auto Session = PrismSession::Create(Transport, Options);
         auto FirstDone = std::make_shared<ErrorChannel>(Ioc.get_executor(), 1);
         Prism::ProtocolEc FirstResult;

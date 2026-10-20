@@ -110,9 +110,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
                 .Executor = Ioc.get_executor(),
+                .Factory = VlessSessionFactory{
+                    ChainState, Vless::ServerConfig{TestUuid()}},
                 .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                    Prism::GenerationId{1}),
-                .Factory = VlessSessionFactory{ChainState, Vless::ServerConfig{TestUuid()}}});
+                    Prism::GenerationId{1})});
 
         bool SawClose = false;
         Prism::Testing::RunCoro(Ioc, RunVlessUpstreamAbortFlow(

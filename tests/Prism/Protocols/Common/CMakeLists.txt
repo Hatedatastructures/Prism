@@ -5,9 +5,11 @@ AddPrismTest(CommonAddressTest.cpp)
 target_link_libraries(CommonAddressTest PRIVATE PrismFoundation PrismProtocolsCommon PrismTestSupport)
 target_compile_options(CommonAddressTest PRIVATE -O0 -fno-inline)
 AddPrismTest(CommonReadTest.cpp)
-target_link_libraries(CommonReadTest PRIVATE PrismFoundation PrismProtocolsCommon PrismTestSupport)
+target_link_libraries(CommonReadTest PRIVATE
+    PrismFoundation PrismProtocolsCommon PrismIngressContract PrismTransport PrismTestSupport)
 target_compile_options(CommonReadTest PRIVATE -O0 -fno-inline)
 AddPrismTest(ProviderMuxRootStateTest.cpp)
 target_link_libraries(ProviderMuxRootStateTest PRIVATE PrismFoundation PrismProtocolsCommon PrismTestSupport)
 AddPrismTest(DatagramRelayCloseTest.cpp)
-target_link_libraries(DatagramRelayCloseTest PRIVATE PrismFoundation PrismProtocolsCommon PrismTestSupport)
+target_link_libraries(DatagramRelayCloseTest PRIVATE
+    PrismFoundation PrismNetworkModel PrismProtocolsCommon PrismTestSupport)

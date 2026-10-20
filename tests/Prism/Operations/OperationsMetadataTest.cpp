@@ -9,16 +9,22 @@
 #include <Prism/Application/OperationsEventProducer.hpp>
 #include <Prism/Application/OperationsMetrics.hpp>
 #include <Prism/Application/OperationsReload.hpp>
-#include <Prism/Application/Reload/ConfigurationDifference.hpp>
+#include <Prism/Application/Reload/RestartPolicy.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Operations/HttpRequest.hpp>
+#include <Prism/Operations/ManagementModels.hpp>
 #include <Prism/Operations/Metrics.hpp>
+#include <Prism/Operations/Routes/BootstrapJson.hpp>
+#include <Prism/Operations/Routes/HttpJson.hpp>
 #include <Prism/Operations/Routes/RouteDispatch.hpp>
-#include <Prism/Runtime/Session/RecognitionLatencyScope.hpp>
+#include <Prism/Runtime/Session.hpp>
 #include <Prism/Statistics/Statistics.hpp>
 
 #include <atomic>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,6 +47,148 @@ namespace
         std::optional<Prism::Foundation::RecognitionLatencySample> Sample{};
         std::size_t Count{0};
     };
+
+    /** @brief 构造用于验证敏感配置值脱敏的公开配置 JSON。 */
+    [[nodiscard]] auto MakePublicConfigurationJson()
+        -> std::expected<std::string, Prism::Fault::Failure>
+    {
+        Prism::Application::Configuration::PrismConfiguration Configuration;
+        Configuration.Secrets.emplace("global", "global-secret-value");
+        Prism::Application::Configuration::AccountConfiguration Account;
+        Account.Id = "alice";
+        Account.SecretRef = "secret://alice";
+        Account.Credential = "account-secret-value";
+        Account.Credentials.emplace("Vless", "protocol-secret-value");
+        Configuration.Accounts.push_back(std::move(Account));
+        Prism::Contract::ProtocolConfiguration Protocol;
+        Protocol.Id = "quic";
+        Protocol.Quic = Prism::Contract::ProtocolConfiguration::QuicOptions{};
+        Protocol.Quic->CredentialSecretRef = "secret://quic";
+        Protocol.Quic->Uuid = "quic-secret-value";
+        Configuration.Protocols.push_back(std::move(Protocol));
+        return Prism::Application::OperationsConfiguration::SerializePublicConfiguration(Configuration);
+    }
+
+    /** @brief 将公开配置装入带代次与热重载标记的查询 JSON。 */
+    [[nodiscard]] auto MakeConfigurationSnapshotJson(const std::string &Json)
+        -> std::optional<std::string>
+    {
+        Prism::Operations::ConfigurationSnapshot Value;
+        Value.Generation = Prism::GenerationId{21};
+        Value.Reloadable = true;
+        Value.Json = Json;
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Configuration(
+                Prism::RequestId{1}, std::move(Value)), true);
+    }
+
+    /** @brief 构造空历史下仍带计数与识别延迟指标的查询 JSON。 */
+    [[nodiscard]] auto MakeEmptyMetricsJson() -> std::optional<std::string>
+    {
+        Prism::Operations::MetricsSnapshot Metrics;
+        Metrics.Process = Prism::ProcessId{12};
+        Metrics.Generation = Prism::GenerationId{21};
+        Metrics.AcceptedObservations = 4U;
+        Metrics.ConsumedObservations = 3U;
+        Metrics.DroppedObservations = 1U;
+        Metrics.AggregationFailures = 2U;
+        Metrics.RecognitionLatencyQueueDrops = 1U;
+        Metrics.RecognitionLatencyAggregationFailures = 1U;
+        Metrics.RecognitionLatency.Generation = Metrics.Generation;
+        Metrics.SampleIntervalMilliseconds = 1000U;
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Metrics(
+                Prism::RequestId{6}, std::move(Metrics)), true);
+    }
+
+    /** @brief 构造包含历史与识别延迟样本的指标查询 JSON。 */
+    [[nodiscard]] auto MakeSampledMetricsJson() -> std::optional<std::string>
+    {
+        Prism::Operations::MetricsSnapshot Metrics;
+        Metrics.Generation = Prism::GenerationId{21};
+        Metrics.History.push_back({
+            1234U, Prism::Statistics::TrafficValue{10U, 20U, 2U, 1U}});
+        Metrics.RecognitionLatency.Generation = Metrics.Generation;
+        Metrics.RecognitionLatency.SampleCount = 3U;
+        Metrics.RecognitionLatency.TracerWrittenCount = 3U;
+        Metrics.RecognitionLatency.HistogramRangeExceeded = 1U;
+        Metrics.RecognitionLatency.RecentMicroseconds = {300'000'001U, 49U, 52U};
+        Metrics.RecognitionLatency.RecentCount = 3U;
+        Metrics.RecognitionLatency.P50BucketLowerBoundMicroseconds = 32U;
+        Metrics.RecognitionLatency.P95BucketLowerBoundMicroseconds = 134'217'728U;
+        Metrics.RecognitionLatency.P99BucketLowerBoundMicroseconds = 134'217'728U;
+        Metrics.RecognitionLatency.MaximumObservedMicroseconds = 300'000'001U;
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Metrics(
+                Prism::RequestId{7}, std::move(Metrics)), true);
+    }
+
+    /** @brief 构造空流量字段的 worker 查询 JSON。 */
+    [[nodiscard]] auto MakeWorkerJson() -> std::optional<std::string>
+    {
+        Prism::Operations::Page<Prism::Operations::WorkerSnapshot> Workers;
+        Workers.Items.push_back(Prism::Operations::WorkerSnapshot{});
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Workers(Prism::RequestId{8}, std::move(Workers)), true);
+    }
+
+    /** @brief 构造撤销账户与空流量字段的账户查询 JSON。 */
+    [[nodiscard]] auto MakeAccountJson() -> std::optional<std::string>
+    {
+        Prism::Operations::Page<Prism::Operations::AccountSnapshot> Accounts;
+        Prism::Operations::AccountSnapshot Account;
+        Account.Id = Prism::AccountId{7};
+        Account.Generation = Prism::GenerationId{21};
+        Account.Revoked = true;
+        Accounts.Items.push_back(Account);
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Accounts(
+                Prism::RequestId{2}, std::move(Accounts)), true);
+    }
+
+    /** @brief 构造含活动任务数和空值记录的 session 查询 JSON。 */
+    [[nodiscard]] auto MakeSessionJson() -> std::optional<std::string>
+    {
+        Prism::Operations::Page<Prism::Operations::SessionSnapshot> Sessions;
+        Prism::Operations::SessionSnapshot Session;
+        Session.ActiveTasks = 3U;
+        Sessions.Items.push_back(Session);
+        Sessions.Items.push_back(Prism::Operations::SessionSnapshot{});
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Sessions(
+                Prism::RequestId{3}, std::move(Sessions)), true);
+    }
+
+    /** @brief 构造可取消 task 的查询 JSON。 */
+    [[nodiscard]] auto MakeTaskJson() -> std::optional<std::string>
+    {
+        Prism::Operations::Page<Prism::Operations::TaskSnapshot> Tasks;
+        Prism::Operations::TaskSnapshot Task;
+        Task.Id = Prism::TaskId{9};
+        Task.Cancellable = true;
+        Tasks.Items.push_back(Task);
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Tasks(
+                Prism::RequestId{4}, std::move(Tasks)), true);
+    }
+
+    /** @brief 构造包含普通与终态事件的事件查询 JSON。 */
+    [[nodiscard]] auto MakeEventJson() -> std::optional<std::string>
+    {
+        Prism::Statistics::EventPage Events;
+        Prism::Statistics::DetailedEvent Event;
+        Event.Kind = Prism::Statistics::EventKind::GenerationReloaded;
+        Event.Severity = Prism::Statistics::EventSeverity::Info;
+        Events.Items.push_back(Event);
+        Prism::Statistics::DetailedEvent FailureEvent;
+        FailureEvent.Kind = Prism::Statistics::EventKind::Failed;
+        FailureEvent.Severity = Prism::Statistics::EventSeverity::Error;
+        FailureEvent.Terminal = true;
+        Events.Items.push_back(FailureEvent);
+        return Prism::Operations::HttpDetail::SerializeQuery(
+            Prism::Operations::QueryResult::Events(
+                Prism::RequestId{5}, std::move(Events)), true);
+    }
 }
 
 TEST(OperationsMetadataRoutes, ConfigurationAndChildListsRequireTypedScope)
@@ -117,31 +265,23 @@ TEST(OperationsMetadataRoutes, ConfigurationAndChildListsRequireTypedScope)
     EXPECT_EQ(UnscopedRoute.error().Message, "parent_identity_required");
 
     Request.Target = "/Operations/Events?severity=warning";
-    const auto UnsupportedSeverityRoute =
+    const auto WarningSeverityRoute =
         Prism::Operations::RouteDispatch::BuildRoute(Request, NextCorrelation);
-    ASSERT_FALSE(UnsupportedSeverityRoute.has_value());
-    EXPECT_EQ(UnsupportedSeverityRoute.error().Status, 400);
+    ASSERT_TRUE(WarningSeverityRoute.has_value());
+    const auto *WarningQuery = std::get_if<Prism::Operations::Query>(&*WarningSeverityRoute);
+    ASSERT_NE(WarningQuery, nullptr);
+    const auto *ManagementQuery =
+        std::get_if<Prism::Operations::ManagementQuery>(&WarningQuery->Value);
+    ASSERT_NE(ManagementQuery, nullptr);
+    const auto *Events = std::get_if<Prism::Operations::EventsRead>(&ManagementQuery->Value);
+    ASSERT_NE(Events, nullptr);
+    ASSERT_TRUE(Events->Severity.has_value());
+    EXPECT_EQ(*Events->Severity, Prism::Statistics::EventSeverity::Warning);
 }
 
 TEST(OperationsMetadataJson, OmitsSecretValuesAndReportsRealOwnerFacts)
 {
-    Prism::Application::Configuration::PrismConfiguration Configuration;
-    Configuration.Secrets.emplace("global", "global-secret-value");
-    Prism::Application::Configuration::AccountConfiguration Account;
-    Account.Id = "alice";
-    Account.SecretRef = "secret://alice";
-    Account.Credential = "account-secret-value";
-    Account.Credentials.emplace("Vless", "protocol-secret-value");
-    Configuration.Accounts.push_back(std::move(Account));
-    Prism::Contract::ProtocolConfiguration Protocol;
-    Protocol.Id = "quic";
-    Protocol.Quic = Prism::Contract::ProtocolConfiguration::QuicOptions{};
-    Protocol.Quic->CredentialSecretRef = "secret://quic";
-    Protocol.Quic->Uuid = "quic-secret-value";
-    Configuration.Protocols.push_back(std::move(Protocol));
-
-    const auto PublicJson =
-        Prism::Application::OperationsConfiguration::SerializePublicConfiguration(Configuration);
+    const auto PublicJson = MakePublicConfigurationJson();
     ASSERT_TRUE(PublicJson.has_value());
     EXPECT_NE(PublicJson->find("secret://alice"), std::string::npos);
     EXPECT_NE(PublicJson->find("secret://quic"), std::string::npos);
@@ -151,31 +291,12 @@ TEST(OperationsMetadataJson, OmitsSecretValuesAndReportsRealOwnerFacts)
     EXPECT_EQ(PublicJson->find("quic-secret-value"), std::string::npos);
     EXPECT_EQ(PublicJson->find("Credential\""), std::string::npos);
 
-    Prism::Operations::ConfigurationSnapshot ConfigurationValue;
-    ConfigurationValue.Generation = Prism::GenerationId{21};
-    ConfigurationValue.Reloadable = true;
-    ConfigurationValue.Json = *PublicJson;
-    const auto ConfigurationJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Configuration(
-            Prism::RequestId{1}, std::move(ConfigurationValue)), true);
+    const auto ConfigurationJson = MakeConfigurationSnapshotJson(*PublicJson);
     ASSERT_TRUE(ConfigurationJson.has_value());
     EXPECT_NE(ConfigurationJson->find("\"generation\":\"21\""), std::string::npos);
     EXPECT_NE(ConfigurationJson->find("\"reloadable\":true"), std::string::npos);
 
-    Prism::Operations::MetricsSnapshot EmptyMetrics;
-    EmptyMetrics.Process = Prism::ProcessId{12};
-    EmptyMetrics.Generation = Prism::GenerationId{21};
-    EmptyMetrics.AcceptedObservations = 4U;
-    EmptyMetrics.ConsumedObservations = 3U;
-    EmptyMetrics.DroppedObservations = 1U;
-    EmptyMetrics.AggregationFailures = 2U;
-    EmptyMetrics.RecognitionLatencyQueueDrops = 1U;
-    EmptyMetrics.RecognitionLatencyAggregationFailures = 1U;
-    EmptyMetrics.RecognitionLatency.Generation = EmptyMetrics.Generation;
-    EmptyMetrics.SampleIntervalMilliseconds = 1000U;
-    const auto EmptyMetricsJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Metrics(
-            Prism::RequestId{6}, std::move(EmptyMetrics)), true);
+    const auto EmptyMetricsJson = MakeEmptyMetricsJson();
     ASSERT_TRUE(EmptyMetricsJson.has_value());
     EXPECT_NE(EmptyMetricsJson->find(R"METRIC("accepted":"4")METRIC"), std::string::npos);
     EXPECT_NE(EmptyMetricsJson->find(R"METRIC("consumed":"3")METRIC"), std::string::npos);
@@ -200,26 +321,11 @@ TEST(OperationsMetadataJson, OmitsSecretValuesAndReportsRealOwnerFacts)
     EXPECT_NE(EmptyMetricsJson->find(R"METRIC("max_observed_us":null)METRIC"),
         std::string::npos);
 
-    Prism::Operations::MetricsSnapshot SampledMetrics;
-    SampledMetrics.Generation = Prism::GenerationId{21};
-    SampledMetrics.History.push_back({
-        1234U, Prism::Statistics::TrafficValue{10U, 20U, 2U, 1U}});
-    SampledMetrics.RecognitionLatency.Generation = SampledMetrics.Generation;
-    SampledMetrics.RecognitionLatency.SampleCount = 3U;
-    SampledMetrics.RecognitionLatency.TracerWrittenCount = 3U;
-    SampledMetrics.RecognitionLatency.HistogramRangeExceeded = 1U;
-    SampledMetrics.RecognitionLatency.RecentMicroseconds = {300'000'001U, 49U, 52U};
-    SampledMetrics.RecognitionLatency.RecentCount = 3U;
-    SampledMetrics.RecognitionLatency.P50BucketLowerBoundMicroseconds = 32U;
-    SampledMetrics.RecognitionLatency.P95BucketLowerBoundMicroseconds = 134'217'728U;
-    SampledMetrics.RecognitionLatency.P99BucketLowerBoundMicroseconds = 134'217'728U;
-    SampledMetrics.RecognitionLatency.MaximumObservedMicroseconds = 300'000'001U;
-    const auto SampledMetricsJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Metrics(
-            Prism::RequestId{7}, std::move(SampledMetrics)), true);
+    const auto SampledMetricsJson = MakeSampledMetricsJson();
     ASSERT_TRUE(SampledMetricsJson.has_value());
     EXPECT_NE(SampledMetricsJson->find(R"METRIC("history_ready":true)METRIC"), std::string::npos);
-    EXPECT_NE(SampledMetricsJson->find(R"METRIC("timestamp":"1234")METRIC"), std::string::npos);
+    EXPECT_NE(SampledMetricsJson->find(
+        R"METRIC("timestamp":"1970-01-01T00:00:01.234Z")METRIC"), std::string::npos);
     EXPECT_NE(SampledMetricsJson->find(R"METRIC("generation":"21")METRIC"), std::string::npos);
     EXPECT_NE(SampledMetricsJson->find(R"METRIC("ready":true)METRIC"), std::string::npos);
     EXPECT_NE(SampledMetricsJson->find(R"METRIC("sample_count":"3")METRIC"), std::string::npos);
@@ -236,68 +342,31 @@ TEST(OperationsMetadataJson, OmitsSecretValuesAndReportsRealOwnerFacts)
     EXPECT_NE(SampledMetricsJson->find(R"METRIC("max_observed_us":"300000001")METRIC"),
         std::string::npos);
 
-    Prism::Operations::Page<Prism::Operations::WorkerSnapshot> Workers;
-    Workers.Items.push_back(Prism::Operations::WorkerSnapshot{});
-    const auto WorkerJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Workers(Prism::RequestId{8}, std::move(Workers)), true);
+    const auto WorkerJson = MakeWorkerJson();
     ASSERT_TRUE(WorkerJson.has_value());
     EXPECT_NE(WorkerJson->find(R"METRIC("traffic":null)METRIC"), std::string::npos);
 
-    Prism::Operations::Page<Prism::Operations::AccountSnapshot> Accounts;
-    Prism::Operations::AccountSnapshot AccountValue;
-    AccountValue.Id = Prism::AccountId{7};
-    AccountValue.Generation = Prism::GenerationId{21};
-    AccountValue.Revoked = true;
-    Accounts.Items.push_back(AccountValue);
-    const auto AccountJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Accounts(
-            Prism::RequestId{2}, std::move(Accounts)), true);
+    const auto AccountJson = MakeAccountJson();
     ASSERT_TRUE(AccountJson.has_value());
     EXPECT_NE(AccountJson->find("\"revoked\":true"), std::string::npos);
     EXPECT_NE(AccountJson->find(R"METRIC("traffic":null)METRIC"), std::string::npos);
     EXPECT_EQ(AccountJson->find("\"enabled\":"), std::string::npos);
 
-    Prism::Operations::Page<Prism::Operations::SessionSnapshot> Sessions;
-    Prism::Operations::SessionSnapshot SessionValue;
-    SessionValue.ActiveTasks = 3U;
-    Sessions.Items.push_back(SessionValue);
-    Sessions.Items.push_back(Prism::Operations::SessionSnapshot{});
-    const auto SessionJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Sessions(
-            Prism::RequestId{3}, std::move(Sessions)), true);
+    const auto SessionJson = MakeSessionJson();
     ASSERT_TRUE(SessionJson.has_value());
-    EXPECT_NE(SessionJson->find("\"active_tasks\":3"), std::string::npos);
+    EXPECT_NE(SessionJson->find("\"active_tasks\":\"3\""), std::string::npos);
     EXPECT_NE(SessionJson->find("\"active_tasks\":null"), std::string::npos);
     EXPECT_NE(SessionJson->find(R"METRIC("traffic":null)METRIC"), std::string::npos);
 
-    Prism::Operations::Page<Prism::Operations::TaskSnapshot> Tasks;
-    Prism::Operations::TaskSnapshot TaskValue;
-    TaskValue.Id = Prism::TaskId{9};
-    TaskValue.Cancellable = true;
-    Tasks.Items.push_back(TaskValue);
-    const auto TaskJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Tasks(
-            Prism::RequestId{4}, std::move(Tasks)), true);
+    const auto TaskJson = MakeTaskJson();
     ASSERT_TRUE(TaskJson.has_value());
     EXPECT_NE(TaskJson->find("\"cancellable\":true"), std::string::npos);
 
-    Prism::Statistics::EventPage Events;
-    Prism::Statistics::DetailedEvent Event;
-    Event.Kind = Prism::Statistics::EventKind::GenerationReloaded;
-    Event.Severity = Prism::Statistics::EventSeverity::Info;
-    Events.Items.push_back(Event);
-    Prism::Statistics::DetailedEvent FailureEvent;
-    FailureEvent.Kind = Prism::Statistics::EventKind::Failed;
-    FailureEvent.Severity = Prism::Statistics::EventSeverity::Error;
-    FailureEvent.Terminal = true;
-    Events.Items.push_back(FailureEvent);
-    const auto EventJson = Prism::Operations::HttpDetail::SerializeQuery(
-        Prism::Operations::QueryResult::Events(
-            Prism::RequestId{5}, std::move(Events)), true);
+    const auto EventJson = MakeEventJson();
     ASSERT_TRUE(EventJson.has_value());
     EXPECT_NE(EventJson->find(R"METRIC("severity":"info")METRIC"), std::string::npos);
     EXPECT_NE(EventJson->find(R"METRIC("severity":"error")METRIC"), std::string::npos);
-    EXPECT_NE(EventJson->find(R"METRIC("severity_filter_supported":false)METRIC"), std::string::npos);
+    EXPECT_NE(EventJson->find(R"METRIC("severity_filter_supported":true)METRIC"), std::string::npos);
 }
 
 TEST(OperationsMetadataBootstrap, AdvertisesImplementedReadAndCommandRoutes)
@@ -308,7 +377,7 @@ TEST(OperationsMetadataBootstrap, AdvertisesImplementedReadAndCommandRoutes)
 
     const auto Json = Prism::Operations::HttpDetail::SerializeBootstrap(Bootstrap);
     ASSERT_TRUE(Json.has_value());
-    EXPECT_NE(Json->find("\"api_version\":\"1\""), std::string::npos);
+    EXPECT_NE(Json->find("\"api_version\":\"2\""), std::string::npos);
     EXPECT_NE(Json->find("\"configuration.read\""), std::string::npos);
     EXPECT_NE(Json->find("\"configuration.reload.validate\""), std::string::npos);
     EXPECT_NE(Json->find("\"configuration.reload.apply\""), std::string::npos);
@@ -427,21 +496,21 @@ TEST(OperationsMetadataReload, StatisticsEnabledIsProcessScopedButIntervalRemain
     Current.Statistics.Enabled = false;
     auto Candidate = Current;
     Candidate.Statistics.Enabled = true;
-    EXPECT_EQ(Prism::Application::Reload::ConfigurationDifference::RestartRequiredFields(
+    EXPECT_EQ(Prism::Application::Reload::RestartPolicy::RestartRequiredFields(
         {Current, Candidate}), (std::vector<std::string>{"Statistics.Enabled"}));
 
     Candidate = Current;
     ++Candidate.Statistics.Interval;
-    EXPECT_TRUE(Prism::Application::Reload::ConfigurationDifference::RestartRequiredFields(
+    EXPECT_TRUE(Prism::Application::Reload::RestartPolicy::RestartRequiredFields(
         {Current, Candidate}).empty());
 
     Current.Statistics.Enabled = true;
     Candidate = Current;
     Candidate.Statistics.Enabled = false;
-    EXPECT_EQ(Prism::Application::Reload::ConfigurationDifference::RestartRequiredFields(
+    EXPECT_EQ(Prism::Application::Reload::RestartPolicy::RestartRequiredFields(
         {Current, Candidate}), (std::vector<std::string>{"Statistics.Enabled"}));
     Candidate = Current;
     Candidate.Logging.Level = "debug";
-    EXPECT_TRUE(Prism::Application::Reload::ConfigurationDifference::RestartRequiredFields(
+    EXPECT_TRUE(Prism::Application::Reload::RestartPolicy::RestartRequiredFields(
         {Current, Candidate}).empty());
 }

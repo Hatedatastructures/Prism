@@ -1,11 +1,25 @@
 # shadowtls 子模块
 AddPrismTest(ShadowtlsCarrierTest.cpp)
-target_link_libraries(ShadowtlsCarrierTest PRIVATE PrismFoundation PrismTransport PrismProtocolShadowtls)
+target_include_directories(ShadowtlsCarrierTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ShadowtlsCarrierTest PRIVATE
+    PrismFoundation PrismIoContracts PrismTransport PrismComposition PrismProtocolShadowtls)
 AddPrismTest(ShadowtlsConnSession.cpp)
-target_link_libraries(ShadowtlsConnSession PRIVATE PrismTransport PrismProtocolShadowtls PrismTestSupport)
+target_include_directories(ShadowtlsConnSession PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ShadowtlsConnSession PRIVATE PrismFoundation PrismTransport PrismProtocolShadowtls)
+
+AddPrismTest(ShadowtlsRecordTerminalTest.cpp)
+target_include_directories(ShadowtlsRecordTerminalTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ShadowtlsRecordTerminalTest PRIVATE
+    PrismFoundation PrismIoContracts PrismTransport PrismProtocolShadowtls OpenSSL::Crypto)
 
 AddPrismTest(ShadowtlsCodecDeep.cpp)
-target_link_libraries(ShadowtlsCodecDeep PRIVATE PrismProtocolShadowtls PrismTestSupport)
+target_include_directories(ShadowtlsCodecDeep PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ShadowtlsCodecDeep PRIVATE PrismProtocolShadowtls)
 
 AddPrismTest(ShadowtlsRelay.cpp)
-target_link_libraries(ShadowtlsRelay PRIVATE PrismProtocolShadowtls PrismTransport PrismTestSupport)
+target_include_directories(ShadowtlsRelay PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ShadowtlsRelay PRIVATE PrismProtocolShadowtls PrismTransport)
+
+AddPrismTest(ShadowtlsSessionIdTest.cpp)
+target_include_directories(ShadowtlsSessionIdTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ShadowtlsSessionIdTest PRIVATE PrismProtocolShadowtls)

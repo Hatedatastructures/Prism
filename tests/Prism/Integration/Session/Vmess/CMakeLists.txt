@@ -4,7 +4,9 @@ target_sources(VMessE2ETest PRIVATE
     VMessTrafficIdentityE2ETest.cpp
     VMessTcpE2ETestSupport.hpp)
 target_link_libraries(VMessE2ETest PRIVATE
-    PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismProtocolVmess PrismTestSupport)
+    PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismProtocolAnytls
+    PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess PrismTestSupport)
 AddPrismTest(VMessUdpE2ETest.cpp)
 target_link_libraries(VMessUdpE2ETest PRIVATE
-    PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismProtocolVmess PrismTestSupport)
+    PrismFoundation PrismTransport PrismNet PrismRuntime PrismComposition PrismDatagramContract
+    PrismProtocolAnytls PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess PrismTestSupport)

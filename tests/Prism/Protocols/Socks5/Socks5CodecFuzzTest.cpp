@@ -9,7 +9,12 @@
 #include <random>
 #include <span>
 #include <vector>
-#include <Prism/Protocols/Socks5/Codec.hpp>
+#include <Prism/Protocols/Socks5/AddressCodec.hpp>
+#include <Prism/Protocols/Socks5/AuthCodec.hpp>
+#include <Prism/Protocols/Socks5/BeastCodec.hpp>
+#include <Prism/Protocols/Socks5/MessageCodec.hpp>
+#include <Prism/Protocols/Socks5/TransportCodec.hpp>
+#include <Prism/Protocols/Socks5/Types.hpp>
 
 namespace
 {

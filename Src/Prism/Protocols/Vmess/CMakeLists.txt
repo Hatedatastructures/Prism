@@ -1,0 +1,34 @@
+PrismAddStaticTarget(PrismProtocolVmess
+    SOURCES
+        AuthCodec.cpp
+        ChunkCodec.cpp
+        Detail/Target.cpp
+        RequestCodec.cpp
+        ResponseCodec.cpp
+        Binding.cpp
+        Vmess.cpp
+        IngressFactory.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/AuthCrypto.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/AuthHeader.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/AuthId.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/AuthKdf.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Binding.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ChunkCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ChunkMask.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Conn.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnChunk.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnHandshake.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnIo.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Credentials.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/DatagramSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Dgram.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/IngressFactory.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/RequestCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ResponseCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Types.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Vmess.hpp
+    PRIVATE_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Target.hpp
+)

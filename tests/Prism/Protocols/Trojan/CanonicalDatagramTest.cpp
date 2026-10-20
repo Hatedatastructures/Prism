@@ -1,10 +1,12 @@
 /** @file CanonicalDatagramTest.cpp @brief 真实协议数据报 owner 的配置与生命周期回归。 */
 #include <gtest/gtest.h>
 #include <Prism/Net/Dns/Resolver.hpp>
+#include <Prism/Net/HostText.hpp>
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <Prism/Protocols/Trojan/DatagramSession.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include "TrojanDatagramTestSupport.hpp"
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
@@ -55,19 +57,19 @@ namespace
 
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), {0, {Fault::Code::Eof}});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), {0, {Fault::Code::Canceled}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override

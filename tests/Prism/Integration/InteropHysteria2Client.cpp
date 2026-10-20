@@ -5,14 +5,20 @@
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/ip/udp.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
+
+#include <openssl/ssl.h>
 
 #include <array>
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -26,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Protocols/Http3/NativeClient.hpp>
 #include <Prism/Protocols/Hysteria2/Hysteria2.hpp>
 #include <Prism/Protocols/Quic/Native.hpp>
@@ -34,6 +41,7 @@ namespace
 {
 
     namespace Net = boost::asio;
+    using Net::experimental::awaitable_operators::operator||;
     namespace Ssl = Net::ssl;
     using Udp = Net::ip::udp;
 
@@ -223,11 +231,16 @@ namespace
         {
             std::error_code Error;
             const auto Written = co_await Provider->Write(Data.subspan(Offset), Error);
-            if (Error || Written == 0 || Written > Data.size() - Offset)
+            const auto Remaining = Data.size() - Offset;
+            if (Written > Remaining)
             {
                 co_return false;
             }
             Offset += Written;
+            if (Error || Written == 0)
+            {
+                co_return false;
+            }
         }
         co_return true;
     }
@@ -248,6 +261,75 @@ namespace
         bool RequireUdp;
     };
 
+    auto ReportQuicHealth(const char *Stage, const std::shared_ptr<Prism::Quic::Client> &Connection) -> void
+    {
+        if (!Connection)
+        {
+            std::fprintf(stderr, "FAIL: Hysteria2 %s quic_connection=null\n", Stage);
+            return;
+        }
+        const auto Health = Connection->Health();
+        std::fprintf(stderr,
+            "FAIL: Hysteria2 %s quic socket_ready=%d receive_loop_ready=%d handshake_ready=%d "
+            "protocol_ready=%d closed=%d bounded_failure=%d dropped_datagrams=%llu\n",
+            Stage,
+            Health.SocketReady ? 1 : 0,
+            Health.ReceiveLoopReady ? 1 : 0,
+            Health.HandshakeReady ? 1 : 0,
+            Health.ProtocolReady ? 1 : 0,
+            Health.Closed ? 1 : 0,
+            Health.BoundedFailure ? 1 : 0,
+            static_cast<unsigned long long>(Health.DroppedDatagrams));
+    }
+
+    using AuthResponseResult =
+        std::expected<Prism::Http3::ResponseHead, Prism::Fault::Failure>;
+
+    auto CaptureAuthResult(
+        Net::awaitable<AuthResponseResult> Operation,
+        std::optional<AuthResponseResult> &Response,
+        std::exception_ptr &Exception) -> Net::awaitable<void>
+    {
+        try
+        {
+            Response.emplace(co_await std::move(Operation));
+        }
+        catch (...)
+        {
+            Exception = std::current_exception();
+        }
+    }
+
+    [[nodiscard]] auto DrainClientSession(
+        std::shared_ptr<Prism::Http3::NativeClientSession> Session)
+        -> Net::awaitable<bool>
+    {
+        bool DrainSucceeded = false;
+        try
+        {
+            const auto Drained = co_await Session->Drain();
+            if (!Drained)
+            {
+                const auto Message = Prism::Fault::Describe(Drained.error().Code);
+                std::fprintf(stderr, "FAIL: Hysteria2 HTTP3 client drain: %s native=%d\n",
+                    Message.data(), Drained.error().Native.value());
+            }
+            else
+            {
+                DrainSucceeded = true;
+            }
+        }
+        catch (const std::exception &Exception)
+        {
+            std::fprintf(stderr, "FAIL: Hysteria2 HTTP3 client drain threw: %s\n", Exception.what());
+        }
+        catch (...)
+        {
+            std::fprintf(stderr, "FAIL: Hysteria2 HTTP3 client drain threw an unknown exception\n");
+        }
+        co_return DrainSucceeded;
+    }
+
     auto MakeAuthenticatedClient(ClientConnectionRequest Request)
         -> Net::awaitable<std::optional<ClientContext>>
     {
@@ -258,59 +340,216 @@ namespace
                 Request.Tls, "hysteria"});
         auto Session = std::make_shared<Prism::Http3::NativeClientSession>(
             Prism::Http3::NativeClientSessionOptions{Request.Executor, Connection, {}});
-        auto AuthResponse = co_await Session->SendRequest(
-            Prism::Hysteria2::BuildAuthRequest(
-                Prism::Hysteria2::ClientAuthOptions{
-                    .Authority = "hysteria", .Password = Request.Password,
-                    .ReceiveRate = 0, .Padding = {}}));
-        if (!AuthResponse)
+        std::exception_ptr Exception;
+        bool Authenticated = false;
+        try
         {
-            std::fprintf(stderr, "FAIL: Hysteria2 HTTP3 auth: %s\n",
-                         Prism::Fault::Describe(AuthResponse.error()).data());
-            Session->Close();
-            Connection->Close();
-            co_return std::nullopt;
+            auto AuthOperation = Session->SendRequest(
+                Prism::Hysteria2::BuildAuthRequest(
+                    Prism::Hysteria2::ClientAuthOptions{
+                        .Authority = "hysteria", .Password = Request.Password,
+                        .ReceiveRate = 0, .Padding = {}}));
+            std::optional<AuthResponseResult> AuthResponse;
+            std::exception_ptr AuthException;
+            Net::steady_timer AuthDeadline(co_await Net::this_coro::executor);
+            AuthDeadline.expires_after(std::chrono::seconds(15));
+            const auto WaitResult = co_await (
+                CaptureAuthResult(
+                    std::move(AuthOperation), AuthResponse, AuthException) ||
+                AuthDeadline.async_wait(Net::use_awaitable));
+            if (WaitResult.index() == 1)
+            {
+                ReportQuicHealth("HTTP/3 auth timeout", Connection);
+                (void)Session->Close();
+                Connection->Close();
+            }
+            else
+            {
+                if (AuthException)
+                {
+                    std::rethrow_exception(AuthException);
+                }
+                if (!AuthResponse)
+                {
+                    throw std::system_error(
+                        std::make_error_code(std::errc::protocol_error),
+                        "Hysteria2 HTTP/3 auth did not produce a response");
+                }
+                if (!*AuthResponse)
+                {
+                    std::fprintf(stderr,
+                        "FAIL: Hysteria2 HTTP3 auth: %s native=%s/%d\n",
+                        Prism::Fault::Describe(AuthResponse->error().Code).data(),
+                        AuthResponse->error().Native.category().name(),
+                        AuthResponse->error().Native.value());
+                    ReportQuicHealth("HTTP/3 auth failure", Connection);
+                }
+                else
+                {
+                    auto ParsedAuth = Prism::Hysteria2::ParseAuthResponse(
+                        std::move(**AuthResponse));
+                    if (!ParsedAuth)
+                    {
+                        std::fprintf(stderr,
+                            "FAIL: Hysteria2 HTTP3 auth response error=%u\n",
+                            static_cast<unsigned>(ParsedAuth.error()));
+                    }
+                    else if (Request.RequireUdp && !ParsedAuth->UdpEnabled)
+                    {
+                        std::fprintf(stderr, "FAIL: Hysteria2 reference server disabled UDP\n");
+                    }
+                    else
+                    {
+                        Authenticated = true;
+                    }
+                }
+            }
         }
-        auto ParsedAuth = Prism::Hysteria2::ParseAuthResponse(std::move(*AuthResponse));
-        if (!ParsedAuth)
+        catch (...)
         {
-            std::fprintf(stderr, "FAIL: Hysteria2 HTTP3 auth response\n");
-            Session->Close();
-            Connection->Close();
-            co_return std::nullopt;
+            Exception = std::current_exception();
         }
-        if (Request.RequireUdp && !ParsedAuth->UdpEnabled)
+        if (!Authenticated)
         {
-            std::fprintf(stderr, "FAIL: Hysteria2 reference server disabled UDP\n");
-            Session->Close();
-            Connection->Close();
+            bool Drained = false;
+            try
+            {
+                Drained = co_await DrainClientSession(Session);
+            }
+            catch (...)
+            {
+                if (!Exception)
+                {
+                    Exception = std::current_exception();
+                }
+            }
+            (void)Drained;
+            if (Exception)
+            {
+                std::rethrow_exception(Exception);
+            }
             co_return std::nullopt;
         }
         co_return ClientContext{Connection, Session, std::move(Request.Password)};
     }
 
-    auto RunUdpClient(ClientContext Context) -> Net::awaitable<int>
+    auto ReportDatagramCleanupFailure(
+        const Prism::Fault::Failure& Failure) -> void
     {
-        auto Datagram = Prism::Hysteria2::ConnectPacket(
-            Context.Connection->Datagram(),
-            Prism::Hysteria2::ClientConfig{Context.Password});
+        const auto Message = Prism::Fault::Describe(Failure.Code);
+        std::fprintf(stderr, "FAIL: Hysteria2 UDP datagram close/drain: %s native=%d category=%s\n",
+            Message.data(), Failure.Native.value(), Failure.Native.category().name());
+    }
+
+    auto CloseAndDrainDatagram(Prism::Hysteria2::SharedDgram Datagram)
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
+    {
         if (!Datagram)
         {
-            std::fprintf(stderr, "FAIL: cannot open Hysteria2 UDP datagram provider\n");
-            Context.Session->Close();
-            Context.Connection->Close();
+            co_return std::unexpected(Prism::Fault::Failure{
+                Prism::Fault::Code::InvalidArgument});
+        }
+        std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>> Activities;
+        std::optional<Prism::Fault::Failure> FirstFailure;
+        std::exception_ptr FirstException;
+        try
+        {
+            for (Prism::Transmission *Layer = Datagram.get(); Layer;
+                 Layer = Layer->NextLayer())
+            {
+                auto Activity = Layer->Activity();
+                if (!Activity)
+                {
+                    if (!FirstFailure && !FirstException)
+                    {
+                        FirstFailure = Prism::Fault::Failure{
+                            Prism::Fault::Code::ResourceUnavailable};
+                    }
+                    continue;
+                }
+                Activities.push_back(std::move(Activity));
+            }
+        }
+        catch (...)
+        {
+            if (!FirstFailure && !FirstException)
+            {
+                FirstException = std::current_exception();
+            }
+        }
+        try
+        {
+            const auto Closed = Datagram->Close();
+            if (!Closed && !FirstFailure && !FirstException)
+            {
+                FirstFailure = Closed.error();
+            }
+        }
+        catch (...)
+        {
+            if (!FirstFailure && !FirstException)
+            {
+                FirstException = std::current_exception();
+            }
+        }
+        for (std::size_t Index = 0; Index < Activities.size(); ++Index)
+        {
+            const auto Activity = Activities[Index];
+            try
+            {
+                const auto Drained = co_await Activity->Drain();
+                if (!Drained && !FirstFailure && !FirstException)
+                {
+                    FirstFailure = Drained.error();
+                }
+            }
+            catch (...)
+            {
+                if (!FirstFailure && !FirstException)
+                {
+                    FirstException = std::current_exception();
+                }
+            }
+        }
+        if (FirstException)
+        {
+            std::rethrow_exception(FirstException);
+        }
+        if (FirstFailure)
+        {
+            co_return std::unexpected(*FirstFailure);
+        }
+        co_return std::expected<void, Prism::Fault::Failure>{};
+    }
+
+    auto RunUdpClient(ClientContext Context) -> Net::awaitable<int>
+    {
+        auto DatagramResult = Prism::Hysteria2::ConnectPacket(
+            Context.Connection->Datagram(),
+            Prism::Hysteria2::ClientConfig{Context.Password});
+        if (!DatagramResult)
+        {
+            const auto Message = Prism::Fault::Describe(DatagramResult.error().Code);
+            std::fprintf(stderr, "FAIL: cannot open Hysteria2 UDP datagram provider: %s native=%d\n",
+                Message.data(), DatagramResult.error().Native.value());
             co_return 1;
         }
+        auto Datagram = std::move(*DatagramResult);
         const Prism::Hysteria2::Address Target{
             Prism::Hysteria2::AddressType::Ipv4, "127.0.0.1", 53};
         const std::string PayloadText{"hello hysteria2 UDP from preview"};
         const auto Payload = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(PayloadText.data()), PayloadText.size());
-        if (co_await Datagram->AsyncSendTo(Target, Payload) != Prism::Error::None)
+        const auto SendError = co_await Datagram->AsyncSendTo(Target, Payload);
+        if (SendError != Prism::Error::None)
         {
-            Datagram->Close();
-            Context.Session->Close();
-            Context.Connection->Close();
+            std::fprintf(stderr, "FAIL: Hysteria2 UDP request send error=%u\n",
+                         static_cast<unsigned int>(SendError));
+            const auto DrainResult = co_await CloseAndDrainDatagram(Datagram);
+            if (!DrainResult)
+            {
+                ReportDatagramCleanupFailure(DrainResult.error());
+            }
             co_return 1;
         }
         Prism::Hysteria2::Address EchoTarget;
@@ -319,14 +558,17 @@ namespace
         const bool Valid = ReceiveError == Prism::Error::None &&
                            Echo.size() == Payload.size() &&
                            std::equal(Echo.begin(), Echo.end(), Payload.begin());
-        Datagram->Close();
-        Context.Session->Close();
-        Context.Connection->Close();
         if (!Valid)
         {
             std::fprintf(stderr, "FAIL: Hysteria2 UDP external echo mismatch\n");
+        }
+        const auto DrainResult = co_await CloseAndDrainDatagram(Datagram);
+        if (!DrainResult)
+        {
+            ReportDatagramCleanupFailure(DrainResult.error());
             co_return 1;
         }
+        if (!Valid) co_return 1;
         std::printf("PASS: Prism Hysteria2 client authenticated UDP echo (%zu bytes)\n",
                      Payload.size());
         co_return 0;
@@ -334,14 +576,15 @@ namespace
 
     auto RunTcpClient(ClientContext Context) -> Net::awaitable<int>
     {
-        const auto Stream = co_await Context.Session->OpenBidirectionalStream();
-        if (!Stream)
+        auto StreamResult = co_await Context.Session->OpenBidirectionalStream();
+        if (!StreamResult)
         {
-            std::fprintf(stderr, "FAIL: cannot open Hysteria2 TCP stream\n");
-            Context.Session->Close();
-            Context.Connection->Close();
+            const auto Message = Prism::Fault::Describe(StreamResult.error().Code);
+            std::fprintf(stderr, "FAIL: cannot open Hysteria2 TCP stream: %s native=%d\n",
+                Message.data(), StreamResult.error().Native.value());
             co_return 1;
         }
+        auto Stream = std::move(*StreamResult);
         const std::string PayloadText{"hello hysteria2 from preview"};
         const auto Payload = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(PayloadText.data()), PayloadText.size());
@@ -349,40 +592,58 @@ namespace
         if (!co_await WriteAll(Stream, Request))
         {
             std::fprintf(stderr, "FAIL: Hysteria2 request write\n");
-            Stream->Close();
-            Context.Session->Close();
-            Context.Connection->Close();
             co_return 1;
         }
         std::vector<std::byte> Response;
         std::array<std::byte, 4096> Buffer{};
         std::size_t HeaderSize = 0;
         std::uint8_t Status = 1;
-        while (Response.size() < 65536 &&
-               !(ParseResponse(Response, HeaderSize, Status) &&
-                 Response.size() >= HeaderSize + Payload.size()))
+        constexpr std::size_t MaxResponseBytes = 65536;
+        bool ResponseComplete = false;
+        while (Response.size() < MaxResponseBytes)
         {
             std::error_code Error;
             const auto Count = co_await Stream->Read(Buffer, Error);
-            if (Error || Count == 0)
+            if (Count > Buffer.size() || Count > MaxResponseBytes - Response.size())
             {
-                std::fprintf(stderr, "FAIL: Hysteria2 response read\n");
-                Stream->Close();
-                Context.Session->Close();
-                Context.Connection->Close();
+                std::fprintf(stderr, "FAIL: Hysteria2 response read returned an invalid byte count\n");
                 co_return 1;
             }
-            Response.insert(Response.end(), Buffer.begin(), Buffer.begin() +
-                static_cast<std::ptrdiff_t>(Count));
+            if (Count != 0)
+            {
+                Response.insert(Response.end(), Buffer.begin(), Buffer.begin() +
+                    static_cast<std::ptrdiff_t>(Count));
+            }
+            ResponseComplete = ParseResponse(Response, HeaderSize, Status) &&
+                Response.size() >= HeaderSize + Payload.size();
+            if (Error)
+            {
+                const auto ReadFailure = Prism::Fault::FromNative(Error);
+                const bool PeerFin = ReadFailure.Code == Prism::Fault::Code::Eof;
+                if (!PeerFin || !ResponseComplete)
+                {
+                    std::fprintf(stderr,
+                        "FAIL: Hysteria2 response read: %s native=%d\n",
+                        Prism::Fault::Describe(ReadFailure.Code).data(), Error.value());
+                    co_return 1;
+                }
+                break;
+            }
+            if (Count == 0)
+            {
+                std::fprintf(stderr, "FAIL: Hysteria2 response read returned no bytes without terminal\n");
+                co_return 1;
+            }
+            if (ResponseComplete)
+            {
+                break;
+            }
         }
-        const bool HasPayload = Response.size() >= HeaderSize + Payload.size();
+        const bool HasPayload = ResponseComplete;
         const bool PayloadMatches = HasPayload && std::equal(
             Payload.begin(), Payload.end(), Response.begin() +
             static_cast<std::ptrdiff_t>(HeaderSize));
         const bool Valid = Status == 0 && HasPayload && PayloadMatches;
-        Stream->Close();
-        Context.Session->Close();
-        Context.Connection->Close();
         if (!Valid)
         {
             std::fprintf(stderr, "FAIL: Hysteria2 response mismatch status=%u bytes=%zu\n",
@@ -391,6 +652,15 @@ namespace
         }
         std::printf("PASS: Prism Hysteria2 client authenticated echo (%zu bytes)\n", Payload.size());
         co_return 0;
+    }
+
+    auto RunClientOperation(ClientContext Context, const bool UseUdp) -> Net::awaitable<int>
+    {
+        if (UseUdp)
+        {
+            co_return co_await RunUdpClient(std::move(Context));
+        }
+        co_return co_await RunTcpClient(std::move(Context));
     }
 
     auto RunClient(Options OptionsValue) -> Net::awaitable<int>
@@ -424,11 +694,34 @@ namespace
         {
             co_return 1;
         }
-        if (OptionsValue.Udp)
+        const auto SessionPin = Context->Session;
+        int ExitCode = 1;
+        std::exception_ptr OperationException;
+        try
         {
-            co_return co_await RunUdpClient(std::move(*Context));
+            ExitCode = co_await RunClientOperation(std::move(*Context), OptionsValue.Udp);
         }
-        co_return co_await RunTcpClient(std::move(*Context));
+        catch (...)
+        {
+            OperationException = std::current_exception();
+        }
+        bool Drained = false;
+        try
+        {
+            Drained = co_await DrainClientSession(SessionPin);
+        }
+        catch (...)
+        {
+            if (!OperationException)
+            {
+                OperationException = std::current_exception();
+            }
+        }
+        if (OperationException)
+        {
+            std::rethrow_exception(OperationException);
+        }
+        co_return Drained ? ExitCode : 1;
     }
 
     auto RunInterop(Options OptionsValue, int &ExitCode) -> Net::awaitable<void>

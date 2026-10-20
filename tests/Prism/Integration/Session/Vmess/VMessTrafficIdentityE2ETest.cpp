@@ -5,6 +5,9 @@
 
 #include "VMessTcpE2ETestSupport.hpp"
 
+#include <Prism/Runtime/SessionAdmissionTestSupport.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
+
 #include <boost/asio/io_context.hpp>
 
 #include <array>
@@ -50,10 +53,12 @@ namespace
                 auto Raw = co_await VmessSupport::DialVmessListener(Flow.Ioc, Flow.Listener);
                 if (Raw)
                 {
-                    auto ProtocolConnect = co_await Vmess::Connect({
-                        std::move(*Raw), Vmess::ClientConfig{TestUuid()},
-                        Vmess::Address{Vmess::AddressType::Domain, "example.com", 80},
-                        static_cast<std::uint8_t>(Vmess::Command::Tcp)});
+                    const auto ClientConfig = Vmess::ClientConfig{TestUuid()};
+                    const auto Target = Vmess::Address{
+                        Vmess::AddressType::Domain, "example.com", 80};
+                    auto ProtocolConnect = co_await Vmess::Connect(
+                        Vmess::ConnectParameters{
+                            std::move(*Raw), ClientConfig, Target, Vmess::Command::Tcp});
                     if (!ProtocolConnect)
                     {
                         ADD_FAILURE() << "Unexpected protocol handshake failure: "
@@ -134,15 +139,15 @@ namespace
         Runtime::TcpListener listen(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{5}),
             .Factory = VmessSessionFactory{
-                StateObj, Vmess::ServerConfig{TestUuid()}, {}, recorder}});
+                StateObj, Vmess::ServerConfig{TestUuid()}, {}, recorder},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{5})});
 
         Prism::Testing::RunCoro(ioc, RunVmessTrafficFlow(
             VmessTrafficFlow{ioc, listen, Echo}));
         EXPECT_EQ(recorder->LastEvent.Kind, Prism::Foundation::TrafficEventKind::Completed);
-        EXPECT_FALSE(static_cast<bool>(recorder->LastEvent.Account));
+        EXPECT_EQ(recorder->LastEvent.Account, Prism::AccountId{1});
         EXPECT_EQ(recorder->Calls, 1);
         EXPECT_GT(recorder->Up, 0u);
         EXPECT_GT(recorder->Down, 0u);

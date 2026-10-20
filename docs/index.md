@@ -1,6 +1,6 @@
 # Prism 文档
 
-本文档集描述当前唯一正式实现：`Prism/`。生产程序由 CMake target `Prism` 构建，功能测试位于 `tests/Prism/`。
+本文档集描述当前唯一正式实现：公开头文件位于 `Include/Prism/`，实现和私有头文件位于 `Src/Prism/`。生产程序由 CMake target `Prism` 构建，功能测试位于 `tests/Prism/`。
 
 ## 使用指南
 
@@ -19,7 +19,7 @@
 
 ## 文档范围
 
-协议的具体 wire、认证和会话行为由 `Prism/Protocols/` 中的实现与测试维护；本手册不为每个协议建立单独专题页。配置说明只描述通用配置结构和装配边界。
+协议的具体 wire、认证和会话行为由 `Include/Prism/Protocols/`、`Src/Prism/Protocols/` 与对应测试维护；本手册不为每个协议建立单独专题页。配置说明只描述通用配置结构和装配边界。
 
 `docs/clash/` 保留 Mihomo/Clash 配置与矩阵文件。配置中可能含有环境专属地址或凭据，使用者应在本机管理这些值。
 

@@ -5,10 +5,18 @@ import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 const root = process.cwd();
-const BOUNDARY = path.join(root, "Prism", "CMake", "PrismBoundary.cmake");
+const BOUNDARY = path.join(root, "Src", "Prism", "CMake", "PrismBoundary.cmake");
 const PROBE = path.join(root, "scripts", "CMake", "AssertPrismEdge.cmake");
 const GRAPH_PROBE = path.join(root, "scripts", "CMake", "AssertPrismGraphEdge.cmake");
-const CM = ["Prism/CMakeLists.txt", "Prism/Application/CMakeLists.txt"].map((p) => path.join(root, p));
+function collectCMakeFiles(dir, files = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) collectCMakeFiles(full, files);
+    else if (entry.name === "CMakeLists.txt" || entry.name.endsWith(".cmake")) files.push(full);
+  }
+  return files;
+}
+const CM = collectCMakeFiles(path.join(root, "Src", "Prism"));
 const KEYWORDS = /^(PUBLIC|PRIVATE|INTERFACE|SYSTEM)$/;
 
 /** 找出 PRISM_BOUNDARY_FAULT 注入块的行区间；块内的负向边按设计必须失败。 */

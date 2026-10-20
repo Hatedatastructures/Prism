@@ -1,4 +1,6 @@
 /** @file OperationsWebResourcesTest.cpp @brief 同源资源目录、正文完整性及缓存边界。 */
+#include "OperationsWebTestSupport.hpp"
+
 #include <gtest/gtest.h>
 #include <Prism/Operations/Web/Loader.hpp>
 #include <Prism/Operations/Web/Response.hpp>
@@ -51,8 +53,10 @@ namespace
             ASSERT_TRUE(Output);
             Output.write(Body.data(), static_cast<std::streamsize>(Body.size()));
             ASSERT_TRUE(Output);
+            const auto Digest = Prism::Testing::OperationsWeb::Sha256Hex(Body);
+            ASSERT_TRUE(Digest);
             Manifest_.Assets.push_back(Web::ResourceDescriptor{Path,
-                std::string(Web::ContentTypeFor(Path)), Web::Detail::Digest(Body), Body.size(),
+                std::string(Web::ContentTypeFor(Path)), std::move(*Digest), Body.size(),
                 Path.starts_with("assets/")});
         }
 

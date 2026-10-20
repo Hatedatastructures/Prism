@@ -142,7 +142,8 @@ namespace
         auto Raw = std::move(*DialResult);
         const Prism::Vmess::ClientConfig Config{OptionsValue.Uuid};
         auto ConnectResult = co_await Prism::Vmess::Connect(
-            {std::move(Raw), Config, *Target, Prism::Vmess::CmdMux});
+            Prism::Vmess::ConnectParameters{
+                std::move(Raw), Config, *Target, Prism::Vmess::Command::Mux});
         if (!ConnectResult)
         {
             const auto Native = Prism::Fault::ToNative(ConnectResult.error());

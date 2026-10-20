@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <Prism/Protocols/Vless/Vless.hpp>
+#include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Transport/Reliable.hpp>
 
 namespace
@@ -50,6 +51,42 @@ namespace
         std::string Host;
         std::uint16_t Port{0};
     };
+
+    [[nodiscard]] auto CloseAndDrain(
+        std::shared_ptr<Prism::Transmission> Carrier) -> Net::awaitable<bool>
+    {
+        if (!Carrier)
+        {
+            co_return false;
+        }
+        std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>> Activities;
+        bool HasAllActivities = true;
+        for (auto *Layer = Carrier.get(); Layer != nullptr; Layer = Layer->NextLayer())
+        {
+            auto Activity = Layer->Activity();
+            if (!Activity)
+            {
+                HasAllActivities = false;
+                continue;
+            }
+            Activities.push_back(std::move(Activity));
+        }
+        const auto CloseResult = Carrier->Close();
+        bool AllDrained = HasAllActivities;
+        for (const auto &Activity : Activities)
+        {
+            try
+            {
+                const auto DrainResult = co_await Activity->Drain();
+                AllDrained = DrainResult.has_value() && AllDrained;
+            }
+            catch (...)
+            {
+                AllDrained = false;
+            }
+        }
+        co_return CloseResult.has_value() && AllDrained;
+    }
 
     [[nodiscard]] auto ParsePort(std::string_view Value) -> std::optional<std::uint16_t>
     {
@@ -109,29 +146,36 @@ namespace
         if (!AcceptResult || !AcceptResult->Connection ||
             AcceptResult->Request.Cmd != Prism::Vless::Command::Udp)
         {
-            (void)Raw->Close();
-            (void)co_await Raw->Activity()->Drain();
+            (void)co_await CloseAndDrain(Raw);
             co_return false;
         }
         auto Datagram = std::move(AcceptResult->Connection);
+        bool EchoedPacket = false;
         for (;;)
         {
             std::vector<std::uint8_t> Payload;
-            auto PacketResult = co_await Datagram->AsyncReceiveDatagram(Payload);
-            if (PacketResult.Failure.Succeeded())
-                PacketResult = co_await Datagram->AsyncSendDatagram(Payload);
-            if (PacketResult.Failure.Failed())
+            const auto ReceiveResult = co_await Datagram->AsyncReceiveDatagram(Payload);
+            if (ReceiveResult.Failure.Failed())
             {
-                Datagram->Close();
+                const bool PeerClosed =
+                    ReceiveResult.Failure.Code == Prism::Fault::Code::Eof &&
+                    ReceiveResult.WireBytes == 0;
+                const auto Closed = co_await CloseAndDrain(Datagram);
+                co_return PeerClosed && EchoedPacket && Closed;
+            }
+            if (ReceiveResult.PayloadBytes != Payload.size())
+            {
+                (void)co_await CloseAndDrain(Datagram);
                 co_return false;
             }
-            if (!Payload.empty()) break;
+            const auto SendResult = co_await Datagram->AsyncSendDatagram(Payload);
+            if (SendResult.Failure.Failed() || SendResult.PayloadBytes != Payload.size())
+            {
+                (void)co_await CloseAndDrain(Datagram);
+                co_return false;
+            }
+            EchoedPacket = true;
         }
-        std::array<std::byte, 1> Drain{};
-        std::error_code DrainError;
-        (void)co_await Datagram->async_read_some(Drain, DrainError);
-        Datagram->Close();
-        co_return true;
     }
 
     [[nodiscard]] auto ServeConnection(Tcp::socket Socket, const Options &OptionsValue)
@@ -143,33 +187,52 @@ namespace
         if (!AcceptResult || !AcceptResult->Connection ||
             AcceptResult->Request.Cmd != Prism::Vless::Command::Tcp)
         {
-            (void)Raw->Close();
-            (void)co_await Raw->Activity()->Drain();
+            (void)co_await CloseAndDrain(Raw);
             co_return false;
         }
         auto Conn = std::move(AcceptResult->Connection);
         std::array<std::byte, 4096> Buffer{};
+        bool EchoedBytes = false;
         while (true)
         {
-            std::error_code ReadError;
-            const auto Count = co_await Conn->async_read_some(Buffer, ReadError);
-            if (ReadError || Count == 0) break;
-            std::size_t Offset = 0;
-            while (Offset < Count)
+            const auto ReadResult = co_await Conn->ReadSome(Buffer);
+            if (ReadResult.Bytes > Buffer.size())
             {
-                std::error_code WriteError;
-                const auto Window = std::span<const std::byte>(Buffer).subspan(Offset, Count - Offset);
-                const auto Written = co_await Conn->async_write_some(Window, WriteError);
-                if (WriteError || Written == 0)
+                (void)co_await CloseAndDrain(Conn);
+                co_return false;
+            }
+            std::size_t Offset = 0;
+            while (Offset < ReadResult.Bytes)
+            {
+                const auto Remaining = ReadResult.Bytes - Offset;
+                const auto Window = std::span<const std::byte>(Buffer).subspan(Offset, Remaining);
+                const auto WriteResult = co_await Conn->WriteSome(Window);
+                if (WriteResult.Bytes > Remaining)
                 {
-                    Conn->Close();
-                    co_return true;
+                    (void)co_await CloseAndDrain(Conn);
+                    co_return false;
                 }
-                Offset += Written;
+                Offset += WriteResult.Bytes;
+                if (WriteResult.Failure.Failed() || WriteResult.Bytes == 0)
+                {
+                    (void)co_await CloseAndDrain(Conn);
+                    co_return false;
+                }
+            }
+            EchoedBytes = EchoedBytes || ReadResult.Bytes != 0;
+            if (ReadResult.Failure.Failed())
+            {
+                const bool PeerClosed =
+                    ReadResult.Failure.Code == Prism::Fault::Code::Eof;
+                const auto Closed = co_await CloseAndDrain(Conn);
+                co_return PeerClosed && EchoedBytes && Closed;
+            }
+            if (ReadResult.Bytes == 0)
+            {
+                (void)co_await CloseAndDrain(Conn);
+                co_return false;
             }
         }
-        Conn->Close();
-        co_return true;
     }
 
     [[nodiscard]] auto RunServer(Options OptionsValue) -> Net::awaitable<int>

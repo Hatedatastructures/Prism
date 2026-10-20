@@ -12,8 +12,11 @@
 #include <string>
 #include <vector>
 #include <Prism/Foundation/Error.hpp>
-#include <Prism/Protocols/Vless/Codec.hpp>
+#include <Prism/Protocols/Vless/AddressCodec.hpp>
+#include <Prism/Protocols/Vless/BeastCodec.hpp>
+#include <Prism/Protocols/Vless/RequestCodec.hpp>
 #include <Prism/Protocols/Vless/Types.hpp>
+#include <Prism/Protocols/Vless/UdpCodec.hpp>
 
 namespace
 {
@@ -69,21 +72,17 @@ TEST(GoldenVector, VlessTcpRoundtrip)
 
 TEST(GoldenVector, VlessBoundaryPacketRoundtrip)
 {
-    Vless::Address Target;
-    Target.Type = Vless::AddressType::Domain;
-    Target.Host = "example.com";
-    Target.Port = 53;
-    std::vector<std::uint8_t> Payload = {0xCA, 0xFE};
-    const auto Wire = Vless::BuildUdpPkt(
-        Target, std::span<const std::uint8_t>(Payload));
-    ASSERT_FALSE(Wire.empty());
-    Vless::Address ParsedTarget;
+    const std::vector<std::uint8_t> Payload{0xCA, 0xFE};
+    std::vector<std::uint8_t> Wire;
+    const auto BuildResult = Vless::BuildUdpPkt(
+        std::span<const std::uint8_t>(Payload), Wire);
+    ASSERT_TRUE(BuildResult);
+    const std::vector<std::uint8_t> ExpectedWire{0x00, 0x02, 0xCA, 0xFE};
+    EXPECT_EQ(Wire, ExpectedWire);
     std::span<const std::uint8_t> ParsedPayload;
-    const auto ErrorValue = Vless::ParseUdpPkt(
-        std::span<const std::uint8_t>(Wire), ParsedTarget, ParsedPayload);
-    EXPECT_EQ(ErrorValue, Error::None);
-    EXPECT_EQ(ParsedTarget.Host, "example.com");
-    EXPECT_EQ(ParsedTarget.Port, 53u);
+    const auto ParseResult = Vless::ParseUdpPkt(
+        std::span<const std::uint8_t>(Wire), ParsedPayload);
+    ASSERT_TRUE(ParseResult);
     ASSERT_EQ(ParsedPayload.size(), Payload.size());
     EXPECT_TRUE(std::equal(ParsedPayload.begin(), ParsedPayload.end(), Payload.begin()));
 }

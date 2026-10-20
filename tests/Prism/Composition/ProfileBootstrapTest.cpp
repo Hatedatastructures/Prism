@@ -374,9 +374,9 @@ TEST(ProfileBootstrap, AppliesRoutePatternAlongsideConfiguredServerNames)
     const auto Handle = Result->Profile->FindCandidate(Candidate.Id);
     ASSERT_TRUE(Handle.IsValid());
     const auto Record = MakeTlsClientHello("route.example");
-    const auto Bytes = std::span<const std::uint8_t>(
+    const auto ClientHelloBytes = std::span<const std::uint8_t>(
         reinterpret_cast<const std::uint8_t *>(Record.data()), Record.size());
-    const auto [ParseError, Features] = Core::ParseClientHelloProgress(Bytes);
+    const auto [ParseError, Features] = Core::ParseClientHelloProgress(ClientHelloBytes);
     ASSERT_EQ(ParseError, Prism::Error::None);
     EXPECT_EQ(Features.ServerName, "route.example");
     ASSERT_TRUE(Features.HasAlpn);

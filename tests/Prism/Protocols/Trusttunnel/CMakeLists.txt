@@ -1,11 +1,33 @@
 # trusttunnel 子模块
 AddPrismTest(TrusttunnelDgramSession.cpp)
-target_link_libraries(TrusttunnelDgramSession PRIVATE PrismTransport PrismProtocolTrusttunnel PrismTestSupport)
+target_link_libraries(TrusttunnelDgramSession PRIVATE
+    PrismFoundation PrismIoContracts PrismTransport PrismProtocolTrusttunnel)
+
+AddPrismTest(TrusttunnelDgramTerminalReadTest.cpp)
+target_link_libraries(TrusttunnelDgramTerminalReadTest PRIVATE
+    PrismFoundation PrismIoContracts PrismTransport PrismProtocolTrusttunnel)
 
 AddPrismTest(TrusttunnelCodecDeep.cpp)
-target_link_libraries(TrusttunnelCodecDeep PRIVATE PrismProtocolTrusttunnel PrismTestSupport)
+target_link_libraries(TrusttunnelCodecDeep PRIVATE PrismProtocolTrusttunnel)
+
+AddPrismTest(TrusttunnelBasicAuthTest.cpp)
+target_link_libraries(TrusttunnelBasicAuthTest PRIVATE PrismProtocolTrusttunnel)
 
 AddPrismTest(TrusttunnelHttp2Transport.cpp)
-target_link_libraries(TrusttunnelHttp2Transport PRIVATE PrismProtocolTrusttunnel PrismTestSupport)
+target_include_directories(TrusttunnelHttp2Transport PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(TrusttunnelHttp2Transport PRIVATE
+    PrismFoundation PrismAccount PrismIoContracts PrismIngressContract PrismTransport
+    PrismProtocolHttp PrismProtocolHttp2 PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismRuntime
+    PrismProtocolTrusttunnel OpenSSL::SSL OpenSSL::Crypto)
+AddPrismTest(TrusttunnelHttp2ReadCompletionTest.cpp)
+target_include_directories(TrusttunnelHttp2ReadCompletionTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(TrusttunnelHttp2ReadCompletionTest PRIVATE
+    PrismFoundation PrismIoContracts PrismTransport PrismProtocolHttp2 PrismProtocolTrusttunnel)
 AddPrismTest(TrusttunnelIngressFactoryTest.cpp)
-target_link_libraries(TrusttunnelIngressFactoryTest PRIVATE PrismProtocolTrusttunnel PrismTestSupport)
+target_include_directories(TrusttunnelIngressFactoryTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_sources(TrusttunnelIngressFactoryTest PRIVATE TrusttunnelHttp2RawHalfCloseTest.cpp)
+target_link_libraries(TrusttunnelIngressFactoryTest PRIVATE
+    PrismFoundation PrismAccount PrismIngressContract PrismIoContracts PrismTransport PrismProtocolHttp2
+    PrismProtocolHttp PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismRuntime
+    PrismProtocolTrusttunnel
+    OpenSSL::SSL OpenSSL::Crypto)

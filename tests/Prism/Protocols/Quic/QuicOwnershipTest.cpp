@@ -5,21 +5,30 @@
 
 #include <gtest/gtest.h>
 
+#include <boost/asio/error.hpp>
+#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/udp.hpp>
 #include <boost/asio/post.hpp>
+#include <boost/asio/strand.hpp>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <exception>
+#include <expected>
 #include <memory>
+#include <optional>
+#include <span>
 #include <stdexcept>
+#include <system_error>
 #include <utility>
 
-#include <Prism/Protocols/Quic/ConnectionLifecycle.hpp>
-#include <Prism/Protocols/Quic/Detail/NativeConnection.hpp>
-#include <Prism/Protocols/Quic/Detail/NativeConnectionState.hpp>
+#include <ngtcp2/ngtcp2.h>
+#include <Prism/Protocols/Quic/Detail/NativeConnectionStreamAdmission.hpp>
 #include <Prism/Protocols/Quic/Native.hpp>
+#include <Prism/Protocols/Quic/QuicConnectionLifecycle.hpp>
 #include <TestSupport/Prism/QuicFactory.hpp>
 
 namespace
@@ -92,8 +101,10 @@ namespace
         std::array<std::byte, 4> FirstBuffer{};
         std::size_t FirstBytes{0};
         std::size_t SecondBytes{0};
+        std::size_t ThirdBytes{0};
         std::error_code FirstError{};
         std::error_code SecondError{};
+        std::error_code ThirdError{};
         std::expected<void, Prism::Fault::Failure> CloseResult{};
         std::expected<void, Prism::Fault::Failure> DrainResult{};
     };
@@ -113,10 +124,15 @@ namespace
         -> boost::asio::awaitable<void>
     {
         Observation.FirstBytes = co_await Stream->Read(
-            Observation.FirstBuffer, Observation.FirstError);
-        std::array<std::byte, 1> EofBuffer{};
+            std::span<std::byte>{}, Observation.FirstError);
+        std::array<std::byte, 2> Buffered{};
         Observation.SecondBytes = co_await Stream->Read(
-            EofBuffer, Observation.SecondError);
+            Buffered, Observation.SecondError);
+        std::copy(Buffered.begin(), Buffered.end(),
+            Observation.FirstBuffer.begin());
+        std::array<std::byte, 1> EofBuffer{};
+        Observation.ThirdBytes = co_await Stream->Read(
+            EofBuffer, Observation.ThirdError);
         Observation.CloseResult = Stream->Close();
         const auto Activity = Stream->Activity();
         Activity->Seal();
@@ -220,6 +236,82 @@ TEST(QuicOwnership, NativeDrainPinsFacadeBeforeFirstScheduling)
     EXPECT_TRUE(Weak.expired());
 }
 
+TEST(QuicOwnership, ClientDrainPinsConnectionBeforeFirstScheduling)
+{
+    boost::asio::io_context Io;
+    Prism::Quic::ClientOptions Options;
+    Options.Executor = Io.get_executor();
+    std::optional<Prism::Quic::Client> Owner;
+    Owner.emplace(Options);
+    auto Work = Owner->Drain();
+    Owner.reset();
+    Owner.emplace(Options);
+
+    std::exception_ptr Failure;
+    auto RunDrain = [&]() -> boost::asio::awaitable<void>
+    {
+        const auto Result = co_await std::move(Work);
+        EXPECT_TRUE(Result);
+        EXPECT_FALSE(Owner->Health().Closed);
+        Owner->Close();
+        const auto Cleanup = co_await Owner->Drain();
+        EXPECT_TRUE(Cleanup);
+    };
+    boost::asio::co_spawn(Io, RunDrain(),
+        [&Failure](std::exception_ptr Error)
+        {
+            Failure = std::move(Error);
+        });
+    Io.run();
+    EXPECT_FALSE(Failure);
+}
+
+TEST(QuicOwnership, GatewayDrainPinsConnectionBeforeFirstScheduling)
+{
+    boost::asio::io_context Io;
+    Prism::Quic::ServerOptions Options;
+    Options.Executor = Io.get_executor();
+    Options.ExternalReceive = true;
+    std::optional<Prism::Quic::Gateway> Owner;
+    Owner.emplace(std::move(Options));
+    auto Server = Owner->Connection();
+    const std::weak_ptr<Prism::Quic::Server> WeakServer = Server;
+    auto Work = Owner->Drain();
+    Server.reset();
+    Owner.reset();
+    ASSERT_FALSE(WeakServer.expired());
+
+    bool Completed = false;
+    std::exception_ptr Failure;
+    boost::asio::co_spawn(Io, std::move(Work),
+        [&Completed, &Failure](std::exception_ptr Error,
+            std::expected<void, Prism::Fault::Failure> Result)
+        {
+            Failure = std::move(Error);
+            Completed = Result.has_value();
+        });
+    Io.run();
+    EXPECT_FALSE(Failure);
+    EXPECT_TRUE(Completed);
+    EXPECT_TRUE(WeakServer.expired());
+}
+
+TEST(QuicOwnership, NgTcp2ErrorsCompareAcrossAdmissionAndShutdown)
+{
+    const auto Admission = Prism::Quic::Detail::NgTcp2Failure(NGTCP2_ERR_NOBUF);
+    const auto Shutdown = Prism::Quic::Detail::NgTcp2IoFailure(NGTCP2_ERR_NOBUF);
+
+    EXPECT_EQ(Admission.Code, Prism::Fault::Code::ResourceUnavailable);
+    EXPECT_EQ(Shutdown.Code, Prism::Fault::Code::IoError);
+    ASSERT_TRUE(Admission.Native);
+    ASSERT_TRUE(Shutdown.Native);
+    EXPECT_EQ(Admission.Native, Shutdown.Native);
+    const auto StreamBlocked = Prism::Quic::Detail::NgTcp2Failure(
+        NGTCP2_ERR_STREAM_ID_BLOCKED);
+    EXPECT_EQ(StreamBlocked.Code, Prism::Fault::Code::WouldBlock);
+    EXPECT_EQ(StreamBlocked.Native.category(), Shutdown.Native.category());
+}
+
 TEST(QuicOwnership, NativeTerminalReadDrainsBufferedBytesBeforeFin)
 {
     boost::asio::io_context Io;
@@ -239,12 +331,15 @@ TEST(QuicOwnership, NativeTerminalReadDrainsBufferedBytesBeforeFin)
     Io.run();
 
     EXPECT_FALSE(Exception);
-    EXPECT_EQ(Observation.FirstBytes, 2U);
+    EXPECT_EQ(Observation.FirstBytes, 0U);
+    EXPECT_FALSE(Observation.FirstError);
+    EXPECT_EQ(Observation.SecondBytes, 2U);
     EXPECT_EQ(Observation.FirstBuffer[0], std::byte{0x41});
     EXPECT_EQ(Observation.FirstBuffer[1], std::byte{0x42});
-    EXPECT_FALSE(Observation.FirstError);
-    EXPECT_EQ(Observation.SecondBytes, 0U);
     EXPECT_FALSE(Observation.SecondError);
+    EXPECT_EQ(Observation.ThirdBytes, 0U);
+    EXPECT_EQ(Observation.ThirdError, static_cast<std::error_code>(
+        boost::asio::error::make_error_code(boost::asio::error::eof)));
     EXPECT_TRUE(Observation.CloseResult.has_value());
     ASSERT_TRUE(Observation.DrainResult.has_value());
     EXPECT_TRUE(Stream->Activity()->IsRetired());
@@ -270,12 +365,14 @@ TEST(QuicOwnership, NativeTerminalReadDrainsBufferedBytesBeforeReset)
     Io.run();
 
     EXPECT_FALSE(Exception);
-    EXPECT_EQ(Observation.FirstBytes, 2U);
+    EXPECT_EQ(Observation.FirstBytes, 0U);
+    EXPECT_FALSE(Observation.FirstError);
+    EXPECT_EQ(Observation.SecondBytes, 2U);
     EXPECT_EQ(Observation.FirstBuffer[0], std::byte{0x51});
     EXPECT_EQ(Observation.FirstBuffer[1], std::byte{0x52});
-    EXPECT_FALSE(Observation.FirstError);
-    EXPECT_EQ(Observation.SecondBytes, 0U);
-    EXPECT_EQ(Observation.SecondError, std::make_error_code(std::errc::connection_reset));
+    EXPECT_FALSE(Observation.SecondError);
+    EXPECT_EQ(Observation.ThirdBytes, 0U);
+    EXPECT_EQ(Observation.ThirdError, std::make_error_code(std::errc::connection_reset));
     EXPECT_TRUE(Observation.CloseResult.has_value());
     ASSERT_TRUE(Observation.DrainResult.has_value());
     EXPECT_TRUE(Stream->Activity()->IsRetired());

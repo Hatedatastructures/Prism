@@ -10,7 +10,7 @@
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/ContextDecoder.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/ContextSnapshot.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionRecord.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Detail/Record.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>

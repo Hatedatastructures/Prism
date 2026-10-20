@@ -32,7 +32,8 @@ namespace
     using Tcp = Net::ip::tcp;
     using Prism::Application::Configuration::ConfigurationErrorCode;
     using Prism::Application::Configuration::GenerationBuilder;
-    using Prism::Application::Configuration::Parser;
+    using Prism::Application::Configuration::ConfigurationParser;
+    using Prism::Application::Configuration::ConfigurationValidator;
     using Prism::Application::StartupErrorCode;
 
     constexpr std::string_view ValidStageJson = R"json({
@@ -251,13 +252,13 @@ TEST(PrismTaskC11d0StageOrder,
                          "\"Routes\": [{\"Id\":\"route-default\",\"Match\":\"*\","
                          "\"Target\":\"direct\",\"Requires\":[]}],"});
 
-    const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+    const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
     ExpectConfigurationError(
         Parsed,
         {ConfigurationErrorCode::MissingReference,
          "ProtocolBindings[0].ProtocolId"});
 
-    const auto Base = Parser::Parse({.Json = ReplaceFirst(
+    const auto Base = ConfigurationParser::Parse({.Json = ReplaceFirst(
                                                Json,
                                                {"\"ProtocolId\": \"missing-protocol\"",
                                                 "\"ProtocolId\": \"protocol-socks5\""}),
@@ -305,7 +306,7 @@ TEST(PrismTaskC11d0StageOrder,
          "\"Routes\": [{\"Id\":\"route-default\",\"Match\":\"*\","
          "\"Target\":\"direct\",\"Requires\":[]}],"});
 
-    const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+    const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
     ASSERT_TRUE(Parsed.has_value());
     if (!Parsed)
     {
@@ -348,7 +349,7 @@ TEST(PrismTaskC11d0StageOrder,
          "\"Builtins\": [{\"Id\":\"builtin-socks5\",\"Kind\":\"protocol\","
          "\"Name\":\"socks5\",\"Requires\":[],\"Provides\":[]}],"});
 
-    const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+    const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
     ASSERT_TRUE(Parsed.has_value());
     if (!Parsed)
     {
@@ -392,7 +393,7 @@ TEST(PrismTaskC11d0StageOrder,
                         {"\"Endpoint\": \"127.0.0.1:9090\"",
                          "\"Endpoint\": \"invalid-endpoint\""});
 
-    const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+    const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
     ExpectConfigurationError(
         Parsed,
         {ConfigurationErrorCode::InvalidValue, "Operations.Endpoint"});

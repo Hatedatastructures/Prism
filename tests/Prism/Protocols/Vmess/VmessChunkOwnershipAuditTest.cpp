@@ -6,7 +6,8 @@
 #include <array>
 #include <string>
 #include <span>
-#include <Prism/Protocols/Vmess/Codec.hpp>
+#include <Prism/Protocols/Vmess/ChunkCodec.hpp>
+#include <Prism/Protocols/Vmess/Types.hpp>
 TEST(OwnershipAudit, VmessChunkStreamEndBlock)
     {
         Prism::Vmess::ChunkStream ChunkStream;
@@ -22,6 +23,7 @@ TEST(OwnershipAudit, VmessChunkStreamEndBlock)
         ChunkStream.Encrypt(Payload, Wire1);
         std::string Wire2;
         ChunkStream.Encrypt({}, Wire2); // 结束块
+        EXPECT_EQ(Wire2.size(), 18u);
 
         std::string Plain1;
         const auto Result1 = ChunkStream.Decrypt(
@@ -31,7 +33,7 @@ TEST(OwnershipAudit, VmessChunkStreamEndBlock)
         EXPECT_FALSE(Result1.Ec);
         EXPECT_EQ(Plain1.size(), 3u);
 
-        /** @brief 结束块消费长度字段和 AEAD tag，不应越界读取。 */
+        /** @brief 认证长度结束 marker 只消费其完整 18 字节头部。 */
         std::string Plain2("sentinel");
         const auto Result2 = ChunkStream.Decrypt(
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(Wire2.data()),

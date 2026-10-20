@@ -1,0 +1,35 @@
+set(PrismProtocolHysteria2Headers
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Admission.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Binding.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Codec.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Conn.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/DatagramSession.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Detail/DatagramFragments.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Dgram.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Http3Auth.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Hysteria2.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Io.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/StreamSession.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Hysteria2/Types.hpp"
+)
+
+PrismAddStaticTarget(PrismProtocolHysteria2
+    SOURCES
+        Binding.cpp
+        AdmissionLifecycle.cpp
+        AdmissionRuntime.cpp
+        Codec.cpp
+        DatagramSession.cpp
+        DatagramFragments.cpp
+        Hysteria2.cpp
+        Http3Auth.cpp
+        Io.cpp
+        ServiceBinding.cpp
+        StreamSession.cpp
+    HEADERS
+        ${PrismProtocolHysteria2Headers}
+    PRIVATE_HEADERS
+        AdmissionHelpers.hpp
+        NativeSession.hpp
+        ServiceBinding.hpp
+)

@@ -1,0 +1,26 @@
+set(PrismProtocolHttp2Headers
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http2/Detail/Codec.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http2/Detail/Frame.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http2/Session.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http2/Stream.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http2/Types.hpp"
+)
+PrismAddStaticTarget(PrismProtocolHttp2
+    SOURCES
+        ConnectionState.cpp
+        Frame.cpp
+        FrameProcessor.cpp
+        Hpack.cpp
+        Http2Codec.cpp
+        Session.cpp
+        Stream.cpp
+        StreamController.cpp
+    HEADERS ${PrismProtocolHttp2Headers}
+    PRIVATE_HEADERS
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http2/Detail/ConnectionState.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http2/Detail/CodecState.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http2/Detail/StaticTable.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http2/Detail/FrameProcessor.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http2/Detail/SessionState.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http2/Detail/StreamController.hpp"
+)

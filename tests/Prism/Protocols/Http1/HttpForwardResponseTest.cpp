@@ -419,9 +419,7 @@ TEST(HttpForwardResponse, CloseDelimitedBodyWaitsForSourceEof)
     const auto Result = RunResponse(Wire, Options);
     EXPECT_EQ(Result.Bytes, Wire);
     EXPECT_EQ(Result.Failure.Code, Prism::Fault::Code::Timeout);
-    EXPECT_EQ(Result.Failure.Native, static_cast<std::error_code>(
-        Net::experimental::error::make_error_code(
-            Net::experimental::error::channel_cancelled)));
+    EXPECT_FALSE(Result.Failure.Native);
 }
 
 TEST(HttpForwardResponse, ConflictingContentLengthIsRejected)

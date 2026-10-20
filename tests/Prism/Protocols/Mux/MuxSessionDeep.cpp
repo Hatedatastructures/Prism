@@ -166,14 +166,14 @@ namespace
 
     TEST(MuxSessionDeep, SmuxHeaderBuildParse)
     {
-        SmuxWire::FrameHeader hdr;
-        hdr.cmd = SmuxWire::Command::Push;
+        Smux::FrameHeader hdr;
+        hdr.cmd = Smux::Command::Push;
         hdr.StreamId = 7;
         const std::array<std::uint8_t, 2> payload{0xAA, 0xBB};
         auto Frame = SmuxWire::Build(hdr, payload);
-        SmuxWire::FrameHeader out;
+        Smux::FrameHeader out;
         EXPECT_EQ(SmuxWire::ParseHeader(Frame, out), Error::None);
-        EXPECT_EQ(out.cmd, SmuxWire::Command::Push);
+        EXPECT_EQ(out.cmd, Smux::Command::Push);
         EXPECT_EQ(out.StreamId, 7U);
     }
 
@@ -181,16 +181,16 @@ namespace
 
     TEST(MuxSessionDeep, YamuxHeaderBuildParse)
     {
-        YamuxWire::FrameHeader hdr;
+        Yamux::FrameHeader hdr;
         hdr.version = 0;
-        hdr.Type = YamuxWire::MessageType::Data;
-        hdr.flag = YamuxWire::Flags::None;
+        hdr.Type = Yamux::MessageType::Data;
+        hdr.flag = Yamux::Flags::None;
         hdr.StreamId = 9;
         const std::array<std::uint8_t, 3> payload{1, 2, 3};
         auto Frame = YamuxWire::Build(hdr, payload);
-        YamuxWire::FrameHeader out;
+        Yamux::FrameHeader out;
         EXPECT_EQ(YamuxWire::ParseHeader(Frame, out), Error::None);
-        EXPECT_EQ(out.Type, YamuxWire::MessageType::Data);
+        EXPECT_EQ(out.Type, Yamux::MessageType::Data);
         EXPECT_EQ(out.StreamId, 9U);
     }
 

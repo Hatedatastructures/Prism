@@ -243,7 +243,7 @@ namespace
         std::printf("READY: Prism VMess server on %s\n", OptionsValue.Address.c_str());
         std::fflush(stdout);
         std::size_t Sessions = 0;
-        while (Sessions < 2)
+        while (Sessions < 3)
         {
             boost::system::error_code AcceptError;
             auto Socket = co_await Acceptor.async_accept(

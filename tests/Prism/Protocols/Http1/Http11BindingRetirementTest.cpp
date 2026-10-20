@@ -88,7 +88,7 @@ TEST(Http11Binding, DrainWaitsForActiveAdmissionAndThenReleasesFactory)
     ASSERT_FALSE(Result->AcceptException);
     ASSERT_TRUE(Result->Accepted);
     EXPECT_FALSE(*Result->Accepted);
-    EXPECT_EQ(Result->Accepted->error().Code, Prism::Fault::Code::ParseError);
+    EXPECT_EQ(Result->Accepted->error().Code, Prism::Fault::Code::BadMessage);
     ASSERT_FALSE(Result->DrainException);
     ASSERT_TRUE(Result->Drained);
     EXPECT_TRUE(*Result->Drained);

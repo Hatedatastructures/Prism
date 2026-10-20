@@ -298,12 +298,12 @@ function Wait-TuicClient($ProcessWrapper, [int]$TimeoutMilliseconds) {
 
 function Assert-TuicClientEvidence($Mode, [string]$Output) {
     $Patterns = switch ($Mode) {
-        'tcp' { @('(?m)^PAYLOAD tcp_stream=\d+ bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true FIN_OWNER=GO_CLIENT_STREAM$') }
-        'concurrent-bidi' { @('(?m)^PAYLOAD tcp_stream=\d+ bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true FIN_OWNER=GO_CLIENT_STREAM$') }
-        'bad-auth' { @('(?m)^BAD_AUTH_CLOSE=.*payload_read=0 egress=none$', '(?m)^PASS: bad credential silent timeout / no egress; target_payload_bytes=0 TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT_QUIC$') }
-        'udp-only' { @('(?m)^PAYLOAD udp_only packets=1 bytes=\d+ SHA256=[0-9a-f]{64} TARGET_PACKETS=1 TARGET_BYTES=\d+ TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT_QUIC$') }
-        'auth-close' { @('(?m)^AUTH_CLOSE_EGRESS=0 TARGET_BYTES=0 TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT_QUIC$') }
-        'udp-pending' { @('(?m)^PENDING_UDP_SENT target=.* bytes=\d+ SHA256=[0-9a-f]{64}$') }
+        'tcp' { @('(?m)^PAYLOAD tcp_stream=\d+ bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true FIN_OWNER=GO_CLIENT_STREAM\r?$') }
+        'concurrent-bidi' { @('(?m)^PAYLOAD tcp_stream=\d+ bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true FIN_OWNER=GO_CLIENT_STREAM\r?$') }
+        'bad-auth' { @('(?m)^BAD_AUTH_CLOSE=.*payload_read=0 egress=none\r?$', '(?m)^PASS: bad credential silent timeout / no egress; target_payload_bytes=0 TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT_QUIC\r?$') }
+        'udp-only' { @('(?m)^PAYLOAD udp_only packets=1 bytes=\d+ SHA256=[0-9a-f]{64} TARGET_PACKETS=1 TARGET_BYTES=\d+ TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT_QUIC\r?$') }
+        'auth-close' { @('(?m)^AUTH_CLOSE_EGRESS=0 TARGET_BYTES=0 TARGET_SHA256=[0-9a-f]{64} CLOSE_OWNER=GO_CLIENT_QUIC\r?$') }
+        'udp-pending' { @('(?m)^PENDING_UDP_SENT target=.* bytes=\d+ SHA256=[0-9a-f]{64}\r?$') }
         default { throw "Unknown TUIC evidence mode $Mode" }
     }
     foreach ($Pattern in $Patterns) {
@@ -314,14 +314,14 @@ function Assert-TuicClientEvidence($Mode, [string]$Output) {
     if ($Mode -eq 'concurrent-bidi') {
         $StreamEvidence = [regex]::Matches(
             $Output,
-            '(?m)^PAYLOAD tcp_stream=\d+ bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true FIN_OWNER=GO_CLIENT_STREAM$')
+            '(?m)^PAYLOAD tcp_stream=\d+ bytes=\d+ SHA256=[0-9a-f]{64} FIN_SENT=true PEER_EOF=true FIN_OWNER=GO_CLIENT_STREAM\r?$')
         if ($StreamEvidence.Count -ne 4) {
             throw "TUIC concurrent-bidi payload/FIN/EOF evidence count=$($StreamEvidence.Count), expected=4"
         }
     }
     if ($Mode -eq 'udp-pending') {
         $PendingEvidence = [regex]::Matches(
-            $Output, '(?m)^PENDING_UDP_SENT target=.* bytes=\d+ SHA256=[0-9a-f]{64}$')
+            $Output, '(?m)^PENDING_UDP_SENT target=.* bytes=\d+ SHA256=[0-9a-f]{64}\r?$')
         if ($PendingEvidence.Count -ne 1) {
             throw "TUIC udp-pending send evidence count=$($PendingEvidence.Count), expected=1"
         }
@@ -375,8 +375,8 @@ function Invoke-TuicMode($Request) {
         throw "Unexpected pending UDP payload: $Payload"
     }
     Write-Evidence "PENDING_UDP_SINK_RECEIVED bytes=$($Datagram.Buffer.Length) peer=$($Datagram.RemoteEndPoint)"
+    $Client.Process.StandardInput.AutoFlush = $true
     $Client.Process.StandardInput.WriteLine('close')
-    $Client.Process.StandardInput.Flush()
     $Result = Wait-TuicClient $Client $Request.TimeoutMilliseconds
     Assert-TuicClientEvidence $Request.Mode $Result.Stdout
     $ExtraReceiveTask = $Request.Sink.ReceiveAsync()

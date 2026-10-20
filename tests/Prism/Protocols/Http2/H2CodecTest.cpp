@@ -9,6 +9,7 @@
  */
 
 #include <Prism/Protocols/Http2/Detail/Codec.hpp>
+#include <Prism/Protocols/Http2/Detail/StaticTable.hpp>
 #include <Prism/Protocols/Http2/Detail/Frame.hpp>
 #include <Prism/Protocols/Http2/Session.hpp>
 

@@ -20,9 +20,15 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Foundation/Error.hpp>
-#include <Prism/Protocols/Socks5/Codec.hpp>
+#include <Prism/Protocols/Socks5/AddressCodec.hpp>
+#include <Prism/Protocols/Socks5/AuthCodec.hpp>
+#include <Prism/Protocols/Socks5/BeastCodec.hpp>
+#include <Prism/Protocols/Socks5/MessageCodec.hpp>
+#include <Prism/Protocols/Socks5/TransportCodec.hpp>
+#include <Prism/Protocols/Socks5/Types.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
 namespace
@@ -63,6 +69,29 @@ namespace
     auto MakeBytes(std::initializer_list<std::uint8_t> List) -> std::vector<std::uint8_t>
     {
         return std::vector<std::uint8_t>(List);
+    }
+
+    /** @brief 验证完整 greeting 与同读原生失败先完成解析并关闭载体。 */
+    auto RunCompleteGreetingBeforeNativeFailure(
+        const std::shared_ptr<PrismMockTransport> &Raw) -> Net::awaitable<void>
+    {
+        Raw->InjectRead({0x05, 0x01, 0x00});
+        Raw->ReadErrorBytes = 3;
+        Raw->SetReadError(std::make_error_code(std::errc::connection_reset));
+        Socks5::Parser Parser;
+        Parser.Expect(Socks5::Message::Kind::Greeting);
+
+        const auto Code = co_await Socks5::AsyncRead(Raw, Parser);
+        EXPECT_EQ(Code, Error::IoError);
+        EXPECT_TRUE(Parser.IsDone());
+        EXPECT_EQ(Parser.Get().Type, Socks5::Message::Kind::Greeting);
+        EXPECT_EQ(Parser.Get().Methods, (std::vector<std::uint8_t>{0x00}));
+        EXPECT_EQ(Raw->ReadsDone, 1U);
+        const auto Closed = Raw->Close();
+        EXPECT_TRUE(Closed);
+        const auto Drain = co_await Raw->Activity()->Drain();
+        EXPECT_TRUE(Drain);
+        EXPECT_TRUE(Raw->Activity()->IsRetired());
     }
 } // namespace
 
@@ -337,4 +366,11 @@ TEST(Socks5Codec, AsyncReadRejectsOverreportedRead)
                     EXPECT_EQ(Code, Error::IoError);
                     EXPECT_FALSE(Parser.IsDone());
                 });
+    }
+
+TEST(Socks5Codec, AsyncReadConsumesBytesBeforePropagatingNativeFailure)
+    {
+        Net::io_context Io;
+        auto Raw = std::make_shared<PrismMockTransport>(Io.get_executor());
+        RunCoro(Io, RunCompleteGreetingBeforeNativeFailure(Raw));
     }

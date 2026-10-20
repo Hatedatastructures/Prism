@@ -1,6 +1,8 @@
 /** @file WorkerTestSupport.hpp @brief Runtime worker 生命周期测试的内部 owner 观察。 */
 #pragma once
 
+#include <Prism/Runtime/Detail/Mailbox.hpp>
+
 #include <Prism/Runtime/Worker.hpp>
 
 namespace Prism::Runtime
@@ -11,12 +13,12 @@ namespace Prism::Runtime
     public:
         static auto CloseMailbox(Worker &Value) noexcept -> void
         {
-            Value.Mailbox_.Close();
+            Value.Mailbox_->Close();
         }
 
         [[nodiscard]] static auto IsMailboxClosed(const Worker &Value) noexcept -> bool
         {
-            return Value.Mailbox_.IsClosed();
+            return Value.Mailbox_->IsClosed();
         }
     };
 }

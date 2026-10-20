@@ -39,6 +39,8 @@
 #include <vector>
 
 #include <Prism/Composition/Recognition/ProfileBuilder.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Net/Target.hpp>
 #include <Prism/Runtime/Listener.hpp>
 #include <Prism/Runtime/SessionAdmissionTestSupport.hpp>
@@ -73,9 +75,16 @@ namespace
     class CompletionSink final : public Prism::Foundation::TrafficSink
     {
     public:
-        auto Report(Prism::Foundation::TrafficEvent) noexcept -> void override
+        auto Report(Prism::Foundation::TrafficEvent Event) noexcept -> void override
         {
-            Completed_.store(true, std::memory_order_release);
+            if (Event.Kind == Prism::Foundation::TrafficEventKind::Completed)
+            {
+                Completed_.store(true, std::memory_order_release);
+            }
+            if (Event.Up != 0U || Event.Down != 0U)
+            {
+                Bytes_.fetch_add(Event.Up + Event.Down, std::memory_order_relaxed);
+            }
         }
 
         auto Retire(Prism::Foundation::TrafficRetirement Owner)
@@ -85,6 +94,11 @@ namespace
         [[nodiscard]] auto Completed() const noexcept -> bool
         {
             return Completed_.load(std::memory_order_acquire);
+        }
+
+        [[nodiscard]] auto Bytes() const noexcept -> std::size_t
+        {
+            return Bytes_.load(std::memory_order_acquire);
         }
 
         auto StartEcho(Net::any_io_executor Executor,
@@ -135,6 +149,7 @@ namespace
         };
 
         std::atomic_bool Completed_{false};
+        std::atomic_size_t Bytes_{0};
         std::shared_ptr<EchoState> Echo_;
     };
 
@@ -208,33 +223,89 @@ namespace
         return Result;
     }
 
+    [[nodiscard]] auto CloseAndDrain(std::shared_ptr<Prism::MemoryStream> Peer)
+        -> Net::awaitable<void>
+    {
+        if (!Peer)
+        {
+            throw std::system_error(Prism::Fault::ToNative(
+                Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument}));
+        }
+        const auto CloseResult = Peer->Close();
+        const auto Activity = Peer->Activity();
+        if (!Activity)
+        {
+            const auto Failure = CloseResult
+                ? Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument}
+                : CloseResult.error();
+            throw std::system_error(Prism::Fault::ToNative(Failure));
+        }
+        const auto DrainResult = co_await Activity->Drain();
+        if (!CloseResult)
+        {
+            throw std::system_error(Prism::Fault::ToNative(CloseResult.error()));
+        }
+        if (!DrainResult)
+        {
+            throw std::system_error(Prism::Fault::ToNative(DrainResult.error()));
+        }
+    }
+
     auto EchoMemory(std::shared_ptr<Prism::MemoryStream> Peer) -> Net::awaitable<void>
     {
         std::array<std::byte, 4096> Buffer{};
         while (true)
         {
-            std::error_code ReadError;
-            const auto Count = co_await Peer->async_read_some(Buffer, ReadError);
-            if (ReadError || Count == 0)
+            const auto ReadResult = co_await Peer->ReadSome(Buffer);
+            if (ReadResult.Bytes > Buffer.size())
             {
-                break;
+                co_await CloseAndDrain(Peer);
+                throw std::system_error(Prism::Fault::ToNative(
+                    Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument}));
             }
             std::size_t Offset = 0;
-            while (Offset < Count)
+            while (Offset < ReadResult.Bytes)
             {
-                std::error_code WriteError;
-                const auto WriteWindow = std::span<const std::byte>(Buffer).subspan(
-                    Offset, Count - Offset);
-                const auto Written = co_await Peer->async_write_some(WriteWindow, WriteError);
-                if (WriteError || Written == 0)
+                const auto Remaining = ReadResult.Bytes - Offset;
+                const auto WriteWindow = std::span<const std::byte>(Buffer).subspan(Offset, Remaining);
+                const auto WriteResult = co_await Peer->WriteSome(WriteWindow);
+                if (WriteResult.Bytes > Remaining)
                 {
-                    Peer->Close();
-                    co_return;
+                    co_await CloseAndDrain(Peer);
+                    throw std::system_error(Prism::Fault::ToNative(
+                        Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument,
+                                              WriteResult.Failure.Native}));
                 }
-                Offset += Written;
+                Offset += WriteResult.Bytes;
+                if (WriteResult.Failure.Failed())
+                {
+                    co_await CloseAndDrain(Peer);
+                    throw std::system_error(Prism::Fault::ToNative(WriteResult.Failure));
+                }
+                if (WriteResult.Bytes == 0)
+                {
+                    co_await CloseAndDrain(Peer);
+                    throw std::system_error(Prism::Fault::ToNative(
+                        Prism::Fault::Failure{Prism::Fault::Code::WouldBlock}));
+                }
+            }
+            if (ReadResult.Failure.Failed())
+            {
+                const bool PeerClosed = ReadResult.Failure.Code == Prism::Fault::Code::Eof;
+                co_await CloseAndDrain(Peer);
+                if (!PeerClosed)
+                {
+                    throw std::system_error(Prism::Fault::ToNative(ReadResult.Failure));
+                }
+                co_return;
+            }
+            if (ReadResult.Bytes == 0)
+            {
+                co_await CloseAndDrain(Peer);
+                throw std::system_error(Prism::Fault::ToNative(
+                    Prism::Fault::Failure{Prism::Fault::Code::WouldBlock}));
             }
         }
-        Peer->Close();
     }
 
     [[nodiscard]] auto MakeMemoryDial(Net::any_io_executor Executor,
@@ -265,7 +336,8 @@ namespace
             (OptionsValue.Protocol == "http" || OptionsValue.Protocol == "socks5"))
         {
             BuilderOptions.Mode = Core::RecognitionMode::Deterministic;
-            Bindings.push_back(Composition::CandidateFactory::MakeHttp(Prism::Composition::Recognition::CandidateOptions{1}));
+            Bindings.push_back(Composition::CandidateFactory::MakeHttp(
+                Composition::CandidateOptions{1}, Prism::Testing::MakeHttp1Binding()));
             Bindings.push_back(Composition::CandidateFactory::MakeSocks5(Composition::CandidateOptions{2}, Prism::Testing::MakeSocks5Binding({})));
         }
         else if (OptionsValue.Mode == "MixedTrial" && OptionsValue.Protocol == "vless")
@@ -335,6 +407,8 @@ namespace
         }
 
         Runtime::SessionOptions Result;
+        Result.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8U});
         Result.Services->Profile = Built->Profile;
         Result.Services->ResolveCandidate = Built->Resolver;
         Result.Services->GenerationUseState = std::move(UseState);
@@ -442,8 +516,9 @@ namespace
             std::fprintf(stderr, "FAIL: recognition listener timed out\n");
             co_return 1;
         }
-        std::printf("PASS: Prism %s %s single-port recognition echo\n",
-                    OptionsValue.Mode.c_str(), OptionsValue.Protocol.c_str());
+        std::printf(
+            "PASS: Prism %s %s single-port recognition echo (traffic_bytes=%zu)\n",
+            OptionsValue.Mode.c_str(), OptionsValue.Protocol.c_str(), Sink->Bytes());
         co_return 0;
     }
 

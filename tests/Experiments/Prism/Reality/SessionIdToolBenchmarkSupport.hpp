@@ -7,9 +7,9 @@
 
 #include "SessionIdTool.hpp"
 
-#include "../../Prism/integration/Layering/CarrierBenchmarkTransportResult.hpp"
+#include "../../../Prism/Integration/Layering/CarrierBenchmarkTransportResult.hpp"
 
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
 
 #include <array>
 #include <cstddef>

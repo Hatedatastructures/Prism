@@ -15,12 +15,12 @@
 #include <vector>
 
 #include <Prism/Protocols/Hysteria2/Codec.hpp>
-#include <Prism/Protocols/Shadowsocks2022/Codec.hpp>
-#include <Prism/Protocols/Socks5/Codec.hpp>
-#include <Prism/Protocols/Trojan/Codec.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <Prism/Protocols/Socks5/Socks5.hpp>
+#include <Prism/Protocols/Trojan/Trojan.hpp>
 #include <Prism/Protocols/Tuic/Codec.hpp>
-#include <Prism/Protocols/Vless/Codec.hpp>
-#include <Prism/Protocols/Vmess/Codec.hpp>
+#include <Prism/Protocols/Vless/Vless.hpp>
+#include <Prism/Protocols/Vmess/Vmess.hpp>
 
 namespace
 {

@@ -9,7 +9,7 @@
 #include <Prism/Application/ProtocolAcceptors.hpp>
 #include <Prism/Application/Configuration/GenerationBuilder.hpp>
 #include <Prism/Application/Startup/GenerationPhase.hpp>
-#include <Prism/Composition/Provider/ConfigurationCompiler.hpp>
+#include <Prism/Composition/Provider/ProviderCatalog.hpp>
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Protocols/Mux/Smux/Smux.hpp>

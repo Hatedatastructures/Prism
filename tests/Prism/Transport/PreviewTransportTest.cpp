@@ -3,11 +3,251 @@
  * @brief 按功能拆分的 GoogleTest 行为契约。
  */
 
+#include <Prism/Foundation/ByteSpan.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
+#include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Preview.hpp>
+#include <Prism/Transport/Replay.hpp>
+#include <Prism/Transport/Transmission.hpp>
+
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/system/error_code.hpp>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <exception>
+#include <future>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <system_error>
+#include <utility>
+
+#include <gtest/gtest.h>
+
 #include "TransportDecoratorTestSupport.hpp"
 #include "TransportResources.hpp"
 
 namespace
 {
+    class PrefixTerminalMock final : public Prism::Transmission
+    {
+    public:
+        explicit PrefixTerminalMock(Net::any_io_executor Executor)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor))
+        {
+        }
+
+        [[nodiscard]] auto Executor() const -> ExecutorType override
+        {
+            return Executor_;
+        }
+
+        [[nodiscard]] auto ReadCalls() const noexcept -> std::size_t
+        {
+            return ReadCalls_;
+        }
+
+        [[nodiscard]] auto WriteCalls() const noexcept -> std::size_t
+        {
+            return WriteCalls_;
+        }
+
+        [[nodiscard]] auto WriteShutdownCalls() const noexcept -> std::size_t
+        {
+            return WriteShutdownCalls_;
+        }
+
+        [[nodiscard]] auto CloseCalls() const noexcept -> std::size_t
+        {
+            return CloseCalls_;
+        }
+
+        [[nodiscard]] auto Written() const noexcept -> const std::string&
+        {
+            return Written_;
+        }
+
+        auto RejectNextClose(Prism::Fault::Failure Failure) -> void
+        {
+            CloseFailure_.emplace(Failure);
+        }
+
+        auto StartRead(std::span<std::byte>, Completion Handler) -> void override
+        {
+            ++ReadCalls_;
+            Prism::Transmission::PostResult(
+                Executor_, std::move(Handler),
+                {0, {Prism::Fault::Code::WouldBlock}});
+        }
+
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        {
+            ++WriteCalls_;
+            if (!Buffer.empty())
+            {
+                Written_.append(
+                    reinterpret_cast<const char*>(Buffer.data()), Buffer.size());
+            }
+            Prism::Transmission::PostResult(
+                Executor_, std::move(Handler), {Buffer.size(), {}});
+        }
+
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            ++WriteShutdownCalls_;
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
+        }
+
+    protected:
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            ++CloseCalls_;
+            if (CloseFailure_)
+            {
+                const auto Failure = *CloseFailure_;
+                CloseFailure_.reset();
+                return std::unexpected(Failure);
+            }
+            return {};
+        }
+
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            return {};
+        }
+
+    private:
+        Net::any_io_executor Executor_;
+        std::size_t ReadCalls_{0};
+        std::size_t WriteCalls_{0};
+        std::size_t WriteShutdownCalls_{0};
+        std::size_t CloseCalls_{0};
+        std::optional<Prism::Fault::Failure> CloseFailure_;
+        std::string Written_;
+    };
+
+    auto RunPrefixBytesWithStickyEof(Net::io_context& IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Inner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        const auto Created = Prism::Transport::PreviewTransport::Create(
+            Inner, {SvBytes("request-tail"), Prism::Testing::MakeTransportBytes(),
+                    {Prism::Fault::Code::Eof}});
+        if (!Created)
+        {
+            ADD_FAILURE() << "PreviewTransport rejected a nonempty EOF prefix";
+            co_return;
+        }
+        const auto Preview = *Created;
+        std::array<std::byte, 32> Buffer{};
+        EXPECT_FALSE(Preview->Release());
+
+        const auto First = co_await Preview->ReadSome(Buffer);
+        EXPECT_EQ(First.Bytes, 12U);
+        EXPECT_EQ(First.Failure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(Prism::AsStrView(Prism::AsU8(
+                      std::span<std::byte>(Buffer).first(First.Bytes))),
+                  "request-tail");
+        EXPECT_FALSE(Preview->Release());
+
+        const auto Second = co_await Preview->ReadSome(Buffer);
+        EXPECT_EQ(Second.Bytes, 0U);
+        EXPECT_EQ(Second.Failure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(Inner->ReadCalls(), 0U);
+        Prism::Testing::ExpectFixtureCloseReceipt(
+            co_await Prism::Testing::CloseFixture(Preview));
+        Prism::Testing::ExpectFixtureCloseReceipt(
+            co_await Prism::Testing::CloseFixture(Inner));
+    }
+
+    auto RunTerminalOnlyFailureKeepsWriteHalf(Net::io_context& IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Inner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        auto Bytes = Prism::Testing::MakeTransportBytes();
+        const auto AvailableBlocks = Bytes->AvailableBlocks();
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        const auto Created = Prism::Transport::PreviewTransport::Create(
+            Inner, {{}, Bytes, Prism::Fault::FromNative(Native)});
+        if (!Created)
+        {
+            ADD_FAILURE() << "PreviewTransport rejected a terminal-only prefix";
+            co_return;
+        }
+        const auto Preview = *Created;
+        std::array<std::byte, 8> Buffer{};
+        EXPECT_NE(dynamic_cast<Prism::Transport::PreviewTransport*>(Preview.get()), nullptr);
+        EXPECT_EQ(Bytes->AvailableBlocks(), AvailableBlocks);
+        EXPECT_FALSE(Preview->Release());
+
+        const auto First = co_await Preview->ReadSome(Buffer);
+        const auto Second = co_await Preview->ReadSome(Buffer);
+        EXPECT_EQ(First.Bytes, 0U);
+        EXPECT_EQ(Second.Bytes, 0U);
+        EXPECT_EQ(First.Failure.Native, Native);
+        EXPECT_EQ(Second.Failure.Native, Native);
+        EXPECT_FALSE(Preview->Release());
+
+        const auto Written = co_await Preview->WriteSome(SvBytes("upload"));
+        EXPECT_EQ(Written.Bytes, 6U);
+        EXPECT_TRUE(Written.Failure.Succeeded());
+        EXPECT_EQ(Inner->Written(), "upload");
+        const auto Shutdown = co_await Preview->WriteShutdown();
+        EXPECT_TRUE(Shutdown.has_value());
+        EXPECT_EQ(Inner->WriteCalls(), 1U);
+        EXPECT_EQ(Inner->WriteShutdownCalls(), 1U);
+
+        const auto Third = co_await Preview->ReadSome(Buffer);
+        EXPECT_EQ(Third.Bytes, 0U);
+        EXPECT_EQ(Third.Failure.Native, Native);
+        EXPECT_EQ(Inner->ReadCalls(), 0U);
+        Prism::Testing::ExpectFixtureCloseReceipt(
+            co_await Prism::Testing::CloseFixture(Preview));
+        Prism::Testing::ExpectFixtureCloseReceipt(
+            co_await Prism::Testing::CloseFixture(Inner));
+    }
+
+    auto RunEmptyReadPreservesTerminal(Net::io_context& IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Inner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        const auto Created = Prism::Transport::PreviewTransport::Create(
+            Inner, {{}, Prism::Testing::MakeTransportBytes(),
+                    Prism::Fault::FromNative(Native)});
+        if (!Created)
+        {
+            ADD_FAILURE() << "PreviewTransport rejected a terminal-only prefix";
+            co_return;
+        }
+        const auto Preview = *Created;
+        std::span<std::byte> EmptyBuffer;
+        const auto EmptyRead = co_await Preview->ReadSome(EmptyBuffer);
+        EXPECT_EQ(EmptyRead.Bytes, 0U);
+        EXPECT_TRUE(EmptyRead.Failure.Succeeded());
+
+        std::array<std::byte, 8> Buffer{};
+        const auto TerminalRead = co_await Preview->ReadSome(Buffer);
+        EXPECT_EQ(TerminalRead.Bytes, 0U);
+        EXPECT_EQ(TerminalRead.Failure.Native, Native);
+        EXPECT_EQ(Inner->ReadCalls(), 0U);
+        Prism::Testing::ExpectFixtureCloseReceipt(
+            co_await Prism::Testing::CloseFixture(Preview));
+        Prism::Testing::ExpectFixtureCloseReceipt(
+            co_await Prism::Testing::CloseFixture(Inner));
+    }
+
     auto RunPrereadReturnedFirst(Net::io_context &IoContext) -> Net::awaitable<void>
     {
         auto MemoryPair41 = Prism::Testing::MakeOwnedTransportPair(IoContext.get_executor());
@@ -252,6 +492,130 @@ namespace
         Prism::Testing::ExpectFixtureCloseReceipt(co_await Prism::Testing::CloseFixture(TransportOwner27));
         Prism::Testing::ExpectFixtureCloseReceipt(co_await Prism::Testing::CloseFixture(Source));
     }
+
+    auto RunCandidateCloseEscalation(Net::io_context& IoContext) -> Net::awaitable<void>
+    {
+        auto Inner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        auto Snapshot = Prism::Transport::ReplayTransmission::Create(
+            Inner, Prism::Transport::ReplayOptions{
+                64U * 1024U, Prism::Transport::ReplayMode::Candidate,
+                Prism::Testing::MakeTransportBytes()}).value();
+
+        const auto CandidateClose = Snapshot->Close();
+        EXPECT_TRUE(CandidateClose.has_value());
+        EXPECT_EQ(Inner->CloseCalls(), 0U);
+
+        const auto Escalated = co_await Snapshot->CloseUnderlying();
+        EXPECT_TRUE(Escalated.has_value());
+        const auto Drain = co_await Snapshot->Activity()->Drain();
+        EXPECT_TRUE(Drain.has_value());
+        EXPECT_EQ(Inner->CloseCalls(), 1U);
+    }
+
+    auto RunCloseUnderlyingAndDrain(
+        std::shared_ptr<Prism::Transport::ReplayTransmission> Snapshot,
+        std::shared_ptr<PrefixTerminalMock> Inner) -> Net::awaitable<void>
+    {
+        const auto Closed = co_await Snapshot->CloseUnderlying();
+        EXPECT_TRUE(Closed.has_value());
+        const auto Drain = co_await Snapshot->Activity()->Drain();
+        EXPECT_TRUE(Drain.has_value());
+        EXPECT_EQ(Inner->CloseCalls(), 1U);
+    }
+
+    auto RunCloseUnderlyingWithoutPriorClose(Net::io_context& IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Inner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        auto Snapshot = Prism::Transport::ReplayTransmission::Create(
+            Inner, {64U * 1024U, Prism::Transport::ReplayMode::Candidate,
+                    Prism::Testing::MakeTransportBytes()}).value();
+        co_await RunCloseUnderlyingAndDrain(std::move(Snapshot), std::move(Inner));
+    }
+
+    auto RunOwnedAndCommittedCloseUnderlying(Net::io_context& IoContext)
+        -> Net::awaitable<void>
+    {
+        auto OwnedInner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        auto Owned = Prism::Transport::ReplayTransmission::Create(
+            OwnedInner, {64U * 1024U, Prism::Transport::ReplayMode::Owned,
+                        Prism::Testing::MakeTransportBytes()}).value();
+        co_await RunCloseUnderlyingAndDrain(std::move(Owned), std::move(OwnedInner));
+
+        auto CommittedInner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        auto Committed = Prism::Transport::ReplayTransmission::Create(
+            CommittedInner, {64U * 1024U, Prism::Transport::ReplayMode::Candidate,
+                             Prism::Testing::MakeTransportBytes()}).value();
+        Committed->Commit();
+        co_await RunCloseUnderlyingAndDrain(std::move(Committed), std::move(CommittedInner));
+    }
+
+    auto RunInnerCloseRejection(Net::io_context& IoContext) -> Net::awaitable<void>
+    {
+        auto Inner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        auto Snapshot = Prism::Transport::ReplayTransmission::Create(
+            Inner, {64U * 1024U, Prism::Transport::ReplayMode::Candidate,
+                    Prism::Testing::MakeTransportBytes()}).value();
+        Inner->Activity()->Seal();
+        const auto Closed = co_await Snapshot->CloseUnderlying();
+        EXPECT_FALSE(Closed);
+        if (Closed)
+        {
+            ADD_FAILURE() << "CloseUnderlying accepted a sealed inner activity";
+            co_return;
+        }
+        EXPECT_EQ(Closed.error().Code, Prism::Fault::Code::Canceled);
+        EXPECT_EQ(Inner->CloseCalls(), 0U);
+        EXPECT_FALSE(Inner->Activity()->IsRetired());
+        EXPECT_FALSE(Snapshot->Activity()->IsRetired());
+    }
+
+    auto RunOverlappingCloseUnderlying(Net::io_context& IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Inner = std::make_shared<PrefixTerminalMock>(IoContext.get_executor());
+        auto Snapshot = Prism::Transport::ReplayTransmission::Create(
+            Inner, {64U * 1024U, Prism::Transport::ReplayMode::Candidate,
+                    Prism::Testing::MakeTransportBytes()}).value();
+        Net::experimental::channel<void(boost::system::error_code)> Done(IoContext, 1);
+        std::optional<Prism::Transmission::ControlResult> First;
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, Snapshot->CloseUnderlying(),
+            [&](std::exception_ptr Error, Prism::Transmission::ControlResult Result)
+            {
+                Exception = std::move(Error);
+                First.emplace(std::move(Result));
+                (void)Done.try_send(boost::system::error_code{});
+            });
+        co_await Net::post(IoContext.get_executor(), Net::use_awaitable);
+        const auto Overlap = co_await Snapshot->CloseUnderlying();
+        EXPECT_FALSE(Overlap);
+        if (Overlap)
+        {
+            ADD_FAILURE() << "overlapping CloseUnderlying was accepted";
+            co_return;
+        }
+        EXPECT_EQ(Overlap.error().Code, Prism::Fault::Code::WouldBlock);
+        boost::system::error_code DoneError;
+        (void)co_await Done.async_receive(
+            Net::redirect_error(Net::use_awaitable, DoneError));
+        EXPECT_FALSE(DoneError);
+        EXPECT_EQ(Exception, nullptr);
+        if (Exception || !First)
+        {
+            ADD_FAILURE() << "first CloseUnderlying task did not produce a result";
+            co_return;
+        }
+        EXPECT_TRUE(*First);
+        if (!*First)
+        {
+            ADD_FAILURE() << "first CloseUnderlying task failed";
+            co_return;
+        }
+        EXPECT_EQ(Inner->CloseCalls(), 1U);
+        const auto Drain = co_await Snapshot->Activity()->Drain();
+        EXPECT_TRUE(Drain.has_value());
+    }
 } // namespace
 
 TEST(PreviewTransport, PrereadReturnedFirst)
@@ -274,6 +638,24 @@ TEST(PreviewTransport, EofAfterPreread)
         RunCoro(Ioc, [IocPtr = &Ioc]() -> Net::awaitable<void>
                  { return RunEofAfterPreread(*IocPtr); });
     }
+
+TEST(PreviewTransport, PrefixBytesDeliverEofAndKeepItSticky)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunPrefixBytesWithStickyEof(Io));
+}
+
+TEST(PreviewTransport, TerminalOnlyFailureIsStickyAndPreservesWrites)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunTerminalOnlyFailureKeepsWriteHalf(Io));
+}
+
+TEST(PreviewTransport, EmptyReadDoesNotConsumeTerminalOnlyFailure)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunEmptyReadPreservesTerminal(Io));
+}
 
 TEST(PreviewTransport, CloseDiscardsUnconsumedPreread)
     {
@@ -360,3 +742,46 @@ TEST(Snapshot, RejectsRewindAfterWrite)
         RunCoro(Ioc, [IocPtr = &Ioc]() -> Net::awaitable<void>
                  { return RunRejectsRewindAfterWrite(*IocPtr); });
     }
+
+TEST(Snapshot, CandidateCloseEscalationClosesUnderlyingOnceAndDrains)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunCandidateCloseEscalation(Io));
+}
+
+TEST(Snapshot, CloseUnderlyingStartsWithoutPriorClose)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunCloseUnderlyingWithoutPriorClose(Io));
+}
+
+TEST(Snapshot, CompletedCandidateCloseEscalatesAndDrains)
+{
+    Net::io_context Io;
+    auto Inner = std::make_shared<PrefixTerminalMock>(Io.get_executor());
+    auto Snapshot = Prism::Transport::ReplayTransmission::Create(
+        Inner, {64U * 1024U, Prism::Transport::ReplayMode::Candidate,
+                Prism::Testing::MakeTransportBytes()}).value();
+    ASSERT_TRUE(Snapshot->Close());
+    ASSERT_EQ(Io.run_one(), 1U);
+    EXPECT_EQ(Inner->CloseCalls(), 0U);
+    RunCoro(Io, RunCloseUnderlyingAndDrain(std::move(Snapshot), std::move(Inner)));
+}
+
+TEST(Snapshot, CloseUnderlyingHonorsOwnedAndCommittedModes)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunOwnedAndCommittedCloseUnderlying(Io));
+}
+
+TEST(Snapshot, RejectedInnerClosePreservesFailureWithoutChildDrain)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunInnerCloseRejection(Io));
+}
+
+TEST(Snapshot, OverlappingCloseUnderlyingReturnsWouldBlock)
+{
+    Net::io_context Io;
+    RunCoro(Io, RunOverlappingCloseUnderlying(Io));
+}

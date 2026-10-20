@@ -15,7 +15,7 @@
 #include <vector>
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Protocols/Ws/Ws.hpp>
-#include <Prism/Transport/Detail/ActivityGroup.hpp>
+#include <Prism/Transport/ActivityGroupFactory.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <gtest/gtest.h>
@@ -106,7 +106,7 @@ namespace
             : Prism::Transmission(Upstream->Executor()),
               Upstream_(std::move(Upstream)),
               Receipt_(std::move(Receipt)),
-              Activity_(std::make_shared<Prism::Transport::Detail::ActivityGroup>(
+              Activity_(Prism::Transport::MakeActivityGroup(
                   Prism::Transmission::Activity(),
                   std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>>{
                       Upstream_->Activity(), Receipt_}))
@@ -167,7 +167,7 @@ namespace
     private:
         std::shared_ptr<Prism::Transmission> Upstream_;
         std::shared_ptr<PendingWriterReceipt> Receipt_;
-        std::shared_ptr<Prism::Transport::Detail::ActivityGroup> Activity_;
+        std::shared_ptr<Prism::Contract::CarrierActivity> Activity_;
     };
 
     /** @brief 完成真实 WebSocket 服务端 Upgrade 并交付连接 owner。 */

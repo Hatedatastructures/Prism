@@ -17,6 +17,7 @@
 
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Protocols/Http2/Session.hpp>
+#include <Prism/Protocols/Mux/Detail/Root/RootChild.hpp>
 #include <Prism/Protocols/Mux/Detail/Root/RootRetirement.hpp>
 #include <Prism/Protocols/Mux/Detail/Root/RootSession.hpp>
 #include <Prism/Protocols/Mux/RootBinding.hpp>
@@ -273,7 +274,9 @@ namespace
         auto Client = std::make_shared<Prism::Http2::Session>(Peer->Executor(), false);
         Client->SendSettings();
         const auto Opened = Client->OpenStream(
-            Prism::Http2::HeaderList{{":method", "CONNECT"}}, false);
+            Prism::Http2::HeaderList{
+                {":method", "CONNECT"}, {":authority", "root-close.test:443"}},
+            false);
         if (Opened)
         {
             std::vector<std::byte> Wire;

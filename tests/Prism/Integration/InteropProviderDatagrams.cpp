@@ -1,8 +1,8 @@
 /** @file InteropProviderDatagrams.cpp @brief 实际 Prism listener 的 SOCKS BND/control 与 SS raw 客户端。 */
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
-#include <Prism/Protocols/Socks5/Codec.hpp>
-#include <Prism/Protocols/Shadowsocks2022/Codec.hpp>
+#include <Prism/Protocols/Socks5/Socks5.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <Prism/Foundation/Utility/Crypto/Base64.hpp>
 #include <array>
 #include <cstdio>

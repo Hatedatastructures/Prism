@@ -142,7 +142,7 @@ namespace
         std::vector<std::uint8_t> Received;
         const auto ReceiveError =
             co_await Datagram->AsyncReceiveFrom(Source, Received);
-        EXPECT_EQ(ReceiveError, Error::IoError);
+        EXPECT_EQ(ReceiveError, Error::Canceled);
     }
 
     TEST(Hysteria2DgramErr, SendWriteFail)

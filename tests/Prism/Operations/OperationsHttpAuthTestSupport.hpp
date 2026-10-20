@@ -190,7 +190,8 @@ namespace Prism::Testing::OperationsHttp
         {
             return false;
         }
-        Request.insert(HeaderEnd, "Authorization: Bearer " + std::string(*Token) + "\r\n");
+        Request.insert(HeaderEnd + 2U,
+            "Authorization: Bearer " + std::string(*Token) + "\r\n");
         return true;
     }
 

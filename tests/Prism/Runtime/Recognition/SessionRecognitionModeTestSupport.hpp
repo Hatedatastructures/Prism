@@ -203,12 +203,12 @@ namespace
 
     auto CountSessionNativeTlsAccept(
         std::shared_ptr<std::size_t> Calls,
-        Prism::SharedTransmission Inbound,
-        Prism::Contract::RequestMetadata) -> Net::awaitable<Prism::Contract::AcceptOutcome>
+        Prism::Contract::StreamAcceptInput Input)
+        -> Net::awaitable<Prism::Contract::AcceptOutcome>
     {
         ++*Calls;
         Prism::Contract::ProtocolDataPlane Plane;
-        Plane.Root = Prism::Contract::StreamDataPlane{std::move(Inbound)};
+        Plane.Root = Prism::Contract::StreamDataPlane{std::move(Input.Inbound)};
         co_return Plane;
     }
 
@@ -525,18 +525,18 @@ namespace
         -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
     {
         const Prism::Socks5::Address Target{Prism::Socks5::AddressType::Domain, "example.com", 443};
-        auto [HandshakeError, Conn] = co_await Prism::Socks5::Connect(
-            std::move(Client), Config, Target);
-        if (HandshakeError != Prism::Error::None)
+        auto Connected = co_await Prism::Socks5::Connect(Prism::Socks5::ConnectParameters{
+            std::move(Client), Config, Target});
+        if (!Connected)
         {
-            co_return std::unexpected(
-                Prism::Protocol::Common::FailureFromProtocolError(HandshakeError));
+            co_return std::unexpected(Connected.error());
         }
-        if (!Conn)
+        if (!*Connected)
         {
             co_return std::unexpected(
                 Prism::Fault::Failure{Prism::Fault::Code::IoError});
         }
+        auto Conn = std::move(*Connected);
         const auto Close = Conn->Close();
         const auto Drain = co_await Conn->Activity()->Drain();
         if (!Close) co_return std::unexpected(Close.error());
@@ -626,10 +626,9 @@ namespace
         const auto HandshakeError = co_await Conn->WriteHandshake(std::move(Client), Target);
         const auto Close = Conn->Close();
         const auto Drain = co_await Conn->Activity()->Drain();
-        if (HandshakeError != Prism::Error::None)
+        if (HandshakeError.Failed())
         {
-            co_return std::unexpected(
-                Prism::Protocol::Common::FailureFromProtocolError(HandshakeError));
+            co_return std::unexpected(HandshakeError);
         }
         if (!Close) co_return std::unexpected(Close.error());
         if (!Drain) co_return std::unexpected(Drain.error());

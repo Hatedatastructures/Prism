@@ -31,7 +31,7 @@
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
-#include <Prism/Foundation/Memory/BytePoolOptions.hpp>
+#include <Prism/Foundation/Memory/BytePoolModels.hpp>
 #include <Prism/Runtime/Session.hpp>
 #include <Prism/Runtime/Statistics.hpp>
 #include <Prism/Transport/MemoryStream.hpp>

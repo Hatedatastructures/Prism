@@ -62,6 +62,34 @@ namespace
         EXPECT_TRUE(Values(Current).empty());
     }
 
+    TEST(TaskIdSet, ForEachVisitsEmptySingleAndMultipleValuesInOrder)
+    {
+        std::vector<std::uint64_t> Visited;
+        const auto Append = [&Visited](const std::uint64_t Value) -> void
+        {
+            Visited.push_back(Value);
+        };
+
+        IdSet Empty;
+        Empty.ForEach(Append);
+        EXPECT_TRUE(Visited.empty());
+
+        IdSet Single;
+        ASSERT_TRUE(Single.Insert(9U));
+        Single.ForEach(Append);
+        EXPECT_EQ(Visited, (std::vector<std::uint64_t>{9U}));
+
+        IdSet Multiple;
+        ASSERT_TRUE(Multiple.Insert(12U));
+        ASSERT_TRUE(Multiple.Insert(3U));
+        ASSERT_TRUE(Multiple.Insert(8U));
+        Multiple.ForEach([&Visited](const std::uint64_t Value) -> void
+        {
+            Visited.push_back(Value);
+        });
+        EXPECT_EQ(Visited, (std::vector<std::uint64_t>{9U, 3U, 8U, 12U}));
+    }
+
     TEST(TaskIdSet, MatchesIndependentOrderedSetForMixedTrace)
     {
         IdSet Current;

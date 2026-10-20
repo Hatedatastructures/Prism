@@ -9,6 +9,8 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <algorithm>
@@ -21,6 +23,7 @@
 
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 #include <Prism/Composition/Recognition/ProfileBuilder.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
@@ -49,8 +52,55 @@ namespace
         Core::RecognizeResult &Result;
     };
 
-    auto RunRecognitionOperation(RecognitionRunRequest Request) -> Net::awaitable<void>
+    auto RunRecognitionPipeline(RecognitionRunRequest Request) -> Net::awaitable<void>
     {
+        auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
+        Core::Pipeline Pipeline(Request.Request.Profile, std::move(Bytes));
+        Request.Result = co_await Pipeline.Recognize(Request.Inbound);
+        if (!Request.Result.transport)
+        {
+            co_return;
+        }
+        std::array<std::byte, 4096> ReplayBuffer{};
+        while (true)
+        {
+            const auto Read = co_await Request.Result.transport->ReadSome(
+                std::span<std::byte>(ReplayBuffer));
+            if (Read.Bytes > ReplayBuffer.size())
+            {
+                break;
+            }
+            if (Request.Request.Replayed && Read.Bytes != 0)
+            {
+                Request.Request.Replayed->insert(
+                    Request.Request.Replayed->end(), ReplayBuffer.begin(),
+                    ReplayBuffer.begin() + static_cast<std::ptrdiff_t>(Read.Bytes));
+            }
+            if (Read.Failure.Failed() || Read.Bytes == 0)
+            {
+                break;
+            }
+        }
+        Request.Result.transport.reset();
+    }
+
+    auto RunRecognitionOperation(Net::io_context &Io, RecognitionRunRequest Request)
+        -> Net::awaitable<void>
+    {
+        Net::steady_timer PipelineDone(Io);
+        PipelineDone.expires_after(std::chrono::seconds(10));
+        std::exception_ptr PipelineFailure;
+        bool PipelineExited{false};
+        Net::co_spawn(Io, RunRecognitionPipeline(Request),
+            [&PipelineDone, &PipelineFailure, &PipelineExited](std::exception_ptr Error)
+            {
+                PipelineFailure = std::move(Error);
+                PipelineExited = true;
+                try { (void)PipelineDone.cancel(); }
+                catch (...) {}
+            });
+        bool WireWritten{true};
         for (std::size_t Offset = 0; Offset < Request.Request.Wire.size();
              Offset += Request.Request.Chunk)
         {
@@ -66,39 +116,43 @@ namespace
                 if (Written.Failure.Failed() || Written.Bytes == 0 ||
                     Written.Bytes > Remaining)
                 {
-                    co_return;
+                    WireWritten = false;
+                    break;
                 }
                 ChunkOffset += Written.Bytes;
             }
-        }
-        Request.Source->Shutdown();
-        Core::Pipeline Pipeline(Request.Request.Profile);
-        Request.Result = co_await Pipeline.Recognize(Request.Inbound);
-        if (Request.Result.transport)
-        {
-            std::array<std::byte, 4096> ReplayBuffer{};
-            while (true)
+            if (!WireWritten)
             {
-                const auto Read = co_await Request.Result.transport->ReadSome(
-                    std::span<std::byte>(ReplayBuffer));
-                if (Read.Bytes > ReplayBuffer.size())
-                {
-                    break;
-                }
-                if (Request.Request.Replayed && Read.Bytes != 0)
-                {
-                    Request.Request.Replayed->insert(
-                        Request.Request.Replayed->end(), ReplayBuffer.begin(),
-                        ReplayBuffer.begin() + static_cast<std::ptrdiff_t>(Read.Bytes));
-                }
-                if (Read.Failure.Failed() || Read.Bytes == 0)
-                {
-                    break;
-                }
+                break;
             }
-            Request.Result.transport.reset();
         }
-        Request.Source->Close();
+        if (WireWritten)
+        {
+            WireWritten = (co_await Request.Source->WriteShutdown()).has_value();
+        }
+        if (!WireWritten)
+        {
+            (void)Request.Source->Close();
+        }
+        if (!PipelineExited)
+        {
+            boost::system::error_code WaitError;
+            co_await PipelineDone.async_wait(
+                Net::redirect_error(Net::use_awaitable, WaitError));
+        }
+        if (!PipelineExited)
+        {
+            ADD_FAILURE() << "configured recognition did not finish before the fixture watchdog";
+            (void)Request.Source->Close();
+            (void)Request.Inbound->Close();
+            Io.stop();
+            co_return;
+        }
+        if (PipelineFailure)
+        {
+            std::rethrow_exception(PipelineFailure);
+        }
+        (void)Request.Source->Close();
     }
 
     auto RunNaturalCoro(Net::io_context &Io, Net::awaitable<void> Operation) -> void
@@ -122,7 +176,7 @@ namespace
         auto Inbound = std::make_shared<Prism::MemoryStream>(std::move(Reader));
         Core::RecognizeResult Result;
         const auto Scenario = RecognitionRunRequest{std::move(Request), Source, Inbound, Result};
-        RunNaturalCoro(Io, RunRecognitionOperation(Scenario));
+        RunNaturalCoro(Io, RunRecognitionOperation(Io, Scenario));
         return Result;
     }
 
@@ -150,7 +204,9 @@ namespace
         const std::vector<std::byte> Ss2022 = Prism::Testing::RecognitionWire::MakeSs2022(Psk);
 
         const auto Cases = std::vector<std::pair<Composition::CandidateBinding, std::vector<std::byte>>>{
-            {Composition::CandidateFactory::MakeHttp(Prism::Composition::Recognition::CandidateOptions{1}), Http},
+            {Composition::CandidateFactory::MakeHttp(
+                 Prism::Composition::Recognition::CandidateOptions{1},
+                 Prism::Testing::MakeHttp1Binding()), Http},
             {Prism::Testing::MakeVlessCandidate(Prism::Composition::Recognition::CandidateOptions{2}, Prism::Vless::ServerConfig{Uuid}), Vless},
             {Prism::Testing::MakeTrojanCandidate(Prism::Composition::Recognition::CandidateOptions{3}, Prism::Trojan::ServerConfig{"trojan-secret"}), Trojan},
             {Prism::Testing::MakeVmessCandidate(Prism::Composition::Recognition::CandidateOptions{4}, Prism::Vmess::ServerConfig{Uuid}), Vmess},

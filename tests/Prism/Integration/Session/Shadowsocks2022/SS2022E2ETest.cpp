@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -66,7 +67,7 @@ namespace
     auto DialSs2022Upstream(
         const std::shared_ptr<ss2022_chain_state> &State,
         const Network::Target &Target)
-        -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+        -> Net::awaitable<std::expected<SharedTransmission, Fault::Failure>>
     {
         co_return co_await Prism::Testing::DialUpstream(State, Target);
     }
@@ -83,9 +84,11 @@ namespace
         -> std::shared_ptr<Runtime::Session>
     {
         Runtime::SessionOptions Options;
+        Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
         Options.Services->AcceptProtocol = Prism::Testing::MakeSs2022Binding(Request.Configuration);
         Options.Services->Dial = [State = std::move(Request.State)](const Network::Target &Target)
-            -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+            -> Net::awaitable<std::expected<SharedTransmission, Fault::Failure>>
         {
             co_return co_await DialSs2022Upstream(State, Target);
         };
@@ -101,12 +104,14 @@ namespace
     auto MakeRefusedSs2022Session() -> std::shared_ptr<Runtime::Session>
     {
         Runtime::SessionOptions Options;
+        Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
         Options.Services->AcceptProtocol = Prism::Testing::MakeSs2022Binding(
             Shadowsocks2022::ServerConfig{E2ePsk});
         Options.Services->Dial = [](const Network::Target &)
-            -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+            -> Net::awaitable<std::expected<SharedTransmission, Fault::Failure>>
         {
-            co_return std::pair{Fault::Code::ConnectionRefused, SharedTransmission{}};
+            co_return std::unexpected(Fault::Failure{Fault::Code::ConnectionRefused});
         };
         return std::make_shared<Runtime::Session>(std::move(Options));
     }
@@ -141,14 +146,16 @@ namespace
             Scenario.Listener.Stop();
             co_return;
         }
-        auto [ProtocolError, Proxy] = co_await Shadowsocks2022::Connect(
+        auto ProxyResult = co_await Shadowsocks2022::Connect(
             std::move(*Raw), Scenario.ClientConfiguration, Scenario.Target);
-        Scenario.Output.Failure = Prism::Testing::FailureFromProtocolError(ProtocolError);
-        if (!Proxy)
+        if (!ProxyResult)
         {
+            Scenario.Output.Failure = ProxyResult.error();
             Scenario.Listener.Stop();
             co_return;
         }
+        Scenario.Output.Failure = {};
+        auto Proxy = std::move(*ProxyResult);
 
         const std::string Payload = "ss2022 runtime payload";
         const auto WriteResult = co_await Proxy->WriteExact(
@@ -175,7 +182,11 @@ namespace
         Scenario.Output.Host = Scenario.State->RequestedHost;
         Scenario.Output.Port = Scenario.State->RequestedPort;
         Proxy->Close();
-        Scenario.Listener.Stop();
+        const auto Shutdown = co_await Scenario.Listener.Shutdown();
+        if (!Shutdown && Scenario.Output.Failure.Succeeded())
+        {
+            Scenario.Output.Failure = Shutdown.error();
+        }
         boost::system::error_code CloseError;
         Scenario.EchoAcceptor.close(CloseError);
     }
@@ -200,15 +211,15 @@ namespace
         {
             co_return;
         }
-        auto [ProtocolError, Proxy] = co_await Shadowsocks2022::Connect(
+        auto ProxyResult = co_await Shadowsocks2022::Connect(
             std::move(*Raw), Shadowsocks2022::ClientConfig{E2ePsk},
             Shadowsocks2022::Address{Shadowsocks2022::AddressType::Domain, "example.com", 80});
-        (void)ProtocolError;
-        if (!Proxy)
+        if (!ProxyResult)
         {
             Scenario.Listener.Stop();
             co_return;
         }
+        auto Proxy = std::move(*ProxyResult);
         std::array<std::byte, 8> Buffer{};
         const auto ReadResult = co_await Proxy->ReadSome(Buffer);
         Scenario.SawClose = (ReadResult.Bytes == 0 || ReadResult.Failure.Failed());
@@ -237,15 +248,15 @@ namespace
         {
             co_return;
         }
-        auto [ProtocolError, Proxy] = co_await Shadowsocks2022::Connect(
+        auto ProxyResult = co_await Shadowsocks2022::Connect(
             std::move(*Raw), Shadowsocks2022::ClientConfig{E2ePsk},
             Shadowsocks2022::Address{Shadowsocks2022::AddressType::Domain, "example.com", 80});
-        (void)ProtocolError;
-        if (!Proxy)
+        if (!ProxyResult)
         {
             Scenario.Listener.Stop();
             co_return;
         }
+        auto Proxy = std::move(*ProxyResult);
         const std::string Payload = "traffic Probe";
         const auto WriteResult = co_await Proxy->WriteExact(
             std::span<const std::byte>(
@@ -295,12 +306,12 @@ namespace
         Runtime::TcpListener listener(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{1}),
             .Factory = [StateObj, scfg](Prism::Runtime::SessionAdmission)
             {
                 return MakeSs2022Session(Ss2022SessionRequest{StateObj, scfg, {}});
-            }});
+            },
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{1})});
 
         RunCoro(ioc, RunSs2022ConnectScenario(
             Ss2022ConnectScenario{listener, echo_acceptor, StateObj, Target, ccfg, out}));
@@ -349,12 +360,12 @@ namespace
         Runtime::TcpListener listener(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{2}),
             .Factory = [](Prism::Runtime::SessionAdmission)
             {
                 return MakeRefusedSs2022Session();
-            }});
+            },
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{2})});
         bool saw_close = false;
         RunCoro(ioc, RunSs2022RefusedScenario(Ss2022RefusedScenario{listener, saw_close}));
         EXPECT_TRUE(saw_close);
@@ -372,13 +383,13 @@ namespace
         Runtime::TcpListener listener(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{3}),
             .Factory = [StateObj, recorder](Prism::Runtime::SessionAdmission)
             {
                 return MakeSs2022Session(Ss2022SessionRequest{
                     StateObj, Shadowsocks2022::ServerConfig{E2ePsk}, recorder});
-            }});
+            },
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{3})});
         RunCoro(ioc, RunSs2022TrafficScenario(
             Ss2022TrafficScenario{listener, echo_acceptor, recorder}));
         EXPECT_EQ(recorder->LastEvent.Kind, Prism::Foundation::TrafficEventKind::Completed);

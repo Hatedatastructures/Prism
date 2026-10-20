@@ -34,7 +34,7 @@
 
 #include <Prism/Protocols/Mux/Session.hpp>
 #include <Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
-#include <Prism/Protocols/Mux/Smux/Detail/Wire/Types.hpp>
+#include <Prism/Protocols/Mux/Smux/Types.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
 namespace

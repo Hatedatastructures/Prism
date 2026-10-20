@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <limits>
 #include <thread>
 #include <utility>
@@ -55,6 +56,46 @@ namespace
         IoContext.restart();
         if (Exception) std::rethrow_exception(Exception);
         return Result;
+    }
+
+    struct ConcurrentRefillScenario final
+    {
+        Prism::Rate::TokenBucket& Bucket;
+        std::atomic<std::uint64_t>& CurrentNow;
+        std::atomic<std::size_t>& SuccessfulTokens;
+        std::atomic<std::size_t>& SuccessfulInsufficientCalls;
+        std::atomic<std::size_t>& SuccessfulConsumerCalls;
+        std::barrier<>& StartGate;
+        std::barrier<>& EndGate;
+        std::size_t CycleCount;
+    };
+
+    auto RunInsufficientTokenWorker(ConcurrentRefillScenario& Scenario) -> void
+    {
+        for (std::size_t Cycle = 1; Cycle <= Scenario.CycleCount; ++Cycle)
+        {
+            Scenario.StartGate.arrive_and_wait();
+            if (Scenario.Bucket.TryTake(2, Scenario.CurrentNow.load(std::memory_order_relaxed)))
+            {
+                Scenario.SuccessfulTokens.fetch_add(2, std::memory_order_relaxed);
+                Scenario.SuccessfulInsufficientCalls.fetch_add(1, std::memory_order_relaxed);
+            }
+            Scenario.EndGate.arrive_and_wait();
+        }
+    }
+
+    auto RunTokenConsumerWorker(ConcurrentRefillScenario& Scenario) -> void
+    {
+        for (std::size_t Cycle = 1; Cycle <= Scenario.CycleCount; ++Cycle)
+        {
+            Scenario.StartGate.arrive_and_wait();
+            if (Scenario.Bucket.TryTake(1, Scenario.CurrentNow.load(std::memory_order_relaxed)))
+            {
+                Scenario.SuccessfulTokens.fetch_add(1, std::memory_order_relaxed);
+                Scenario.SuccessfulConsumerCalls.fetch_add(1, std::memory_order_relaxed);
+            }
+            Scenario.EndGate.arrive_and_wait();
+        }
     }
 
     TEST(TokenBucket, CapacityLimit)
@@ -183,41 +224,16 @@ namespace
             static_cast<std::ptrdiff_t>(InsufficientThreadCount + 2);
         std::barrier StartGate(ParticipantCount);
         std::barrier EndGate(ParticipantCount);
-
-        auto RunInsufficientWorker = [&]()
-        {
-            for (std::size_t Cycle = 1; Cycle <= CycleCount; ++Cycle)
-            {
-                StartGate.arrive_and_wait();
-                if (Bucket.TryTake(2, CurrentNow.load(std::memory_order_relaxed)))
-                {
-                    SuccessfulTokens.fetch_add(2, std::memory_order_relaxed);
-                    SuccessfulInsufficientCalls.fetch_add(1, std::memory_order_relaxed);
-                }
-                EndGate.arrive_and_wait();
-            }
-        };
-        auto RunConsumer = [&]()
-        {
-            for (std::size_t Cycle = 1; Cycle <= CycleCount; ++Cycle)
-            {
-                StartGate.arrive_and_wait();
-                if (Bucket.TryTake(1, CurrentNow.load(std::memory_order_relaxed)))
-                {
-                    SuccessfulTokens.fetch_add(1, std::memory_order_relaxed);
-                    SuccessfulConsumerCalls.fetch_add(1, std::memory_order_relaxed);
-                }
-                EndGate.arrive_and_wait();
-            }
-        };
+        ConcurrentRefillScenario Scenario{Bucket, CurrentNow, SuccessfulTokens,
+            SuccessfulInsufficientCalls, SuccessfulConsumerCalls, StartGate, EndGate, CycleCount};
 
         std::vector<std::thread> InsufficientThreads;
         InsufficientThreads.reserve(InsufficientThreadCount);
         for (std::size_t Index = 0; Index < InsufficientThreadCount; ++Index)
         {
-            InsufficientThreads.emplace_back(RunInsufficientWorker);
+            InsufficientThreads.emplace_back(RunInsufficientTokenWorker, std::ref(Scenario));
         }
-        std::thread Consumer(RunConsumer);
+        std::thread Consumer(RunTokenConsumerWorker, std::ref(Scenario));
 
         for (std::size_t Cycle = 1; Cycle <= CycleCount; ++Cycle)
         {

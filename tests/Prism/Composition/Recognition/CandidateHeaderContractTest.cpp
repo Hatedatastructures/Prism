@@ -52,11 +52,11 @@ TEST(CandidateHeaderContract, TlsSelectionRequiresConfiguredSniAndAlpn)
             .Scheme = "native",
             .ServerNames = {"edge.example"},
             .Alpn = {"h2"}},
-        [](Prism::SharedTransmission Inbound)
+        [](Core::CarrierAcceptInput Input)
             -> boost::asio::awaitable<Prism::Recognition::CarrierAcceptResult>
     {
         Prism::Recognition::CarrierAcceptResult Result;
-        Result.Transport = std::move(Inbound);
+        Result.Transport = std::move(Input.Inbound);
         co_return Result;
     });
 

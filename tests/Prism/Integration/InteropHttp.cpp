@@ -24,7 +24,9 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
+#include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
 #include <Prism/Protocols/Http1/Conn.hpp>
@@ -48,6 +50,42 @@ namespace
         std::string Host;
         std::uint16_t Port{0};
     };
+
+    [[nodiscard]] auto CloseAndDrain(
+        Prism::SharedTransmission Transport) -> Net::awaitable<bool>
+    {
+        if (!Transport)
+        {
+            co_return false;
+        }
+        std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>> Activities;
+        bool HasAllActivities = true;
+        for (auto *Layer = Transport.get(); Layer != nullptr; Layer = Layer->NextLayer())
+        {
+            auto Activity = Layer->Activity();
+            if (!Activity)
+            {
+                HasAllActivities = false;
+                continue;
+            }
+            Activities.push_back(std::move(Activity));
+        }
+        const auto CloseResult = Transport->Close();
+        bool AllDrained = HasAllActivities;
+        for (const auto &Activity : Activities)
+        {
+            try
+            {
+                const auto DrainResult = co_await Activity->Drain();
+                AllDrained = DrainResult.has_value() && AllDrained;
+            }
+            catch (...)
+            {
+                AllDrained = false;
+            }
+        }
+        co_return CloseResult.has_value() && AllDrained;
+    }
 
     [[nodiscard]] auto ParsePort(std::string_view Value) -> std::optional<std::uint16_t>
     {
@@ -104,30 +142,50 @@ namespace
         return Result;
     }
 
-    [[nodiscard]] auto Echo(Prism::SharedTransmission Transport) -> Net::awaitable<void>
+    [[nodiscard]] auto Echo(Prism::SharedTransmission Transport) -> Net::awaitable<bool>
     {
         std::array<std::byte, 4096> Buffer{};
+        bool EchoedBytes = false;
         while (true)
         {
-            const auto Read = co_await Transport->ReadSome(Buffer);
-            if (Read.Failure.Failed() || Read.Bytes == 0)
+            const auto ReadResult = co_await Transport->ReadSome(Buffer);
+            if (ReadResult.Bytes > Buffer.size())
             {
-                break;
+                (void)co_await CloseAndDrain(std::move(Transport));
+                co_return false;
             }
             std::size_t Offset = 0;
-            while (Offset < Read.Bytes)
+            while (Offset < ReadResult.Bytes)
             {
-                const auto Written = co_await Transport->WriteSome(
-                    std::span<const std::byte>(Buffer).subspan(Offset, Read.Bytes - Offset));
-                if (Written.Failure.Failed() || Written.Bytes == 0)
+                const auto Remaining = ReadResult.Bytes - Offset;
+                const auto WriteResult = co_await Transport->WriteSome(
+                    std::span<const std::byte>(Buffer).subspan(Offset, Remaining));
+                if (WriteResult.Bytes > Remaining)
                 {
-                    (void)Transport->Close();
-                    co_return;
+                    (void)co_await CloseAndDrain(std::move(Transport));
+                    co_return false;
                 }
-                Offset += Written.Bytes;
+                Offset += WriteResult.Bytes;
+                if (WriteResult.Failure.Failed() || WriteResult.Bytes == 0)
+                {
+                    (void)co_await CloseAndDrain(std::move(Transport));
+                    co_return false;
+                }
+            }
+            EchoedBytes = EchoedBytes || ReadResult.Bytes != 0;
+            if (ReadResult.Failure.Failed())
+            {
+                const bool PeerClosed =
+                    ReadResult.Failure.Code == Prism::Fault::Code::Eof;
+                const auto Closed = co_await CloseAndDrain(std::move(Transport));
+                co_return PeerClosed && EchoedBytes && Closed;
+            }
+            if (ReadResult.Bytes == 0)
+            {
+                (void)co_await CloseAndDrain(std::move(Transport));
+                co_return false;
             }
         }
-        (void)Transport->Close();
     }
 
     [[nodiscard]] auto RunClient(Options OptionsValue) -> Net::awaitable<int>
@@ -152,20 +210,21 @@ namespace
         if (!Target)
         {
             std::fprintf(stderr, "FAIL: malformed target address\n");
-            (void)Transport->Close();
+            (void)co_await CloseAndDrain(std::move(Transport));
             co_return 2;
         }
         if (co_await Prism::Http11::SendConnect(Transport, Target->Host, Target->Port) !=
             Prism::Fault::Code::Success)
         {
-            (void)Transport->Close();
+            (void)co_await CloseAndDrain(std::move(Transport));
             co_return 1;
         }
         std::error_code Error;
-        if (co_await Prism::Http11::ReadResponse(
-                Transport, Error, std::make_shared<Prism::Memory::BytePool>()) != 200 || Error)
+        const auto StatusCode = co_await Prism::Http11::ReadResponse(
+            Transport, Error, std::make_shared<Prism::Memory::BytePool>());
+        if (StatusCode != 200 || Error)
         {
-            (void)Transport->Close();
+            (void)co_await CloseAndDrain(std::move(Transport));
             co_return 1;
         }
         constexpr std::string_view Payload{"prism-http-connect-external-interop-payload"};
@@ -174,13 +233,13 @@ namespace
         const auto WriteResult = co_await Transport->WriteExact(PayloadBytes);
         if (WriteResult.Failure.Failed() || WriteResult.Bytes != Payload.size())
         {
-            (void)Transport->Close();
+            (void)co_await CloseAndDrain(std::move(Transport));
             co_return 1;
         }
         std::array<std::byte, Payload.size()> EchoBuffer{};
         const auto ReadResult = co_await Transport->ReadExact(EchoBuffer);
-        (void)Transport->Close();
-        if (ReadResult.Failure.Failed() || ReadResult.Bytes != Payload.size() ||
+        const auto Closed = co_await CloseAndDrain(std::move(Transport));
+        if (!Closed || ReadResult.Failure.Failed() || ReadResult.Bytes != Payload.size() ||
             std::memcmp(EchoBuffer.data(), Payload.data(), Payload.size()) != 0)
         {
             std::fprintf(stderr, "FAIL: HTTP CONNECT external echo mismatch\n");
@@ -262,21 +321,24 @@ namespace
     [[nodiscard]] auto ServeConnection(Tcp::socket Socket) -> Net::awaitable<bool>
     {
         auto Transport = std::make_shared<Prism::Transport::Reliable>(std::move(Socket));
-        Prism::Http11::ServerConn Server(Transport);
+        Prism::Http11::ServerConn Server(
+            Transport,
+            std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{64U * 1024U, 64U}));
         Prism::Http11::HttpRequest Request;
-        if (co_await Server.ReadRequest(Request) != Prism::Fault::Code::Success ||
-            Request.Method != "CONNECT")
+        const auto ReadFailure = co_await Server.ReadRequest(Request);
+        if (ReadFailure.Failed() || Request.Method != "CONNECT")
         {
-            (void)Transport->Close();
+            (void)co_await CloseAndDrain(std::move(Transport));
             co_return false;
         }
-        if (co_await Server.SendResponse(Prism::Http11::Status::Ok) != Prism::Fault::Code::Success)
+        const auto WriteFailure = co_await Server.SendResponse(Prism::Http11::Status::Ok);
+        if (WriteFailure.Failed())
         {
-            (void)Transport->Close();
+            (void)co_await CloseAndDrain(std::move(Transport));
             co_return false;
         }
-        co_await Echo(Server.Release());
-        co_return true;
+        co_return co_await Echo(Server.Release());
     }
 
     [[nodiscard]] auto RunServer(Options OptionsValue) -> Net::awaitable<int>

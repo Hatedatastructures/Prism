@@ -95,7 +95,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
         }
     };
 
@@ -244,7 +244,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
         }
     };
 
@@ -308,7 +308,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
         }
     };
 
@@ -353,7 +353,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}});
         }
     };
 

@@ -1,0 +1,30 @@
+PrismAddStaticTarget(PrismProtocolVless
+    SOURCES
+        Codec.cpp
+        Detail/Target.cpp
+        Binding.cpp
+        Vless.cpp
+        IngressFactory.cpp
+        UdpTunnel.cpp
+        Xudp.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/AddressCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/BeastCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Binding.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Conn.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Dgram.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/IngressFactory.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/RequestCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Types.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/UdpCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/UdpTunnel.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/UdpTunnelFrames.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Vless.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Xudp/VlessXudp.hpp
+    PRIVATE_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Association.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/RootSession.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/State.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Writer.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Target.hpp
+)

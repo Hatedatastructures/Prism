@@ -13,6 +13,7 @@
 #include <Prism/Protocols/Ech/Detail/Key.hpp>
 #include <Prism/Protocols/Ech/ServerKeys.hpp>
 #include <Prism/Protocols/Native/Native.hpp>
+#include <Prism/Transport/Connector.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include "../../Transport/TransportResources.hpp"

@@ -5,7 +5,7 @@
  * 1. Gate：并发汇合点（channel 容量 = 参与者总数，try_send 不丢失完成信号）
  * 2. LeakTracker：连接泄漏探测器（weak_ptr 弱引用追踪，不延长对象生命周期）
  * 3. RunCoro / ReadFull / WriteFull：协程驱动与精确读写工具
- * @note 仅 Header-only；供 tests/Protocol 各协议目录下的 XxxStressTest.cpp 使用。
+ * @note 本文件为头文件实现，仅供 tests/Prism/Stress/NetworkingStressTest.cpp 使用。
  */
 
 #pragma once

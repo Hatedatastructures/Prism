@@ -1,6 +1,6 @@
 ---
 name: protocol-handler
-description: 在 Prism 中新增或修改入站代理协议、协议检测或 handler 工厂时，按当前 dispatch 流程实施并验证。
+description: 在当前 Prism 中新增或修改代理协议、协议识别或类型化装配时，按模块 owner 实施并验证。
 ---
 
 # 协议 Handler 接入
@@ -8,33 +8,29 @@ description: 在 Prism 中新增或修改入站代理协议、协议检测或 ha
 ## 触发条件
 
 - 新增入站代理协议或协议类型
-- 修改 `handshake::recognition` 的检测、预读或回落
-- 修改 `protocol::make_protocol_handler()` 或具体 handler
+- 修改 Runtime recognition、预读或协议 admission
+- 修改 Composition 的协议/承载类型化绑定
 - 修改协议配置、协议聚合头、CMake 或协议集成测试
 
-## 当前调用链
+## 当前责任边界
 
 ```text
-listener -> balancer -> worker -> session
-  -> handshake::recognition::recognize()
-  -> session::diversion()
-  -> protocol::make_protocol_handler()
-  -> protocol handler::run()
-  -> outbound dial -> tunnel
+Runtime TCP listener / Boundary UDP-QUIC ingress -> Runtime admission/session
+  -> Runtime recognition -> typed protocol/carrier binding
+  -> Protocol owner -> Net/Transport data plane
 ```
 
-关键事实：协议工厂位于 `src/prism/protocol/handler.cpp`，接口和参数位于 `include/prism/protocol/handler.hpp`。检测代码位于 `handshake/recognition/`，应以当前目录和调用点为准。
+协议的 wire、认证、连接/stream/datagram 状态机和关闭行为由 `Include/Prism/Protocols/<Name>/` 与 `Src/Prism/Protocols/<Name>/` 的对应 owner 负责。`Composition` 负责配置到类型化协议/承载绑定的装配和能力校验；`Runtime` 负责 worker、listener、session 调度与通用数据面生命周期；`Boundary` 负责 UDP/QUIC socket、包分类、QUIC CID 及入口 drain/close。
+
+不要假设存在旧版统一字符串协议工厂。配置/启动冷路径可以按名称查询 `ProtocolCatalog`；热路径使用已编译的 typed binding。不要让协议实现反向依赖 `Composition`、`Application` 或 `Runtime`。涉及识别、装配或入口时，沿当前真实调用点和 typed binding 检查职责归属。
 
 ## 接入步骤
 
-1. 读取 `protocol_type`、recognition 结果和 session diversion 的现有定义。
-2. 明确新协议首包是否可在当前预读限制内识别；不能因为识别困难而过度读取或丢弃预读数据。
-3. 在 `include/prism/protocol/<name>/` 和 `src/prism/protocol/<name>/` 按邻近协议的结构实现 codec、connection、handler 和配置。
-4. 实现当前 `protocol_handler` 接口，保持握手、认证、目标解析、上游拨号和响应语义与协议标准一致。
-5. 在 `make_protocol_handler()` 增加工厂分支；未知类型必须保留原有失败语义。
-6. 在 settings、validator、configuration 示例和相关聚合头中同步配置与 include。
-7. 在对应 CMake source list 和测试 CMake 中注册文件与 target。
-8. 添加成功、格式错误、认证失败、超时、上游失败、EOF 和关闭顺序测试。
+1. 读取 `AGENTS.md`、目标协议的 `Include/Prism/Protocols/<Name>/` 公共接口、`Src/Prism/Protocols/<Name>/` 实现与 owner CMake、相邻测试。
+2. 明确变更属于协议行为、识别、Composition binding，还是通用入口；只改相应 owner。识别困难时也不能过度读取或丢弃预读数据；检查 probe、replay 与 admission 的边界。
+3. 保持协议规定的认证、目标解析、错误映射、取消、半关闭和最终关闭语义。
+4. 若配置或能力绑定受影响，同步检查当前配置解析、校验与 Composition 装配路径。
+5. 在对应模块 CMake 登记实现与私有头，并更新 `tests/Prism/Protocols/<Name>/` 或真实跨模块集成场景的测试；适用时覆盖成功、格式错误、认证失败、超时、上游失败、EOF、取消、半关闭、最终关闭顺序。
 
 ## 边界要求
 
@@ -46,7 +42,7 @@ listener -> balancer -> worker -> session
 
 ## 验证
 
-先运行协议单元测试，再运行对应 runtime/integration 测试。修改识别或回落时额外检查 `probe-audit`；修改认证时检查 `replay-audit` 和 `leak-audit`。构建和测试必须遵守 `AGENTS.md` 的授权、统一 `build/` 目录和线程规则。
+先运行协议单元测试，再运行对应 Runtime/Integration 测试。修改识别或 admission 时额外检查预读与回放边界；修改认证时检查失败映射、资源退休和敏感数据泄漏。构建和测试必须遵守 `AGENTS.md` 的授权、统一 `build/` 目录和线程规则。
 
 ## 相关 Skill
 

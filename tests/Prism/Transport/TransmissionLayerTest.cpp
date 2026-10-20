@@ -8,6 +8,7 @@
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Transport/Detail/IoActivity.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/post.hpp>
@@ -44,11 +45,11 @@ namespace
             : Prism::Transmission(Executor), Executor_(std::move(Executor)), State_(std::move(State)) {}
         auto Executor() const -> ExecutorType override { return Executor_; }
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {0, {Prism::Fault::Code::Eof}}); }
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), {0, {Prism::Fault::Code::Eof}}); }
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {0, {Prism::Fault::Code::Canceled}}); }
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), {0, {Prism::Fault::Code::Canceled}}); }
         auto StartWriteShutdown(Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {0, {}}); }
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), {0, {}}); }
         [[nodiscard]] auto OnClose() -> ControlResult override
         {
             if (State_->ExecutorThread != std::this_thread::get_id())

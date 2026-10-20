@@ -1,6 +1,7 @@
 /** @file ManagementQueryContractTest.cpp @brief 管理面真实游标、过滤与安全配置往返契约。 */
 #include <gtest/gtest.h>
 #include <Prism/Application/OperationsConfiguration.hpp>
+#include <Prism/Operations/HttpRequest.hpp>
 #include <Prism/Operations/Routes/RouteDispatch.hpp>
 #include <Prism/Operations/Routes/ManagementJson.hpp>
 #include <atomic>

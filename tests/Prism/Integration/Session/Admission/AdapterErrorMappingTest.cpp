@@ -13,18 +13,17 @@ namespace
         const Fault::Code Expected) -> Net::awaitable<void>
     {
         auto [Client, Inbound] = MakePairShared(IoContext);
-        auto Accept = MakeStubAccept(std::unexpected(ErrorValue));
-        Middleware::Context Context;
-        SharedTransmission Transport = Inbound;
-        auto Accepted = co_await Accept->Accept(Transport, {});
-        const auto Code = Accepted ? Fault::Code::Success
-            : Fault::ToCode(Prism::make_error_code(Accepted.error()));
+        auto Accept = MakeStubAccept(std::unexpected(
+            Prism::Contract::FailureFromProtocolError(ErrorValue)));
+        const auto Accepted = co_await Accept->Accept(
+            Prism::Testing::MakeAdapterAcceptInput(std::move(Inbound)));
         if (Accepted)
         {
-            Context.SetDataPlane(std::move(*Accepted));
-            Transport = Context.Inbound();
+            ADD_FAILURE() << "protocol failure unexpectedly produced a data plane";
+            co_return;
         }
-        EXPECT_EQ(Code, Expected);
+        EXPECT_EQ(Accepted.error().Code, Expected);
+        EXPECT_FALSE(Accepted.error().Native);
         (void)Client;
     }
 
@@ -37,11 +36,8 @@ namespace
         case Prism::Error::UnexpectedEof: return Fault::Code::Eof;
         case Prism::Error::BadLength:
         case Prism::Error::BadMagic:
-        case Prism::Error::BadMessage:
-        case Prism::Error::VersionMismatch: return Fault::Code::BadMessage;
-        case Prism::Error::BadAuth:
-        case Prism::Error::AuthFailed: return Fault::Code::AuthFailed;
-        case Prism::Error::NotSupported:
+        case Prism::Error::BadMessage: return Fault::Code::BadMessage;
+        case Prism::Error::BadAuth: return Fault::Code::AuthFailed;
         case Prism::Error::Unsupported: return Fault::Code::NotSupported;
         case Prism::Error::BadAddress: return Fault::Code::UnsupportedAddress;
         case Prism::Error::NotOpen:
@@ -61,6 +57,8 @@ namespace
         auto [Data, Peer] = MakePairShared(IoContext);
         (void)Peer;
         Runtime::SessionOptions Options;
+        Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
         Prism::Contract::ProtocolDataPlane Plane;
         Plane.Root = Prism::Contract::DatagramDataPlane{std::move(Data), {}};
         Options.Services->AcceptProtocol = MakeStubAccept(std::move(Plane));
@@ -85,8 +83,7 @@ TEST(AdapterSeam, ErrorMapping)
 {
     const std::pair<Prism::Error, Fault::Code> Cases[] = {
         {Prism::Error::BadAuth, Fault::Code::AuthFailed},
-        {Prism::Error::AuthFailed, Fault::Code::AuthFailed},
-        {Prism::Error::NotSupported, Fault::Code::NotSupported},
+        {Prism::Error::Unsupported, Fault::Code::NotSupported},
         {Prism::Error::IoError, Fault::Code::IoError},
         {Prism::Error::UnexpectedEof, Fault::Code::Eof},
         {static_cast<Prism::Error>(999), Fault::Code::GenericError},
@@ -100,7 +97,7 @@ TEST(AdapterSeam, ErrorMapping)
 
 TEST(AdapterSeam, ErrorMappingMirrorsFaultToCode)
 {
-    for (int Value = 0; Value <= static_cast<int>(Prism::Error::IoError); ++Value)
+    for (int Value = 0; Value <= static_cast<int>(Prism::Error::CryptoError); ++Value)
     {
         const auto ErrorValue = static_cast<Prism::Error>(Value);
         EXPECT_EQ(ExpectedFaultCode(ErrorValue),

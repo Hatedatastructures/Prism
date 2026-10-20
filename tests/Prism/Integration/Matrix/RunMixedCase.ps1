@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$PrismTemplate,
     [Parameter(Mandatory = $true)][string]$MihomoTemplate,
     [Parameter(Mandatory = $true)][string]$CaseDirectory,
-    [string]$ServerAddress = '192.168.0.106',
+    [ValidatePattern('^127\.0\.0\.1$|^::1$')][string]$ServerAddress = '127.0.0.1',
     [string]$MihomoExecutable = 'mihomo.exe'
 )
 
@@ -78,6 +78,9 @@ Write-Utf8NoBom (Join-Path $TargetRoot 'hello.txt') 'prism-current-mixed-respons
 $PrismPort = Get-FreePort
 $TargetPort = Get-FreePort
 $OperationsPort = Get-FreePort
+if ($OperationsPort -in @($PrismPort, $TargetPort)) {
+    throw 'Mixed case ports must be distinct'
+}
 $PrismObject = Get-Content -LiteralPath $PrismTemplatePath -Raw | ConvertFrom-Json
 $PrismObject.Listeners.Tcp[0].Address = $ServerAddress
 $PrismObject.Listeners.Tcp[0].Port = $PrismPort
@@ -155,6 +158,10 @@ try {
         $ProxyPort = Get-FreePort
         $SocksPort = Get-FreePort
         $ControllerPort = Get-FreePort
+        $CasePorts = @($PrismPort, $TargetPort, $OperationsPort, $ProxyPort, $SocksPort, $ControllerPort)
+        if (@($CasePorts | Select-Object -Unique).Count -ne $CasePorts.Count) {
+            throw 'Mixed case ports must be distinct'
+        }
         $Yaml = $YamlTemplate
         $Yaml = [regex]::Replace($Yaml, '(?m)^mixed-port:\s+\d+\s*$', "mixed-port: $ProxyPort")
         $Yaml = [regex]::Replace($Yaml, '(?m)^socks-port:\s+\d+\s*$', "socks-port: $SocksPort")
@@ -231,7 +238,7 @@ try {
 }
 finally {
     foreach ($Id in @($Started | Select-Object -Unique)) {
-        if (Get-Process -Id $Id -ErrorAction SilentlyContinue) { Stop-Process -Id $Id -Force -ErrorAction SilentlyContinue }
+    if (Get-Process -Id $Id -ErrorAction SilentlyContinue) { Stop-Process -Id $Id -Force -ErrorAction SilentlyContinue }
     }
     Start-Sleep -Milliseconds 500
     foreach ($Case in $Cases) {

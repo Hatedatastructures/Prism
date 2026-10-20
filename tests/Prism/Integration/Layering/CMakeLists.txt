@@ -2,10 +2,11 @@
 if(PRISM_ENABLE_BENCHMARK)
     foreach(_case IN ITEMS CarrierMemoryBenchmark CarrierTcpIntegrityBenchmark CarrierTcpThroughputBenchmark)
         AddPrismTest(${_case}.cpp)
+        target_include_directories(${_case} PRIVATE ${PROJECT_SOURCE_DIR}/Src)
         target_sources(${_case} PRIVATE CarrierBenchmarkWsFactory.cpp
             CarrierBenchmarkWsFactory.hpp CarrierBenchmarkTransportResult.hpp
             ../../Protocols/Ws/WsFactorySupport.hpp)
-        target_link_libraries(${_case} PRIVATE PrismTransport PrismProtocolAnytls
+        target_link_libraries(${_case} PRIVATE PrismFoundation PrismTransport PrismProtocolAnytls
             PrismProtocolGun PrismProtocolReality PrismProtocolRestls PrismProtocolShadowtls
             PrismProtocolSocks5 PrismProtocolTrojan PrismProtocolTrusttunnel PrismProtocolVless
             PrismProtocolWs)

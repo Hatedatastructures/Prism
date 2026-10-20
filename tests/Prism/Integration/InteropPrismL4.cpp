@@ -1,8 +1,8 @@
 /**
  * @file InteropPrismL4.cpp
  * @brief L4 生产对拍：Prism 客户端 → 生产 Prism 服务端
- * @details 用 tests/common 的 Prism 协议客户端连接真实 psm 服务端
- *          （Build/src/Prism.exe），验证协议互通：
+ * @details 当前 Prism Integration 客户端连接已启动的 Prism 服务端
+ *          （build/src/Prism.exe），验证协议互通：
  *          - 协议：socks5 / vless / trojan / vmess
  *          - 模式：echo（正确凭据 + 回环 echo 校验）
  *                 authfail（错误凭据，期望握手失败或无回显；超时不算通过）
@@ -44,7 +44,6 @@
 #include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <Prism/Protocols/Trojan/Trojan.hpp>
 #include <Prism/Protocols/Vless/Vless.hpp>
-#include <Prism/Protocols/Vmess/Codec.hpp>
 #include <Prism/Protocols/Vmess/Vmess.hpp>
 
 namespace
@@ -250,20 +249,19 @@ namespace
         Config.Username = "prism";
         Config.Password = std::string(
             Request.OptionsValue.AuthFail ? WrongPassword : SocksPassword);
-        auto Result = co_await Socks5::Connect(
+        auto Result = co_await Socks5::Connect(Socks5::ConnectParameters{
             std::move(Request.Raw), Config,
-            Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", Request.EchoPort});
-        if (Result.first != Error::None)
+            Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", Request.EchoPort}});
+        if (!Result)
+        {
+            co_return std::unexpected(Result.error());
+        }
+        if (!*Result)
         {
             co_return std::unexpected(
-                Prism::Protocol::Common::FailureFromProtocolError(Result.first));
+                Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
         }
-        if (!Result.second)
-        {
-            co_return std::unexpected(
-                Prism::Fault::Failure{Prism::Fault::Code::IoError});
-        }
-        co_return SharedTransmission(std::move(Result.second));
+        co_return SharedTransmission(std::move(*Result));
     }
 
     auto ConnectSs2022(L4HandshakeRequest Request) -> Net::awaitable<L4HandshakeResult>
@@ -281,17 +279,16 @@ namespace
             std::move(Request.Raw), Config,
             Shadowsocks2022::Address{
                 Shadowsocks2022::AddressType::Ipv4, "127.0.0.1", Request.EchoPort});
-        if (Result.first != Error::None)
+        if (!Result)
+        {
+            co_return std::unexpected(Result.error());
+        }
+        if (!*Result)
         {
             co_return std::unexpected(
-                Prism::Protocol::Common::FailureFromProtocolError(Result.first));
+                Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
         }
-        if (!Result.second)
-        {
-            co_return std::unexpected(
-                Prism::Fault::Failure{Prism::Fault::Code::IoError});
-        }
-        co_return SharedTransmission(std::move(Result.second));
+        co_return SharedTransmission(std::move(*Result));
     }
 
     auto ConnectVless(L4HandshakeRequest Request) -> Net::awaitable<L4HandshakeResult>
@@ -341,10 +338,10 @@ namespace
         {
             Config.uuid.fill(0xCD);
         }
-        auto Result = co_await Vmess::Connect({
+        auto Result = co_await Vmess::Connect(Vmess::ConnectParameters{
             std::move(Request.Raw), Config,
             Vmess::Address{Vmess::AddressType::Ipv4, "127.0.0.1", Request.EchoPort},
-            static_cast<std::uint8_t>(Vmess::Command::Tcp)});
+            Vmess::Command::Tcp});
         if (!Result) co_return std::unexpected(Result.error());
         if (!*Result)
         {
@@ -388,8 +385,6 @@ namespace
         const auto Uuid = ParseUuid();
         auto ConnectResult = co_await ConnectProtocol(
             L4HandshakeRequest{std::move(Raw), EchoPort, OptionsValue, Uuid});
-        EXPECT_TRUE(ConnectResult);
-        if (ConnectResult) EXPECT_TRUE(*ConnectResult);
         if (!ConnectResult || !*ConnectResult)
         {
             co_return CaseResult::HandshakeFailed;

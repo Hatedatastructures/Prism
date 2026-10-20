@@ -4,7 +4,7 @@
  */
 
 #include <Prism/Runtime/Recognition/CandidateSelection.hpp>
-#include <Prism/Runtime/Recognition/ConfiguredAcceptor.hpp>
+#include <Prism/Runtime/Recognition/PreparedCandidate.hpp>
 #include <Prism/Runtime/Recognition/RecognitionConfig.hpp>
 
 #include <gtest/gtest.h>

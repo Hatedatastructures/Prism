@@ -6,7 +6,9 @@
 #include <gtest/gtest.h>
 
 #include <Prism/Statistics/Statistics.hpp>
+#include <Prism/Statistics/TrafficHistory.hpp>
 
+#include <cstddef>
 #include <cstdint>
 namespace
 {
@@ -59,6 +61,37 @@ namespace
                                 3,
                                 Prism::Statistics::Metric::Events}),
                   10U);
+    }
+
+    TEST(Task10TrafficHistory, SnapshotCopiesBoundedSamplesInChronologicalOrder)
+    {
+        Prism::Statistics::TrafficHistory History;
+        const auto Empty = History.Snapshot();
+        EXPECT_TRUE(Empty.empty());
+        EXPECT_EQ(History.Size(), 0U);
+
+        for (std::size_t Index = 0; Index < Prism::Statistics::TrafficHistory::Capacity + 2U; ++Index)
+        {
+            const auto Timestamp = static_cast<std::uint64_t>(Index + 1U);
+            History.Append({Timestamp, {Timestamp, Timestamp * 10U, 0U, 0U}});
+        }
+        History.Append({Prism::Statistics::TrafficHistory::Capacity + 1U, {77U, 0U, 0U, 0U}});
+        History.Append({Prism::Statistics::TrafficHistory::Capacity + 2U, {9999U, 0U, 0U, 0U}});
+
+        const auto Samples = History.Snapshot();
+        ASSERT_EQ(Samples.size(), Prism::Statistics::TrafficHistory::Capacity);
+        for (std::size_t Index = 0; Index < Samples.size(); ++Index)
+        {
+            const auto ExpectedTimestamp = static_cast<std::uint64_t>(Index + 3U);
+            EXPECT_EQ(Samples[Index].Timestamp, ExpectedTimestamp);
+            const auto ExpectedUpBytes = Index + 1U == Samples.size() ? 9999U : ExpectedTimestamp;
+            EXPECT_EQ(Samples[Index].Value.UpBytes, ExpectedUpBytes);
+        }
+        EXPECT_EQ(Samples.front().Timestamp, 3U);
+        EXPECT_EQ(Samples.back().Timestamp, Prism::Statistics::TrafficHistory::Capacity + 2U);
+
+        History.Append({Prism::Statistics::TrafficHistory::Capacity + 2U, {1U, 0U, 0U, 0U}});
+        EXPECT_EQ(Samples.back().Value.UpBytes, 9999U);
     }
 
     TEST(Task10SparseCounters, CapacityFailureLeavesNoPartialTrafficAndCannotReplay)

@@ -64,10 +64,10 @@ int main(int argc, char **argv)
         ProtocolSeries VmessSeries;
         for (std::size_t Round = 0; Round < SocksSeries.Rounds.size(); ++Round)
         {
-            SocksSeries.Rounds[Round] = RunSocksRound(
-                TotalBytes, BlockSize, LaneCount, ExpectedInputHash);
-            VmessSeries.Rounds[Round] = RunVmessRound(
-                TotalBytes, BlockSize, LaneCount, ExpectedInputHash);
+            SocksSeries.Rounds[Round] = RunSocksRound(ProtocolRoundOptions{
+                TotalBytes, BlockSize, LaneCount, ExpectedInputHash});
+            VmessSeries.Rounds[Round] = RunVmessRound(ProtocolRoundOptions{
+                TotalBytes, BlockSize, LaneCount, ExpectedInputHash});
             MatrixGroups += 2U;
         }
         AllValid = PrintProtocolSeries(

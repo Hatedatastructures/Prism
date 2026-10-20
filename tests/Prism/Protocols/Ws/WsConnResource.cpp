@@ -14,6 +14,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
@@ -90,7 +91,7 @@ namespace
             }
             if (PendingWrite_)
             {
-                Prism::Transport::Detail::PostResult(
+                Prism::Transmission::PostResult(
                     Executor(), std::move(Handler),
                     Prism::IoResult{0, {Prism::Fault::Code::WouldBlock}});
                 return;
@@ -127,7 +128,7 @@ namespace
             }
             auto Handler = std::move(*PendingWrite_);
             PendingWrite_.reset();
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler), std::move(Result));
         }
 
@@ -288,7 +289,7 @@ namespace
         EXPECT_EQ(ClientBytes->UsedBytes(), ClientBytes->BlockSize());
 
         auto ClientActivity = ClientConnection->Activity();
-        std::weak_ptr<Ws::Detail::StreamOwner<>> WeakConnection = ClientConnection;
+        std::weak_ptr<Ws::StreamTransport> WeakConnection = ClientConnection;
         const auto CancelResult = ClientConnection->Cancel();
         EXPECT_TRUE(CancelResult);
         if (!CancelResult)

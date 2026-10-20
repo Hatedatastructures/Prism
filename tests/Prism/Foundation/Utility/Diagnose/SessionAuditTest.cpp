@@ -211,8 +211,18 @@ namespace
 
         Prism::Runtime::SessionOptions Options;
         Options.SourceIp = "192.0.2.8";
+        Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8U});
+        bool Authenticated = false;
+        auto Accept = [&Authenticated](Prism::Contract::StreamAcceptInput Input)
+            -> Net::awaitable<Prism::Contract::AcceptOutcome>
+        {
+            auto Outcome = co_await AcceptAuthenticatedTarget(std::move(Input));
+            Authenticated = Outcome.has_value() && Outcome->ProtocolAuthenticated;
+            co_return std::move(Outcome);
+        };
         Options.Services->AcceptProtocol =
-            std::make_shared<Prism::Testing::StreamFactory>(&AcceptAuthenticatedTarget);
+            std::make_shared<Prism::Testing::StreamFactory>(std::move(Accept));
         Options.Services->Dial = [Outbound](const Prism::Network::Target &)
             -> Net::awaitable<std::expected<Prism::SharedTransmission, Prism::Fault::Failure>>
         {
@@ -229,6 +239,7 @@ namespace
             });
 
         EXPECT_NE(Result.Code, Prism::Fault::Code::AuthFailed);
+        EXPECT_TRUE(Authenticated);
         EXPECT_EQ(Environment.Runtime().Shutdown().Status,
                   Prism::Diagnose::SubmissionStatus::Closed);
 

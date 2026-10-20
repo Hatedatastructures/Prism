@@ -13,6 +13,7 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/co_composed.hpp>
+#include <boost/asio/as_tuple.hpp>
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
@@ -26,6 +27,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <stdexcept>
@@ -34,7 +36,7 @@
 #include <vector>
 
 #include <Prism/Transport/MemoryStream.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Hysteria2/Hysteria2.hpp>
 #include <gtest/gtest.h>
 
@@ -58,6 +60,32 @@ namespace
         if (Exception)
         {
             std::rethrow_exception(Exception);
+        }
+    }
+
+    /** @brief 关闭测试载体并等待它自己的 I/O 预约退出。 */
+    auto CloseAndDrain(Prism::Transmission &Carrier) -> Net::awaitable<void>
+    {
+        const auto Closed = Carrier.Close();
+        EXPECT_TRUE(Closed);
+        const auto Activity = Carrier.Activity();
+        EXPECT_TRUE(Activity != nullptr);
+        if (Activity)
+        {
+            const auto Drained = co_await Activity->Drain();
+            EXPECT_TRUE(Drained);
+        }
+    }
+
+    /** @brief 等待已由协议载体关闭的底层测试传输退出。 */
+    auto DrainActivity(Prism::Transmission &Carrier) -> Net::awaitable<void>
+    {
+        const auto Activity = Carrier.Activity();
+        EXPECT_TRUE(Activity != nullptr);
+        if (Activity)
+        {
+            const auto Drained = co_await Activity->Drain();
+            EXPECT_TRUE(Drained);
         }
     }
 
@@ -111,7 +139,7 @@ namespace
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
@@ -133,11 +161,17 @@ namespace
         std::size_t WriteLimit{std::numeric_limits<std::size_t>::max()};
         std::size_t WritesDone{0};
         std::size_t ReadFailAt{std::numeric_limits<std::size_t>::max()};
+        bool ReadFailureWithBytesAtEnd{false};
         std::size_t ReadsDone{0};
         bool OverreportRead{false};
         bool OverreportWrite{false};
         bool EofOnDrain{false};
         bool Closed{false};
+
+        [[nodiscard]] auto ReadPosition() const noexcept -> std::size_t
+        {
+            return ReadPosition_;
+        }
 
     private:
         struct ReadInput final
@@ -155,7 +189,7 @@ namespace
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->ReadPartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};
@@ -166,9 +200,16 @@ namespace
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
-                const auto Result = co_await Net::co_spawn(
-                    Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer), Net::deferred);
+                Prism::Transmission::ConfigureIo(Operation);
+                auto [Exception, Result] = co_await Net::co_spawn(
+                    Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer),
+                    Net::as_tuple(Net::deferred));
+                if (Exception)
+                {
+                    co_return std::tuple{Prism::IoResult{
+                        0, Prism::Fault::FromNative(
+                            Prism::make_error_code(Prism::Error::IoError))}};
+                }
                 co_return std::tuple{Result};
             }
         };
@@ -202,6 +243,13 @@ namespace
             const auto Count = std::min(Buffer.size(), ToRead.size() - ReadPosition_);
             std::memcpy(Buffer.data(), ToRead.data() + ReadPosition_, Count);
             ReadPosition_ += Count;
+            if (ReadFailureWithBytesAtEnd && ReadPosition_ == ToRead.size())
+            {
+                ReadFailureWithBytesAtEnd = false;
+                co_return Prism::IoResult{
+                    Count, Prism::Fault::FromNative(
+                        Prism::make_error_code(Prism::Error::IoError))};
+            }
             co_return Prism::IoResult{Count, {}};
         }
         [[nodiscard]] auto WritePartial(std::span<const std::byte> Buffer)
@@ -409,10 +457,10 @@ namespace
     TEST(Hysteria2ConnError, WriteHandshakeAuthSendThrow)
     {
         Net::io_context IoContext;
-        EXPECT_THROW(RunCoroutine(IoContext, RunWriteCase(WriteCase{
+        RunCoroutine(IoContext, RunWriteCase(WriteCase{
             IoContext, false, true, std::numeric_limits<std::size_t>::max(),
             MakeAddress(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80),
-            Prism::Error::IoError, false})), std::runtime_error);
+            Prism::Error::IoError, false}));
     }
 
     TEST(Hysteria2ConnError, WriteHandshakeTcpFrameSendFail)
@@ -442,7 +490,7 @@ namespace
         const auto Auth = Hysteria2::MakeAuthRequest("pw");
         std::vector<std::uint8_t> Wire(Auth.begin(), Auth.end());
         Wire.insert(Wire.end(), {0x01, 0x01, 0xAA});
-        RunCoroutine(IoContext, RunReadCase({IoContext, std::move(Wire), Prism::Error::IoError}));
+        RunCoroutine(IoContext, RunReadCase({IoContext, std::move(Wire), Prism::Error::UnexpectedEof}));
     }
 
     TEST(Hysteria2ConnError, ReadHandshakeRejectsUnknownKindBeforeAddress)
@@ -540,7 +588,7 @@ namespace
         const auto Auth = Hysteria2::MakeAuthRequest("pw");
         std::vector<std::uint8_t> Wire(Auth.begin(), Auth.end());
         Wire.insert(Wire.end(), {0x01, 0x02, 0x05, 'a', 'b'});
-        RunCoroutine(IoContext, RunReadCase({IoContext, std::move(Wire), Prism::Error::IoError}));
+        RunCoroutine(IoContext, RunReadCase({IoContext, std::move(Wire), Prism::Error::UnexpectedEof}));
     }
 
     TEST(Hysteria2ConnError, PassthroughPeerClosed)
@@ -594,5 +642,159 @@ namespace
         RunCoroutine(IoContext, RunDgramCase({
             IoContext, {}, Prism::Error::IoError, DatagramMode::Send,
             false, false, false, true, true}));
+    }
+
+    /** @brief 帧载荷完整到达后延后同次读取的终态。 */
+    auto RunReadFrameRetainsUdpPayloadWithTerminal(Net::any_io_executor Executor)
+        -> Net::awaitable<void>
+    {
+        const auto Target = MakeAddress(
+            Hysteria2::AddressType::Ipv4, "1.2.3.4", 80);
+        const std::string Payload{"abc"};
+        const auto PayloadBytes = std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t *>(Payload.data()), Payload.size());
+        const auto Wire = Hysteria2::BuildUdp(
+            Hysteria2::UdpFrameInput{7U, 11U, &Target, PayloadBytes});
+        auto Raw = std::make_shared<ScriptedTransmission>(std::move(Executor));
+        Raw->ToRead = Wire;
+        Raw->ReadFailureWithBytesAtEnd = true;
+        Hysteria2::Message MessageValue;
+        std::optional<Prism::Fault::Failure> PendingTerminal;
+
+        const auto ErrorValue = co_await Hysteria2::Detail::ReadFrame(
+            Raw, MessageValue, PendingTerminal);
+        EXPECT_EQ(ErrorValue, Prism::Error::None);
+        EXPECT_EQ(MessageValue.payload, Payload);
+        EXPECT_TRUE(PendingTerminal.has_value());
+        const auto Reads = Raw->ReadsDone;
+        std::array<std::uint8_t, 1> NextField{};
+        EXPECT_TRUE(co_await Hysteria2::Detail::ReadExact(
+            Raw, NextField, PendingTerminal));
+        EXPECT_EQ(Raw->ReadsDone, Reads);
+        EXPECT_EQ(Raw->ReadPosition(), Wire.size());
+        co_await CloseAndDrain(*Raw);
+    }
+
+    /** @brief 精确字段保留部分字节并在终态后停止重读。 */
+    auto RunReadExactRetainsCompletedPrefixAndStopsOnTerminal(
+        Net::any_io_executor Executor) -> Net::awaitable<void>
+    {
+        auto Raw = std::make_shared<ScriptedTransmission>(std::move(Executor));
+        Raw->ToRead = {0xD1, 0xD2};
+        Raw->ReadFailureWithBytesAtEnd = true;
+        std::array<std::uint8_t, 4> Destination{};
+        std::optional<Prism::Fault::Failure> PendingTerminal;
+
+        EXPECT_TRUE(co_await Hysteria2::Detail::ReadExact(
+            Raw, Destination, PendingTerminal));
+        EXPECT_EQ(Raw->ReadsDone, 1U);
+        co_await CloseAndDrain(*Raw);
+        EXPECT_EQ(Destination[0], 0xD1);
+        EXPECT_EQ(Destination[1], 0xD2);
+        EXPECT_TRUE(PendingTerminal.has_value());
+        EXPECT_TRUE(co_await Hysteria2::Detail::ReadExact(
+            Raw, Destination, PendingTerminal));
+        EXPECT_EQ(Raw->ReadsDone, 1U);
+    }
+
+    /** @brief Conn 数据报保留本次读取中已交付的完整 payload。 */
+    auto RunReceiveDatagramRetainsPayloadWithTerminal(Net::any_io_executor Executor)
+        -> Net::awaitable<void>
+    {
+        const auto Target = MakeAddress(
+            Hysteria2::AddressType::Ipv4, "1.2.3.4", 80);
+        const std::vector<std::uint8_t> Payload{0xB1, 0xB2};
+        const auto PayloadBytes = std::span<const std::uint8_t>(Payload);
+        const auto Wire = Hysteria2::BuildUdp(
+            Hysteria2::UdpFrameInput{3U, 5U, &Target, PayloadBytes});
+        auto Raw = std::make_shared<ScriptedTransmission>(std::move(Executor));
+        Raw->ToRead = Wire;
+        auto Connection = std::make_shared<Hysteria2::Conn<>>(Raw, "pw");
+
+        EXPECT_EQ(co_await Connection->WriteHandshake(Target), Prism::Error::None);
+        Raw->ReadFailureWithBytesAtEnd = true;
+        Hysteria2::Address Source;
+        std::vector<std::uint8_t> Received;
+        const auto ErrorValue = co_await Connection->AsyncReceiveDatagram(Source, Received);
+        EXPECT_EQ(ErrorValue, Prism::Error::None);
+        EXPECT_EQ(Source.Type, Target.Type);
+        EXPECT_EQ(Source.Host, Target.Host);
+        EXPECT_EQ(Source.Port, Target.Port);
+        EXPECT_EQ(Received, Payload);
+        EXPECT_EQ(Raw->ReadPosition(), Wire.size());
+        const auto Reads = Raw->ReadsDone;
+        EXPECT_EQ(
+            co_await Connection->AsyncReceiveDatagram(Source, Received),
+            Prism::Error::IoError);
+        EXPECT_EQ(
+            co_await Connection->AsyncReceiveDatagram(Source, Received),
+            Prism::Error::IoError);
+        EXPECT_EQ(Raw->ReadsDone, Reads);
+        co_await CloseAndDrain(*Connection);
+        co_await DrainActivity(*Raw);
+    }
+
+    /** @brief Dgram 数据报保留本次读取中已交付的完整 payload。 */
+    auto RunDgramReceiveFromRetainsPayloadWithTerminal(Net::any_io_executor Executor)
+        -> Net::awaitable<void>
+    {
+        const auto Target = MakeAddress(
+            Hysteria2::AddressType::Ipv4, "1.2.3.4", 80);
+        const std::vector<std::uint8_t> Payload{0xC1, 0xC2};
+        const auto PayloadBytes = std::span<const std::uint8_t>(Payload);
+        const auto Wire = Hysteria2::BuildUdp(
+            Hysteria2::UdpFrameInput{9U, 13U, &Target, PayloadBytes});
+        auto Raw = std::make_shared<ScriptedTransmission>(std::move(Executor));
+        Raw->ToRead = Wire;
+        Raw->ReadFailureWithBytesAtEnd = true;
+        auto Datagram = std::make_shared<Hysteria2::Dgram<>>(Raw);
+        Hysteria2::Address Source;
+        std::vector<std::uint8_t> Received;
+
+        const auto ErrorValue = co_await Datagram->AsyncReceiveFrom(Source, Received);
+        EXPECT_EQ(ErrorValue, Prism::Error::None);
+        EXPECT_EQ(Source.Type, Target.Type);
+        EXPECT_EQ(Source.Host, Target.Host);
+        EXPECT_EQ(Source.Port, Target.Port);
+        EXPECT_EQ(Received, Payload);
+        EXPECT_EQ(Raw->ReadPosition(), Wire.size());
+        const auto Reads = Raw->ReadsDone;
+        EXPECT_EQ(
+            co_await Datagram->AsyncReceiveFrom(Source, Received),
+            Prism::Error::IoError);
+        EXPECT_EQ(
+            co_await Datagram->AsyncReceiveFrom(Source, Received),
+            Prism::Error::IoError);
+        EXPECT_EQ(Raw->ReadsDone, Reads);
+        co_await CloseAndDrain(*Datagram);
+        co_await DrainActivity(*Raw);
+    }
+
+    TEST(Hysteria2ConnError, ReadFrameRetainsUdpPayloadWithTerminal)
+    {
+        Net::io_context IoContext;
+        RunCoroutine(IoContext,
+            RunReadFrameRetainsUdpPayloadWithTerminal(IoContext.get_executor()));
+    }
+
+    TEST(Hysteria2ConnError, ReadExactRetainsCompletedPrefixAndStopsOnTerminal)
+    {
+        Net::io_context IoContext;
+        RunCoroutine(IoContext,
+            RunReadExactRetainsCompletedPrefixAndStopsOnTerminal(IoContext.get_executor()));
+    }
+
+    TEST(Hysteria2ConnError, ReceiveDatagramRetainsPayloadWithTerminal)
+    {
+        Net::io_context IoContext;
+        RunCoroutine(IoContext,
+            RunReceiveDatagramRetainsPayloadWithTerminal(IoContext.get_executor()));
+    }
+
+    TEST(Hysteria2DgramError, ReceiveFromRetainsPayloadWithTerminal)
+    {
+        Net::io_context IoContext;
+        RunCoroutine(IoContext,
+            RunDgramReceiveFromRetainsPayloadWithTerminal(IoContext.get_executor()));
     }
 } // namespace

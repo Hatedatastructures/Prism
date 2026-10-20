@@ -92,7 +92,7 @@ namespace
 
         Vmess::Parser Parser(Uuid);
         Parser.Put(Net::const_buffer(Wire.data(), Total), ErrorCode);
-        EXPECT_EQ(ErrorCode, Error::AuthFailed);
+        EXPECT_EQ(ErrorCode, Error::BadAuth);
     }
 
     TEST(VmessBeast, ParseUuidRejectsMisplacedSeparators)

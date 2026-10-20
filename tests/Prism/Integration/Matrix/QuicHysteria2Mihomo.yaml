@@ -6,16 +6,18 @@ log-level: debug
 proxies:
   - name: prism-hysteria2
     type: hysteria2
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: hysteria2_password
     sni: hysteria2-gateway-e2e
     skip-cert-verify: true
+    alpn:
+      - h3
     udp: true
 proxy-groups:
-  - name: proxy
+  - name: Hysteria2 QUIC
     type: select
     proxies:
       - prism-hysteria2
 rules:
-  - MATCH,proxy
+  - MATCH,PrismPreview-Active

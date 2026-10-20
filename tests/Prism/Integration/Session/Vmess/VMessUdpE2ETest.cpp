@@ -249,18 +249,21 @@ namespace
         std::shared_ptr<vmess_udp_state> State;
         std::chrono::milliseconds IdleTimeout;
 
-        auto operator()(SharedTransmission Inbound, std::size_t, std::string_view) const
-            -> std::shared_ptr<Runtime::Session>
+        auto operator()(Runtime::SessionAdmission Admission) const
+            -> Runtime::SessionAdmissionResult
         {
             Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
             auto Datagrams = MakeDatagramServices(State, IdleTimeout);
             auto UseState = Prism::Testing::MakeProtocolIngressUseState();
             Options.Services->GenerationUseState = UseState;
             Options.Services->AcceptProtocol = Prism::Testing::MakeVmessIngress(
                 Vmess::ServerConfig{test_uuid()}, Prism::Testing::VmessIngressResources{
-                    {}, {}, std::move(Datagrams), UseState, Inbound->Executor()},
+                    {}, {}, std::move(Datagrams), UseState, Admission.Inbound->Executor()},
                 Prism::Vmess::IngressRoute{});
-            return std::make_shared<Runtime::Session>(std::move(Options));
+            return Runtime::SessionAdmissionResult{
+                std::make_shared<Runtime::Session>(std::move(Options))};
         }
     };
 

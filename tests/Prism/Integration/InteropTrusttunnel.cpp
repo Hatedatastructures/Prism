@@ -27,18 +27,24 @@
 #include <cstdio>
 #include <cstring>
 #include <exception>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <variant>
 
+#include <Prism/Contract/Io/IoResult.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
-#include <Prism/Protocols/Trusttunnel/Trusttunnel.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/Http2Transport.hpp>
+#include <Prism/Protocols/Trusttunnel/Http2.hpp>
+#include <Prism/Protocols/Trusttunnel/IngressFactory.hpp>
+#include <Prism/Protocols/Trusttunnel/Types.hpp>
 #include <Prism/Transport/Reliable.hpp>
+#include <Prism/Transport/Transmission.hpp>
 
 namespace
 {
@@ -195,6 +201,68 @@ namespace
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
+    /** @brief 等待客户端完成 CONNECT 关闭并排空服务端 carrier。 */
+    [[nodiscard]] auto FinishServerExchange(Prism::SharedTransmission Transport)
+        -> Net::awaitable<int>
+    {
+        // 等待客户端消费完响应并关闭 CONNECT stream，避免进程退出时重置连接。
+        std::array<std::byte, 1> Drain{};
+        Net::steady_timer Deadline(Transport->Executor());
+        Deadline.expires_after(std::chrono::seconds(2));
+        auto WaitForPeer = [&]() -> Net::awaitable<Prism::IoResult>
+        {
+            co_return co_await Transport->ReadSome(Drain);
+        };
+        auto WaitForPeerOperation = WaitForPeer();
+        auto DeadlineOperation = Deadline.async_wait(Net::use_awaitable);
+        const auto WaitResult = co_await (
+            std::move(WaitForPeerOperation) || std::move(DeadlineOperation));
+        Prism::Fault::Failure ControlFailure;
+        Prism::Fault::Failure PeerReadFailure;
+        if (WaitResult.index() == 0)
+        {
+            const auto PeerRead = std::get<0>(WaitResult);
+            if (PeerRead.Bytes > Drain.size())
+                PeerReadFailure = {Prism::Fault::Code::InvalidArgument};
+            else if (PeerRead.Failure.Failed() &&
+                PeerRead.Failure.Code != Prism::Fault::Code::Eof)
+                PeerReadFailure = PeerRead.Failure;
+        }
+        if (WaitResult.index() == 1)
+        {
+            const auto Canceled = Transport->Cancel();
+            if (!Canceled) ControlFailure = Canceled.error();
+        }
+        const auto Drained = co_await CloseAndDrainCarrier(Transport);
+        if (ControlFailure.Failed())
+        {
+            std::fprintf(stderr,
+                "FAIL: TrustTunnel peer cancel Code=%u Native=%s/%d\n",
+                static_cast<unsigned>(ControlFailure.Code),
+                ControlFailure.Native.category().name(), ControlFailure.Native.value());
+            co_return 1;
+        }
+        if (!Drained)
+        {
+            const auto Failure = Drained.error();
+            std::fprintf(stderr,
+                "FAIL: TrustTunnel server retirement Code=%u Native=%s/%d\n",
+                static_cast<unsigned>(Failure.Code), Failure.Native.category().name(),
+                Failure.Native.value());
+            co_return 1;
+        }
+        if (PeerReadFailure.Failed())
+        {
+            std::fprintf(stderr,
+                "FAIL: TrustTunnel peer read Code=%u Native=%s/%d\n",
+                static_cast<unsigned>(PeerReadFailure.Code),
+                PeerReadFailure.Native.category().name(), PeerReadFailure.Native.value());
+            co_return 1;
+        }
+        std::printf("PASS: Prism TrustTunnel server echo (%zu bytes)\n", Payload.size());
+        co_return 0;
+    }
+
     [[nodiscard]] auto RunServer(Options Value) -> Net::awaitable<int>
     {
         const auto Listen = SplitHostPort(Value.Address);
@@ -269,62 +337,7 @@ namespace
             co_return 1;
         }
 
-        // 等待客户端消费完响应并关闭 CONNECT stream，避免进程退出时重置连接。
-        std::array<std::byte, 1> Drain{};
-        Net::steady_timer Deadline(Transport->Executor());
-        Deadline.expires_after(std::chrono::seconds(2));
-        auto WaitForPeer = [&]() -> Net::awaitable<Prism::IoResult>
-        {
-            co_return co_await Transport->ReadSome(Drain);
-        };
-        auto WaitForPeerOperation = WaitForPeer();
-        auto DeadlineOperation = Deadline.async_wait(Net::use_awaitable);
-        const auto WaitResult = co_await (
-            std::move(WaitForPeerOperation) || std::move(DeadlineOperation));
-        Prism::Fault::Failure ControlFailure;
-        Prism::Fault::Failure PeerReadFailure;
-        if (WaitResult.index() == 0)
-        {
-            const auto PeerRead = std::get<0>(WaitResult);
-            if (PeerRead.Bytes > Drain.size())
-                PeerReadFailure = {Prism::Fault::Code::InvalidArgument};
-            else if (PeerRead.Failure.Failed() &&
-                PeerRead.Failure.Code != Prism::Fault::Code::Eof)
-                PeerReadFailure = PeerRead.Failure;
-        }
-        if (WaitResult.index() == 1)
-        {
-            const auto Canceled = Transport->Cancel();
-            if (!Canceled) ControlFailure = Canceled.error();
-        }
-        const auto Drained = co_await CloseAndDrainCarrier(Transport);
-        if (ControlFailure.Failed())
-        {
-            std::fprintf(stderr,
-                "FAIL: TrustTunnel peer cancel Code=%u Native=%s/%d\n",
-                static_cast<unsigned>(ControlFailure.Code),
-                ControlFailure.Native.category().name(), ControlFailure.Native.value());
-            co_return 1;
-        }
-        if (!Drained)
-        {
-            const auto Failure = Drained.error();
-            std::fprintf(stderr,
-                "FAIL: TrustTunnel server retirement Code=%u Native=%s/%d\n",
-                static_cast<unsigned>(Failure.Code), Failure.Native.category().name(),
-                Failure.Native.value());
-            co_return 1;
-        }
-        if (PeerReadFailure.Failed())
-        {
-            std::fprintf(stderr,
-                "FAIL: TrustTunnel peer read Code=%u Native=%s/%d\n",
-                static_cast<unsigned>(PeerReadFailure.Code),
-                PeerReadFailure.Native.category().name(), PeerReadFailure.Native.value());
-            co_return 1;
-        }
-        std::printf("PASS: Prism TrustTunnel server echo (%zu bytes)\n", Payload.size());
-        co_return 0;
+        co_return co_await FinishServerExchange(std::move(Transport));
     }
 
     [[nodiscard]] auto RunClient(Options Value) -> Net::awaitable<int>

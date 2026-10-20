@@ -21,7 +21,7 @@
 #include <string_view>
 #include <vector>
 
-#include <Prism/Protocols/Shadowsocks2022/Codec.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <Prism/Foundation/Utility/Crypto/Base64.hpp>
 
 namespace

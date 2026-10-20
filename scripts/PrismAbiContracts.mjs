@@ -13,11 +13,11 @@ const http3Callbacks = [
   ['CbStopSending', 5, 'nghttp3_callbacks.stop_sending'],
   ['CbEndStream', 4, 'nghttp3_callbacks.end_stream'],
 ];
-RegisterAbi('Prism/Protocols/Http3/Detail/SessionContract.hpp',
+RegisterAbi('Src/Prism/Protocols/Http3/Detail/SessionContract.hpp',
   [...http3Callbacks, ['ReadResponseBody', 7, 'nghttp3_data_reader.read_data']]);
-RegisterAbi('Prism/Protocols/Http3/Detail/SessionCallbacks.hpp',
+RegisterAbi('Src/Prism/Protocols/Http3/SessionCallbacks.cpp',
   http3Callbacks.map(([name, count, contract]) => [`Session::${name}`, count, contract]));
-RegisterAbi('Prism/Protocols/Http3/Detail/SessionOutput.hpp',
+RegisterAbi('Src/Prism/Protocols/Http3/SessionOutput.cpp',
   [['Session::ReadResponseBody', 7, 'nghttp3_data_reader.read_data']]);
 const http3ClientCallbacks = [
   ['BeginHeaders', 4, 'nghttp3_callbacks.begin_headers'],
@@ -29,8 +29,8 @@ const http3ClientCallbacks = [
   ['ResetStream', 5, 'nghttp3_callbacks.reset_stream'],
   ['ReadRequestBody', 7, 'nghttp3_data_reader.read_data'],
 ];
-RegisterAbi('Prism/Protocols/Http3/Detail/NativeClientCallbackApi.hpp', http3ClientCallbacks);
-RegisterAbi('Prism/Protocols/Http3/Detail/NativeClientCallbacks.hpp',
+RegisterAbi('Src/Prism/Protocols/Http3/Detail/NativeClientCallbackApi.hpp', http3ClientCallbacks);
+RegisterAbi('Src/Prism/Protocols/Http3/NativeClientCallbacks.cpp',
   http3ClientCallbacks.map(([name, count, contract]) => [`NativeClientCallbacks::${name}`, count, contract]));
 const quicCallbacks = [
   ['SetReadSecret', 5, 'SSL_QUIC_METHOD.set_read_secret'],
@@ -43,26 +43,18 @@ const quicCallbacks = [
   ['VersionNegotiation', 4, 'ngtcp2_callbacks.version_negotiation'],
   ['NewConnectionId', 5, 'ngtcp2_callbacks.get_new_connection_id'],
 ];
-RegisterAbi('Prism/Protocols/Quic/Detail/NativeConnection.hpp', quicCallbacks);
-RegisterAbi('Prism/Protocols/Quic/Detail/NativeConnectionCallbacks.hpp',
+RegisterAbi('Include/Prism/Protocols/Quic/Detail/NativeConnection.hpp', quicCallbacks);
+RegisterAbi('Src/Prism/Protocols/Quic/NativeConnectionCallbacks.cpp',
   quicCallbacks.map(([name, count, contract]) => [`NativeConnection::${name}`, count, contract]));
-RegisterAbi('Prism/Application/BoundaryStartup.hpp',
+RegisterAbi('Src/Prism/Application/BoundaryStartup.hpp',
   [['SelectNativeTlsAlpn', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/Integration/InteropHysteria2.cpp',
-  [['SelectH3', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/integration/InteropHysteria2.cpp',
+RegisterAbi('tests/Prism/Integration/InteropHysteria2Support.cpp',
   [['SelectH3', 6, 'SSL_CTX_set_alpn_select_cb']]);
 RegisterAbi('tests/Prism/Integration/InteropTrusttunnel.cpp',
   [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/integration/InteropTrusttunnel.cpp',
-  [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
 RegisterAbi('tests/Prism/Integration/InteropXhttp.cpp',
   [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/integration/InteropXhttp.cpp',
-  [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
 RegisterAbi('tests/Prism/Protocols/Trusttunnel/TrusttunnelHttp2TransportSupport.hpp',
-  [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/protocols/Trusttunnel/TrusttunnelHttp2TransportSupport.hpp',
   [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
 
 /** 按当前文件、符号和真实参数数目返回唯一上游 ABI 契约。 */

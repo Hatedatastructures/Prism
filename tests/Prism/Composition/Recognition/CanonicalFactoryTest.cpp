@@ -7,7 +7,7 @@
 #include <Prism/Protocols/Vless/IngressFactory.hpp>
 #include <Prism/Protocols/Vmess/IngressFactory.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
-#include <Prism/Transport/Detail/ForwardActivity.hpp>
+#include <Prism/Transport/ActivityGroupFactory.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
 
@@ -22,11 +22,10 @@ namespace
     public:
         explicit ObservedTransport(Prism::SharedTransmission Inner)
             : Prism::Transmission(Inner->Executor()), Inner_(std::move(Inner)),
-              Activity_(std::make_shared<Prism::Transport::Detail::ForwardActivity>(
-                  Prism::Transmission::Activity(), Inner_->Activity())) {}
+              Activity_(Prism::Transmission::Activity(), Inner_->Activity()) {}
         auto Executor() const -> ExecutorType override { return Inner_->Executor(); }
         [[nodiscard]] auto Activity() const noexcept
-            -> std::shared_ptr<Prism::Contract::CarrierActivity> override { return Activity_; }
+            -> std::shared_ptr<Prism::Contract::CarrierActivity> override { return Activity_.Activity(); }
         auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
             Inner_->ReadSome(Buffer, std::move(Handler));
@@ -49,13 +48,13 @@ namespace
         {
             ++Closes;
             const auto Result = Inner_->Close();
-            if (Result) Activity_->RequireChildDrain();
+            if (Result) Activity_.RequireChildDrain();
             return Result;
         }
         int Cancels{0}, Closes{0};
     private:
         Prism::SharedTransmission Inner_;
-        std::shared_ptr<Prism::Transport::Detail::ForwardActivity> Activity_;
+        Prism::Transport::ForwardActivityOwner Activity_;
     };
 
     enum class Reject { Empty, NoMatch, Ambiguous, Eof, Vmess, Success, DelegateFailure };

@@ -8,7 +8,7 @@
 TEST(PrismTask3ProtocolBindingCapability, ParserAllowsProtocolAndCarrierBeforeSnapshotFreeze)
     {
         const auto Json = MakeConfigurationJson(NativeProtocol, NativeCarrier, {});
-        const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+        const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
         ASSERT_EQ(Parsed->Protocols.size(), 1U);
@@ -217,7 +217,7 @@ TEST(PrismTask3ProtocolBindingCapability, PreservesTrustedCapabilitiesAndPinsSna
 TEST(PrismTask3ProtocolBindingCapability, PreservesWebsocketAliasForWsDescriptor)
     {
         const auto Json = MakeConfigurationJson(NativeProtocol, WebSocketCarrier, {});
-        const auto Parsed = Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+        const auto Parsed = ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
 
         auto Configuration = *Parsed;

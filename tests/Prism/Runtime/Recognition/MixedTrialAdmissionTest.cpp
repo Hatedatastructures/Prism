@@ -14,7 +14,7 @@ TEST(MixedTrialModeTest, ChoosesAuthenticatedWinnerInPriorityOrder)
         auto Winner = MakeState(2, true);
         auto Last = MakeState(3);
         auto Profile = MakeMixedProfile({First, Winner, Last});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -54,7 +54,7 @@ TEST(MixedTrialModeTest, AcceptsFirstPriorityWinner)
         auto Winner = MakeState(1, true);
         auto Loser = MakeState(2);
         auto Profile = MakeMixedProfile({Winner, Loser});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -77,7 +77,7 @@ TEST(MixedTrialModeTest, AcceptsLastPriorityWinner)
         auto Loser = MakeState(1);
         auto Winner = MakeState(2, true);
         auto Profile = MakeMixedProfile({Loser, Winner});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -102,7 +102,7 @@ TEST(MixedTrialModeTest, ReturnsNoMatchAfterAllCandidatesReject)
         auto First = MakeState(1);
         auto Second = MakeState(2);
         auto Profile = MakeMixedProfile({First, Second});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -129,7 +129,7 @@ TEST(MixedTrialModeTest, RejectsMultipleAuthenticatedCandidatesAsAmbiguous)
         First->Priority = 10;
         Second->Priority = 10;
         auto Profile = MakeMixedProfile({First, Second});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -159,7 +159,7 @@ TEST(MixedTrialModeTest, SelectsUniqueHighestPriorityPreparedCandidate)
         HigherPriority->Priority = 20;
         HigherPriority->Protocol = Prism::Contract::ProtocolType::Socks5;
         auto Profile = MakeMixedProfile({LowerPriority, HigherPriority});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -205,7 +205,7 @@ TEST(MixedTrialModeTest, DeterministicRouteAuthenticatesOnlyTheIndexedCandidate)
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Winner, Other}, 8, 2, {}, 32,
             rec::InvalidCandidate, rec::RecognitionMode::Deterministic});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -232,7 +232,7 @@ TEST(MixedTrialModeTest, RequestsOnlyTheSmallestInitialBoundary)
         auto Long = MakeState(2);
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{Short, Long}, 8, 2});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -255,7 +255,7 @@ TEST(MixedTrialModeTest, StopsAtCryptoTrialBudgetBeforeTryingAnotherCandidate)
         auto Second = MakeState(2, true);
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{First, Second}, 1});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -281,7 +281,7 @@ TEST(MixedTrialModeTest, PollutedCandidateTerminatesWithoutCommitOrLoserTrial)
         Polluted->PrepareStatus = rec::RecognitionStatus::NoMatch;
         auto Loser = MakeState(2);
         auto Profile = MakeMixedProfile({Polluted, Loser});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -309,7 +309,7 @@ TEST(MixedTrialModeTest, CommitFailureDoesNotRetryAnotherAuthenticatedCandidate)
         Winner->CommitStatus = rec::RecognitionStatus::IoError;
         Winner->CommitError = std::make_error_code(std::errc::connection_reset);
         auto Profile = MakeMixedProfile({Winner, Loser});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -334,7 +334,7 @@ TEST(MixedTrialModeTest, NeedMoreReadsTheNextSmallestBoundary)
         State->InspectMinimum = 2;
         auto Profile = MakeMixedProfile(MixedProfileOptions{
             std::vector<std::shared_ptr<CandidateState>>{State}, 8, 1});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -358,7 +358,7 @@ TEST(MixedTrialModeTest, WrongFirstByteRejectsIndexedCandidates)
         Transport->Push(Bytes({0xC2, 0x01}));
         auto State = MakeState(1, true);
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -381,7 +381,7 @@ TEST(MixedTrialModeTest, FallbackCandidateCanMatchAnUnindexedFirstByte)
         auto State = MakeState(1, true);
         State->Fallback = true;
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -406,7 +406,7 @@ TEST(MixedTrialModeTest, FailedCommitClosesCallbackTransportAndReturnsNoSuccesso
         State->ReturnedTransport = std::make_shared<ScriptedTransport>(Io.get_executor());
         State->CloseReturnedTransportBeforeReturn = true;
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -435,7 +435,7 @@ TEST(MixedTrialModeTest, PollutedCommitReturnsSafeReplay)
         State->CommitStatus = rec::RecognitionStatus::Polluted;
         State->ReturnedTransport = std::make_shared<ScriptedTransport>(Io.get_executor());
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 
@@ -464,7 +464,7 @@ TEST(MixedTrialModeTest, SuccessfulEmptyCommitDoesNotReplayConsumedInput)
         auto State = MakeState(1, true);
         State->ReturnEmptyOnCommit = true;
         auto Profile = MakeMixedProfile({State});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeMixedTrialProbeBytePool());
         rec::MixedTrialMode Mode(Profile);
         rec::RecognizeResult Result;
 

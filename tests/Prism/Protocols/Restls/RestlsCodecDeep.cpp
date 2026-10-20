@@ -12,7 +12,7 @@
 #include <span>
 #include <string>
 
-#include <Prism/Protocols/Restls/Detail/Record.hpp>
+#include <Prism/Protocols/Restls/Detail/Codec.hpp>
 
 namespace
 {

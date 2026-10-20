@@ -3,10 +3,16 @@
  * @brief Restls carrier 的真实 wire、计数器与内层传输 handoff 测试。
  */
 
-#include <Prism/Protocols/Restls/Detail/Control.hpp>
+#include <Prism/Foundation/Error.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Protocols/Restls/Detail/Codec.hpp>
+#include <Prism/Protocols/Restls/Detail/Conn.hpp>
+#include <Prism/Protocols/Restls/Detail/Retirement.hpp>
 #include <Prism/Protocols/Restls/Restls.hpp>
+#include <Prism/Protocols/Restls/Types.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 
@@ -18,6 +24,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 

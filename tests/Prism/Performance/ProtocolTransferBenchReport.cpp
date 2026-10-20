@@ -63,6 +63,59 @@ namespace ProtocolTransferBench
         return true;
     }
 
+    auto PrintGlobalAllocationRounds(const ProtocolSeries &Series) -> void
+    {
+        std::printf(
+            "  global-new ordinary=[%zu,%zu,%zu,%zu,%zu] aligned=[%zu,%zu,%zu,%zu,%zu] "
+            "bytes=[%zu,%zu,%zu,%zu,%zu]/[%zu,%zu,%zu,%zu,%zu]\n",
+            Series.Rounds[0].GlobalAllocations.OrdinaryAllocations,
+            Series.Rounds[1].GlobalAllocations.OrdinaryAllocations,
+            Series.Rounds[2].GlobalAllocations.OrdinaryAllocations,
+            Series.Rounds[3].GlobalAllocations.OrdinaryAllocations,
+            Series.Rounds[4].GlobalAllocations.OrdinaryAllocations,
+            Series.Rounds[0].GlobalAllocations.AlignedAllocations,
+            Series.Rounds[1].GlobalAllocations.AlignedAllocations,
+            Series.Rounds[2].GlobalAllocations.AlignedAllocations,
+            Series.Rounds[3].GlobalAllocations.AlignedAllocations,
+            Series.Rounds[4].GlobalAllocations.AlignedAllocations,
+            Series.Rounds[0].GlobalAllocations.OrdinaryBytes,
+            Series.Rounds[1].GlobalAllocations.OrdinaryBytes,
+            Series.Rounds[2].GlobalAllocations.OrdinaryBytes,
+            Series.Rounds[3].GlobalAllocations.OrdinaryBytes,
+            Series.Rounds[4].GlobalAllocations.OrdinaryBytes,
+            Series.Rounds[0].GlobalAllocations.AlignedBytes,
+            Series.Rounds[1].GlobalAllocations.AlignedBytes,
+            Series.Rounds[2].GlobalAllocations.AlignedBytes,
+            Series.Rounds[3].GlobalAllocations.AlignedBytes,
+            Series.Rounds[4].GlobalAllocations.AlignedBytes);
+    }
+
+    auto PrintProtocolProcessMetrics(const ProtocolSeries &Series) -> void
+    {
+#ifdef _WIN32
+        std::printf(
+            "  process cpu-user-ms=[%.2f,%.2f,%.2f,%.2f,%.2f] cpu-kernel-ms=[%.2f,%.2f,%.2f,%.2f,%.2f] "
+            "working-set=[%zu,%zu,%zu,%zu,%zu] private=[%zu,%zu,%zu,%zu,%zu] "
+            "samples=[%zu,%zu,%zu,%zu,%zu]\n",
+            Series.Rounds[0].CpuUser100ns / 10000.0, Series.Rounds[1].CpuUser100ns / 10000.0,
+            Series.Rounds[2].CpuUser100ns / 10000.0, Series.Rounds[3].CpuUser100ns / 10000.0,
+            Series.Rounds[4].CpuUser100ns / 10000.0, Series.Rounds[0].CpuKernel100ns / 10000.0,
+            Series.Rounds[1].CpuKernel100ns / 10000.0, Series.Rounds[2].CpuKernel100ns / 10000.0,
+            Series.Rounds[3].CpuKernel100ns / 10000.0, Series.Rounds[4].CpuKernel100ns / 10000.0,
+            Series.Rounds[0].PeakWorkingSet, Series.Rounds[1].PeakWorkingSet,
+            Series.Rounds[2].PeakWorkingSet, Series.Rounds[3].PeakWorkingSet,
+            Series.Rounds[4].PeakWorkingSet, Series.Rounds[0].PeakPrivateUsage,
+            Series.Rounds[1].PeakPrivateUsage, Series.Rounds[2].PeakPrivateUsage,
+            Series.Rounds[3].PeakPrivateUsage, Series.Rounds[4].PeakPrivateUsage,
+            Series.Rounds[0].ProcessSampleCount, Series.Rounds[1].ProcessSampleCount,
+            Series.Rounds[2].ProcessSampleCount, Series.Rounds[3].ProcessSampleCount,
+            Series.Rounds[4].ProcessSampleCount);
+#else
+        (void)Series;
+        std::printf("  process metrics=unavailable\n");
+#endif
+    }
+
     [[nodiscard]] auto PrintProtocolSeries(const ProtocolSeriesPrintRequest &Request) -> bool
     {
         const auto &Series = *Request.Series;
@@ -142,50 +195,8 @@ namespace ProtocolTransferBench
             static_cast<unsigned long long>(ServerInputHash),
             static_cast<unsigned long long>(ClientOutputHash),
             Valid ? "yes" : "no");
-        std::printf(
-            "  global-new ordinary=[%zu,%zu,%zu,%zu,%zu] aligned=[%zu,%zu,%zu,%zu,%zu] "
-            "bytes=[%zu,%zu,%zu,%zu,%zu]/[%zu,%zu,%zu,%zu,%zu]\n",
-            Series.Rounds[0].GlobalAllocations.OrdinaryAllocations,
-            Series.Rounds[1].GlobalAllocations.OrdinaryAllocations,
-            Series.Rounds[2].GlobalAllocations.OrdinaryAllocations,
-            Series.Rounds[3].GlobalAllocations.OrdinaryAllocations,
-            Series.Rounds[4].GlobalAllocations.OrdinaryAllocations,
-            Series.Rounds[0].GlobalAllocations.AlignedAllocations,
-            Series.Rounds[1].GlobalAllocations.AlignedAllocations,
-            Series.Rounds[2].GlobalAllocations.AlignedAllocations,
-            Series.Rounds[3].GlobalAllocations.AlignedAllocations,
-            Series.Rounds[4].GlobalAllocations.AlignedAllocations,
-            Series.Rounds[0].GlobalAllocations.OrdinaryBytes,
-            Series.Rounds[1].GlobalAllocations.OrdinaryBytes,
-            Series.Rounds[2].GlobalAllocations.OrdinaryBytes,
-            Series.Rounds[3].GlobalAllocations.OrdinaryBytes,
-            Series.Rounds[4].GlobalAllocations.OrdinaryBytes,
-            Series.Rounds[0].GlobalAllocations.AlignedBytes,
-            Series.Rounds[1].GlobalAllocations.AlignedBytes,
-            Series.Rounds[2].GlobalAllocations.AlignedBytes,
-            Series.Rounds[3].GlobalAllocations.AlignedBytes,
-            Series.Rounds[4].GlobalAllocations.AlignedBytes);
-#ifdef _WIN32
-        std::printf(
-            "  process cpu-user-ms=[%.2f,%.2f,%.2f,%.2f,%.2f] cpu-kernel-ms=[%.2f,%.2f,%.2f,%.2f,%.2f] "
-            "working-set=[%zu,%zu,%zu,%zu,%zu] private=[%zu,%zu,%zu,%zu,%zu] "
-            "samples=[%zu,%zu,%zu,%zu,%zu]\n",
-            Series.Rounds[0].CpuUser100ns / 10000.0, Series.Rounds[1].CpuUser100ns / 10000.0,
-            Series.Rounds[2].CpuUser100ns / 10000.0, Series.Rounds[3].CpuUser100ns / 10000.0,
-            Series.Rounds[4].CpuUser100ns / 10000.0, Series.Rounds[0].CpuKernel100ns / 10000.0,
-            Series.Rounds[1].CpuKernel100ns / 10000.0, Series.Rounds[2].CpuKernel100ns / 10000.0,
-            Series.Rounds[3].CpuKernel100ns / 10000.0, Series.Rounds[4].CpuKernel100ns / 10000.0,
-            Series.Rounds[0].PeakWorkingSet, Series.Rounds[1].PeakWorkingSet,
-            Series.Rounds[2].PeakWorkingSet, Series.Rounds[3].PeakWorkingSet,
-            Series.Rounds[4].PeakWorkingSet, Series.Rounds[0].PeakPrivateUsage,
-            Series.Rounds[1].PeakPrivateUsage, Series.Rounds[2].PeakPrivateUsage,
-            Series.Rounds[3].PeakPrivateUsage, Series.Rounds[4].PeakPrivateUsage,
-            Series.Rounds[0].ProcessSampleCount, Series.Rounds[1].ProcessSampleCount,
-            Series.Rounds[2].ProcessSampleCount, Series.Rounds[3].ProcessSampleCount,
-            Series.Rounds[4].ProcessSampleCount);
-#else
-        std::printf("  process metrics=unavailable\n");
-#endif
+        PrintGlobalAllocationRounds(Series);
+        PrintProtocolProcessMetrics(Series);
         return Valid;
     }
 

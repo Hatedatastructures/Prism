@@ -1,16 +1,26 @@
 /** @file CarrierActivityReceiptTest.cpp @brief 真实 Run 回执与历史错误相互独立的组合回归。 */
 #include <Prism/Protocols/Common/ProtocolActivity.hpp>
-#include <Prism/Transport/Detail/ActivityGroup.hpp>
-#include <Prism/Transport/Detail/ForwardActivity.hpp>
+#include <Prism/Contract/Io/CarrierCloseReceipt.hpp>
+#include <Prism/Foundation/Executor/ClosingStorage.hpp>
+#include <Prism/Foundation/Executor/ContextOwner.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Transport/ActivityGroupFactory.hpp>
 #include <Prism/Transport/Detail/IoActivity.hpp>
+#include <Prism/Transport/Detail/TransmissionControl.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <gtest/gtest.h>
+#include <array>
+#include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace
@@ -72,6 +82,154 @@ namespace
         if (!Outcome) return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
         return *Outcome;
     }
+
+    enum class CloseAction : std::uint8_t { Succeed, ReturnFailure, Throw };
+
+    struct CloseActionState final
+    {
+        CloseAction First{CloseAction::Succeed};
+        Prism::Fault::Failure Failure{Prism::Fault::FromNative(
+            std::make_error_code(std::errc::connection_reset))};
+        std::atomic<std::size_t> Calls{0};
+        std::atomic<bool> Open{true};
+    };
+
+    class CloseReceiptProbe final : public Prism::Transmission
+    {
+    public:
+        CloseReceiptProbe(Net::any_io_executor Executor, std::shared_ptr<CloseActionState> State)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor)), State_(std::move(State)) {}
+        [[nodiscard]] auto Executor() const -> ExecutorType override { return Executor_; }
+        [[nodiscard]] auto Receipt() const -> std::shared_ptr<Prism::Contract::CarrierCloseReceipt>
+        { return CloseReceipt(); }
+        auto StartRead(std::span<std::byte>, Completion Handler) -> void override
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), {0, {Prism::Fault::Code::Eof}}); }
+        auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), {0, {}}); }
+        auto StartWriteShutdown(Completion Handler) -> void override
+        { Prism::Transmission::PostResult(Executor_, std::move(Handler), {}); }
+        [[nodiscard]] auto IsOpen() const -> bool override
+        { return State_->Open.load(std::memory_order_acquire); }
+    protected:
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            const auto Call = State_->Calls.fetch_add(1, std::memory_order_acq_rel) + 1;
+            if (Call == 1 && State_->First == CloseAction::ReturnFailure)
+                return std::unexpected(State_->Failure);
+            if (Call == 1 && State_->First == CloseAction::Throw)
+                throw std::runtime_error("close action failed");
+            State_->Open.store(false, std::memory_order_release);
+            return {};
+        }
+        [[nodiscard]] auto OnCancel() -> ControlResult override { return {}; }
+    private:
+        Net::any_io_executor Executor_;
+        std::shared_ptr<CloseActionState> State_;
+    };
+
+    struct CloseReceiptWait final
+    {
+        std::optional<Result> Value;
+        std::exception_ptr Exception;
+        std::size_t Completions{0};
+    };
+
+    auto StartCloseReceiptWaiter(Net::io_context& Io,
+        std::shared_ptr<Prism::Contract::CarrierCloseReceipt> Receipt,
+        CloseReceiptWait& Wait) -> void
+    {
+        Net::co_spawn(Io, Receipt->AwaitCloseDispatch(), [&Wait](std::exception_ptr Error, Result Value)
+        {
+            ++Wait.Completions;
+            Wait.Exception = std::move(Error);
+            Wait.Value.emplace(std::move(Value));
+        });
+    }
+
+    auto AwaitCloseReceiptNow(Net::io_context& Io,
+        std::shared_ptr<Prism::Contract::CarrierCloseReceipt> Receipt) -> CloseReceiptWait
+    {
+        CloseReceiptWait Wait;
+        Io.restart();
+        StartCloseReceiptWaiter(Io, std::move(Receipt), Wait);
+        Io.run();
+        return Wait;
+    }
+
+    auto VerifyRejectedCloseReceipt(Prism::Fault::Failure Expected) -> void
+    {
+        Net::io_context Io;
+        auto State = std::make_shared<CloseActionState>();
+        auto Carrier = std::make_shared<CloseReceiptProbe>(Io.get_executor(), State);
+        Carrier->Activity()->Seal();
+        const auto Closed = Carrier->Close();
+        ASSERT_FALSE(Closed);
+        EXPECT_EQ(Closed.error().Code, Expected.Code);
+        CloseReceiptWait Wait;
+        Net::io_context WaitIo;
+        Wait = AwaitCloseReceiptNow(WaitIo, Carrier->Receipt());
+        ASSERT_EQ(Wait.Completions, 1U);
+        ASSERT_TRUE(Wait.Value.has_value());
+        ASSERT_FALSE(*Wait.Value);
+        EXPECT_EQ(Wait.Value->error().Code, Expected.Code);
+        EXPECT_EQ(Wait.Value->error().Native, Expected.Native);
+        EXPECT_EQ(State->Calls.load(std::memory_order_acquire), 0U);
+    }
+
+    auto VerifyFailedCloseReceipt(CloseAction First, Prism::Fault::Failure Expected) -> void
+    {
+        auto Storage = std::make_shared<Prism::Executor::ClosingStorage>();
+        auto Context = Prism::Executor::ContextOwner::Create(Storage);
+        auto State = std::make_shared<CloseActionState>();
+        State->First = First;
+        State->Failure = Expected;
+        auto Carrier = std::make_shared<CloseReceiptProbe>(Context->Io.get_executor(), State);
+        const auto Closed = Carrier->Close();
+        ASSERT_TRUE(Closed);
+        Context->Io.run();
+
+        Net::io_context WaitIo;
+        auto Wait = AwaitCloseReceiptNow(WaitIo, Carrier->Receipt());
+        ASSERT_EQ(Wait.Completions, 1U);
+        ASSERT_EQ(Wait.Exception, nullptr);
+        ASSERT_TRUE(Wait.Value.has_value());
+        ASSERT_FALSE(*Wait.Value);
+        EXPECT_EQ(Wait.Value->error().Code, Expected.Code);
+        EXPECT_EQ(Wait.Value->error().Native, Expected.Native);
+
+        auto Owner = std::dynamic_pointer_cast<Prism::Transport::Detail::TransmissionControlOwner>(
+            Carrier->Receipt());
+        ASSERT_TRUE(Owner);
+        Context->Io.restart();
+        Storage->Retry();
+        while (Owner->CloseAttempt.load(std::memory_order_acquire) ==
+                   Prism::Transport::Detail::TransmissionControlOwner::CloseAttemptPhase::Terminal &&
+               Context->Io.poll_one() != 0U)
+        {
+        }
+        EXPECT_EQ(Owner->CloseAttempt.load(std::memory_order_acquire),
+            Prism::Transport::Detail::TransmissionControlOwner::CloseAttemptPhase::Posting);
+        CloseReceiptWait RetryWait;
+        Net::io_context RetryIo;
+        StartCloseReceiptWaiter(RetryIo, Carrier->Receipt(), RetryWait);
+        ASSERT_EQ(RetryIo.poll_one(), 1U);
+        EXPECT_EQ(Owner->CloseAttemptWaiters.load(std::memory_order_acquire), 1U);
+        Context->Io.run();
+        RetryIo.run();
+        EXPECT_EQ(State->Calls.load(std::memory_order_acquire), 2U);
+        ASSERT_EQ(RetryWait.Completions, 1U);
+        ASSERT_TRUE(RetryWait.Value.has_value());
+        ASSERT_FALSE(*RetryWait.Value);
+        EXPECT_EQ(RetryWait.Value->error().Code, Expected.Code);
+        EXPECT_EQ(RetryWait.Value->error().Native, Expected.Native);
+        Wait = AwaitCloseReceiptNow(WaitIo, Carrier->Receipt());
+        ASSERT_EQ(Wait.Completions, 1U);
+        ASSERT_TRUE(Wait.Value.has_value());
+        ASSERT_FALSE(*Wait.Value);
+        EXPECT_EQ(Wait.Value->error().Code, Expected.Code);
+        EXPECT_EQ(Wait.Value->error().Native, Expected.Native);
+        EXPECT_EQ(Storage->Pending(), 0U);
+    }
 }
 
 TEST(CarrierActivityReceipt, GroupDrainsAllChildrenAndPreservesHistoricalNativeFailure)
@@ -86,7 +244,7 @@ TEST(CarrierActivityReceipt, GroupDrainsAllChildrenAndPreservesHistoricalNativeF
     auto Parent = std::make_shared<HistoricalActivity>(ParentRun, Prism::Fault::FromNative(Native));
     auto Child = std::make_shared<HistoricalActivity>(ChildRun, Prism::Fault::Failure{});
     auto Last = std::make_shared<HistoricalActivity>(LastRun, Prism::Fault::Failure{});
-    auto Group = std::make_shared<Prism::Transport::Detail::ActivityGroup>(Parent,
+    auto Group = Prism::Transport::MakeActivityGroup(Parent,
         std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>>{Child, Last});
     Group->Seal();
     EXPECT_FALSE(Group->IsRetired());
@@ -111,7 +269,7 @@ TEST(CarrierActivityReceipt, UnknownChildBlocksRetirementAndRemainingChildStillD
     auto Parent = std::make_shared<HistoricalActivity>(ParentRun, Prism::Fault::FromNative(Native));
     auto Child = std::make_shared<HistoricalActivity>(ChildRun, Prism::Fault::Failure{});
     auto Last = std::make_shared<HistoricalActivity>(LastRun, Prism::Fault::Failure{});
-    auto Group = std::make_shared<Prism::Transport::Detail::ActivityGroup>(Parent,
+    auto Group = Prism::Transport::MakeActivityGroup(Parent,
         std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>>{Child, Last});
     const auto Outcome = Drain(Io, Group);
     ASSERT_FALSE(Outcome);
@@ -127,7 +285,7 @@ TEST(CarrierActivityReceipt, GroupDrainRejectsSuccessWithoutRetirement)
     Net::io_context Io;
     auto Parent = std::make_shared<Prism::Protocols::ProtocolActivity>(Io.get_executor());
     auto Child = std::make_shared<DrainOnlyActivity>(Io.get_executor());
-    auto Group = std::make_shared<Prism::Transport::Detail::ActivityGroup>(Parent,
+    auto Group = Prism::Transport::MakeActivityGroup(Parent,
         std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>>{Child});
     const auto Outcome = Drain(Io, Group);
     ASSERT_FALSE(Outcome);
@@ -141,7 +299,7 @@ TEST(CarrierActivityReceipt, ParentWithoutRetirementKeepsChildrenUnsealed)
     Net::io_context Io;
     auto Parent = std::make_shared<DrainOnlyActivity>(Io.get_executor());
     auto Child = std::make_shared<DrainOnlyActivity>(Io.get_executor());
-    auto Group = std::make_shared<Prism::Transport::Detail::ActivityGroup>(Parent,
+    auto Group = Prism::Transport::MakeActivityGroup(Parent,
         std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>>{Child});
     const auto Outcome = Drain(Io, Group);
     ASSERT_FALSE(Outcome);
@@ -159,7 +317,7 @@ TEST(CarrierActivityReceipt, ParentFailureWithoutRetirementPreservesCause)
     auto Parent = std::make_shared<DrainOnlyActivity>(
         Io.get_executor(), Prism::Fault::FromNative(Native));
     auto Child = std::make_shared<DrainOnlyActivity>(Io.get_executor());
-    auto Group = std::make_shared<Prism::Transport::Detail::ActivityGroup>(Parent,
+    auto Group = Prism::Transport::MakeActivityGroup(Parent,
         std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>>{Child});
     const auto Outcome = Drain(Io, Group);
     ASSERT_FALSE(Outcome);
@@ -176,13 +334,13 @@ TEST(CarrierActivityReceipt, ForwardedCloseDrainsChildDespiteHistoricalParentFai
     auto ChildRun = std::make_shared<Prism::Protocols::ProtocolActivity>(Io.get_executor());
     auto Parent = std::make_shared<HistoricalActivity>(ParentRun, Prism::Fault::FromNative(Native));
     auto Child = std::make_shared<HistoricalActivity>(ChildRun, Prism::Fault::Failure{});
-    auto Forward = std::make_shared<Prism::Transport::Detail::ForwardActivity>(Parent, Child);
-    Forward->RequireChildDrain();
-    const auto Outcome = Drain(Io, Forward);
+    Prism::Transport::ForwardActivityOwner Forward(Parent, Child);
+    Forward.RequireChildDrain();
+    const auto Outcome = Drain(Io, Forward.Activity());
     ASSERT_FALSE(Outcome);
     EXPECT_EQ(Outcome.error().Native, Native);
     EXPECT_EQ(Child->DrainCalls, 1U);
-    EXPECT_TRUE(Forward->IsRetired());
+    EXPECT_TRUE(Forward.Activity()->IsRetired());
 }
 
 /** @brief 已受理的关闭尚未交付时，成功 Drain 必须等待关闭回执。 */
@@ -265,11 +423,11 @@ TEST(CarrierActivityReceipt, ForwardedChildWaitsForAcceptedCloseDelivery)
     Parent->RecordCloseDelivered();
     Child->RecordCloseAccepted();
     Child->Seal();
-    auto Forward = std::make_shared<Prism::Transport::Detail::ForwardActivity>(Parent, Child);
-    Forward->RequireChildDrain();
+    Prism::Transport::ForwardActivityOwner Forward(Parent, Child);
+    Forward.RequireChildDrain();
     std::optional<Result> Outcome;
     std::exception_ptr Exception;
-    Net::co_spawn(Io, Forward->Drain(), [&](std::exception_ptr Error, Result Value)
+    Net::co_spawn(Io, Forward.Activity()->Drain(), [&](std::exception_ptr Error, Result Value)
     {
         Exception = std::move(Error);
         Outcome.emplace(std::move(Value));
@@ -283,5 +441,141 @@ TEST(CarrierActivityReceipt, ForwardedChildWaitsForAcceptedCloseDelivery)
     EXPECT_EQ(Exception, nullptr);
     ASSERT_TRUE(Outcome.has_value());
     EXPECT_TRUE(*Outcome);
-    EXPECT_TRUE(Forward->IsRetired());
+    EXPECT_TRUE(Forward.Activity()->IsRetired());
+}
+
+TEST(CarrierCloseReceipt, IdleReceiptIsImmediateAndTerminalFailureBroadcasts)
+{
+    Net::io_context Io;
+    auto Activity = std::make_shared<Prism::Transport::Detail::IoActivity>(Io.get_executor());
+    auto Owner = std::make_shared<Prism::Transport::Detail::TransmissionControlOwner>(
+        Io.get_executor(), Activity);
+    std::shared_ptr<Prism::Contract::CarrierCloseReceipt> Receipt = Owner;
+    const auto Idle = AwaitCloseReceiptNow(Io, Receipt);
+    ASSERT_EQ(Idle.Completions, 1U);
+    ASSERT_TRUE(Idle.Value.has_value());
+    EXPECT_TRUE(*Idle.Value);
+
+    Io.restart();
+    ASSERT_TRUE(Owner->BeginCloseAttempt());
+    CloseReceiptWait First, Second, Late;
+    StartCloseReceiptWaiter(Io, Receipt, First);
+    ASSERT_EQ(Io.poll_one(), 1U);
+    EXPECT_EQ(Owner->CloseAttemptWaiters.load(std::memory_order_acquire), 1U);
+    StartCloseReceiptWaiter(Io, Receipt, Second);
+    ASSERT_EQ(Io.poll_one(), 1U);
+    EXPECT_EQ(Owner->CloseAttemptWaiters.load(std::memory_order_acquire), 2U);
+
+    const auto Native = std::make_error_code(std::errc::connection_reset);
+    Owner->CompleteCloseAttempt(Prism::Fault::FromNative(Native));
+    Owner->CompleteCloseAttempt({Prism::Fault::Code::Blocked});
+    Io.run();
+    for (const auto* Wait : std::array{&First, &Second})
+    {
+        ASSERT_EQ(Wait->Completions, 1U);
+        ASSERT_EQ(Wait->Exception, nullptr);
+        ASSERT_TRUE(Wait->Value.has_value());
+        ASSERT_FALSE(*Wait->Value);
+        EXPECT_EQ(Wait->Value->error().Native, Native);
+    }
+
+    Late = AwaitCloseReceiptNow(Io, Receipt);
+    ASSERT_EQ(Late.Completions, 1U);
+    ASSERT_TRUE(Late.Value.has_value());
+    ASSERT_FALSE(*Late.Value);
+    EXPECT_EQ(Late.Value->error().Native, Native);
+}
+
+TEST(CarrierCloseReceipt, SynchronousCloseRejectionsAreSticky)
+{
+    const Prism::Fault::Failure NoOwner{Prism::Fault::Code::InvalidArgument};
+    VerifyRejectedCloseReceipt({Prism::Fault::Code::Canceled});
+
+    Net::io_context Io;
+    auto State = std::make_shared<CloseActionState>();
+    CloseReceiptProbe StackCarrier(Io.get_executor(), State);
+    const auto Rejected = StackCarrier.Close();
+    ASSERT_FALSE(Rejected);
+    EXPECT_EQ(Rejected.error().Code, NoOwner.Code);
+    Net::io_context WaitIo;
+    const auto Wait = AwaitCloseReceiptNow(WaitIo, StackCarrier.Receipt());
+    ASSERT_EQ(Wait.Completions, 1U);
+    ASSERT_TRUE(Wait.Value.has_value());
+    ASSERT_FALSE(*Wait.Value);
+    EXPECT_EQ(Wait.Value->error().Code, NoOwner.Code);
+    EXPECT_EQ(State->Calls.load(std::memory_order_acquire), 0U);
+}
+
+TEST(CarrierCloseReceipt, NativeCloseFailureRemainsFirstAfterSuccessfulRetry)
+{
+    const auto Failure = Prism::Fault::FromNative(
+        std::make_error_code(std::errc::connection_reset));
+    VerifyFailedCloseReceipt(CloseAction::ReturnFailure, Failure);
+}
+
+TEST(CarrierCloseReceipt, ThrownCloseActionPublishesBlockedAndRemainsSticky)
+{
+    VerifyFailedCloseReceipt(CloseAction::Throw, {Prism::Fault::Code::Blocked});
+}
+
+TEST(CarrierCloseReceipt, AcceptedQuarantinedDeliveryWakesPendingWaiter)
+{
+    // quarantine 是进程终态保留；使用终态 storage，避免测试结束时析构真实保留的 executor owner。
+    auto Storage = Prism::Executor::ClosingStorage::ProcessStorage();
+    const auto RetainedBefore = Storage->Pending();
+    auto Context = Prism::Executor::ContextOwner::Create(Storage);
+    auto State = std::make_shared<CloseActionState>();
+    auto Carrier = std::make_shared<CloseReceiptProbe>(Context->Io.get_executor(), State);
+    auto Activity = std::dynamic_pointer_cast<Prism::Transport::Detail::IoActivity>(
+        Carrier->Activity());
+    ASSERT_TRUE(Activity);
+    auto Owner = std::make_shared<Prism::Transport::Detail::TransmissionControlOwner>(
+        Context->Io.get_executor(), Activity);
+    ASSERT_TRUE(Owner->BeginCloseAttempt());
+    std::shared_ptr<Prism::Contract::CarrierCloseReceipt> Receipt = Owner;
+    CloseReceiptWait Wait;
+    Net::io_context WaitIo;
+    StartCloseReceiptWaiter(WaitIo, Receipt, Wait);
+    ASSERT_EQ(WaitIo.poll_one(), 1U);
+    EXPECT_EQ(Owner->CloseAttemptWaiters.load(std::memory_order_acquire), 1U);
+
+    const auto Submitted = Owner->Submit(Carrier,
+        Prism::Transport::Detail::TransmissionControlOwner::CloseFlag);
+    ASSERT_TRUE(Submitted);
+    Owner->Reclaimer->Quarantine();
+    Context->Io.run();
+    WaitIo.run();
+    ASSERT_EQ(Wait.Completions, 1U);
+    ASSERT_TRUE(Wait.Value.has_value());
+    ASSERT_FALSE(*Wait.Value);
+    EXPECT_EQ(Wait.Value->error().Code, Prism::Fault::Code::Blocked);
+    EXPECT_EQ(State->Calls.load(std::memory_order_acquire), 0U);
+    EXPECT_EQ(Storage->Pending(), RetainedBefore + 2U);
+    EXPECT_TRUE(Storage->IsSealed());
+}
+
+TEST(CarrierCloseReceipt, AcceptedCloseWaitsForResumedExecutor)
+{
+    auto Storage = std::make_shared<Prism::Executor::ClosingStorage>();
+    auto Context = Prism::Executor::ContextOwner::Create(Storage);
+    auto State = std::make_shared<CloseActionState>();
+    auto Carrier = std::make_shared<CloseReceiptProbe>(Context->Io.get_executor(), State);
+    ASSERT_TRUE(Carrier->Close());
+    Context->Io.stop();
+
+    Net::io_context WaitIo;
+    CloseReceiptWait Wait;
+    StartCloseReceiptWaiter(WaitIo, Carrier->Receipt(), Wait);
+    ASSERT_EQ(WaitIo.poll_one(), 1U);
+    EXPECT_EQ(Wait.Completions, 0U);
+
+    Context->Io.restart();
+    Context->Io.run();
+    WaitIo.run();
+    ASSERT_EQ(Wait.Completions, 1U);
+    ASSERT_EQ(Wait.Exception, nullptr);
+    ASSERT_TRUE(Wait.Value.has_value());
+    EXPECT_TRUE(*Wait.Value);
+    EXPECT_EQ(State->Calls.load(std::memory_order_acquire), 1U);
+    EXPECT_EQ(Storage->Pending(), 0U);
 }

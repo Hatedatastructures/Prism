@@ -23,7 +23,7 @@
 #include <Prism/Application/Assembly/ProviderAssembly.hpp>
 #include <Prism/Application/Startup/ProtocolServices.hpp>
 #include <Prism/Application/Startup/StartupTransaction.hpp>
-#include <tests/TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/PrismMockTransport.hpp>
 #include <Prism/Protocols/Anytls/IngressFactory.hpp>
 #include <Prism/Protocols/Vless/IngressFactory.hpp>
 #include <Prism/Protocols/Trojan/IngressFactory.hpp>
@@ -163,8 +163,11 @@ namespace
         std::string_view Credential{"local-token"};
         std::string_view Credentials{};
         std::string_view SecretRef{};
+        std::string_view AccountPolicy{R"({"TrafficBytes":{"Mode":"Unlimited"}})"};
+        std::string_view StorageDirectory{};
         std::string_view Recognition{};
         std::uint16_t OperationsPort{9090};
+        std::string_view OperationsWebDirectoryJson{};
         std::uint32_t ShutdownTimeout{5000};
         bool StatisticsEnabled{true};
         std::uint32_t StatisticsInterval{1000};
@@ -185,7 +188,10 @@ namespace
                     ".json")),
               LoggingDirectory_(Shape.LoggingDirectory.empty()
                                     ? std::filesystem::path{}
-                                    : std::filesystem::path(Shape.LoggingDirectory))
+                                    : std::filesystem::path(Shape.LoggingDirectory)),
+              StorageDirectory_(Shape.StorageDirectory.empty()
+                                    ? Path_.parent_path() / "data" / Path_.stem()
+                                    : std::filesystem::path(Shape.StorageDirectory))
         {
             std::ofstream File(Path_, std::ios::binary);
             File << R"json({
@@ -230,6 +236,8 @@ namespace
                  << Shape.Credential << R"json(",
         "Credentials": )json"
                  << (Shape.Credentials.empty() ? std::string_view("{}") : Shape.Credentials) << R"json(
+        ,"Policy": )json"
+                 << Shape.AccountPolicy << R"json(
     }],
     "Routes": )json"
                  << (Shape.Routes.empty() ? std::string_view("[]") : Shape.Routes) << R"json(,
@@ -251,7 +259,14 @@ namespace
                  << (Shape.StatisticsEnabled ? "true" : "false") << R"json(, "Interval": )json"
                  << Shape.StatisticsInterval << R"json(},
     "Operations": {"Enabled": true, "Endpoint": "127.0.0.1:)json"
-                 << Shape.OperationsPort << R"json(", "Timeout": 1000},
+                 << Shape.OperationsPort << R"json(", "Timeout": 1000)json";
+            if (!Shape.OperationsWebDirectoryJson.empty())
+            {
+                File << ", \"WebDirectory\": " << Shape.OperationsWebDirectoryJson;
+            }
+            File << R"json(},
+    "Storage": {"Directory": ")json"
+                 << Shape.StorageDirectory << R"json(", "HistoryMaxBytes": 4194304},
     "HotReload": {"Enabled": true, "AckTimeout": 5000},
     "Shutdown": {"Timeout": )json"
                  << Shape.ShutdownTimeout << R"json(}
@@ -266,6 +281,10 @@ namespace
             {
                 std::filesystem::remove_all(LoggingDirectory_, Error);
             }
+            if (!StorageDirectory_.empty())
+            {
+                std::filesystem::remove_all(StorageDirectory_, Error);
+            }
         }
 
         [[nodiscard]] auto Path() const -> const std::filesystem::path &
@@ -276,6 +295,7 @@ namespace
     private:
         std::filesystem::path Path_;
         std::filesystem::path LoggingDirectory_;
+        std::filesystem::path StorageDirectory_;
     };
 
     [[nodiscard]] auto FindFreePort() -> std::uint16_t

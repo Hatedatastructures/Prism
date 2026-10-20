@@ -22,8 +22,10 @@
 
 #include <Prism/Contract/Ingress/DataPlane.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
 #include <Prism/Net/Dns/Resolver.hpp>
+#include <Prism/Net/HostText.hpp>
 #include <Prism/Net/Target.hpp>
 #include <Prism/Runtime/Session.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
@@ -79,15 +81,15 @@ namespace
         co_return std::unexpected(Fault::Failure{Fault::Code::Unreachable});
     }
 
-    auto AdmitDnsStream(SharedTransmission Inbound, std::uint16_t Port)
+    auto AdmitDnsStream(Prism::Contract::StreamAcceptInput Input, std::uint16_t Port)
         -> Net::awaitable<Prism::Contract::AcceptOutcome>
     {
         Prism::Contract::ProtocolDataPlane Plane;
-        Plane.Root = Prism::Contract::StreamDataPlane{std::move(Inbound)};
+        Plane.Root = Prism::Contract::StreamDataPlane{std::move(Input.Inbound)};
         Plane.Target.Route = Prism::Network::RouteKind::Forward;
         Plane.Target.Host = *Prism::Network::ParseHost("localhost");
         Plane.Target.Port = Port;
-        co_return Prism::Contract::Admit(std::move(Plane));
+        co_return Plane;
     }
 
     auto RunEchoServer(const std::shared_ptr<Tcp::acceptor> &Acceptor)
@@ -128,11 +130,12 @@ namespace
         auto Client = std::make_shared<Prism::MemoryStream>(std::move(ClientRaw));
         auto Server = std::make_shared<Prism::MemoryStream>(std::move(ServerRaw));
         Prism::Runtime::SessionOptions Options;
+        Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U * 1024U, 64U});
         Options.Services->AcceptProtocol = std::make_shared<Prism::Testing::StreamFactory>(
-            [Port = Scenario.EchoPort](SharedTransmission Inbound,
-                                                         Prism::Contract::RequestMetadata)
+            [Port = Scenario.EchoPort](Prism::Contract::StreamAcceptInput Input)
             {
-                return AdmitDnsStream(std::move(Inbound), Port);
+                return AdmitDnsStream(std::move(Input), Port);
             });
         Options.Services->Dial = [&Scenario](const Network::Target &Target)
         {

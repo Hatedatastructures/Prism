@@ -21,10 +21,10 @@ cmake --build build --config Release --target Prism -j 16
 构建输出位于 `build/src/`。Windows 运行 `build/src/Prism.exe`，Linux 运行 `build/src/Prism`。未提供参数时，程序读取可执行文件同目录的 `PrismConfiguration.json`；也可以显式提供配置文件路径：
 
 ```powershell
-build/src/Prism.exe path/to/PrismConfiguration.json
+& '.\build\src\Prism.exe' '.\path\to\PrismConfiguration.json'
 ```
 
-CMake 构建后会把 `Prism/Application/Configuration/PrismConfiguration.json` 复制到可执行文件旁。启动前请检查监听地址、端口、凭据引用和证书文件路径。不要把真实凭据写入提交或日志。
+CMake 构建后会把 `Include/Prism/Application/Configuration/PrismConfiguration.json` 复制到可执行文件旁。启动前请检查监听地址、端口、凭据引用和证书文件路径。不要把真实凭据写入提交或日志。
 
 ## 验证
 

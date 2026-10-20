@@ -204,6 +204,7 @@ add_executable(MailboxCompare
         MailboxCompareMeasure.cpp
         MailboxCompareTrace.cpp
         MailboxCompareTrace.hpp)
+target_include_directories(MailboxCompare PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_compile_options(MailboxCompare PRIVATE ${_perf_compile_options})
 target_link_libraries(MailboxCompare PRIVATE PrismRuntime)
 if(WIN32)
@@ -246,7 +247,8 @@ add_executable(CompactPathBenchmark DiagnosePathBenchmark.cpp)
 target_compile_definitions(CompactPathBenchmark PRIVATE PRISM_DIAGNOSE_COMPACT_BENCHMARK=1)
 target_compile_options(CompactPathBenchmark PRIVATE ${_perf_compile_options})
 target_link_libraries(CompactPathBenchmark PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismApplication PrismTestSupport spdlog::spdlog)
+target_include_directories(CompactPathBenchmark PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 add_test(NAME Perf_CompactPathBenchmark
         COMMAND CompactPathBenchmark "${CMAKE_BINARY_DIR}/preview-diagnose-compact.json")
 set_tests_properties(Perf_CompactPathBenchmark PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
@@ -255,7 +257,8 @@ add_executable(ExtendedPathBenchmark DiagnosePathBenchmark.cpp)
 target_compile_definitions(ExtendedPathBenchmark PRIVATE PRISM_DIAGNOSE_EXTENDED_BENCHMARK=1)
 target_compile_options(ExtendedPathBenchmark PRIVATE ${_perf_compile_options})
 target_link_libraries(ExtendedPathBenchmark PRIVATE
-        PrismFoundation PrismTestSupport spdlog::spdlog)
+        PrismFoundation PrismApplication PrismTestSupport spdlog::spdlog)
+target_include_directories(ExtendedPathBenchmark PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 add_test(NAME Perf_ExtendedPathBenchmark_HumanWithFields
         COMMAND ExtendedPathBenchmark HumanWithFields
                 "${CMAKE_BINARY_DIR}/preview-diagnose-human-with-fields.json")

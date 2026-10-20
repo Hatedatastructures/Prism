@@ -34,7 +34,9 @@
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Unreliable.hpp>
 #include <Prism/Protocols/Hysteria2/Hysteria2.hpp>
+#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/Quic/MemoryDatagramProvider.hpp>
 
 namespace Net = boost::asio;
 

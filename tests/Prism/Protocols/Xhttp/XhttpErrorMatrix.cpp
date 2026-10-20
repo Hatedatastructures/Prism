@@ -1,4 +1,425 @@
+/**
+ * @file XhttpErrorMatrix.cpp
+ * @brief XHTTP 传输与 HTTP/2 读取终态顺序测试。
+ */
+
 #include "XhttpErrorMatrixSupport.hpp"
+
+#include <Prism/Contract/Io/IoResult.hpp>
+#include <Prism/Contract/Io/CarrierActivity.hpp>
+#include <Prism/Foundation/ByteSpan.hpp>
+#include <Prism/Foundation/Error.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Protocols/Http2/Session.hpp>
+#include <Prism/Protocols/Xhttp/Detail/SplitTransport.hpp>
+#include <Prism/Protocols/Xhttp/Detail/StreamTransport.hpp>
+#include <Prism/Protocols/Xhttp/Detail/Http2ReadCompletion.hpp>
+#include <Prism/Transport/Transmission.hpp>
+
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/any_io_executor.hpp>
+
+#include <gtest/gtest.h>
+
+#include <array>
+#include <cstddef>
+#include <memory>
+#include <span>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
+
+namespace
+{
+    auto MakeSettingsWire(const std::size_t FrameBytes) -> std::vector<std::byte>
+    {
+        constexpr std::string_view Preface{"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"};
+        std::vector<std::byte> Wire;
+        Wire.reserve(Preface.size() + 9U);
+        for (const auto Character : Preface)
+        {
+            Wire.push_back(static_cast<std::byte>(Character));
+        }
+        constexpr std::byte SettingsFrame[]{
+            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{4}, std::byte{0},
+            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+        Wire.insert(Wire.end(), SettingsFrame,
+                    SettingsFrame + static_cast<std::ptrdiff_t>(FrameBytes));
+        return Wire;
+    }
+
+    auto ProcessReadCompletion(
+        Prism::Http2::Session &Session,
+        const std::vector<std::byte> &Wire,
+        Prism::Fault::Failure Failure) -> Prism::Fault::Failure
+    {
+        const auto Step = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+            Session, std::span<const std::byte>(Wire),
+            Prism::IoResult{Wire.size(), std::move(Failure)});
+        return Step.Failure;
+    }
+
+    struct CloseCallbackState final
+    {
+        bool Called{false};
+    };
+
+    struct CloseProbe final
+    {
+        std::shared_ptr<CloseCallbackState> State;
+
+        auto operator()() const -> Prism::Fault::Failure
+        {
+            State->Called = true;
+            return {};
+        }
+    };
+
+    struct ReadCompletionState final
+    {
+        std::array<std::byte, 1> Buffer{};
+        Prism::IoResult Result{};
+        bool Completed{false};
+    };
+
+    struct ReadCompletionHandler final
+    {
+        std::shared_ptr<ReadCompletionState> State;
+
+        auto operator()(Prism::IoResult Result) const -> void
+        {
+            State->Result = std::move(Result);
+            State->Completed = true;
+        }
+    };
+
+    template <typename TransportType>
+    auto StartRead(
+        const std::shared_ptr<TransportType> &Transport,
+        const std::shared_ptr<ReadCompletionState> &State) -> void
+    {
+        Transport->ReadSome(
+            std::span<std::byte>(State->Buffer), ReadCompletionHandler{State});
+    }
+
+    template <typename TransportType>
+    auto FillTransportChannel(const std::shared_ptr<TransportType> &Transport) -> void
+    {
+        const std::array<std::byte, 1> Payload{std::byte{0x71}};
+        for (std::size_t Index = 0; Index < 65U; ++Index)
+        {
+            Transport->Push(Payload);
+        }
+    }
+
+    auto MakeSplitTransport(
+        Net::any_io_executor Executor,
+        Xhttp::Detail::SplitTransport::CloseCb Close) -> std::shared_ptr<Xhttp::Detail::SplitTransport>
+    {
+        return std::make_shared<Xhttp::Detail::SplitTransport>(
+            std::move(Executor), Xhttp::Detail::SplitTransport::WriteCb(DiscardWire),
+            std::move(Close));
+    }
+
+    struct ReadTerminalObservation final
+    {
+        ByteVector Data;
+        std::array<std::size_t, 6> Counts{};
+        std::array<Prism::Fault::Failure, 2> Terminal{};
+    };
+
+    template <typename TransportType>
+    auto ReadQueuedDataAndRepeatTerminal(
+        const std::shared_ptr<TransportType> &Transport,
+        const std::shared_ptr<ReadTerminalObservation> &Observation) -> Net::awaitable<void>
+    {
+        std::array<Byte, 2> Buffer{};
+        for (std::size_t Index = 0; Index < Observation->Counts.size(); ++Index)
+        {
+            const auto Part = co_await Transport->ReadSome(Buffer);
+            EXPECT_LE(Part.Bytes, Buffer.size());
+            if (Part.Bytes > Buffer.size()) co_return;
+            Observation->Counts[Index] = Part.Bytes;
+            Observation->Data.insert(
+                Observation->Data.end(), Buffer.begin(),
+                Buffer.begin() + static_cast<std::ptrdiff_t>(Part.Bytes));
+            if (Index >= 4) Observation->Terminal[Index - 4] = Part.Failure;
+            if (Index < 4) EXPECT_FALSE(Part.Failure.Failed());
+        }
+    }
+
+    auto ExpectReadTerminal(
+        const Prism::Fault::Failure &Actual,
+        const Prism::Fault::Failure &Expected) -> void
+    {
+        if (Expected.Succeeded())
+        {
+            EXPECT_TRUE(Actual.Succeeded());
+            EXPECT_FALSE(Actual.Native);
+            return;
+        }
+        EXPECT_EQ(Actual.Code, Expected.Code);
+        if (Expected.Code != Prism::Fault::Code::Eof)
+            EXPECT_EQ(Actual.Native, Expected.Native);
+    }
+
+    template <typename TransportType>
+    auto VerifyQueuedReadTerminal(
+        Net::io_context &IoContext,
+        const std::shared_ptr<TransportType> &Transport,
+        const Prism::Fault::Failure ExpectedFailure) -> void
+    {
+        const std::array<Byte, 3> First{Byte{'a'}, Byte{'b'}, Byte{'c'}};
+        const std::array<Byte, 4> Second{Byte{'d'}, Byte{'e'}, Byte{'f'}, Byte{'g'}};
+        Transport->Push(First);
+        Transport->Push(Second);
+        Transport->NotifyReadTerminal(ExpectedFailure);
+        const auto Observation = std::make_shared<ReadTerminalObservation>();
+        RunCoroutine(IoContext, ReadQueuedDataAndRepeatTerminal(Transport, Observation));
+
+        const std::array<Byte, 7> ExpectedData{
+            Byte{'a'}, Byte{'b'}, Byte{'c'}, Byte{'d'}, Byte{'e'}, Byte{'f'}, Byte{'g'}};
+        EXPECT_EQ(Observation->Data, ByteVector(ExpectedData.begin(), ExpectedData.end()));
+        EXPECT_EQ(Observation->Counts, (std::array<std::size_t, 6>{2U, 1U, 2U, 2U, 0U, 0U}));
+        for (const auto &Terminal : Observation->Terminal)
+            ExpectReadTerminal(Terminal, ExpectedFailure);
+        const auto Retired = RetireRawTransport(IoContext, Transport);
+        EXPECT_TRUE(Retired.Failure.Succeeded());
+        EXPECT_TRUE(Retired.Retired);
+    }
+
+    template <typename TransportType>
+    auto VerifyHttp2DataTerminal(
+        Net::io_context &IoContext,
+        const std::shared_ptr<TransportType> &Transport,
+        const Prism::Fault::Failure ExpectedFailure) -> void
+    {
+        Prism::Http2::Session Sender(IoContext.get_executor(), false);
+        Prism::Http2::Session Receiver(IoContext.get_executor(), true);
+        Sender.SendSettings();
+        const auto Stream = Sender.OpenStream({{":method", "POST"}, {":path", "/"}}, false);
+        ASSERT_TRUE(Stream);
+        const std::array<Byte, 7> Payload{
+            Byte{'a'}, Byte{'b'}, Byte{'c'}, Byte{'d'}, Byte{'e'}, Byte{'f'}, Byte{'g'}};
+        ASSERT_EQ(Sender.SubmitData(*Stream, Payload, true), Prism::Http2::SubmitDataStatus::Accepted);
+        std::vector<Byte> Wire;
+        ASSERT_TRUE(Sender.Collect(Wire));
+        Receiver.OnData = [Transport](std::int32_t, const std::span<const Byte> Data)
+        {
+            Transport->Push(Data);
+        };
+        const auto Step = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+            Receiver, Wire, Prism::IoResult{Wire.size(), ExpectedFailure});
+        ASSERT_TRUE(Step.ReadTerminal);
+        ExpectReadTerminal(Step.Failure, ExpectedFailure);
+        Transport->NotifyReadTerminal(Step.Failure);
+        const auto Observation = std::make_shared<ReadTerminalObservation>();
+        RunCoroutine(IoContext, ReadQueuedDataAndRepeatTerminal(Transport, Observation));
+
+        EXPECT_EQ(Observation->Data, ByteVector(Payload.begin(), Payload.end()));
+        for (const auto &Terminal : Observation->Terminal)
+            ExpectReadTerminal(Terminal, ExpectedFailure);
+        const auto Retired = RetireRawTransport(IoContext, Transport);
+        EXPECT_TRUE(Retired.Failure.Succeeded());
+        EXPECT_TRUE(Retired.Retired);
+    }
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionFeedsSettingsBeforeEof)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    const auto Wire = MakeSettingsWire(9U);
+
+    const auto Step = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+        Session, Wire, Prism::IoResult{Wire.size(), {Prism::Fault::Code::Eof}});
+    EXPECT_TRUE(Step.ReadTerminal);
+    EXPECT_EQ(Step.Failure.Code, Prism::Fault::Code::Eof);
+
+    std::vector<std::byte> Output;
+    ASSERT_TRUE(Session.Collect(Output));
+    ASSERT_EQ(Output.size(), 9U);
+    EXPECT_EQ(std::to_integer<unsigned char>(Output[3]), 4U);
+    EXPECT_EQ(std::to_integer<unsigned char>(Output[4]), 1U);
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionFeedsSettingsBeforeNativeFailure)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    const auto Wire = MakeSettingsWire(9U);
+    const auto NativeError = std::make_error_code(std::errc::connection_reset);
+
+    const auto Failure = ProcessReadCompletion(
+        Session, Wire, Prism::Fault::FromNative(NativeError));
+    EXPECT_EQ(Prism::Fault::ToNative(Failure), NativeError);
+
+    std::vector<std::byte> Output;
+    ASSERT_TRUE(Session.Collect(Output));
+    ASSERT_EQ(Output.size(), 9U);
+    EXPECT_EQ(std::to_integer<unsigned char>(Output[3]), 4U);
+    EXPECT_EQ(std::to_integer<unsigned char>(Output[4]), 1U);
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionFeedsPartialSettingsBeforeEof)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    const auto Wire = MakeSettingsWire(4U);
+
+    const auto Step = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+        Session, Wire, Prism::IoResult{Wire.size(), {Prism::Fault::Code::Eof}});
+    EXPECT_TRUE(Step.ReadTerminal);
+    EXPECT_EQ(Step.Failure.Code, Prism::Fault::Code::Eof);
+
+    const auto CompleteWire = MakeSettingsWire(9U);
+    const auto Remainder = std::span<const std::byte>(CompleteWire).subspan(Wire.size());
+    std::error_code FrameError;
+    ASSERT_TRUE(Session.Feed(Remainder, FrameError)) << FrameError.message();
+    EXPECT_FALSE(FrameError);
+
+    std::vector<std::byte> Output;
+    ASSERT_TRUE(Session.Collect(Output));
+    ASSERT_EQ(Output.size(), 9U);
+    EXPECT_EQ(std::to_integer<unsigned char>(Output[3]), 4U);
+    EXPECT_EQ(std::to_integer<unsigned char>(Output[4]), 1U);
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionDoesNotTreatZeroSuccessAsEof)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    const auto Step = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+        Session, std::span<const Byte>{}, Prism::IoResult{0U, {}});
+
+    EXPECT_TRUE(Step.ReadTerminal);
+    EXPECT_EQ(Step.Failure.Code, Prism::Fault::Code::WouldBlock);
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionFeedFailurePrecedesNativeFailure)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    auto Wire = MakeSettingsWire(9U);
+    Wire[0] = std::byte{0x42};
+    const auto NativeError = std::make_error_code(std::errc::connection_reset);
+
+    const auto Failure = ProcessReadCompletion(
+        Session, Wire, Prism::Fault::FromNative(NativeError));
+    EXPECT_EQ(Prism::Fault::ToNative(Failure),
+              Prism::make_error_code(Prism::Error::ProtocolError));
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionRejectsBytesBeyondBuffer)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    const std::array<std::byte, 1> Buffer{};
+
+    const auto Failure = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+        Session, std::span<const std::byte>(Buffer), Prism::IoResult{2U, {}});
+    EXPECT_EQ(Failure.Failure.Code, Prism::Fault::Code::InvalidArgument);
+    EXPECT_FALSE(Failure.ReadTerminal);
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionMarksBytesBeforeNativeTerminal)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    const auto Wire = MakeSettingsWire(9U);
+    const auto Native = std::make_error_code(std::errc::connection_reset);
+
+    const auto Step = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+        Session, Wire, Prism::IoResult{Wire.size(), Prism::Fault::FromNative(Native)});
+
+    EXPECT_TRUE(Step.ReadTerminal);
+    EXPECT_EQ(Prism::Fault::ToNative(Step.Failure), Native);
+}
+
+TEST(XhttpErrorMatrix, ReadCompletionKeepsFeedFailureFailFast)
+{
+    Net::io_context IoContext;
+    Prism::Http2::Session Session(IoContext.get_executor(), true);
+    auto Wire = MakeSettingsWire(9U);
+    Wire[0] = std::byte{0x42};
+    const auto Native = std::make_error_code(std::errc::connection_reset);
+
+    const auto Step = Prism::Xhttp::Detail::ProcessHttp2ReadCompletion(
+        Session, Wire, Prism::IoResult{Wire.size(), Prism::Fault::FromNative(Native)});
+
+    EXPECT_FALSE(Step.ReadTerminal);
+    EXPECT_EQ(Prism::Fault::ToNative(Step.Failure),
+              Prism::make_error_code(Prism::Error::ProtocolError));
+}
+
+TEST(XhttpErrorMatrix, StreamTransportDrainsAcceptedDataBeforeNativeReadFailure)
+{
+    Net::io_context IoContext;
+    auto Transport = MakeTransport(IoContext.get_executor());
+    VerifyQueuedReadTerminal(
+        IoContext, Transport,
+        Prism::Fault::FromNative(std::make_error_code(std::errc::connection_reset)));
+}
+
+TEST(XhttpErrorMatrix, StreamTransportDrainsAcceptedDataBeforeCanceledRead)
+{
+    Net::io_context IoContext;
+    auto Transport = MakeTransport(IoContext.get_executor());
+    VerifyQueuedReadTerminal(
+        IoContext, Transport,
+        Prism::Fault::FromNative(std::make_error_code(std::errc::operation_canceled)));
+}
+
+TEST(XhttpErrorMatrix, StreamTransportDrainsAcceptedDataBeforeReadEof)
+{
+    Net::io_context IoContext;
+    VerifyHttp2DataTerminal(
+        IoContext, MakeTransport(IoContext.get_executor()),
+        Prism::Fault::Failure{Prism::Fault::Code::Eof});
+}
+
+TEST(XhttpErrorMatrix, SplitTransportDrainsAcceptedDataBeforeNativeReadFailure)
+{
+    Net::io_context IoContext;
+    const auto Transport = MakeSplitTransport(IoContext.get_executor(), {});
+    VerifyQueuedReadTerminal(
+        IoContext, Transport,
+        Prism::Fault::FromNative(std::make_error_code(std::errc::connection_reset)));
+}
+
+TEST(XhttpErrorMatrix, SplitTransportDrainsAcceptedDataBeforeCanceledRead)
+{
+    Net::io_context IoContext;
+    const auto Transport = MakeSplitTransport(IoContext.get_executor(), {});
+    VerifyQueuedReadTerminal(
+        IoContext, Transport,
+        Prism::Fault::FromNative(std::make_error_code(std::errc::operation_canceled)));
+}
+
+TEST(XhttpErrorMatrix, SplitTransportDrainsAcceptedDataBeforeReadEof)
+{
+    Net::io_context IoContext;
+    VerifyHttp2DataTerminal(
+        IoContext, MakeSplitTransport(IoContext.get_executor(), {}),
+        Prism::Fault::Failure{Prism::Fault::Code::Eof});
+}
+
+TEST(XhttpErrorMatrix, StreamTransportQueuesSessionDataBeforeSameReadReset)
+{
+    Net::io_context IoContext;
+    VerifyHttp2DataTerminal(
+        IoContext, MakeTransport(IoContext.get_executor()),
+        Prism::Fault::FromNative(std::make_error_code(std::errc::connection_reset)));
+}
+
+TEST(XhttpErrorMatrix, SplitTransportQueuesSessionDataBeforeSameReadReset)
+{
+    Net::io_context IoContext;
+    VerifyHttp2DataTerminal(
+        IoContext, MakeSplitTransport(IoContext.get_executor(), {}),
+        Prism::Fault::FromNative(std::make_error_code(std::errc::connection_reset)));
+}
 
     TEST(XhttpErrorMatrix, ConfigEnabledBoundary)
     {
@@ -22,7 +443,8 @@
         const auto ClosedResult = std::make_shared<ReadResult>(16);
         RunCoroutine(IoContext, ReadOnce(ClosedTransport, ClosedResult, 16));
         EXPECT_EQ(ClosedResult->Count, 0U);
-        EXPECT_EQ(ClosedResult->ErrorCode, std::make_error_code(std::errc::not_connected));
+        EXPECT_EQ(ClosedResult->ErrorCode,
+                  Prism::Fault::make_error_code(Prism::Fault::Code::Canceled));
         const auto ClosedRetirement = DrainTransport(IoContext, ClosedTransport);
         EXPECT_TRUE(ClosedRetirement.Failure.Succeeded());
         EXPECT_TRUE(ClosedRetirement.Retired);
@@ -233,7 +655,12 @@
     TEST(XhttpErrorMatrix, TransportChannelBackpressureCloses)
     {
         Net::io_context IoContext;
-        const auto Transport = MakeTransport(IoContext.get_executor());
+        const auto CloseState = std::make_shared<CloseCallbackState>();
+        const auto Transport = std::make_shared<Xhttp::Detail::XhttpTransport>(
+            Xhttp::Detail::XhttpTransport::Options{
+                .Executor = IoContext.get_executor(),
+                .Write = Xhttp::Detail::XhttpTransport::WriteCb(NoopWriter{}),
+                .CloseOwner = Xhttp::Detail::XhttpTransport::CloseCb(CloseProbe{CloseState})});
         const std::array<Byte, 1> Payload{Byte{0x01}};
         for (std::size_t Index = 0; Index < 65; ++Index)
         {
@@ -243,10 +670,74 @@
         const auto Result = std::make_shared<ReadResult>(1);
         RunCoroutine(IoContext, ReadOnce(Transport, Result, 1));
         EXPECT_EQ(Result->Count, 0U);
-        EXPECT_EQ(Result->ErrorCode, std::make_error_code(std::errc::not_connected));
+        EXPECT_EQ(Result->ErrorCode,
+                  Prism::Fault::make_error_code(Prism::Fault::Code::Canceled));
         const auto Retirement = DrainTransport(IoContext, Transport);
         EXPECT_TRUE(Retirement.Failure.Succeeded());
         EXPECT_TRUE(Retirement.Retired);
+        EXPECT_TRUE(CloseState->Called);
+        EXPECT_TRUE(Transport->CloseFailure().Succeeded());
+    }
+
+    TEST(XhttpErrorMatrix, StreamTransportOverflowReportsCloseRejectionBeforeQueuedData)
+    {
+        Net::io_context IoContext;
+        const auto CloseState = std::make_shared<CloseCallbackState>();
+        const auto Transport = std::make_shared<Xhttp::Detail::XhttpTransport>(
+            Xhttp::Detail::XhttpTransport::Options{
+                .Executor = IoContext.get_executor(),
+                .Write = Xhttp::Detail::XhttpTransport::WriteCb(NoopWriter{}),
+                .CloseOwner = Xhttp::Detail::XhttpTransport::CloseCb(
+                    CloseProbe{CloseState})});
+        const auto Read = std::make_shared<ReadCompletionState>();
+        StartRead(Transport, Read);
+        const auto Activity = Transport->Activity();
+        Activity->Seal();
+
+        FillTransportChannel(Transport);
+        IoContext.run();
+
+        ASSERT_TRUE(Read->Completed);
+        EXPECT_EQ(Read->Result.Bytes, 0U);
+        EXPECT_EQ(Prism::Fault::ToNative(Read->Result.Failure),
+                  Prism::Fault::make_error_code(Prism::Fault::Code::Canceled));
+        EXPECT_EQ(Transport->CloseFailure().Code, Prism::Fault::Code::Canceled);
+        EXPECT_FALSE(CloseState->Called);
+    }
+
+    TEST(XhttpErrorMatrix, SplitTransportPushClosesAfterChannelBackpressure)
+    {
+        Net::io_context IoContext;
+        const auto CloseState = std::make_shared<CloseCallbackState>();
+        const auto Transport = MakeSplitTransport(
+            IoContext.get_executor(), Xhttp::Detail::SplitTransport::CloseCb(CloseProbe{CloseState}));
+
+        FillTransportChannel(Transport);
+        IoContext.run();
+
+        EXPECT_TRUE(CloseState->Called);
+        EXPECT_TRUE(Transport->Activity()->IsRetired());
+    }
+
+    TEST(XhttpErrorMatrix, SplitTransportOverflowReportsCloseRejectionBeforeQueuedData)
+    {
+        Net::io_context IoContext;
+        const auto CloseState = std::make_shared<CloseCallbackState>();
+        const auto Transport = MakeSplitTransport(
+            IoContext.get_executor(),
+            Xhttp::Detail::SplitTransport::CloseCb(CloseProbe{CloseState}));
+        const auto Read = std::make_shared<ReadCompletionState>();
+        StartRead(Transport, Read);
+        Transport->Activity()->Seal();
+
+        FillTransportChannel(Transport);
+        IoContext.run();
+
+        ASSERT_TRUE(Read->Completed);
+        EXPECT_EQ(Read->Result.Bytes, 0U);
+        EXPECT_EQ(Prism::Fault::ToNative(Read->Result.Failure),
+                  Prism::Fault::make_error_code(Prism::Fault::Code::Canceled));
+        EXPECT_FALSE(CloseState->Called);
     }
 
     TEST(XhttpErrorMatrix, WireWriterRejectsShortWrite)
@@ -260,12 +751,13 @@
 
         RunCoroutine(IoContext, WireFailureTask(Writer, Result));
         EXPECT_TRUE(Result->FirstFailed);
-        EXPECT_EQ(Result->FirstError.value(), std::make_error_code(std::errc::io_error).value());
+        EXPECT_EQ(Result->FirstError,
+                  Prism::Fault::make_error_code(Prism::Fault::Code::IoError));
         EXPECT_TRUE(Result->SecondFailed);
         EXPECT_EQ(Result->SecondError.value(), std::make_error_code(std::errc::not_connected).value());
         const auto WriterRetirement = RetireWireWriter(IoContext, Writer);
         const auto RawRetirement = RetireRawTransport(IoContext, Raw);
-        EXPECT_TRUE(WriterRetirement.Failure.Succeeded());
+        EXPECT_EQ(WriterRetirement.Failure.Code, Prism::Fault::Code::IoError);
         EXPECT_TRUE(WriterRetirement.Retired);
         EXPECT_TRUE(RawRetirement.Failure.Succeeded());
         EXPECT_TRUE(RawRetirement.Retired);
@@ -281,12 +773,13 @@
 
         RunCoroutine(IoContext, WireFailureTask(Writer, Result));
         EXPECT_TRUE(Result->FirstFailed);
-        EXPECT_EQ(Result->FirstError.value(), std::make_error_code(std::errc::io_error).value());
+        EXPECT_EQ(Result->FirstError,
+                  Prism::Fault::make_error_code(Prism::Fault::Code::IoError));
         EXPECT_TRUE(Result->SecondFailed);
         EXPECT_EQ(Result->SecondError.value(), std::make_error_code(std::errc::not_connected).value());
         const auto WriterRetirement = RetireWireWriter(IoContext, Writer);
         const auto RawRetirement = RetireRawTransport(IoContext, Raw);
-        EXPECT_TRUE(WriterRetirement.Failure.Succeeded());
+        EXPECT_EQ(WriterRetirement.Failure.Code, Prism::Fault::Code::IoError);
         EXPECT_TRUE(WriterRetirement.Retired);
         EXPECT_TRUE(RawRetirement.Failure.Succeeded());
         EXPECT_TRUE(RawRetirement.Retired);

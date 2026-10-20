@@ -27,7 +27,9 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
+#include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
 #include <Prism/Protocols/Socks5/Socks5.hpp>
@@ -53,6 +55,42 @@ namespace
         std::string Host;
         std::uint16_t Port{0};
     };
+
+    [[nodiscard]] auto CloseAndDrain(
+        std::shared_ptr<Prism::Transmission> Carrier) -> Net::awaitable<bool>
+    {
+        if (!Carrier)
+        {
+            co_return false;
+        }
+        std::vector<std::shared_ptr<Prism::Contract::CarrierActivity>> Activities;
+        bool HasAllActivities = true;
+        for (auto *Layer = Carrier.get(); Layer != nullptr; Layer = Layer->NextLayer())
+        {
+            auto Activity = Layer->Activity();
+            if (!Activity)
+            {
+                HasAllActivities = false;
+                continue;
+            }
+            Activities.push_back(std::move(Activity));
+        }
+        const auto CloseResult = Carrier->Close();
+        bool AllDrained = HasAllActivities;
+        for (const auto &Activity : Activities)
+        {
+            try
+            {
+                const auto DrainResult = co_await Activity->Drain();
+                AllDrained = DrainResult.has_value() && AllDrained;
+            }
+            catch (...)
+            {
+                AllDrained = false;
+            }
+        }
+        co_return CloseResult.has_value() && AllDrained;
+    }
 
     [[nodiscard]] auto ParsePort(std::string_view Value) -> std::optional<std::uint16_t>
     {
@@ -171,14 +209,23 @@ namespace
         }
         const Prism::Socks5::ClientConfig Config{!OptionsValue.Username.empty(),
             OptionsValue.Username, OptionsValue.Password};
-        auto [HandshakeError, Conn] = co_await Prism::Socks5::Connect(
+        auto ConnectResult = co_await Prism::Socks5::Connect(
             Prism::Socks5::ConnectParameters{std::move(*DialResult), Config, *Target});
-        if (HandshakeError != Prism::Error::None || !Conn)
+        if (!ConnectResult || !*ConnectResult)
         {
-            std::fprintf(stderr, "FAIL: SOCKS5 client handshake (%u)\n",
-                         static_cast<unsigned>(HandshakeError));
+            if (!ConnectResult)
+            {
+                const auto Native = Prism::Fault::ToNative(ConnectResult.error());
+                std::fprintf(stderr, "FAIL: SOCKS5 client handshake code=%u error=%s\n",
+                    static_cast<unsigned>(ConnectResult.error().Code), Native.message().c_str());
+            }
+            else
+            {
+                std::fprintf(stderr, "FAIL: SOCKS5 client handshake returned an empty connection\n");
+            }
             co_return 1;
         }
+        auto Conn = std::move(*ConnectResult);
         constexpr std::string_view Payload{"prism-socks5-external-interop-payload"};
         const auto PayloadBytes = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(Payload.data()), Payload.size());
@@ -210,36 +257,49 @@ namespace
     {
         auto Raw = std::make_shared<Prism::Transport::Reliable>(std::move(Socket));
         const Prism::Socks5::ServerConfig Config{};
-        auto [HandshakeError, Request, Conn] = co_await Prism::Socks5::Accept(Raw, Config);
-        if (HandshakeError != Prism::Error::None || !Conn || Request.Cmd != Prism::Socks5::Command::Connect)
+        auto AcceptResult = co_await Prism::Socks5::Accept(Raw, Config);
+        if (!AcceptResult || !AcceptResult->Connection ||
+            AcceptResult->RequestValue.Cmd != Prism::Socks5::Command::Connect)
         {
-            const auto Close = Raw->Close();
-            const auto Drain = co_await Raw->Activity()->Drain();
-            if (!Close || !Drain) std::fprintf(stderr, "FAIL: SOCKS5 reject close drain\n");
+            const auto Closed = co_await CloseAndDrain(Raw);
+            if (!Closed) std::fprintf(stderr, "FAIL: SOCKS5 reject close drain\n");
             co_return false;
         }
+        auto Conn = std::move(AcceptResult->Connection);
         std::array<std::byte, 4096> Buffer{};
+        bool EchoedBytes = false;
         while (true)
         {
-            const auto Read = co_await Conn->ReadSome(Buffer);
-            if (Read.Failure.Failed() || Read.Bytes == 0)
+            const auto ReadResult = co_await Conn->ReadSome(Buffer);
+            if (ReadResult.Bytes > Buffer.size())
             {
-                break;
+                (void)co_await CloseAndDrain(Conn);
+                co_return false;
             }
-            const auto Write = co_await Conn->WriteExact(
-                std::span<const std::byte>(Buffer.data(), Read.Bytes));
-            if (Write.Failure.Failed() || Write.Bytes != Read.Bytes)
+            if (ReadResult.Bytes != 0)
             {
-                const auto Close = Conn->Close();
-                const auto Drain = co_await Conn->Activity()->Drain();
-                if (!Close || !Drain) std::fprintf(stderr, "FAIL: SOCKS5 relay close drain\n");
-                co_return true;
+                const auto WriteResult = co_await Conn->WriteExact(
+                    std::span<const std::byte>(Buffer.data(), ReadResult.Bytes));
+                if (WriteResult.Bytes != ReadResult.Bytes || WriteResult.Failure.Failed())
+                {
+                    (void)co_await CloseAndDrain(Conn);
+                    co_return false;
+                }
+                EchoedBytes = true;
+            }
+            if (ReadResult.Failure.Failed())
+            {
+                const bool PeerClosed = ReadResult.Failure.Code == Prism::Fault::Code::Eof;
+                const auto Closed = co_await CloseAndDrain(Conn);
+                if (!Closed) std::fprintf(stderr, "FAIL: SOCKS5 relay close drain\n");
+                co_return PeerClosed && EchoedBytes && Closed;
+            }
+            if (ReadResult.Bytes == 0)
+            {
+                (void)co_await CloseAndDrain(Conn);
+                co_return false;
             }
         }
-        const auto Close = Conn->Close();
-        const auto Drain = co_await Conn->Activity()->Drain();
-        if (!Close || !Drain) std::fprintf(stderr, "FAIL: SOCKS5 relay close drain\n");
-        co_return true;
     }
 
     [[nodiscard]] auto RunServer(Options OptionsValue) -> Net::awaitable<int>

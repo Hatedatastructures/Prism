@@ -8,6 +8,7 @@
  * @note 使用 MakeMemoryPair 建立内存传输对，同一进程内双向互操作。
  */
 
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
@@ -15,14 +16,21 @@
 
 #include <array>
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <string>
-#include <tuple>
+#include <utility>
 #include <vector>
 
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Foundation/Fault/Handling.hpp>
-#include <Prism/Protocols/Shadowtls/Detail/Session.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/ClientHello.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/Conn.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/Retirement.hpp>
 #include <Prism/Protocols/Shadowtls/Shadowtls.hpp>
 #include <gtest/gtest.h>
 

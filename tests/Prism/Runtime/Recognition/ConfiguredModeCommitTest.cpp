@@ -5,6 +5,8 @@
 
 #include "ConfiguredModeTestSupport.hpp"
 
+#include <Prism/Runtime/Recognition/Detail/RecognitionConfig.hpp>
+
 namespace
 {
 
@@ -52,7 +54,7 @@ TEST(ConfiguredModeTest, InFlightReadCancellationClosesAndReturnsCancelled)
         Transport->SetPending();
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7), 1});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -91,7 +93,7 @@ TEST(ConfiguredModeTest, InFlightReadTimeoutClosesAndReturnsTimedOut)
         Transport->SetPending();
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7), 1});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -129,7 +131,7 @@ TEST(ConfiguredModeTest, DeadlineOnlyRaceClosesPendingRead)
         Transport->SetPending();
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7), 1});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognitionControl Control;
         Control.Deadline = rec::RecognitionControl::Clock::now() + std::chrono::milliseconds(1);
@@ -163,7 +165,7 @@ TEST(ConfiguredModeTest, ProfileDeadlineWinsOverLongWaitForPendingRead)
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile(
             {CallsState, AcceptedPrepare(7), AcceptedCommit(7), 1, std::chrono::milliseconds(1)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         rec::RecognitionControl Control;
         Control.Wait = [WaitCalls]
@@ -226,7 +228,7 @@ TEST(ConfiguredModeTest, ControlledPrepareWaitsForLateCompletionBeforeReturning)
         const auto Compiled = rec::Profile::Compile(std::move(Spec));
         ASSERT_TRUE(Compiled.has_value());
 
-        rec::ProbeBuffer Buffer(32);
+        rec::ProbeBuffer Buffer(32, MakeConfiguredProbeBytePool());
         const auto Prefix = Bytes({0xA1});
         ASSERT_TRUE(Buffer.Seed(Prefix));
         rec::ConfiguredMode Mode(Compiled.value());
@@ -301,7 +303,7 @@ TEST(ConfiguredModeTest, ThrowingControlCancellationJoinsSlowPrepareBeforeRethro
         const auto Compiled = rec::Profile::Compile(std::move(Spec));
         ASSERT_TRUE(Compiled.has_value());
 
-        rec::ProbeBuffer Buffer(32);
+        rec::ProbeBuffer Buffer(32, MakeConfiguredProbeBytePool());
         const auto Prefix = Bytes({0xA1});
         ASSERT_TRUE(Buffer.Seed(Prefix));
         rec::ConfiguredMode Mode(Compiled.value());
@@ -358,17 +360,36 @@ TEST(ConfiguredModeTest, ThrowingControlCancellationJoinsSlowPrepareBeforeRethro
 
 TEST(ConfiguredModeTest, CleanupAttemptsCloseAfterCancelFailureAndCleansSibling)
     {
-        Net::io_context ReturnedIo;
-        Net::io_context InboundIo;
-        auto Returned = std::make_shared<ScriptedTransport>(ReturnedIo.get_executor());
-        auto Inbound = std::make_shared<ScriptedTransport>(InboundIo.get_executor());
-        Returned->ThrowOnCancel();
-        Returned->ThrowOnClose();
+        Net::io_context Io;
+        auto Returned = std::make_shared<ScriptedTransport>(Io.get_executor());
+        auto Inbound = std::make_shared<ScriptedTransport>(Io.get_executor());
+        Returned->FailOnCancel();
+        Returned->FailOnClose();
 
-        const auto Failure = rec::detail::CleanupTransports({Returned, Inbound});
+        std::exception_ptr Failure;
+        std::exception_ptr Exception;
+        Net::co_spawn(Io,
+            [&]() -> Net::awaitable<void>
+            {
+                Failure = co_await rec::detail::CleanupTransports({Returned, Inbound});
+            },
+            [&Io, &Exception](std::exception_ptr Error)
+            {
+                Exception = std::move(Error);
+                Io.stop();
+            });
+        Io.run();
 
+        ASSERT_EQ(Exception, nullptr);
         ASSERT_NE(Failure, nullptr);
-        EXPECT_THROW(std::rethrow_exception(Failure), std::runtime_error);
+        try
+        {
+            std::rethrow_exception(Failure);
+        }
+        catch (const std::system_error& Error)
+        {
+            EXPECT_EQ(Prism::Fault::ToCode(Error.code()), Prism::Fault::Code::Blocked);
+        }
         EXPECT_EQ(Returned->Cancels(), 1U);
         EXPECT_EQ(Returned->Closes(), 1U);
         EXPECT_EQ(Inbound->Cancels(), 1U);
@@ -382,7 +403,7 @@ TEST(ConfiguredModeTest, WaitWithoutCancellationHookReturnsExplicitUnsupported)
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -413,7 +434,7 @@ TEST(ConfiguredModeTest, WaitCancellationSafetyFlagIsRequired)
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;

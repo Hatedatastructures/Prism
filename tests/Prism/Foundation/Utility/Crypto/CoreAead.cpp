@@ -13,14 +13,22 @@
  *       以覆盖 Nonce 耗尽与溢出分支（正常路径需 2^96 次操作）。
  */
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <span>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include <openssl/aead.h>
 
 #include <gtest/gtest.h>
+#include <Prism/Foundation/Fault/Code.hpp>
 
 // 访问私有成员 Nonce_/nonce_len_/IncrementNonce()/IsNonceExhausted()
 #define private public

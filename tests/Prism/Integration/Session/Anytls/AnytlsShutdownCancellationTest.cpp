@@ -9,7 +9,7 @@
 #include <Prism/Protocols/Anytls/IngressFactory.hpp>
 #include <Prism/Runtime/ActiveTransports.hpp>
 #include <Prism/Runtime/CarrierDomain.hpp>
-#include <Prism/Transport/Detail/ForwardActivity.hpp>
+#include <Prism/Transport/ActivityGroupFactory.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 
 #include <array>
@@ -47,8 +47,7 @@ namespace
     public:
         explicit ReadProbeTransmission(Prism::SharedTransmission Next)
             : Prism::Transmission(Next->Executor()), Next_(std::move(Next)),
-              Activity_(std::make_shared<Prism::Transport::Detail::ForwardActivity>(
-                  Prism::Transmission::Activity(), Next_->Activity())),
+              Activity_(Prism::Transmission::Activity(), Next_->Activity()),
               ReadChanged_(Executor(), 1U)
         {
         }
@@ -63,7 +62,7 @@ namespace
         [[nodiscard]] auto Activity() const noexcept
             -> std::shared_ptr<Prism::Contract::CarrierActivity> override
         {
-            return Activity_;
+            return Activity_.Activity();
         }
 
         [[nodiscard]] auto ChildActivity() const -> std::shared_ptr<Prism::Contract::CarrierActivity>
@@ -120,7 +119,7 @@ namespace
             if (Closed)
             {
                 ChildCloseForwarded_.store(true, std::memory_order_release);
-                Activity_->RequireChildDrain();
+                Activity_.RequireChildDrain();
             }
             return Closed;
         }
@@ -133,7 +132,7 @@ namespace
         };
 
         Prism::SharedTransmission Next_;
-        std::shared_ptr<Prism::Transport::Detail::ForwardActivity> Activity_;
+        Prism::Transport::ForwardActivityOwner Activity_;
         Net::experimental::channel<void(boost::system::error_code)> ReadChanged_;
         std::atomic<std::size_t> PendingReads_{0U};
         std::atomic<bool> ChildCloseForwarded_{false};
@@ -233,10 +232,9 @@ namespace
         return Input;
     }
 
-    /** @brief 完成认证、SETTINGS 后在确定的下一次 frame 读上触发本地或外部取消。 */
-    [[nodiscard]] auto RunShutdownScenario(
-        const std::shared_ptr<ShutdownFixture> &State,
-        const bool StopOwner) -> Net::awaitable<void>
+    /** @brief 完成认证并启动 AnyTLS 根会话，等待服务端下一次 frame 读。 */
+    [[nodiscard]] auto PrepareShutdownScenario(
+        const std::shared_ptr<ShutdownFixture> &State) -> Net::awaitable<void>
     {
         State->Result.SetupStage = "MemoryPair";
         auto [ClientRaw, ServerRaw] = Prism::MakeMemoryPair(
@@ -321,9 +319,16 @@ namespace
             if (!Finalized) State->Result.ActiveTransportsFailure = Finalized.error();
             co_return;
         }
-
         co_await State->Server->WaitForPendingRead();
         State->Result.NextFrameReadPending = true;
+        co_return;
+    }
+
+    /** @brief 在下一次 frame 读挂起时触发 owner stop 或连接取消并排空资源。 */
+    [[nodiscard]] auto FinishShutdownScenario(
+        const std::shared_ptr<ShutdownFixture> &State,
+        const bool StopOwner) -> Net::awaitable<void>
+    {
         if (StopOwner)
         {
             const auto Finalized = co_await State->ActiveTransports.Finalize();
@@ -362,6 +367,16 @@ namespace
         State->Result.RootActivityDrained = static_cast<bool>(ActivityDrain);
         if (!ActivityDrain) State->Result.RootActivityFailure = ActivityDrain.error();
 
+    }
+
+    /** @brief 依次完成 AnyTLS 场景准备与选定的关闭路径。 */
+    [[nodiscard]] auto RunShutdownScenario(
+        const std::shared_ptr<ShutdownFixture> &State,
+        const bool StopOwner) -> Net::awaitable<void>
+    {
+        co_await PrepareShutdownScenario(State);
+        if (!State->Result.NextFrameReadPending) co_return;
+        co_await FinishShutdownScenario(State, StopOwner);
     }
 
     /** @brief 运行一次真实 AnyTLS owner 场景并收集根、Activity 与 ActiveTransports 回执。 */

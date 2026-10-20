@@ -1,8 +1,9 @@
 /** @file H2MuxEngineRetirementTest.cpp @brief 验证 H2 close 取消仅在完整物理退休后归一化。 */
 #include <Prism/Protocols/Http2/Session.hpp>
 #include <Prism/Protocols/Mux/H2Mux/Http2Dispatch.hpp>
-#include <Prism/Transport/Detail/ActivityGroup.hpp>
+#include <Prism/Transport/ActivityGroupFactory.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <gtest/gtest.h>
@@ -59,9 +60,8 @@ namespace
         ScriptedDrainTransmission(Net::any_io_executor ExecutorValue,
             const Prism::Fault::Failure DrainFailure)
             : Prism::Transmission(ExecutorValue),
-              Activity_(
-                  std::make_shared<Prism::Transport::Detail::ActivityGroup>(Prism::Transmission::Activity(),
-                      MakeScriptedActivities(std::move(ExecutorValue), DrainFailure)))
+              Activity_(Prism::Transport::MakeActivityGroup(Prism::Transmission::Activity(),
+                  MakeScriptedActivities(std::move(ExecutorValue), DrainFailure)))
         {
         }
 
@@ -78,17 +78,17 @@ namespace
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler),
+            Prism::Transmission::PostResult(Executor(), std::move(Handler),
                 {0U, {Prism::Fault::Code::Canceled}});
         }
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler),
+            Prism::Transmission::PostResult(Executor(), std::move(Handler),
                 {0U, {Prism::Fault::Code::Canceled}});
         }
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler),
+            Prism::Transmission::PostResult(Executor(), std::move(Handler),
                 {0U, {Prism::Fault::Code::Canceled}});
         }
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -131,19 +131,19 @@ namespace
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler),
+            Prism::Transmission::PostResult(Executor(), std::move(Handler),
                 {0U, {Prism::Fault::Code::Canceled}});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler),
+            Prism::Transmission::PostResult(Executor(), std::move(Handler),
                 {0U, {Prism::Fault::Code::Canceled}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler),
+            Prism::Transmission::PostResult(Executor(), std::move(Handler),
                 {0U, {Prism::Fault::Code::Canceled}});
         }
 
@@ -338,8 +338,7 @@ namespace
     {
         co_await Net::dispatch(State->Strand, Net::use_awaitable);
         State->Close();
-        State->RunCompleted.store(true, std::memory_order_release);
-        (void)State->RunCompletionNotify.try_send(boost::system::error_code{});
+        State->NotifyRunCompleted();
         const auto Result = co_await State->Drain();
         (void)Peer->Close();
         co_return Result;

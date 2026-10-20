@@ -279,6 +279,53 @@ namespace
             Input.EnableTcp, Input.EnableUdp, Input.EnableMux);
     }
 
+    struct VlessMuxAdmissionCompletion final
+    {
+        std::shared_ptr<std::optional<Prism::Contract::AcceptOutcome>> Outcome;
+        std::shared_ptr<CompletionChannel> Done;
+    };
+
+    auto CompleteVlessMuxAdmission(
+        const VlessMuxAdmissionCompletion &Completion,
+        std::exception_ptr Exception,
+        Prism::Contract::AcceptOutcome Outcome) -> void
+    {
+        if (Exception)
+        {
+            *Completion.Outcome = std::unexpected(
+                Prism::Contract::InboundAdmission::ExceptionFailure(Exception));
+        }
+        else
+        {
+            *Completion.Outcome = std::move(Outcome);
+        }
+        (void)Completion.Done->try_send(boost::system::error_code{}, true);
+    }
+
+    struct VlessMuxRootCompletion final
+    {
+        std::shared_ptr<
+            std::optional<std::expected<void, Prism::Fault::Failure>>> Outcome;
+        std::shared_ptr<CompletionChannel> Done;
+    };
+
+    auto CompleteVlessMuxRoot(
+        const VlessMuxRootCompletion &Completion,
+        std::exception_ptr Exception,
+        std::expected<void, Prism::Fault::Failure> Outcome) -> void
+    {
+        if (Exception)
+        {
+            *Completion.Outcome = std::unexpected(
+                Prism::Contract::InboundAdmission::ExceptionFailure(Exception));
+        }
+        else
+        {
+            *Completion.Outcome = std::move(Outcome);
+        }
+        (void)Completion.Done->try_send(boost::system::error_code{}, true);
+    }
+
     auto RunMuxAcceptedByHandler(Net::io_context &IoContext) -> Net::awaitable<void>
     {
         auto [ClientMemory, ServerMemory] = MakeSharedMemoryPair(IoContext.get_executor());
@@ -296,20 +343,11 @@ namespace
             std::make_shared<CompletionChannel>(IoContext.get_executor(), 1U);
         Net::co_spawn(
             IoContext.get_executor(), AcceptVlessMux(Handler, ServerStream),
-            [ServerOutcome, ServerDone](
+            [Completion = VlessMuxAdmissionCompletion{ServerOutcome, ServerDone}](
                 std::exception_ptr Exception,
                 Prism::Contract::AcceptOutcome Outcome)
             {
-                if (Exception)
-                {
-                    *ServerOutcome = std::unexpected(
-                        Prism::Contract::InboundAdmission::ExceptionFailure(Exception));
-                }
-                else
-                {
-                    *ServerOutcome = std::move(Outcome);
-                }
-                (void)ServerDone->try_send(boost::system::error_code{}, true);
+                CompleteVlessMuxAdmission(Completion, Exception, std::move(Outcome));
             });
         Vless::ClientConfig Config;
         Config.uuid = Uuid;
@@ -375,20 +413,11 @@ namespace
             std::make_shared<CompletionChannel>(IoContext.get_executor(), 1U);
         Net::co_spawn(
             IoContext.get_executor(), Mux->Session->Run(std::move(RootRequest)),
-            [RootResult, RootDone](
+            [Completion = VlessMuxRootCompletion{RootResult, RootDone}](
                 std::exception_ptr Exception,
                 std::expected<void, Prism::Fault::Failure> Outcome)
             {
-                if (Exception)
-                {
-                    *RootResult = std::unexpected(
-                        Prism::Contract::InboundAdmission::ExceptionFailure(Exception));
-                }
-                else
-                {
-                    *RootResult = std::move(Outcome);
-                }
-                (void)RootDone->try_send(boost::system::error_code{}, true);
+                CompleteVlessMuxRoot(Completion, Exception, std::move(Outcome));
             });
         if (ClientConnection)
         {

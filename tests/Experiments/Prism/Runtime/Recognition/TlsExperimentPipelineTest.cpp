@@ -5,6 +5,20 @@
 
 #include "TlsRecognitionExperimentTestSupport.hpp"
 
+#include <memory>
+
+#include <Prism/Foundation/Memory/BytePool.hpp>
+
+namespace
+{
+    /** @brief 创建 TLS 实验流水线所需的有界预读池。 */
+    auto MakeExperimentProbeBytePool() -> std::shared_ptr<Prism::Memory::BytePool>
+    {
+        return std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U * 1024U, 64U});
+    }
+}
+
 TEST(TlsReassemblyTest, PipelineReassemblesCrossRecordHelloAndReplaysResidualOnce)
     {
         Net::io_context Io;
@@ -174,7 +188,7 @@ TEST(TlsReassemblyTest, PipelineUsesCallerOwnedProbeBuffer)
             co_return Inbound;
         });
         Prism::Recognition::Experiment::ProbeRecognition Pipeline(&Routes, &Executor);
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeExperimentProbeBytePool());
         rec::RecognizeResult Result;
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
@@ -195,7 +209,7 @@ TEST(TlsReassemblyTest, PipelineContinuesFromExistingProbeBufferWithoutDuplicate
         const auto Record = MakeRecord(0x16, Handshake);
         const auto PrefixBytes = AsBytes(Record);
         const auto PrefixLength = std::size_t{24};
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeExperimentProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(std::span<const std::byte>(PrefixBytes.data(), PrefixLength)));
         Transport->Push(std::vector<std::byte>(PrefixBytes.begin() + PrefixLength, PrefixBytes.end()));
 
@@ -229,7 +243,7 @@ TEST(TlsReassemblyTest, PipelineContinuesFromPartialTlsProbeBuffer)
         const auto Handshake = MakeClientHello("partial-buffer.example", {"h2"}, false);
         const auto Record = MakeRecord(0x16, Handshake);
         const auto Wire = AsBytes(Record);
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeExperimentProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(std::span<const std::byte>(Wire.data(), 1)));
         Transport->Push(std::vector<std::byte>(Wire.begin() + 1, Wire.end()));
 
@@ -260,7 +274,7 @@ TEST(TlsReassemblyTest, PipelineContinuesFromPartialHttpProbeBuffer)
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         const auto Wire = AsBytes(std::vector<std::uint8_t>{'G', 'E', 'T', ' '});
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeExperimentProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(std::span<const std::byte>(Wire.data(), 2)));
         Transport->Push(std::vector<std::byte>(Wire.begin() + 2, Wire.end()));
         Prism::Recognition::Experiment::ProbeRecognition Pipeline;
@@ -282,7 +296,7 @@ TEST(TlsReassemblyTest, PipelineDoesNotTreatTrojanMagicAsProtocol)
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         const auto Wire = AsBytes(std::vector<std::uint8_t>{0x0D, 0x0A, 0x0D, 0x0A});
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeExperimentProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(std::span<const std::byte>(Wire.data(), 1)));
         Transport->Push(std::vector<std::byte>(Wire.begin() + 1, Wire.end()));
         Prism::Recognition::Experiment::ProbeRecognition Pipeline;
@@ -309,7 +323,7 @@ TEST(TlsReassemblyTest, PipelineRejectsProtocolDetectedAfterNonEofProbeError)
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         const auto Wire = AsBytes(std::vector<std::uint8_t>{'G', 'E', 'T', ' '});
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeExperimentProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(std::span<const std::byte>(Wire.data(), 2)));
         Transport->Push(std::vector<std::byte>(Wire.begin() + 2, Wire.end()),
                         std::make_error_code(std::errc::connection_reset));
@@ -340,7 +354,7 @@ TEST(TlsReassemblyTest, PipelineReplaysIncompleteVlessPrefixAfterEof)
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         const auto Wire = AsBytes(std::vector<std::uint8_t>{0x00});
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeExperimentProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(std::span<const std::byte>(Wire.data(), Wire.size())));
         Transport->Push({}, Prism::Fault::make_error_code(Prism::Fault::Code::Eof));
         Prism::Recognition::Experiment::ProbeRecognition Pipeline;

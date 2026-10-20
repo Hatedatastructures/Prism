@@ -36,7 +36,7 @@
 #include <Prism/Composition/Recognition/ShadowtlsCarrier.hpp>
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 #include <Prism/Composition/Recognition/CandidateRegistry.hpp>
-#include <Prism/Protocols/Shadowtls/Server.hpp>
+#include <Prism/Protocols/Shadowtls/Shadowtls.hpp>
 #include <Prism/Protocols/Anytls/Anytls.hpp>
 #include <Prism/Protocols/Gun/Gun.hpp>
 #include <Prism/Protocols/Xhttp/Xhttp.hpp>

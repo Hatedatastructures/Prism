@@ -9,7 +9,9 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -18,7 +20,9 @@
 #include <vector>
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
 #include <Prism/Foundation/Error.hpp>
+#include <Prism/Protocols/Common/ExactIo.hpp>
 #include <Prism/Protocols/Common/Read.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
 namespace
@@ -61,6 +65,11 @@ class PartialErrorTransport final : public Prism::Transmission
             return !Closed_;
         }
 
+        [[nodiscard]] auto ReadCalls() const noexcept -> std::size_t
+        {
+            return ReadCalls_;
+        }
+
         auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
             Net::async_initiate<Completion, void(Prism::IoResult)>(
@@ -81,7 +90,7 @@ class PartialErrorTransport final : public Prism::Transmission
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Ex_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Ex_, std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -112,7 +121,7 @@ class PartialErrorTransport final : public Prism::Transmission
             template<class State>
             auto operator()(State Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 auto [Exception, Count] = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->ReadPartial(Input.Buffer, Error),
@@ -130,7 +139,7 @@ class PartialErrorTransport final : public Prism::Transmission
             template<class State>
             auto operator()(State Operation, WriteInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 std::error_code Error;
                 auto [Exception, Count] = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer, Error),
@@ -146,6 +155,7 @@ class PartialErrorTransport final : public Prism::Transmission
         [[nodiscard]] auto ReadPartial(std::span<std::byte> Buffer, std::error_code &Error)
             -> Net::awaitable<std::size_t>
         {
+            ++ReadCalls_;
             if (WriteMode_)
             {
                 Error = std::make_error_code(std::errc::connection_reset);
@@ -173,11 +183,208 @@ class PartialErrorTransport final : public Prism::Transmission
         }
         Net::any_io_executor Ex_;
         std::array<std::byte, 2> Data_{std::byte{0xA1}, std::byte{0xA2}};
+        std::size_t ReadCalls_{0};
         bool WriteMode_{false};
         bool Consumed_{false};
         bool Closed_{false};
     };
+
+    /** @brief 先交付有效前缀，再返回带 reset cause 的非法 overreport。 */
+    class ExactIoOverreportTransport final : public Prism::Transmission
+    {
+    public:
+        enum class Mode : std::uint8_t
+        {
+            AfterValidPrefix,
+            FirstRead,
+            FirstWrite
+        };
+
+        explicit ExactIoOverreportTransport(
+            Net::any_io_executor Executor,
+            Mode OverreportMode = Mode::AfterValidPrefix)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor)),
+              OverreportMode_(OverreportMode)
+        {
+        }
+
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
+        {
+            return Executor_;
+        }
+
+        [[nodiscard]] auto IsOpen() const -> bool override
+        {
+            return !Closed_;
+        }
+
+        [[nodiscard]] auto Written() const noexcept -> std::span<const std::uint8_t>
+        {
+            return Written_;
+        }
+
+        [[nodiscard]] auto ReadCalls() const noexcept -> std::size_t
+        {
+            return ReadCalls_;
+        }
+
+        [[nodiscard]] auto WriteCalls() const noexcept -> std::size_t
+        {
+            return WriteCalls_;
+        }
+
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
+        {
+            ++ReadCalls_;
+            if (ReadCalls_ == 1U && OverreportMode_ == Mode::FirstRead)
+            {
+                Prism::Transmission::PostResult(
+                    Executor_, std::move(Handler), {Buffer.size() + 1U, ResetFailure()});
+                return;
+            }
+            const auto Count = (std::min)(Buffer.size(), std::size_t{2});
+            if (ReadCalls_ == 1U)
+            {
+                std::fill_n(Buffer.begin(), Count, std::byte{0xA1});
+                Prism::Transmission::PostResult(Executor_, std::move(Handler), {Count, {}});
+                return;
+            }
+            Prism::Transmission::PostResult(
+                Executor_, std::move(Handler), {Buffer.size() + 1U, ResetFailure()});
+        }
+
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        {
+            ++WriteCalls_;
+            if (WriteCalls_ == 1U && OverreportMode_ == Mode::FirstWrite)
+            {
+                Prism::Transmission::PostResult(
+                    Executor_, std::move(Handler), {Buffer.size() + 1U, ResetFailure()});
+                return;
+            }
+            const auto Count = (std::min)(Buffer.size(), std::size_t{2});
+            if (WriteCalls_ == 1U)
+            {
+                const auto *First = reinterpret_cast<const std::uint8_t *>(Buffer.data());
+                Written_.insert(Written_.end(), First, First + Count);
+                Prism::Transmission::PostResult(Executor_, std::move(Handler), {Count, {}});
+                return;
+            }
+            Prism::Transmission::PostResult(
+                Executor_, std::move(Handler), {Buffer.size() + 1U, ResetFailure()});
+        }
+
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
+        }
+
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            Closed_ = true;
+            return {};
+        }
+
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            return {};
+        }
+
+    private:
+        [[nodiscard]] static auto ResetFailure() -> Fault::Failure
+        {
+            return Fault::FromNative(std::make_error_code(std::errc::connection_reset));
+        }
+
+        Net::any_io_executor Executor_;
+        Mode OverreportMode_;
+        std::vector<std::uint8_t> Written_;
+        std::size_t ReadCalls_{0};
+        std::size_t WriteCalls_{0};
+        bool Closed_{false};
+    };
 } // namespace
+
+TEST(CommonRead, ExactIoRejectsOverreportedReadWithoutCountingInvalidBytes)
+{
+    Net::io_context Io;
+    auto Raw = std::make_shared<ExactIoOverreportTransport>(Io.get_executor());
+    std::array<std::uint8_t, 4> Buffer{};
+    Prism::IoResult Result;
+
+    RunCoro(Io, [&]() -> Net::awaitable<void>
+    {
+        Result = co_await Prism::Protocol::Common::ReadExactIo(Raw, Buffer);
+    });
+
+    EXPECT_EQ(Result.Bytes, 2U);
+    EXPECT_EQ(Result.Failure.Code, Fault::Code::IoError);
+    EXPECT_EQ(Result.Failure.Native, std::make_error_code(std::errc::connection_reset));
+    EXPECT_EQ(Buffer[0], 0xA1U);
+    EXPECT_EQ(Buffer[1], 0xA1U);
+    EXPECT_EQ(Raw->ReadCalls(), 2U);
+}
+
+TEST(CommonRead, WriteAllIoRejectsOverreportedWriteWithoutCountingInvalidBytes)
+{
+    Net::io_context Io;
+    auto Raw = std::make_shared<ExactIoOverreportTransport>(Io.get_executor());
+    const std::array<std::uint8_t, 4> Buffer{0xB1, 0xB2, 0xB3, 0xB4};
+    Prism::IoResult Result;
+
+    RunCoro(Io, [&]() -> Net::awaitable<void>
+    {
+        Result = co_await Prism::Protocol::Common::WriteAllIo(Raw, Buffer);
+    });
+
+    EXPECT_EQ(Result.Bytes, 2U);
+    EXPECT_EQ(Result.Failure.Code, Fault::Code::IoError);
+    EXPECT_EQ(Result.Failure.Native, std::make_error_code(std::errc::connection_reset));
+    EXPECT_EQ(Raw->WriteCalls(), 2U);
+    ASSERT_EQ(Raw->Written().size(), 2U);
+    EXPECT_EQ(Raw->Written()[0], Buffer[0]);
+    EXPECT_EQ(Raw->Written()[1], Buffer[1]);
+}
+
+TEST(CommonRead, ExactIoRejectsFirstReadOverreportWithoutCountingInvalidBytes)
+{
+    Net::io_context Io;
+    auto Raw = std::make_shared<ExactIoOverreportTransport>(
+        Io.get_executor(), ExactIoOverreportTransport::Mode::FirstRead);
+    std::array<std::uint8_t, 4> Buffer{};
+    Prism::IoResult Result;
+
+    RunCoro(Io, [&]() -> Net::awaitable<void>
+    {
+        Result = co_await Prism::Protocol::Common::ReadExactIo(Raw, Buffer);
+    });
+
+    EXPECT_EQ(Result.Bytes, 0U);
+    EXPECT_EQ(Result.Failure.Code, Fault::Code::IoError);
+    EXPECT_EQ(Result.Failure.Native, std::make_error_code(std::errc::connection_reset));
+    EXPECT_EQ(Raw->ReadCalls(), 1U);
+}
+
+TEST(CommonRead, WriteAllIoRejectsFirstWriteOverreportWithoutCountingInvalidBytes)
+{
+    Net::io_context Io;
+    auto Raw = std::make_shared<ExactIoOverreportTransport>(
+        Io.get_executor(), ExactIoOverreportTransport::Mode::FirstWrite);
+    const std::array<std::uint8_t, 4> Buffer{0xB1, 0xB2, 0xB3, 0xB4};
+    Prism::IoResult Result;
+
+    RunCoro(Io, [&]() -> Net::awaitable<void>
+    {
+        Result = co_await Prism::Protocol::Common::WriteAllIo(Raw, Buffer);
+    });
+
+    EXPECT_EQ(Result.Bytes, 0U);
+    EXPECT_EQ(Result.Failure.Code, Fault::Code::IoError);
+    EXPECT_EQ(Result.Failure.Native, std::make_error_code(std::errc::connection_reset));
+    EXPECT_EQ(Raw->WriteCalls(), 1U);
+    EXPECT_TRUE(Raw->Written().empty());
+}
 
 TEST(CommonRead, RejectsOverreportedReadMin)
     {
@@ -207,6 +414,7 @@ TEST(CommonRead, PreservesPartialReadCountWhenReadMinReturnsError)
                     EXPECT_EQ(Count, 2U);
                     EXPECT_EQ(Buffer, (std::array<std::byte, 2>{std::byte{0xA1}, std::byte{0xA2}}));
                 });
+        EXPECT_EQ(Raw->ReadCalls(), 1U);
     }
 
 TEST(CommonRead, RejectsOverreportedReadRemaining)
@@ -239,6 +447,7 @@ TEST(CommonRead, PreservesPartialReadCountWhenReadRemainingReturnsError)
                     EXPECT_EQ(Count, 2U);
                     EXPECT_EQ(Buffer, (std::array<std::byte, 2>{std::byte{0xA1}, std::byte{0xA2}}));
                 });
+        EXPECT_EQ(Raw->ReadCalls(), 1U);
     }
 
 TEST(CommonRead, TransmissionAsyncReadPreservesPartialCountWhenReturningError)

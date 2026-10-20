@@ -300,6 +300,8 @@ namespace Socks5UdpTestSupport
                                  : MakeDatagramServices(EchoPort, IdleTimeout);
             Datagrams.Traffic = Traffic;
             Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
             Options.Services->AcceptProtocol = MakeSocks5UdpAccept(std::move(Datagrams));
             return std::make_shared<Runtime::Session>(std::move(Options));
         }
@@ -349,10 +351,10 @@ namespace Socks5UdpTestSupport
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Flow.Io.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{1}),
             .Factory = Socks5UdpSessionFactory{0, std::chrono::seconds(5), Flow.Recorder,
-                                                std::move(Resolver)}});
+                                                std::move(Resolver)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{1})});
         const auto StartResult = co_await Listener.Start(Flow.ListenEndpoint);
         EXPECT_EQ(StartResult, Fault::Code::Success);
         if (StartResult != Fault::Code::Success)
@@ -372,16 +374,18 @@ namespace Socks5UdpTestSupport
             co_await Listener.Shutdown();
             co_return;
         }
-        auto [ErrorValue, Connection] = co_await Socks5::Connect({
+        auto ConnectResult = co_await Socks5::Connect({
             std::move(Raw), Socks5::ClientConfig{},
             Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
             Socks5::Command::UdpAssociate});
-        Flow.HandshakeOk = ErrorValue == Error::None && Connection != nullptr;
-        if (!Connection)
+        Flow.HandshakeOk = ConnectResult.has_value() &&
+            static_cast<bool>(*ConnectResult);
+        if (!Flow.HandshakeOk)
         {
             co_await Listener.Shutdown();
             co_return;
         }
+        auto Connection = std::move(*ConnectResult);
         const auto Bind = Connection->BindEndpoint();
         const Udp::endpoint BindEndpoint(
             Net::ip::make_address(Bind.Host), Bind.Port);
@@ -445,15 +449,16 @@ namespace Socks5UdpTestSupport
             co_await Flow.Listener.Shutdown();
             co_return;
         }
-        auto [ErrorValue, Connection] = co_await Socks5::Connect({
+        auto ConnectResult = co_await Socks5::Connect({
             std::move(Raw), Socks5::ClientConfig{},
             Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
             Socks5::Command::UdpAssociate});
-        if (ErrorValue != Error::None || !Connection)
+        if (!ConnectResult || !*ConnectResult)
         {
             co_await Flow.Listener.Shutdown();
             co_return;
         }
+        auto Connection = std::move(*ConnectResult);
         const auto Bind = Connection->BindEndpoint();
         const Udp::endpoint BindEndpoint(Net::ip::make_address(Bind.Host), Bind.Port);
         boost::system::error_code SocketError;

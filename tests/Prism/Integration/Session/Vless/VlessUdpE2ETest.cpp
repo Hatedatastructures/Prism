@@ -318,17 +318,21 @@ namespace
         std::chrono::milliseconds IdleTimeout;
         std::shared_ptr<TrafficRecorder> Recorder;
 
-        auto operator()(SharedTransmission Inbound, std::size_t, std::string_view) const
-            -> std::shared_ptr<Runtime::Session>
+        auto operator()(Runtime::SessionAdmission Admission) const
+            -> Runtime::SessionAdmissionResult
         {
+            auto Inbound = std::move(Admission.Inbound);
             Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
             auto Services = MakeDatagramServices(EchoPort, IdleTimeout);
             Services.Traffic = Recorder;
             auto UseState = Prism::Testing::MakeProtocolIngressUseState();
             Options.Services->GenerationUseState = UseState;
             Options.Services->AcceptProtocol = MakeAcceptVlessUdp(
                 std::move(Services), UseState, Inbound->Executor());
-            return std::make_shared<Runtime::Session>(std::move(Options));
+            return Runtime::SessionAdmissionResult{
+                std::make_shared<Runtime::Session>(std::move(Options))};
         }
     };
 
@@ -373,16 +377,16 @@ namespace
     {
         const auto Sent = co_await Flow.Proxy->AsyncSendDatagram(
             std::span<const std::uint8_t>(Flow.Payload));
-        EXPECT_TRUE(Sent);
-        if (!Sent)
+        EXPECT_TRUE(Sent.Succeeded());
+        if (!Sent.Succeeded())
         {
             Flow.Proxy->Close();
             co_return;
         }
         std::vector<std::uint8_t> Reply;
         const auto Received = co_await Flow.Proxy->AsyncReceiveDatagram(Reply);
-        EXPECT_TRUE(Received);
-        if (!Received)
+        EXPECT_TRUE(Received.Succeeded());
+        if (!Received.Succeeded())
         {
             Flow.Proxy->Close();
             co_return;
@@ -513,7 +517,7 @@ namespace
             {
                 const auto Sent = co_await Proxy->AsyncSendDatagram(
                     std::span<const std::uint8_t>(Input));
-                if (!Sent)
+                if (!Sent.Succeeded())
                 {
                     Flow.Completed = false;
                     break;
@@ -532,7 +536,7 @@ namespace
                 using Net::experimental::awaitable_operators::operator||;
                 const auto Race = co_await (Proxy->AsyncReceiveDatagram(Payload) ||
                     Watchdog.async_wait(Net::use_awaitable));
-                if (Race.index() != 0U || !std::get<0>(Race))
+                if (Race.index() != 0U || !std::get<0>(Race).Succeeded())
                 {
                     Flow.Completed = false;
                     break;

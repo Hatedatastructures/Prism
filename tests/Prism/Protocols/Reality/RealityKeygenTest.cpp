@@ -10,9 +10,9 @@
 
 #include <gtest/gtest.h>
 
-#include <Prism/Protocols/Reality/Detail/Authentication.hpp>
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
-#include <Prism/Protocols/Reality/Detail/Tls.hpp>
+#include <Prism/Protocols/Reality/Detail/SessionId.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
+#include <Prism/Protocols/Reality/Detail/Tls13.hpp>
 
 namespace
 {

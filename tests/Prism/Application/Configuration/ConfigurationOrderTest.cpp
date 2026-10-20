@@ -19,7 +19,8 @@ namespace
 {
 
     using Prism::Application::Configuration::ConfigurationErrorCode;
-    using Prism::Application::Configuration::Parser;
+    using Prism::Application::Configuration::ConfigurationParser;
+    using Prism::Application::Configuration::ConfigurationValidator;
     using Prism::Application::Configuration::PrismConfiguration;
     using Prism::Contract::ProtocolBindingConfiguration;
     using Prism::Application::Configuration::ValidationOptions;
@@ -178,10 +179,10 @@ namespace
         EXPECT_EQ(Value.error().Path, Expected.Path);
     }
 
-    auto ParseWithoutSecrets(const std::string_view Json) -> Parser::Result
+    auto ParseWithoutSecrets(const std::string_view Json) -> ConfigurationParser::Result
     {
         // 公开 v1 解析使用无快照选项，仅关闭 SecretRef 解析。
-        return Parser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
+        return ConfigurationParser::Parse({.Json = Json, .Options = {.CheckSecrets = false}});
     }
 
     auto MakeStaticValidationOptions() -> ValidationOptions
@@ -195,15 +196,15 @@ namespace
         return Options;
     }
 
-    auto ParseWithStaticSnapshot(const std::string_view Json) -> Parser::Result
+    auto ParseWithStaticSnapshot(const std::string_view Json) -> ConfigurationParser::Result
     {
-        return Parser::Parse({.Json = Json, .Options = MakeStaticValidationOptions()});
+        return ConfigurationParser::Parse({.Json = Json, .Options = MakeStaticValidationOptions()});
     }
 
     auto ValidateWithStaticSnapshot(const PrismConfiguration &Configuration)
-        -> Parser::ValidationResult
+        -> ConfigurationValidator::Result
     {
-        return Parser::Validate(
+        return ConfigurationValidator::Validate(
             ValidationRequest{Configuration, MakeStaticValidationOptions()});
     }
 
@@ -216,7 +217,7 @@ namespace
             "\"Name\": \"socks5\", \"Requires\": [], \"Provides\": []}],");
     }
 
-    auto MakeFullConfiguration() -> Parser::Result
+    auto MakeFullConfiguration() -> ConfigurationParser::Result
     {
         return ParseWithoutSecrets(MakeFullConfigurationJson());
     }

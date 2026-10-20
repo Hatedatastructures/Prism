@@ -28,11 +28,11 @@ namespace
         explicit FakeTransmission(Net::any_io_executor Executor) : Prism::Transmission(Executor), Ex_(Executor) {}
         [[nodiscard]] auto Executor() const -> ExecutorType override { return Ex_; }
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(std::move(Handler), Prism::IoResult{0, {}}); }
+        { Prism::Transmission::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}}); }
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(std::move(Handler), Prism::IoResult{0, {}}); }
+        { Prism::Transmission::PostResult(Executor(), std::move(Handler), Prism::IoResult{0, {}}); }
         auto StartWriteShutdown(Completion Handler) -> void override
-        { Prism::Transport::Detail::PostResult(std::move(Handler), {}); }
+        { Prism::Transmission::PostResult(Executor(), std::move(Handler), {}); }
         [[nodiscard]] auto OnClose() -> ControlResult override { return {}; }
         [[nodiscard]] auto OnCancel() -> ControlResult override { return {}; }
         Net::any_io_executor Ex_;

@@ -25,7 +25,6 @@
 #include <vector>
 
 #include <Prism/Application/Configuration/Configuration.hpp>
-#include <Prism/Application/Assembly/ConfigurationAssembly.hpp>
 #include <Prism/Composition/Builtin/Registry.hpp>
 #include <Prism/Composition/Builtin/ProtocolBuiltins.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
@@ -47,7 +46,8 @@ namespace
     using Prism::Contract::RealityOptions;
     using Prism::Contract::RestlsOptions;
     using Prism::Contract::ShadowTlsOptions;
-    using Prism::Application::Configuration::Parser;
+    using Prism::Application::Configuration::ConfigurationParser;
+    using Prism::Application::Configuration::ConfigurationValidator;
     using Prism::Application::Configuration::ReloadCoordinator;
     using Prism::Application::Configuration::ReloadRequest;
     using Prism::Runtime::GenerationPrepareAck;
@@ -212,7 +212,7 @@ namespace
 
     auto ParseValid() -> Prism::Application::Configuration::PrismConfiguration
     {
-        const auto Parsed = Parser::ParseJson(ValidJson);
+        const auto Parsed = ConfigurationParser::ParseJson(ValidJson);
         EXPECT_TRUE(Parsed.has_value()) << Parsed.error().Message;
         return *Parsed;
     }

@@ -352,12 +352,8 @@ namespace ProtocolTransferBench
         -> std::exception_ptr;
     [[nodiscard]] auto RunProtocolRound(const ProtocolRoundOptions &Options,
                                         LaneRunner Runner) -> ProtocolRound;
-    [[nodiscard]] auto RunSocksRound(std::size_t Total, std::size_t BlockSize,
-                                     std::size_t LaneCount,
-                                     std::uint64_t ExpectedInputHash) -> ProtocolRound;
-    [[nodiscard]] auto RunVmessRound(std::size_t Total, std::size_t BlockSize,
-                                     std::size_t LaneCount,
-                                     std::uint64_t ExpectedInputHash) -> ProtocolRound;
+    [[nodiscard]] auto RunSocksRound(const ProtocolRoundOptions &Options) -> ProtocolRound;
+    [[nodiscard]] auto RunVmessRound(const ProtocolRoundOptions &Options) -> ProtocolRound;
     auto RunSocksLane(LaneExecution Request) -> Net::awaitable<void>;
     auto RunVmessLane(LaneExecution Request) -> Net::awaitable<void>;
     auto RunProtocolDiagnosis(std::size_t Total, std::size_t BlockSize) -> int;

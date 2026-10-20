@@ -18,6 +18,7 @@
 #include <exception>
 #include <expected>
 #include <optional>
+#include <system_error>
 #include <thread>
 
 namespace Prism::Testing::MuxRoot
@@ -390,8 +391,34 @@ namespace Prism::Testing::MuxRoot
     template<class Client>
     auto Connect(std::shared_ptr<Peer> P, Prism::Mux::Mode Wire) -> Net::awaitable<std::shared_ptr<Client>>
     {
-        std::uint8_t WireTag = 1;
-        if (Wire == Prism::Mux::Mode::Smux) WireTag = 0;
+        std::uint8_t WireTag{};
+        switch (Wire)
+        {
+        case Prism::Mux::Mode::Smux:
+            WireTag = 0;
+            break;
+        case Prism::Mux::Mode::Yamux:
+            WireTag = 1;
+            break;
+        case Prism::Mux::Mode::H2Mux:
+            WireTag = 2;
+            break;
+        case Prism::Mux::Mode::Auto:
+        default:
+            if (P && P->Client)
+            {
+                const auto CancelResult = P->Client->Cancel();
+                const auto CloseResult = P->Client->Close();
+                if (!CancelResult || !CloseResult)
+                {
+                    const auto& Failure = !CancelResult
+                        ? CancelResult.error() : CloseResult.error();
+                    throw std::system_error(Prism::Fault::ToNative(Failure),
+                        "Mux test fixture rejected a peer control command");
+                }
+            }
+            co_return std::shared_ptr<Client>{};
+        }
         const std::array<std::byte,2> Envelope{std::byte{0},std::byte{WireTag}};
         const auto Written=co_await P->Client->WriteExact(Envelope);
         EXPECT_TRUE(Written.Failure.Succeeded());EXPECT_EQ(Written.Bytes,Envelope.size());

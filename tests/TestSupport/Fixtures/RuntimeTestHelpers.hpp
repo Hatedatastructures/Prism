@@ -10,8 +10,11 @@
 #pragma once
 
 #include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -19,12 +22,14 @@
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -34,9 +39,11 @@
 #include <utility>
 #include <variant>
 
+#include <Prism/Foundation/Error.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
+#include <Prism/Net/HostText.hpp>
 #include <Prism/Net/Target.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>

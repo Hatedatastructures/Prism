@@ -5,6 +5,7 @@
 #include <Prism/Contract/Ingress/CarrierCatalogOwner.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Application/RuntimeGenerationSnapshot.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -124,14 +125,14 @@ namespace
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler),
                 Prism::IoResult{0, {Prism::Fault::Code::IoError}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -166,7 +167,7 @@ namespace
             template <class OperationState>
             auto operator()(OperationState Operation, ReadInput Input) const -> void
             {
-                Prism::Transport::Detail::ConfigureIo(Operation);
+                Prism::Transmission::ConfigureIo(Operation);
                 const auto Result = co_await Net::co_spawn(
                     Input.Owner->Executor(), Input.Owner->ReadPartial(Input.Buffer), Net::deferred);
                 co_return std::tuple{Result};

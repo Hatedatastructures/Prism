@@ -7,7 +7,6 @@
 
 #include <type_traits>
 
-#include <Prism/Runtime/Recognition/ProfileModel.hpp>
 #include <Prism/Runtime/Recognition/Profile.hpp>
 
 namespace

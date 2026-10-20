@@ -1,6 +1,6 @@
 # 部署
 
-部署包至少包含 Prism 可执行文件、对应的 `PrismConfiguration.json`、运行时所需的 Web 资源，以及配置引用的证书和密钥文件。程序默认从可执行文件旁读取配置；部署时确认配置与二进制来自同一构建。
+部署包至少包含 Prism 可执行文件、对应的 `PrismConfiguration.json`，以及配置引用的证书和密钥文件。若启用 Web 控制台，还需包含 `Operations.WebDirectory` 指定的 Web 资源。程序默认从可执行文件旁读取配置；部署时确认配置与二进制来自同一构建。
 
 ## 网络与凭据
 
@@ -11,7 +11,7 @@
 
 ## Web 资源
 
-CMake 构建会生成 Web catalog。默认 Web 资源目录位于 build 树的 `Web/`；若配置了 `Operations.WebDirectory`，程序按配置文件位置解析该路径。部署自定义目录时确认其中包含由构建生成的 catalog 和对应资源。
+显式构建 CMake target `PrismWeb` 后会生成 Web catalog。默认 Web 资源目录位于 build 树的 `Web/`；若配置了 `Operations.WebDirectory`，程序按配置文件位置解析该路径。部署自定义目录时确认其中包含由构建生成的 catalog 和对应资源。
 
 ## 停机
 

@@ -18,14 +18,23 @@
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <vector>
 
+#include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
-#include <Prism/Protocols/Vless/Codec.hpp>
+#include <Prism/Protocols/Vless/Conn.hpp>
+#include <Prism/Protocols/Vless/AddressCodec.hpp>
+#include <Prism/Protocols/Vless/BeastCodec.hpp>
+#include <Prism/Protocols/Vless/RequestCodec.hpp>
+#include <Prism/Protocols/Vless/Types.hpp>
+#include <Prism/Protocols/Vless/UdpCodec.hpp>
 #include <Prism/Protocols/Vless/Vless.hpp>
 
 namespace
@@ -107,6 +116,39 @@ namespace
         EXPECT_TRUE(co_await Raw->Activity()->Drain());
     }
 
+    /** @brief 验证 exact read 先复制同读字节，再关闭并排空连接层。 */
+    auto RunExactReadCopiesBytesBeforeNativeFailure(
+        Net::io_context &IoContext) -> Net::awaitable<void>
+    {
+        auto Raw = std::make_shared<Prism::PrismMockTransport>(IoContext.get_executor());
+        auto Connection = std::make_shared<Vless::Conn<>>(Raw, MakeUuid());
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        Raw->InjectRead({0xA5});
+        Raw->ReadErrorBytes = 1;
+        Raw->SetReadError(Native);
+        Raw->EofOnDrain = true;
+        std::array<std::uint8_t, 1> Buffer{};
+
+        const auto Failed = co_await Connection->ReadExact(Buffer);
+        EXPECT_TRUE(Failed);
+        EXPECT_EQ(Buffer[0], 0xA5U);
+        EXPECT_EQ(Raw->ReadsDone, 1U);
+        std::array<std::byte, 1> TerminalBuffer{};
+        const auto Terminal = co_await Connection->ReadSome(TerminalBuffer);
+        EXPECT_EQ(Terminal.Bytes, 0U);
+        EXPECT_EQ(Terminal.Failure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(Terminal.Failure.Native, Native);
+        EXPECT_EQ(Raw->ReadsDone, 1U);
+        const auto Closed = Connection->Close();
+        EXPECT_TRUE(Closed);
+        const auto ConnectionDrain = co_await Connection->Activity()->Drain();
+        EXPECT_TRUE(ConnectionDrain);
+        EXPECT_TRUE(Connection->Activity()->IsRetired());
+        const auto RawDrain = co_await Raw->Activity()->Drain();
+        EXPECT_TRUE(RawDrain);
+        EXPECT_TRUE(Raw->Activity()->IsRetired());
+    }
+
     struct RejectServerRequest final
     {
         std::shared_ptr<MemoryStream> Server;
@@ -132,7 +174,8 @@ namespace
         Net::io_context &IoContext,
         RejectScenario Scenario) -> Net::awaitable<void>
     {
-        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto [ClientEndpoint, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto Client = std::make_shared<MemoryStream>(std::move(ClientEndpoint));
         Vless::ServerConfig Config;
         Config.uuid = MakeUuid();
         auto Server = std::make_shared<MemoryStream>(std::move(ServerMemory));
@@ -141,18 +184,28 @@ namespace
             AcceptRejectedRequest(RejectServerRequest{Server, Config, Scenario.Expected}),
             Net::use_awaitable);
         std::error_code ErrorCode;
-        const auto Write = co_await ClientMemory.WriteSome(
+        const auto Write = co_await Client->WriteExact(
             AsBytes(std::span<const std::uint8_t>(Scenario.Wire)));
         ErrorCode = Prism::Fault::ToNative(Write.Failure);
+        EXPECT_EQ(Write.Bytes, Scenario.Wire.size());
         if (Scenario.AssertWriteSucceeded)
         {
             EXPECT_FALSE(ErrorCode);
         }
         if (Scenario.CloseClientWrite)
         {
-            (void)ClientMemory.Close();
+            const auto ClientClose = Client->Close();
+            EXPECT_TRUE(ClientClose);
         }
         co_await std::move(ServerTask);
+        const auto ClientClose = Client->Close();
+        EXPECT_TRUE(ClientClose);
+        const auto ServerClose = Server->Close();
+        EXPECT_TRUE(ServerClose);
+        const auto ClientDrain = co_await Client->Activity()->Drain();
+        EXPECT_TRUE(ClientDrain);
+        const auto ServerDrain = co_await Server->Activity()->Drain();
+        EXPECT_TRUE(ServerDrain);
     }
 
     TEST(VlessCodec, ParseAddressRejectsUnknownAtyp)
@@ -175,6 +228,13 @@ namespace
     {
         Net::io_context IoContext;
         RunCoroutine(IoContext, RunPartialNativeReadFailure(IoContext));
+    }
+
+    TEST(VlessConnErrorMatrix, ExactReadCopiesBytesBeforePropagatingNativeFailure)
+    {
+        Net::io_context IoContext;
+        RunCoroutine(IoContext,
+            RunExactReadCopiesBytesBeforeNativeFailure(IoContext));
     }
 
     TEST(VlessCodec, ParseRequestRejectsUnknownAtyp)

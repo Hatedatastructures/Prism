@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/redirect_error.hpp>
@@ -20,26 +19,26 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
 
 #include <Prism/Account/Account.hpp>
-#include <Prism/Protocols/Anytls/IngressFactory.hpp>
-#include <Prism/Protocols/Vless/IngressFactory.hpp>
-#include <Prism/Protocols/Trojan/IngressFactory.hpp>
-#include <Prism/Protocols/Vmess/IngressFactory.hpp>
 #include <Prism/Contract/Ingress/StreamFactory.hpp>
 #include <Prism/Account/Authenticator.hpp>
-#include <Prism/Foundation/Error.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Protocols/Socks5/Socks5.hpp>
 #include <Prism/Contract/Ingress/DataPlane.hpp>
 #include <Prism/Runtime/Middleware/Context.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/TransportResources.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
@@ -47,14 +46,57 @@ namespace
     namespace Net = boost::asio;
     namespace Fault = Prism::Fault;
     namespace Middleware = Prism::Middleware;
-    namespace Runtime = Prism::Runtime;
     namespace Socks5 = Prism::Socks5;
 
-    using Prism::Error;
     using Prism::MakeMemoryPair;
     using Prism::MemoryStream;
     using Prism::SharedTransmission;
     using Prism::Testing::RunCoro;
+
+    auto MakeSocks5AcceptInput(SharedTransmission Inbound)
+        -> Prism::Contract::StreamAcceptInput
+    {
+        return {
+            std::move(Inbound), {},
+            std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8}),
+            {}};
+    }
+
+    auto FinalizeSocks5Transport(Net::io_context &Io, SharedTransmission Transport) -> void
+    {
+        if (!Transport)
+        {
+            return;
+        }
+        if (Transport->IsOpen())
+        {
+            Prism::Testing::ExpectFixtureCloseReceipt(
+                Prism::Testing::DriveClose(Io, std::move(Transport)));
+            return;
+        }
+        EXPECT_TRUE(Prism::Testing::DriveDrain(Io, std::move(Transport)));
+    }
+
+    auto MakeSocks5BindingForDirectory(Net::io_context &Io,
+        const std::shared_ptr<Prism::Testing::ProviderAccounts> &Directory,
+        Socks5::ServerConfig Config) -> std::shared_ptr<Socks5::Binding>
+    {
+        auto Prepared = Socks5::Prepare(
+            {"fixture", Directory->Generation, std::move(Config)},
+            {Io.get_executor(),
+                {Directory->Generation, Directory->Credentials, Directory->Authenticator}, {}});
+        if (!Prepared)
+        {
+            throw std::runtime_error("SOCKS5 typed handoff fixture prepare failed");
+        }
+        auto Bound = Socks5::Bind(std::move(*Prepared), {});
+        if (!Bound)
+        {
+            throw std::runtime_error("SOCKS5 typed handoff fixture bind failed");
+        }
+        return *Bound;
+    }
 
     using CompletionChannel =
         Net::experimental::channel<void(boost::system::error_code, bool)>;
@@ -71,11 +113,37 @@ namespace
         std::shared_ptr<CompletionChannel> WatchdogExited;
         bool ServerFinished{false};
         bool ServerFailed{false};
+        bool AcceptStarted{false};
+        bool WatchdogStarted{false};
+        bool WatchdogFailed{false};
         bool ServerExitObserved{false};
         bool WatchdogExitObserved{false};
         bool TimedOut{false};
         bool Finished{false};
+        bool ClientCloseStarted{false};
+        bool ServerCloseStarted{false};
     };
+
+    auto CloseSocks5Transport(SharedTransmission Transport) -> Net::awaitable<void>
+    {
+        const auto Receipt = co_await Prism::Testing::CloseFixture(std::move(Transport));
+        Prism::Testing::ExpectFixtureCloseReceipt(Receipt);
+    }
+
+    auto CloseHandshakeTransports(
+        const std::shared_ptr<HandshakeWatchdogState> &State) -> Net::awaitable<void>
+    {
+        if (!State->ClientCloseStarted)
+        {
+            State->ClientCloseStarted = true;
+            co_await CloseSocks5Transport(State->Client);
+        }
+        if (!State->ServerCloseStarted)
+        {
+            State->ServerCloseStarted = true;
+            co_await CloseSocks5Transport(State->Server);
+        }
+    }
 
     auto MakeHandshakeWatchdogState(Net::io_context &Io, const MemoryPair &Endpoints)
         -> std::shared_ptr<HandshakeWatchdogState>
@@ -100,8 +168,7 @@ namespace
         if (!ErrorCode && !State->Finished)
         {
             State->TimedOut = true;
-            (void)State->Client->Close();
-            (void)State->Server->Close();
+            co_await CloseHandshakeTransports(State);
             if (!State->ServerFinished)
             {
                 (void)State->AcceptWake->try_send(
@@ -120,7 +187,16 @@ namespace
         Net::co_spawn(
             State->Timer->get_executor(),
             RunHandshakeWatchdog(State),
-            [](const std::exception_ptr &) {});
+            [State](const std::exception_ptr &ErrorValue)
+            {
+                if (ErrorValue)
+                {
+                    State->WatchdogFailed = true;
+                    (void)State->WatchdogExited->try_send(
+                        boost::system::error_code{}, true);
+                }
+            });
+        State->WatchdogStarted = true;
     }
 
     auto WaitForServerExit(const std::shared_ptr<HandshakeWatchdogState> &State)
@@ -138,7 +214,7 @@ namespace
     {
         State->Finished = true;
         State->Timer->cancel();
-        if (!State->WatchdogExitObserved)
+        if (State->WatchdogStarted && !State->WatchdogExitObserved)
         {
             (void)co_await State->WatchdogExited->async_receive(Net::use_awaitable);
             State->WatchdogExitObserved = true;
@@ -149,16 +225,103 @@ namespace
         -> Net::awaitable<void>
     {
         State->Finished = true;
-        (void)State->Client->Close();
-        (void)State->Server->Close();
+        co_await CloseHandshakeTransports(State);
         State->Timer->cancel();
-        co_await WaitForServerExit(State);
-        if (!State->WatchdogExitObserved)
+        if (State->AcceptStarted)
+        {
+            co_await WaitForServerExit(State);
+        }
+        if (State->WatchdogStarted && !State->WatchdogExitObserved)
         {
             (void)co_await State->WatchdogExited->async_receive(Net::use_awaitable);
             State->WatchdogExitObserved = true;
         }
     }
+
+    auto AwaitSocks5BindingDrain(std::shared_ptr<Socks5::Binding> Binding,
+        std::expected<void, Fault::Failure> &Receipt, bool &Completed)
+        -> Net::awaitable<void>
+    {
+        Receipt = co_await Binding->Drain();
+        Completed = true;
+    }
+
+    auto FinalizeSocks5Binding(Net::io_context &Io,
+        const std::shared_ptr<Socks5::Binding> &Binding) noexcept -> void
+    {
+        if (!Binding) return;
+        Binding->Close();
+        std::expected<void, Fault::Failure> Receipt;
+        bool Completed = false;
+        try
+        {
+            Io.restart();
+            RunCoro(Io, AwaitSocks5BindingDrain(Binding, Receipt, Completed));
+        }
+        catch (...) { ADD_FAILURE() << "SOCKS5 binding drain threw"; return; }
+        EXPECT_TRUE(Completed) << "SOCKS5 binding drain did not complete";
+        if (!Completed) return;
+        if (!Receipt) ADD_FAILURE() << "SOCKS5 binding drain failed: code="
+                                    << static_cast<unsigned>(Receipt.error().Code);
+        EXPECT_TRUE(Binding->IsRetired());
+    }
+
+    struct Socks5ScenarioCleanupState final
+    {
+        Net::io_context &Io;
+        std::shared_ptr<Socks5::Binding> Binding;
+        Middleware::Context &Context;
+        SharedTransmission Server;
+        SharedTransmission Client;
+        std::shared_ptr<HandshakeWatchdogState> Watchdog;
+    };
+
+    class Socks5ScenarioCleanup final
+    {
+    public:
+        explicit Socks5ScenarioCleanup(Socks5ScenarioCleanupState State)
+            : State_(std::move(State))
+        {
+        }
+
+        ~Socks5ScenarioCleanup()
+        {
+            Finalize();
+        }
+
+        auto Finalize() noexcept -> void
+        {
+            if (Finalized_)
+            {
+                return;
+            }
+            Finalized_ = true;
+            if (!State_.Watchdog->Finished)
+            {
+                try
+                {
+                    State_.Io.restart();
+                    RunCoro(State_.Io, AbortHandshake(State_.Watchdog));
+                }
+                catch (...) { ADD_FAILURE() << "SOCKS5 handshake abort cleanup failed"; }
+            }
+            EXPECT_FALSE(State_.Watchdog->WatchdogFailed);
+            const auto Finalize = [this](SharedTransmission Transport)
+            {
+                try { FinalizeSocks5Transport(State_.Io, std::move(Transport)); }
+                catch (...) { ADD_FAILURE() << "SOCKS5 transport finalization failed"; }
+            };
+            Finalize(State_.Context.DataPlane.Transport());
+            State_.Context.SetDataPlane({});
+            Finalize(State_.Server);
+            Finalize(State_.Client);
+            FinalizeSocks5Binding(State_.Io, State_.Binding);
+        }
+
+    private:
+        Socks5ScenarioCleanupState State_;
+        bool Finalized_{false};
+    };
 
     auto MakeMemoryPairShared(Net::io_context &Io)
         -> MemoryPair
@@ -232,9 +395,10 @@ namespace
         {
         }
 
-        auto Accept(SharedTransmission, Prism::Contract::RequestMetadata)
+        auto Accept(Prism::Contract::StreamAcceptInput Input)
             -> Net::awaitable<Prism::Contract::AcceptOutcome> override
         {
+            (void)Input;
             co_return std::move(Result_);
         }
 
@@ -264,7 +428,8 @@ namespace
     auto RunSocks5TypedContextFlow(Socks5TypedContextFlow Flow)
         -> Net::awaitable<void>
     {
-        auto Accepted = co_await Flow.Accept->Accept(Flow.Inbound, {});
+        auto Accepted = co_await Flow.Accept->Accept(
+            MakeSocks5AcceptInput(std::move(Flow.Inbound)));
         const auto Code = Accepted ? Prism::Fault::Code::Success
                                    : Accepted.error().Code;
         if (Accepted)
@@ -278,7 +443,8 @@ namespace
         EXPECT_EQ(&Flow.Context.PostDial(), &Flow.Context.DataPlane.PostDial);
         if (Flow.Context.PostDial())
         {
-            co_await Flow.Context.PostDial()(Fault::Code::Success);
+            const auto PostDialFailure = co_await Flow.Context.PostDial()(Fault::Failure{});
+            EXPECT_TRUE(PostDialFailure.Succeeded());
         }
     }
 
@@ -296,7 +462,8 @@ namespace
     {
         try
         {
-            auto Accepted = co_await Flow.Accept->Accept(Flow.Inbound, {});
+            auto Accepted = co_await Flow.Accept->Accept(
+                MakeSocks5AcceptInput(std::move(Flow.Inbound)));
             Flow.Code = Accepted ? Prism::Fault::Code::Success
                                  : Accepted.error().Code;
             if (Accepted)
@@ -316,62 +483,6 @@ namespace
             boost::system::error_code{}, true);
     }
 
-    TEST(Socks5TypedHandoff, MovingPlaneTransfersTransportLeaseAndPostDial)
-    {
-        Net::io_context Io;
-        auto [Transport, Peer] = MakeMemoryPairShared(Io);
-        auto Directory = MakeAccountRecord(Prism::AccountId{7301}, "typed-password");
-        const auto Record = Directory->Store->FindById(Prism::AccountId{7301});
-        ASSERT_TRUE(Record);
-        auto Authenticator = Directory->Authenticator;
-        auto AuthResult = Authenticator->Authenticate(Prism::AuthenticationRequest{
-            .AccountId = {},
-            .Identity = {},
-            .Credential = Prism::Account::CredentialView::Password("typed-password"),
-            .Rate = {}});
-        ASSERT_TRUE(AuthResult);
-        ASSERT_TRUE(*AuthResult);
-
-        Prism::Contract::ProtocolDataPlane Result;
-        Result.ProtocolAuthenticated = true;
-        Result.AccountId = AuthResult->AccountId();
-        Result.AccountLease = std::move(*AuthResult);
-        Result.Root = Prism::Contract::StreamDataPlane{Transport};
-        const auto CallbackCalled = std::make_shared<bool>(false);
-        Result.PostDial = [CallbackCalled](Fault::Code) -> Net::awaitable<Fault::Code>
-        {
-            *CallbackCalled = true;
-            co_return Fault::Code::Success;
-        };
-
-        auto Accepted = std::move(Result);
-
-        ASSERT_TRUE(Accepted.HasTransport());
-        EXPECT_EQ(Accepted.Transport().get(), Transport.get());
-        EXPECT_FALSE(Result.Transport())
-            << "typed materialization must consume the legacy transport owner";
-        EXPECT_FALSE(Result.PostDial)
-            << "typed materialization must consume the legacy PostDial owner";
-        ASSERT_TRUE(Accepted.AccountLease);
-        EXPECT_TRUE(static_cast<bool>(Accepted.AccountLease));
-        EXPECT_EQ(Record->Runtime()->ActiveConnections(), 1U);
-        ASSERT_TRUE(Accepted.PostDial);
-
-        RunCoro(
-            Io,
-            [&]() -> Net::awaitable<void>
-            {
-                co_await Accepted.PostDial(Fault::Code::Success);
-            });
-        EXPECT_TRUE(*CallbackCalled);
-
-        Accepted.AccountLease.Release();
-        EXPECT_FALSE(static_cast<bool>(Accepted.AccountLease));
-        EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
-        Transport->Close();
-        Peer->Close();
-    }
-
     TEST(Socks5TypedHandoff, TypedAcceptKeepsDataPlanePostDialAsSingleContextOwner)
     {
         Net::io_context Io;
@@ -382,10 +493,10 @@ namespace
         ASSERT_TRUE(Accepted.HasTransport());
 
         const auto CallbackCalled = std::make_shared<bool>(false);
-        Accepted.PostDial = [CallbackCalled](Fault::Code) -> Net::awaitable<Fault::Code>
+        Accepted.PostDial = [CallbackCalled](Fault::Failure) -> Net::awaitable<Fault::Failure>
         {
             *CallbackCalled = true;
-            co_return Fault::Code::Success;
+            co_return Fault::Failure{};
         };
         auto Accept = MakeStubAccept(std::move(Accepted));
         Middleware::Context Context;
@@ -397,10 +508,10 @@ namespace
         EXPECT_TRUE(*CallbackCalled);
         const auto ContextTransport = Context.DataPlane.Transport();
         ASSERT_TRUE(ContextTransport);
-        if (Context.Inbound()) Context.Inbound()->Close();
-            Context.SetDataPlane({});
+        FinalizeSocks5Transport(Io, ContextTransport);
+        Context.SetDataPlane({});
         EXPECT_FALSE(ContextTransport->IsOpen());
-        Peer->Close();
+        FinalizeSocks5Transport(Io, Peer);
     }
 
 
@@ -434,7 +545,7 @@ namespace
                 EXPECT_EQ(std::to_integer<std::uint8_t>(Method[0]), 0x05);
                 EXPECT_EQ(std::to_integer<std::uint8_t>(Method[1]), 0x02);
 
-                const auto Credentials = MakeUserPass("account", "socks5-password");
+                const auto Credentials = MakeUserPass("provider-fixture", "socks5-password");
                 if (!co_await WriteWire(Scenario.Client, AsWire(Credentials)))
                 {
                     ADD_FAILURE() << "SOCKS5 UserPass write failed";
@@ -475,7 +586,8 @@ namespace
                     co_await AbortHandshake(Scenario.Watchdog);
                     co_return;
                 }
-                co_await Scenario.Context.PostDial()(Fault::Code::Success);
+                const auto PostDialFailure = co_await Scenario.Context.PostDial()(Fault::Failure{});
+                EXPECT_TRUE(PostDialFailure.Succeeded());
 
                 std::array<std::byte, 10> Reply{};
                 const auto ReplyRead = co_await ReadWire(Scenario.Client, Reply);
@@ -493,7 +605,6 @@ namespace
                 }
                 EXPECT_EQ(std::to_integer<std::uint8_t>(Reply[0]), 0x05);
                 EXPECT_EQ(std::to_integer<std::uint8_t>(Reply[1]), 0x00);
-                Scenario.Client->Close();
                 co_await FinishHandshake(Scenario.Watchdog);
 
     }
@@ -512,12 +623,13 @@ namespace
         Config.EnableAuth = true;
         Config.DeferConnectReply = true;
         Config.Authenticator = Directory->Authenticator;
-        auto Accept = Prism::Testing::MakeSocks5Binding(std::move(Config));
+        auto Accept = MakeSocks5BindingForDirectory(Io, Directory, std::move(Config));
         Middleware::Context Context;
         SharedTransmission Inbound = Server;
         Fault::Code Code = Fault::Code::IoError;
         const auto Watchdog =
             MakeHandshakeWatchdogState(Io, MemoryPair{Client, Server});
+        Socks5ScenarioCleanup Cleanup({Io, Accept, Context, Server, Client, Watchdog});
         StartHandshakeWatchdog(Watchdog, std::chrono::seconds{3});
 
         Net::co_spawn(
@@ -531,6 +643,7 @@ namespace
                     Watchdog->ServerFailed = true;
                 }
             });
+        Watchdog->AcceptStarted = true;
 
         Socks5TypedHandoffScenario Scenario{Io, Client, Inbound, Context, Code, Watchdog};
         RunCoro(Io, RunSocks5TypedHandoffScenario(Scenario));
@@ -539,15 +652,13 @@ namespace
             << "watchdog must terminate stalled SOCKS5 success handshakes";
         if (Watchdog->TimedOut)
         {
-            if (Context.Inbound()) Context.Inbound()->Close();
-            Context.SetDataPlane({});
+            Cleanup.Finalize();
             return;
         }
         EXPECT_EQ(Code, Fault::Code::Success);
         if (Code != Fault::Code::Success || Watchdog->ServerFailed)
         {
-            if (Context.Inbound()) Context.Inbound()->Close();
-            Context.SetDataPlane({});
+            Cleanup.Finalize();
             return;
         }
         EXPECT_EQ(Context.AccountId(), AccountId);
@@ -561,15 +672,8 @@ namespace
 
         Context.AccountLease().Release();
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
-        Io.restart();
-        RunCoro(Io, [&Context, Transport]() -> Net::awaitable<void>
-        {
-            if (Context.Inbound()) Context.Inbound()->Close();
-            Context.SetDataPlane({});
-            co_await Net::post(Transport->Executor(), Net::use_awaitable);
-            EXPECT_FALSE(Transport->IsOpen());
-        }());
-        Server->Close();
+        Cleanup.Finalize();
+        EXPECT_FALSE(Transport->IsOpen());
     }
 
     struct Socks5InvalidUserPassFlow final
@@ -583,7 +687,7 @@ namespace
         -> Net::awaitable<void>
     {
         const std::vector<std::uint8_t> Greeting{0x05, 0x01, 0x02};
-        const auto Credentials = MakeUserPass("account", "wrong-password");
+        const auto Credentials = MakeUserPass("provider-fixture", "wrong-password");
         if (!co_await WriteWire(Flow.Client, AsWire(Greeting)))
         {
             ADD_FAILURE() << "SOCKS5 greeting write failed";
@@ -622,7 +726,6 @@ namespace
             co_await AbortHandshake(Flow.Watchdog);
             co_return;
         }
-        Flow.Client->Close();
         co_await FinishHandshake(Flow.Watchdog);
     }
 
@@ -639,12 +742,13 @@ namespace
         Config.EnableUdp = false;
         Config.EnableAuth = true;
         Config.Authenticator = Directory->Authenticator;
-        auto Accept = Prism::Testing::MakeSocks5Binding(std::move(Config));
+        auto Accept = MakeSocks5BindingForDirectory(Io, Directory, std::move(Config));
         Middleware::Context Context;
         SharedTransmission Inbound = Server;
         Fault::Code Code = Fault::Code::IoError;
         const auto Watchdog =
             MakeHandshakeWatchdogState(Io, MemoryPair{Client, Server});
+        Socks5ScenarioCleanup Cleanup({Io, Accept, Context, Server, Client, Watchdog});
         StartHandshakeWatchdog(Watchdog, std::chrono::seconds{3});
 
         Net::co_spawn(
@@ -658,6 +762,7 @@ namespace
                     Watchdog->ServerFailed = true;
                 }
             });
+        Watchdog->AcceptStarted = true;
 
         RunCoro(Io, RunSocks5InvalidUserPassFlow(
             Socks5InvalidUserPassFlow{Client, Watchdog}));
@@ -666,8 +771,7 @@ namespace
             << "watchdog must terminate stalled SOCKS5 auth failures";
         if (Watchdog->TimedOut)
         {
-            if (Context.Inbound()) Context.Inbound()->Close();
-            Context.SetDataPlane({});
+            Cleanup.Finalize();
             return;
         }
         EXPECT_EQ(Code, Fault::Code::AuthFailed);
@@ -675,7 +779,8 @@ namespace
         EXPECT_FALSE(Context.PostDial());
         EXPECT_FALSE(Context.AccountLease());
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
-        EXPECT_FALSE(Server->IsOpen());
-        Client->Close();
+        EXPECT_FALSE(Server->IsOpen())
+            << "SOCKS5 admission must close inbound after authentication failure";
+        Cleanup.Finalize();
     }
 } // namespace

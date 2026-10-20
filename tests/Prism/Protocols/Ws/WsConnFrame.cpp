@@ -5,6 +5,14 @@
 #include "WsFactorySupport.hpp"
 #include "WsConnSessionSupport.hpp"
 #include <boost/asio/io_context.hpp>
+#include <Prism/Foundation/ByteSpan.hpp>
+#include <Prism/Foundation/Memory/Pointer.hpp>
+#include <Prism/Protocols/Ws/Detail/ConnClose.hpp>
+#include <Prism/Protocols/Ws/Detail/ConnFrame.hpp>
+#include <Prism/Protocols/Ws/Detail/ConnSession.hpp>
+#include <Prism/Protocols/Ws/Detail/ConnTransport.hpp>
+#include <Prism/Transport/Transmission.hpp>
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -38,6 +46,119 @@ namespace
     using TestSupport::SpawnEager;
     using TestSupport::StreamPairRequest;
     using TestSupport::TestKey;
+
+    using WsFrameMemory = Prism::Memory::SessionResource<>;
+
+    struct WsFrameReadOutcome final
+    {
+        bool FirstDelivered{false};
+        std::vector<std::byte> FirstPayload;
+        std::error_code FirstError;
+        bool SecondDelivered{false};
+        std::error_code SecondError;
+        std::size_t ReadCount{0};
+    };
+
+    class WsFrameTerminalTransmission final : public Prism::Transmission
+    {
+    public:
+        WsFrameTerminalTransmission(
+            ExecutorType Executor,
+            std::vector<std::byte> Input,
+            Prism::Fault::Failure Terminal)
+            : Transmission(std::move(Executor)), Input_(std::move(Input)),
+              Terminal_(Terminal)
+        {
+        }
+
+        [[nodiscard]] auto ReadCount() const noexcept -> std::size_t
+        {
+            return ReadCount_;
+        }
+
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
+        {
+            ++ReadCount_;
+            const auto Count = (std::min)(Buffer.size(), Input_.size() - Offset_);
+            std::copy_n(Input_.begin() + static_cast<std::ptrdiff_t>(Offset_), Count, Buffer.begin());
+            Offset_ += Count;
+            const auto Failure = Offset_ == Input_.size() ? Terminal_ : Prism::Fault::Failure{};
+            Prism::Transmission::PostResult(
+                Executor(), std::move(Handler), {Count, Failure});
+        }
+
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        {
+            Prism::Transmission::PostResult(
+                Executor(), std::move(Handler), {Buffer.size(), {}});
+        }
+
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
+        }
+
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            return {};
+        }
+
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            return {};
+        }
+
+    private:
+        std::vector<std::byte> Input_;
+        Prism::Fault::Failure Terminal_;
+        std::size_t Offset_{0};
+        std::size_t ReadCount_{0};
+    };
+
+    [[nodiscard]] auto MakeMaskedBinaryFrame(std::string_view Payload)
+        -> std::vector<std::byte>
+    {
+        constexpr std::array<std::uint8_t, 4> Mask{0x01U, 0x02U, 0x03U, 0x04U};
+        std::vector<std::byte> Wire{
+            std::byte{0x82U}, static_cast<std::byte>(0x80U | Payload.size())};
+        for (const auto Byte : Mask)
+        {
+            Wire.push_back(static_cast<std::byte>(Byte));
+        }
+        for (std::size_t Index = 0; Index < Payload.size(); ++Index)
+        {
+            Wire.push_back(static_cast<std::byte>(
+                static_cast<std::uint8_t>(Payload[Index]) ^ Mask[Index % Mask.size()]));
+        }
+        return Wire;
+    }
+
+    [[nodiscard]] auto ReadFrameBeforeTerminal(
+        std::vector<std::byte> Wire,
+        Prism::Fault::Failure Terminal) -> WsFrameReadOutcome
+    {
+        Net::io_context IoContext;
+        auto Upstream = std::make_shared<WsFrameTerminalTransmission>(
+            IoContext.get_executor(), std::move(Wire), Terminal);
+        Prism::Ws::Detail::ConnSession<WsFrameMemory> Session(
+            Upstream, Prism::Tests::WsFactorySupport::WebSocketTestBytes(), false);
+        Session.MarkHandshaken({});
+        Prism::Ws::Detail::ConnTransport<WsFrameMemory> Transport(Session);
+        Prism::Ws::Detail::ConnClose<WsFrameMemory> Close(Session, *Upstream);
+        Prism::Ws::Detail::ConnFrame<WsFrameMemory> Frame(Session, Transport, Close);
+        WsFrameReadOutcome Outcome;
+        RunCoro(IoContext, [&]() -> Net::awaitable<void>
+        {
+            Outcome.FirstDelivered = co_await Frame.ReadNextDataFrame(
+                Outcome.FirstPayload, Outcome.FirstError);
+            std::vector<std::byte> NextPayload;
+            Outcome.SecondDelivered = co_await Frame.ReadNextDataFrame(
+                NextPayload, Outcome.SecondError);
+        }());
+        Outcome.ReadCount = Upstream->ReadCount();
+        return Outcome;
+    }
 
     /**
      * @brief 按 wire 长度读取完整帧，允许头与载荷经不同 partial I/O 交付。
@@ -501,6 +622,89 @@ namespace
         auto [Client, Server] = MakeMemoryPair(IoContext.get_executor());
         RunCoro(IoContext, RunServerRepliesToMaskedPing(
                                StreamPairRequest{std::move(Client), std::move(Server)}));
+    }
+
+    TEST(WsConnSession, CompleteFramePrecedesEofAndKeepsTerminalSticky)
+    {
+        constexpr std::string_view Payload{"ws-frame-before-eof"};
+        const auto Outcome = ReadFrameBeforeTerminal(
+            MakeMaskedBinaryFrame(Payload),
+            Prism::Fault::Failure{Prism::Fault::Code::Eof});
+
+        ASSERT_TRUE(Outcome.FirstDelivered);
+        EXPECT_EQ(std::string_view(
+                      reinterpret_cast<const char *>(Outcome.FirstPayload.data()),
+                      Outcome.FirstPayload.size()),
+                  Payload);
+        EXPECT_FALSE(Outcome.FirstError);
+        EXPECT_FALSE(Outcome.SecondDelivered);
+        EXPECT_EQ(Outcome.SecondError, Prism::Fault::ToNative(
+            Prism::Fault::Failure{Prism::Fault::Code::Eof}));
+        EXPECT_EQ(Outcome.ReadCount, 3U);
+    }
+
+    TEST(WsConnSession, TerminalCloseClearsHandshakeState)
+    {
+        Net::io_context IoContext;
+        auto Upstream = std::make_shared<WsFrameTerminalTransmission>(
+            IoContext.get_executor(), std::vector<std::byte>{}, Prism::Fault::Failure{});
+        Prism::Ws::Detail::ConnSession<WsFrameMemory> Session(
+            Upstream, Prism::Tests::WsFactorySupport::WebSocketTestBytes(), false);
+        Session.MarkHandshaken({});
+        Prism::Ws::Detail::ConnClose<WsFrameMemory> Close(Session, *Upstream);
+
+        const auto Closed = Close.Terminate();
+
+        ASSERT_TRUE(Closed);
+        EXPECT_TRUE(Session.IsClosed());
+        EXPECT_FALSE(Session.IsHandshaken());
+    }
+
+    TEST(WsConnSession, CompleteFramePrecedesNativeResetAndKeepsTerminalSticky)
+    {
+        constexpr std::string_view Payload{"ws-frame-before-reset"};
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        const auto Outcome = ReadFrameBeforeTerminal(
+            MakeMaskedBinaryFrame(Payload), Prism::Fault::FromNative(Native));
+
+        ASSERT_TRUE(Outcome.FirstDelivered);
+        EXPECT_EQ(std::string_view(
+                      reinterpret_cast<const char *>(Outcome.FirstPayload.data()),
+                      Outcome.FirstPayload.size()),
+                  Payload);
+        EXPECT_FALSE(Outcome.FirstError);
+        EXPECT_FALSE(Outcome.SecondDelivered);
+        EXPECT_EQ(Outcome.SecondError, Native);
+        EXPECT_EQ(Outcome.ReadCount, 3U);
+    }
+
+    TEST(WsConnSession, PartialFrameBeforeEofIsNotDeliveredAndTerminalSticks)
+    {
+        auto PartialWire = MakeMaskedBinaryFrame("partial-ws-frame");
+        PartialWire.resize(4U);
+        const auto Terminal = Prism::Fault::Failure{Prism::Fault::Code::Eof};
+        const auto Outcome = ReadFrameBeforeTerminal(std::move(PartialWire), Terminal);
+
+        EXPECT_FALSE(Outcome.FirstDelivered);
+        EXPECT_EQ(Outcome.FirstError, Prism::Fault::ToNative(Terminal));
+        EXPECT_FALSE(Outcome.SecondDelivered);
+        EXPECT_EQ(Outcome.SecondError, Prism::Fault::ToNative(Terminal));
+        EXPECT_EQ(Outcome.ReadCount, 2U);
+    }
+
+    TEST(WsConnSession, PartialFrameBeforeNativeResetIsNotDeliveredAndTerminalSticks)
+    {
+        auto PartialWire = MakeMaskedBinaryFrame("partial-ws-frame");
+        PartialWire.resize(4U);
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        const auto Terminal = Prism::Fault::FromNative(Native);
+        const auto Outcome = ReadFrameBeforeTerminal(std::move(PartialWire), Terminal);
+
+        EXPECT_FALSE(Outcome.FirstDelivered);
+        EXPECT_EQ(Outcome.FirstError, Native);
+        EXPECT_FALSE(Outcome.SecondDelivered);
+        EXPECT_EQ(Outcome.SecondError, Native);
+        EXPECT_EQ(Outcome.ReadCount, 2U);
     }
 
 }

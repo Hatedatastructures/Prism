@@ -7,8 +7,8 @@
 #include <array>
 #include <cstdint>
 #include <string>
-#include <Prism/Protocols/Reality/Detail/Authentication.hpp>
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
+#include <Prism/Protocols/Reality/Detail/SessionId.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
 
 namespace
 {

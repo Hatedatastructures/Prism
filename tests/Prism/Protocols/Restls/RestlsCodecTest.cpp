@@ -3,7 +3,7 @@
  * @brief Restls 应用数据记录编解码的纯函数测试。
  */
 
-#include <Prism/Protocols/Restls/Detail/Record.hpp>
+#include <Prism/Protocols/Restls/Detail/Codec.hpp>
 
 #include <array>
 #include <cstddef>

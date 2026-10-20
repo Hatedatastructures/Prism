@@ -5,6 +5,50 @@
 
 #include "TlsReassemblyTestSupport.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <system_error>
+#include <vector>
+
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
+#include <Prism/Runtime/Recognition/RawIngressProbe.hpp>
+#include <Prism/Transport/Transmission.hpp>
+
+namespace
+{
+
+    /** @brief 保存 TLS 回放用例的输入与读取观察结果。 */
+    struct RawIngressReplayScenario final
+    {
+        std::shared_ptr<ScriptedTransport> Transport;
+        std::vector<std::byte> Prefix;
+        rec::RawIngressProbeResult Result{};
+        Prism::IoResult PrefixResult{};
+        Prism::IoResult FollowingResult{};
+        std::size_t ReadsAfterProbe{};
+        bool HasReplay{};
+    };
+
+    /** @brief 执行 RawIngress 探测，并按顺序读取缓存前缀和终态。 */
+    auto RunRawIngressReplayScenario(RawIngressReplayScenario &Scenario) -> Net::awaitable<void>
+    {
+        Scenario.Result = co_await rec::RawIngressProbe::Run(rec::RawIngressProbeRequest{
+            std::static_pointer_cast<Prism::Transmission>(Scenario.Transport),
+            std::chrono::milliseconds::zero(), MakeTlsReassemblyBytePool()});
+        Scenario.ReadsAfterProbe = Scenario.Transport->ReadRequests().size();
+        Scenario.HasReplay = static_cast<bool>(Scenario.Result.Transport);
+        if (Scenario.HasReplay)
+        {
+            Scenario.PrefixResult = co_await Scenario.Result.Transport->ReadSome(Scenario.Prefix);
+            Scenario.FollowingResult = co_await Scenario.Result.Transport->ReadSome(Scenario.Prefix);
+        }
+    }
+
+} // namespace
+
 TEST(TlsReassemblyTest, ReadsFiveByteHeaderAcrossFragments)
     {
         Net::io_context Io;
@@ -15,7 +59,7 @@ TEST(TlsReassemblyTest, ReadsFiveByteHeaderAcrossFragments)
         {
             Transport->Push({static_cast<std::byte>(Byte)});
         }
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -42,7 +86,7 @@ TEST(TlsReassemblyTest, RawIngressProbeClassifiesCleartextAndReplaysFirstByte)
             {
                 Result = co_await rec::RawIngressProbe::Run(rec::RawIngressProbeRequest{
                     std::static_pointer_cast<Prism::Transmission>(Transport),
-                    std::chrono::milliseconds::zero()});
+                    std::chrono::milliseconds::zero(), MakeTlsReassemblyBytePool()});
                 ReplayedBytes = co_await ReadAll(Result.Transport, Replayed);
             });
 
@@ -50,6 +94,111 @@ TEST(TlsReassemblyTest, RawIngressProbeClassifiesCleartextAndReplaysFirstByte)
         EXPECT_EQ(Result.Code, Prism::Fault::Code::Success);
         EXPECT_EQ(ReplayedBytes, Wire.size());
         EXPECT_EQ(Replayed, AsBytes(Wire));
+    }
+
+TEST(TlsReassemblyTest, RawIngressProbeReplaysCleartextPrefixBeforeTerminal)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        const std::vector<std::uint8_t> Wire{'G'};
+        const auto Reset = std::make_error_code(std::errc::connection_reset);
+        Transport->Push(AsBytes(Wire), Reset);
+        rec::RawIngressProbeResult Result;
+        Prism::IoResult PrefixResult;
+        Prism::IoResult FollowingResult;
+        std::array<std::byte, 1> Prefix{};
+        std::array<std::byte, 1> Following{};
+        std::size_t ReadCallsAfterProbe = 0;
+
+        RunCoro(
+            Io,
+            [&]() -> Net::awaitable<void>
+            {
+                Result = co_await rec::RawIngressProbe::Run(rec::RawIngressProbeRequest{
+                    std::static_pointer_cast<Prism::Transmission>(Transport),
+                    std::chrono::milliseconds::zero(), MakeTlsReassemblyBytePool()});
+                ReadCallsAfterProbe = Transport->ReadRequests().size();
+                PrefixResult = co_await Result.Transport->ReadSome(Prefix);
+                FollowingResult = co_await Result.Transport->ReadSome(Following);
+            });
+
+        EXPECT_EQ(Result.Kind, rec::RawIngressKind::Cleartext);
+        EXPECT_EQ(PrefixResult.Bytes, 1U);
+        EXPECT_EQ(Prefix[0], static_cast<std::byte>('G'));
+        EXPECT_EQ(PrefixResult.Failure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(PrefixResult.Failure.Native, Reset);
+        EXPECT_EQ(FollowingResult.Bytes, 0U);
+        EXPECT_EQ(FollowingResult.Failure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(FollowingResult.Failure.Native, Reset);
+        EXPECT_EQ(Transport->ReadRequests().size(), ReadCallsAfterProbe);
+    }
+
+TEST(TlsReassemblyTest, RawIngressParsesCompleteHelloBeforeEofAndReplaysTerminal)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        const auto Handshake = MakeClientHello("probe.example", {"h2"}, false);
+        const auto Wire = Concatenate(MakeRecordSequence(Handshake, {Handshake.size()}));
+        const auto Eof = Prism::Fault::make_error_code(Prism::Fault::Code::Eof);
+        Transport->Push(AsBytes(Wire), Eof);
+        RawIngressReplayScenario Scenario{Transport, std::vector<std::byte>(Wire.size())};
+        RunCoro(Io, [&Scenario] { return RunRawIngressReplayScenario(Scenario); });
+
+        const auto &Result = Scenario.Result;
+        const auto &PrefixResult = Scenario.PrefixResult;
+        const auto &FollowingResult = Scenario.FollowingResult;
+        const auto ReadsAfterProbe = Scenario.ReadsAfterProbe;
+        const auto HasReplay = Scenario.HasReplay;
+        const auto &Prefix = Scenario.Prefix;
+
+        ASSERT_TRUE(HasReplay);
+        const auto Expected = AsBytes(Wire);
+        EXPECT_EQ(Result.Kind, rec::RawIngressKind::Tls);
+        EXPECT_EQ(Result.Code, Prism::Fault::Code::Success);
+        EXPECT_EQ(Result.ClientHello.ServerName, "probe.example");
+        EXPECT_EQ(PrefixResult.Bytes, Expected.size());
+        EXPECT_TRUE(std::equal(Expected.begin(), Expected.end(), Prefix.begin()));
+        EXPECT_EQ(PrefixResult.Failure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(PrefixResult.Failure.Native, Eof);
+        EXPECT_EQ(FollowingResult.Bytes, 0U);
+        EXPECT_EQ(FollowingResult.Failure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(FollowingResult.Failure.Native, Eof);
+        EXPECT_EQ(Transport->ReadRequests().size(), ReadsAfterProbe);
+    }
+
+TEST(TlsReassemblyTest, RawIngressReplaysPartialHelloBeforeReset)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        const auto Handshake = MakeClientHello("probe.example", {"h2"}, false);
+        const auto Wire = Concatenate(MakeRecordSequence(Handshake, {Handshake.size()}));
+        const std::vector<std::uint8_t> Partial(Wire.begin(),
+            Wire.begin() + static_cast<std::ptrdiff_t>(rec::TlsRecordHeaderSize + 2U));
+        const auto Reset = std::make_error_code(std::errc::connection_reset);
+        Transport->Push(AsBytes(Partial), Reset);
+        RawIngressReplayScenario Scenario{Transport, std::vector<std::byte>(Partial.size())};
+        RunCoro(Io, [&Scenario] { return RunRawIngressReplayScenario(Scenario); });
+
+        const auto &Result = Scenario.Result;
+        const auto &PrefixResult = Scenario.PrefixResult;
+        const auto &FollowingResult = Scenario.FollowingResult;
+        const auto ReadsAfterProbe = Scenario.ReadsAfterProbe;
+        const auto HasReplay = Scenario.HasReplay;
+        const auto &Prefix = Scenario.Prefix;
+
+        ASSERT_TRUE(HasReplay);
+        const auto Expected = AsBytes(Partial);
+        EXPECT_EQ(Result.Kind, rec::RawIngressKind::Rejected);
+        EXPECT_EQ(Result.Code, Prism::Fault::Code::IoError);
+        EXPECT_EQ(Result.ProtocolError, Prism::Error::IoError);
+        EXPECT_EQ(PrefixResult.Bytes, Expected.size());
+        EXPECT_TRUE(std::equal(Expected.begin(), Expected.end(), Prefix.begin()));
+        EXPECT_EQ(PrefixResult.Failure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(PrefixResult.Failure.Native, Reset);
+        EXPECT_EQ(FollowingResult.Bytes, 0U);
+        EXPECT_EQ(FollowingResult.Failure.Code, Prism::Fault::Code::ConnectionReset);
+        EXPECT_EQ(FollowingResult.Failure.Native, Reset);
+        EXPECT_EQ(Transport->ReadRequests().size(), ReadsAfterProbe);
     }
 
 TEST(TlsReassemblyTest, RawIngressProbeReassemblesHelloAndReplaysResidual)
@@ -74,7 +223,7 @@ TEST(TlsReassemblyTest, RawIngressProbeReassemblesHelloAndReplaysResidual)
             {
                 Result = co_await rec::RawIngressProbe::Run(rec::RawIngressProbeRequest{
                     std::static_pointer_cast<Prism::Transmission>(Transport),
-                    std::chrono::seconds(1)});
+                    std::chrono::seconds(1), MakeTlsReassemblyBytePool()});
                 ReplayedBytes = co_await ReadAll(Result.Transport, Replayed);
             });
 
@@ -101,7 +250,7 @@ TEST(TlsReassemblyTest, RawIngressProbeRejectsMalformedTlsInsteadOfDowngrading)
             {
                 Result = co_await rec::RawIngressProbe::Run(rec::RawIngressProbeRequest{
                     std::static_pointer_cast<Prism::Transmission>(Transport),
-                    std::chrono::milliseconds::zero()});
+                    std::chrono::milliseconds::zero(), MakeTlsReassemblyBytePool()});
             });
 
         EXPECT_EQ(Result.Kind, rec::RawIngressKind::Rejected);
@@ -120,7 +269,7 @@ TEST(TlsReassemblyTest, RawIngressProbeTimesOutSilentClientHello)
             {
                 Result = co_await rec::RawIngressProbe::Run(rec::RawIngressProbeRequest{
                     std::static_pointer_cast<Prism::Transmission>(Transport),
-                    std::chrono::milliseconds(10)});
+                    std::chrono::milliseconds(10), MakeTlsReassemblyBytePool()});
             });
 
         EXPECT_EQ(Result.Kind, rec::RawIngressKind::Rejected);
@@ -137,7 +286,7 @@ TEST(TlsReassemblyTest, ReassemblesClientHelloAcrossTwoRecords)
         {
             Transport->Push(AsBytes(Record));
         }
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -159,7 +308,7 @@ TEST(TlsReassemblyTest, ReassemblesHandshakeHeaderAndBodyAcrossThreeRecords)
         {
             Transport->Push(AsBytes(Record));
         }
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -183,7 +332,7 @@ TEST(TlsReassemblyTest, StopsAtClientHelloAndPreservesSameRecordHandshakeTail)
         auto Combined = Record;
         Combined.insert(Combined.end(), Following.begin(), Following.end());
         Transport->Push(AsBytes(Combined));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -217,7 +366,7 @@ TEST(TlsReassemblyTest, ParsesUnknownExtensionWithoutLosingAlpnOrder)
         const auto Handshake = MakeClientHello("unknown.example", {"acme", "h2", "http/1.1"}, true);
         const auto Record = MakeRecord(0x16, Handshake);
         Transport->Push(AsBytes(Record));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -326,7 +475,7 @@ TEST(TlsReassemblyTest, AcceptsClientHelloWithoutSni)
         const auto Handshake = MakeClientHello({}, {"h2"}, false);
         const auto Record = MakeRecord(0x16, Handshake);
         Transport->Push(AsBytes(Record));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -344,7 +493,7 @@ TEST(TlsReassemblyTest, RejectsClientHelloWithOversizedSessionId)
             ClientHelloOptions{"oversized.example", {"h2"}, false, 33});
         const auto Record = MakeRecord(0x16, Handshake);
         Transport->Push(AsBytes(Record));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -360,7 +509,7 @@ TEST(TlsReassemblyTest, RejectsDuplicateClientHelloExtension)
             ClientHelloOptions{"duplicate.example", {"h2"}, false, 0, true});
         const auto Record = MakeRecord(0x16, Handshake);
         Transport->Push(AsBytes(Record));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -376,7 +525,7 @@ TEST(TlsReassemblyTest, DetectsEncryptedClientHelloExtension)
             ClientHelloOptions{"outer.example", {"h2"}, false, 0, false, true});
         const auto Record = MakeRecord(0x16, Handshake);
         Transport->Push(AsBytes(Record));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -391,7 +540,7 @@ TEST(TlsReassemblyTest, RejectsOversizedRecordBeforeReadingPayload)
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(AsBytes({0x16, 0x03, 0x03, 0x40, 0x01}));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -406,7 +555,7 @@ TEST(TlsReassemblyTest, RejectsClientHelloAbove64KiB)
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         const std::vector<std::uint8_t> Header{0x01, 0x01, 0x00, 0x00};
         Transport->Push(AsBytes(MakeRecord(0x16, Header)));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -419,7 +568,7 @@ TEST(TlsReassemblyTest, ReturnsExplicitEofForShortRecordHeader)
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(AsBytes({0x16, 0x03}));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
@@ -441,60 +590,11 @@ TEST(TlsReassemblyTest, ReturnsIoErrorAfterPartialReadWithError)
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(AsBytes({0x16, 0x03}), std::make_error_code(std::errc::connection_reset));
-        rec::ProbeBuffer Buffer(64 * 1024);
+        rec::ProbeBuffer Buffer(64 * 1024, MakeTlsReassemblyBytePool());
         ReadOutcome Outcome;
 
         ReadHello(ReadHelloRequest{Io, Transport, Buffer, Outcome});
 
         EXPECT_EQ(Outcome.Error, Prism::Error::IoError);
-    }
-
-TEST(TlsReassemblyTest, ReadTlsRecordMapsZeroByteEofToUnexpectedEof)
-    {
-        Net::io_context Io;
-        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
-        const auto Eof = Prism::Fault::make_error_code(Prism::Fault::Code::Eof);
-        Transport->Push({}, Eof);
-        std::pair<Prism::Error, std::vector<std::uint8_t>> Outcome;
-
-        RunCoro(Io, [&]() -> Net::awaitable<void>
-                {
-                    Outcome = co_await rec::ReadTlsRecord(*Transport);
-                });
-
-        EXPECT_EQ(Outcome.first, Prism::Error::UnexpectedEof);
-        EXPECT_TRUE(Outcome.second.empty());
-    }
-
-TEST(TlsReassemblyTest, ReadTlsRecordKeepsPartialNonEofAsIoError)
-    {
-        Net::io_context Io;
-        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
-        Transport->Push(AsBytes({0x16, 0x03}), std::make_error_code(std::errc::connection_reset));
-        std::pair<Prism::Error, std::vector<std::uint8_t>> Outcome;
-
-        RunCoro(Io, [&]() -> Net::awaitable<void>
-                {
-                    Outcome = co_await rec::ReadTlsRecord(*Transport);
-                });
-
-        EXPECT_EQ(Outcome.first, Prism::Error::IoError);
-    }
-
-TEST(TlsReassemblyTest, ReadTlsRecordMapsPayloadEofToUnexpectedEof)
-    {
-        Net::io_context Io;
-        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
-        Transport->Push(AsBytes({0x16, 0x03, 0x03, 0x00, 0x01}));
-        Transport->Push({}, Prism::Fault::make_error_code(Prism::Fault::Code::Eof));
-        std::pair<Prism::Error, std::vector<std::uint8_t>> Outcome;
-
-        RunCoro(Io, [&]() -> Net::awaitable<void>
-                {
-                    Outcome = co_await rec::ReadTlsRecord(*Transport);
-                });
-
-        EXPECT_EQ(Outcome.first, Prism::Error::UnexpectedEof);
-        EXPECT_TRUE(Outcome.second.empty());
     }
 

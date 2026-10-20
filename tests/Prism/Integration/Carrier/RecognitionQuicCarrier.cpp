@@ -14,56 +14,134 @@
 #include <utility>
 
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 
+#include <exception>
+#include <expected>
+#include <optional>
 #include <Prism/Protocols/Quic/DatagramAdapter.hpp>
 #include <Prism/Protocols/Hysteria2/Hysteria2.hpp>
 #include <Prism/Protocols/Tuic/Tuic.hpp>
 
 namespace
 {
+    namespace Net = boost::asio;
+
+    template <typename Datagram>
+    auto CloseAndDrainDatagram(Datagram DatagramValue) -> Net::awaitable<void>
+    {
+        EXPECT_TRUE(DatagramValue->Close());
+        const auto Activity = DatagramValue->Activity();
+        if (!Activity)
+        {
+            ADD_FAILURE() << "datagram has no activity owner";
+            co_return;
+        }
+        EXPECT_TRUE(co_await Activity->Drain());
+    }
+
+    template <typename ClientResult, typename ServerResult>
+    auto CloseAndDrainDatagrams(
+        const ClientResult &ClientValue,
+        const ServerResult &ServerValue) -> Net::awaitable<void>
+    {
+        if (ClientValue.has_value() && ClientValue.value())
+            co_await CloseAndDrainDatagram(ClientValue.value());
+        if (ServerValue.has_value() && ServerValue.value())
+            co_await CloseAndDrainDatagram(ServerValue.value());
+    }
+
+    auto RunCoro(Net::io_context &Io, Net::awaitable<void> Operation)
+        -> std::exception_ptr
+    {
+        std::exception_ptr Failure;
+        Net::co_spawn(Io, std::move(Operation), [&](std::exception_ptr Error)
+                      { Failure = std::move(Error); });
+        Io.run();
+        return Failure;
+    }
+
+    struct DatagramAdapterOutcome final
+    {
+        std::size_t Written{0};
+        std::error_code Error{};
+        bool CancelAccepted{false};
+        bool CloseAccepted{false};
+        bool ActivityDrained{false};
+    };
+
+    auto RunDatagramAdapterScenario(
+        const std::shared_ptr<Prism::Quic::DatagramAdapter> &Adapter,
+        const std::span<const std::byte> Data) -> Net::awaitable<DatagramAdapterOutcome>
+    {
+        DatagramAdapterOutcome Outcome;
+        const auto Write = co_await Adapter->WriteSome(Data);
+        Outcome.Error = Prism::Fault::ToNative(Write.Failure);
+        Outcome.Written = Write.Bytes;
+        Outcome.CancelAccepted = static_cast<bool>(Adapter->Cancel());
+        Outcome.CloseAccepted = static_cast<bool>(Adapter->Close());
+        Outcome.ActivityDrained = static_cast<bool>(
+            co_await Adapter->Activity()->Drain());
+        co_return Outcome;
+    }
 
     TEST(RecognitionQuicCarrier, Hysteria2PacketFactoryUsesUdpAndReportsInvalidEndpoint)
     {
         boost::asio::io_context Io;
         const Prism::Hysteria2::ClientConfig ClientConfig{};
-        const auto Client = Prism::Hysteria2::ConnectPacketResult(
-            Io.get_executor(), "127.0.0.1:1", ClientConfig);
-        const auto Server = Prism::Hysteria2::AcceptPacketResult(
-            Io.get_executor(), 0, Prism::Hysteria2::ServerConfig{});
-        const auto Invalid = Prism::Hysteria2::ConnectPacketResult(
-            Io.get_executor(), "invalid endpoint", ClientConfig);
+        std::optional<std::expected<Prism::Hysteria2::SharedDgram, Prism::Fault::Failure>> Client;
+        std::optional<std::expected<Prism::Hysteria2::SharedDgram, Prism::Fault::Failure>> Server;
+        std::optional<std::expected<Prism::Hysteria2::SharedDgram, Prism::Fault::Failure>> Invalid;
 
-        EXPECT_EQ(Client.Status, Prism::Error::None);
-        EXPECT_EQ(Server.Status, Prism::Error::None);
-        EXPECT_TRUE(Client.Datagram);
-        EXPECT_TRUE(Server.Datagram);
-        EXPECT_EQ(Invalid.Status, Prism::Error::BadAddress);
-        EXPECT_FALSE(Invalid.Datagram);
-        (void)Client.Datagram->Close();
-        (void)Server.Datagram->Close();
+        const auto Failure = RunCoro(Io, [&]() -> Net::awaitable<void>
+        {
+            Client.emplace(co_await Prism::Hysteria2::ConnectPacket(
+                Io.get_executor(), "127.0.0.1:1", ClientConfig));
+            Server.emplace(co_await Prism::Hysteria2::AcceptPacket(
+                Io.get_executor(), 0, Prism::Hysteria2::ServerConfig{}));
+            Invalid.emplace(co_await Prism::Hysteria2::ConnectPacket(
+                Io.get_executor(), "invalid endpoint", ClientConfig));
+            co_await CloseAndDrainDatagrams(*Client, *Server);
+        }());
+
+        ASSERT_FALSE(Failure);
+        ASSERT_TRUE(Client.has_value());
+        ASSERT_TRUE(Server.has_value());
+        ASSERT_TRUE(Invalid.has_value());
+        EXPECT_TRUE(Client->has_value());
+        EXPECT_TRUE(Server->has_value());
+        ASSERT_FALSE(Invalid->has_value());
+        EXPECT_EQ(Invalid->error().Code, Prism::Fault::Code::InvalidArgument);
     }
 
     TEST(RecognitionQuicCarrier, TuicPacketFactoryUsesUdpAndReportsInvalidEndpoint)
     {
         boost::asio::io_context Io;
         const Prism::Tuic::ClientConfig ClientConfig{};
-        const auto Client = Prism::Tuic::ConnectPacketResult(
-            Io.get_executor(), "127.0.0.1:1", ClientConfig);
-        const auto Server = Prism::Tuic::AcceptPacketResult(
-            Io.get_executor(), 0, Prism::Tuic::ServerConfig{});
-        const auto Invalid = Prism::Tuic::ConnectPacketResult(
-            Io.get_executor(), "invalid endpoint", ClientConfig);
+        std::optional<std::expected<Prism::Tuic::SharedDgram, Prism::Fault::Failure>> Client;
+        std::optional<std::expected<Prism::Tuic::SharedDgram, Prism::Fault::Failure>> Server;
+        std::optional<std::expected<Prism::Tuic::SharedDgram, Prism::Fault::Failure>> Invalid;
 
-        EXPECT_EQ(Client.Status, Prism::Error::None);
-        EXPECT_EQ(Server.Status, Prism::Error::None);
-        EXPECT_TRUE(Client.Datagram);
-        EXPECT_TRUE(Server.Datagram);
-        EXPECT_EQ(Invalid.Status, Prism::Error::BadAddress);
-        EXPECT_FALSE(Invalid.Datagram);
-        (void)Client.Datagram->Close();
-        (void)Server.Datagram->Close();
+        const auto Failure = RunCoro(Io, [&]() -> Net::awaitable<void>
+        {
+            Client.emplace(co_await Prism::Tuic::ConnectPacket(
+                Io.get_executor(), "127.0.0.1:1", ClientConfig));
+            Server.emplace(co_await Prism::Tuic::AcceptPacket(
+                Io.get_executor(), 0, Prism::Tuic::ServerConfig{}));
+            Invalid.emplace(co_await Prism::Tuic::ConnectPacket(
+                Io.get_executor(), "invalid endpoint", ClientConfig));
+            co_await CloseAndDrainDatagrams(*Client, *Server);
+        }());
+
+        ASSERT_FALSE(Failure);
+        ASSERT_TRUE(Client.has_value());
+        ASSERT_TRUE(Server.has_value());
+        ASSERT_TRUE(Invalid.has_value());
+        EXPECT_TRUE(Client->has_value());
+        EXPECT_TRUE(Server->has_value());
+        ASSERT_FALSE(Invalid->has_value());
+        EXPECT_EQ(Invalid->error().Code, Prism::Fault::Code::InvalidArgument);
     }
 
     class FakeDatagramProvider final : public Prism::Quic::DatagramProvider
@@ -127,25 +205,19 @@ namespace
         Provider->SendBytes_ = 2;
         auto Adapter = std::make_shared<Prism::Quic::DatagramAdapter>(Provider);
         std::array<std::byte, 5> Data{};
-        std::size_t Written = 0;
-        std::error_code Error;
-        boost::asio::co_spawn(
-            Io,
-            [&]() -> boost::asio::awaitable<void>
-            {
-                const auto Write = co_await Adapter->WriteSome(Data);
-                Error = Prism::Fault::ToNative(Write.Failure);
-                Written = Write.Bytes;
-                Io.stop();
-            },
-            boost::asio::detached);
-        Io.run();
+        DatagramAdapterOutcome Outcome;
+        const auto Failure = RunCoro(Io, [&]() -> Net::awaitable<void>
+        {
+            Outcome = co_await RunDatagramAdapterScenario(Adapter, Data);
+        }());
 
-        EXPECT_EQ(Written, 2U);
-        EXPECT_EQ(Error, Prism::make_error_code(Prism::Error::IoError));
-        (void)Adapter->Cancel();
+        ASSERT_FALSE(Failure);
+        EXPECT_EQ(Outcome.Written, 2U);
+        EXPECT_EQ(Outcome.Error, Prism::make_error_code(Prism::Error::IoError));
+        EXPECT_TRUE(Outcome.CancelAccepted);
         EXPECT_TRUE(Provider->Cancelled_);
-        (void)Adapter->Close();
+        EXPECT_TRUE(Outcome.CloseAccepted);
+        EXPECT_TRUE(Outcome.ActivityDrained);
         EXPECT_TRUE(Provider->IsClosed());
         EXPECT_FALSE(Adapter->IsOpen());
     }

@@ -5,24 +5,32 @@
  * @note 使用 MakeMemoryPair 建立内存传输对，同一进程内双向互操作。
  */
 
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
-#include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Foundation/ByteSpan.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Protocols/Trusttunnel/Codec.hpp>
+#include <Prism/Protocols/Trusttunnel/TransportTypes.hpp>
 #include <Prism/Protocols/Trusttunnel/Trusttunnel.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/Conn.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/Dgram.hpp>
+#include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 #include <gtest/gtest.h>
 
@@ -34,6 +42,73 @@ namespace
     using Prism::MakeMemoryPair;
     using Prism::MemoryStream;
     using Prism::PrismMockTransport;
+
+    class TerminalHandshakeTransmission final : public Prism::Transmission
+    {
+    public:
+        TerminalHandshakeTransmission(
+            ExecutorType Executor,
+            std::vector<std::byte> Input,
+            Prism::Fault::Failure ReadFailure)
+            : Transmission(Executor), Ex_(std::move(Executor)), Input_(std::move(Input)),
+              ReadFailure_(ReadFailure)
+        {
+        }
+
+        [[nodiscard]] auto ReadCount() const noexcept -> std::size_t
+        {
+            return ReadCount_;
+        }
+
+        [[nodiscard]] auto Executor() const -> ExecutorType override
+        {
+            return Ex_;
+        }
+
+    protected:
+        auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
+        {
+            ++ReadCount_;
+            if (ReadCount_ != 1U)
+            {
+                Prism::Transmission::PostResult(
+                    Executor(), std::move(Handler),
+                    {0, {Prism::Fault::Code::WouldBlock}});
+                return;
+            }
+            const auto Count = (std::min)(Buffer.size(), Input_.size());
+            std::copy_n(Input_.begin(), Count, Buffer.begin());
+            Prism::Transmission::PostResult(
+                Executor(), std::move(Handler), {Count, ReadFailure_});
+        }
+
+        auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
+        {
+            Prism::Transmission::PostResult(
+                Executor(), std::move(Handler), {Buffer.size(), {}});
+        }
+
+        auto StartWriteShutdown(Completion Handler) -> void override
+        {
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
+        }
+
+        [[nodiscard]] auto OnClose() -> ControlResult override
+        {
+            return {};
+        }
+
+        [[nodiscard]] auto OnCancel() -> ControlResult override
+        {
+            return {};
+        }
+
+    private:
+        ExecutorType Ex_;
+        std::vector<std::byte> Input_;
+        Prism::Fault::Failure ReadFailure_;
+        std::size_t ReadCount_{0};
+    };
 
     using CompletionChannel = Net::experimental::channel<void(boost::system::error_code)>;
 
@@ -84,6 +159,73 @@ namespace
         EXPECT_TRUE(Activity->IsRetired());
     }
 
+    struct TrusttunnelTerminalHandshakeOutcome final
+    {
+        Prism::Fault::Failure HandshakeFailure{};
+        std::string Target;
+        std::string Tail;
+        std::size_t TailBytes{0};
+        Prism::Fault::Failure TailFailure{};
+        std::size_t TerminalBytes{0};
+        Prism::Fault::Failure TerminalFailure{};
+        std::size_t StickyBytes{0};
+        Prism::Fault::Failure StickyFailure{};
+    };
+
+    struct TrusttunnelTerminalHandshakeRequest final
+    {
+        std::shared_ptr<TerminalHandshakeTransmission> Transport;
+        TrusttunnelTerminalHandshakeOutcome *Outcome;
+    };
+
+    [[nodiscard]] auto MakeTerminalHandshakeWire() -> std::vector<std::byte>
+    {
+        std::string Input = "CONNECT example.com:443 HTTP/2\r\nProxy-Authorization: ";
+        Input += Trusttunnel::BasicAuth("admin", "Secret");
+        Input += "\r\n\r\ntunnel-tail";
+        std::vector<std::byte> Wire;
+        Wire.reserve(Input.size());
+        for (const auto Character : Input)
+        {
+            Wire.push_back(static_cast<std::byte>(Character));
+        }
+        return Wire;
+    }
+
+    auto RunTrusttunnelTerminalHandshake(
+        TrusttunnelTerminalHandshakeRequest Request) -> Net::awaitable<void>
+    {
+        Trusttunnel::ServerConfig Configuration;
+        Configuration.username = "admin";
+        Configuration.password = "Secret";
+        auto Accepted = co_await Trusttunnel::Accept(Request.Transport, Configuration);
+        if (!Accepted)
+        {
+            Request.Outcome->HandshakeFailure = Accepted.error();
+            co_return;
+        }
+
+        auto Connection = Accepted->Connection;
+        Request.Outcome->Target = Accepted->Target;
+        std::array<std::byte, 32> Buffer{};
+        const auto Tail = co_await Connection->ReadSome(Buffer);
+        Request.Outcome->TailBytes = Tail.Bytes;
+        Request.Outcome->TailFailure = Tail.Failure;
+        if (Tail.Bytes <= Buffer.size())
+        {
+            Request.Outcome->Tail.assign(
+                reinterpret_cast<const char *>(Buffer.data()), Tail.Bytes);
+        }
+        const auto Terminal = co_await Connection->ReadSome(Buffer);
+        Request.Outcome->TerminalBytes = Terminal.Bytes;
+        Request.Outcome->TerminalFailure = Terminal.Failure;
+        const auto StickyTerminal = co_await Connection->ReadSome(Buffer);
+        Request.Outcome->StickyBytes = StickyTerminal.Bytes;
+        Request.Outcome->StickyFailure = StickyTerminal.Failure;
+        co_await CloseAndDrainTransport(std::static_pointer_cast<Prism::Transmission>(
+            std::move(Connection)));
+    }
+
     /** @brief 服务端接收测试 datagram 并验证双向业务与底层装饰器。 */
     auto RunServerRoundtrip(std::shared_ptr<MemoryStream> ServerTransport) -> Net::awaitable<void>
     {
@@ -122,7 +264,7 @@ namespace
         EXPECT_GT(ReadResult.Bytes, 0u);
         EXPECT_TRUE(Datagram->Stream());
         EXPECT_NE(Datagram->NextLayer(), nullptr);
-        const Trusttunnel::Detail::Dgram *ConstDatagram = Datagram.get();
+        const Trusttunnel::Dgram *ConstDatagram = Datagram.get();
         EXPECT_NE(ConstDatagram->NextLayer(), nullptr);
         auto InnerStream = Datagram->Stream();
         const auto *ConstConnection = dynamic_cast<const Trusttunnel::Detail::Conn<> *>(InnerStream.get());
@@ -241,7 +383,7 @@ namespace
         -> Net::awaitable<void>
     {
         auto Peer = std::make_shared<MemoryStream>(std::move(ServerMemory));
-        auto Created = Trusttunnel::Detail::Dgram::Create(Trusttunnel::DgramRequest{
+        auto Created = Trusttunnel::Dgram::Create(Trusttunnel::DgramRequest{
             std::make_shared<MemoryStream>(std::move(ClientMemory))});
         EXPECT_TRUE(Created);
         if (!Created) co_return;
@@ -266,7 +408,7 @@ namespace
         -> Net::awaitable<void>
     {
         auto Peer = std::make_shared<MemoryStream>(std::move(ClientMemory));
-        auto Created = Trusttunnel::Detail::Dgram::Create(Trusttunnel::DgramRequest{
+        auto Created = Trusttunnel::Dgram::Create(Trusttunnel::DgramRequest{
             std::make_shared<MemoryStream>(std::move(ServerMemory))});
         EXPECT_TRUE(Created);
         if (!Created) co_return;
@@ -286,7 +428,7 @@ namespace
     }
 
     /** @brief 验证 datagram 拒绝底层过量写入。 */
-    auto RunRejectsOverreportedWrite(std::shared_ptr<Trusttunnel::Detail::Dgram> Datagram)
+    auto RunRejectsOverreportedWrite(std::shared_ptr<Trusttunnel::Dgram> Datagram)
         -> Net::awaitable<void>
     {
         const auto Payload = AsU8Span(std::string_view{"overreport"});
@@ -298,7 +440,7 @@ namespace
     }
 
     /** @brief 验证 datagram 拒绝底层过量读取。 */
-    auto RunRejectsOverreportedRead(std::shared_ptr<Trusttunnel::Detail::Dgram> Datagram)
+    auto RunRejectsOverreportedRead(std::shared_ptr<Trusttunnel::Dgram> Datagram)
         -> Net::awaitable<void>
     {
         std::string Host;
@@ -341,12 +483,59 @@ namespace
         RunCoro(IoContext, RunPeerClosedEof(std::move(ClientMemory), std::move(ServerMemory)));
     }
 
+    TEST(TrusttunnelDgramSession, ReadHandshakeDeliversTailBeforeSameReadEof)
+    {
+        Net::io_context IoContext;
+        auto RawTransport = std::make_shared<TerminalHandshakeTransmission>(
+            IoContext.get_executor(), MakeTerminalHandshakeWire(),
+            Prism::Fault::Failure{Prism::Fault::Code::Eof});
+        TrusttunnelTerminalHandshakeOutcome Outcome;
+
+        RunCoro(IoContext, RunTrusttunnelTerminalHandshake({RawTransport, &Outcome}));
+
+        EXPECT_TRUE(Outcome.HandshakeFailure.Succeeded());
+        EXPECT_EQ(Outcome.Target, "example.com");
+        EXPECT_EQ(Outcome.Tail, "tunnel-tail");
+        EXPECT_EQ(Outcome.TailBytes, std::string_view{"tunnel-tail"}.size());
+        EXPECT_TRUE(Outcome.TailFailure.Succeeded());
+        EXPECT_EQ(Outcome.TerminalBytes, 0U);
+        EXPECT_EQ(Outcome.TerminalFailure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(Outcome.StickyBytes, 0U);
+        EXPECT_EQ(Outcome.StickyFailure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(RawTransport->ReadCount(), 1U);
+    }
+
+    TEST(TrusttunnelDgramSession, ReadHandshakeDeliversTailBeforeSameReadNativeFailure)
+    {
+        Net::io_context IoContext;
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        auto RawTransport = std::make_shared<TerminalHandshakeTransmission>(
+            IoContext.get_executor(), MakeTerminalHandshakeWire(),
+            Prism::Fault::Failure{Prism::Fault::Code::IoError, Native});
+        TrusttunnelTerminalHandshakeOutcome Outcome;
+
+        RunCoro(IoContext, RunTrusttunnelTerminalHandshake({RawTransport, &Outcome}));
+
+        EXPECT_TRUE(Outcome.HandshakeFailure.Succeeded());
+        EXPECT_EQ(Outcome.Target, "example.com");
+        EXPECT_EQ(Outcome.Tail, "tunnel-tail");
+        EXPECT_EQ(Outcome.TailBytes, std::string_view{"tunnel-tail"}.size());
+        EXPECT_TRUE(Outcome.TailFailure.Succeeded());
+        EXPECT_EQ(Outcome.TerminalBytes, 0U);
+        EXPECT_EQ(Outcome.TerminalFailure.Code, Prism::Fault::Code::IoError);
+        EXPECT_EQ(Outcome.TerminalFailure.Native, Native);
+        EXPECT_EQ(Outcome.StickyBytes, 0U);
+        EXPECT_EQ(Outcome.StickyFailure.Code, Prism::Fault::Code::IoError);
+        EXPECT_EQ(Outcome.StickyFailure.Native, Native);
+        EXPECT_EQ(RawTransport->ReadCount(), 1U);
+    }
+
     TEST(TrusttunnelDgramSession, RejectsOverreportedWrite)
     {
         Net::io_context IoContext;
         auto RawTransport = std::make_shared<PrismMockTransport>(IoContext.get_executor());
         RawTransport->OverreportWrite = true;
-        auto Created = Trusttunnel::Detail::Dgram::Create(
+        auto Created = Trusttunnel::Dgram::Create(
             Trusttunnel::DgramRequest{RawTransport});
         ASSERT_TRUE(Created);
         auto Datagram = std::move(*Created);
@@ -358,7 +547,7 @@ namespace
         Net::io_context IoContext;
         auto RawTransport = std::make_shared<PrismMockTransport>(IoContext.get_executor());
         RawTransport->OverreportRead = true;
-        auto Created = Trusttunnel::Detail::Dgram::Create(
+        auto Created = Trusttunnel::Dgram::Create(
             Trusttunnel::DgramRequest{RawTransport});
         ASSERT_TRUE(Created);
         auto Datagram = std::move(*Created);

@@ -3,6 +3,7 @@
 #include <boost/asio.hpp>
 #include <Prism/Account/Account.hpp>
 #include <Prism/Net/Dns/Resolver.hpp>
+#include <Prism/Net/HostText.hpp>
 #include <Prism/Protocols/Vless/IngressFactory.hpp>
 #include <Prism/Protocols/Vless/Xudp/RootSession.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>

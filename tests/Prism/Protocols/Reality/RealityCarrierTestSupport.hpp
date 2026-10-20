@@ -5,8 +5,8 @@
  */
 #pragma once
 
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
-#include <Prism/Protocols/Reality/Detail/Authentication.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
+#include <Prism/Protocols/Reality/Detail/SessionId.hpp>
 
 #include <algorithm>
 #include <array>

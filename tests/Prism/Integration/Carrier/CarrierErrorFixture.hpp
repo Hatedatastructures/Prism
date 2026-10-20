@@ -37,17 +37,41 @@
 #include <Prism/Transport/MemoryStream.hpp>
 #include "../../Transport/TransportResources.hpp"
 #include <TestSupport/Prism/PrismMockTransport.hpp>
-#include <Prism/Protocols/Vmess/Codec.hpp>
 #include <Prism/Protocols/Vmess/Vmess.hpp>
 #include <Prism/Protocols/Anytls/Codec.hpp>
 #include <Prism/Protocols/Anytls/Conn.hpp>
 #include <Prism/Protocols/Gun/Conn.hpp>
-#include <Prism/Protocols/Restls/Detail/Session.hpp>
-#include <Prism/Protocols/Shadowtls/Detail/Session.hpp>
+#include <Prism/Protocols/Restls/Detail/Conn.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/Conn.hpp>
 #include <Prism/Protocols/Trusttunnel/Codec.hpp>
-#include <Prism/Protocols/Trusttunnel/Conn.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/Conn.hpp>
+#include <Prism/Protocols/Trusttunnel/TransportTypes.hpp>
 #include <gtest/gtest.h>
+
+namespace Prism::Testing::CarrierErrorFixture
+{
+    struct TransmissionCloseResult final
+    {
+        Prism::Transmission::ControlResult Cancel;
+        Prism::Transmission::ControlResult Close;
+        Prism::Transmission::ControlResult Drain;
+    };
+
+    struct DriveCloseCompletion final
+    {
+        std::exception_ptr *Fatal;
+        bool *Completed;
+        TransmissionCloseResult *Result;
+
+        auto operator()(
+            std::exception_ptr ErrorValue,
+            TransmissionCloseResult Value) const -> void
+        {
+            *Fatal = std::move(ErrorValue);
+            *Result = std::move(Value);
+            *Completed = true;
+        }
+    };
+}
 
 namespace
 {
@@ -58,7 +82,6 @@ namespace
     namespace Restls = PrismApi::Restls;
     namespace Trusttunnel = PrismApi::Trusttunnel;
     namespace Gun = PrismApi::Gun;
-    namespace Ws = PrismApi::Ws;
     namespace Vmess = PrismApi::Vmess;
 
     using PrismApi::AsBytes;
@@ -83,12 +106,8 @@ namespace
         std::shared_ptr<bool> CompletionAccepted;
     };
 
-    struct TransmissionCloseResult final
-    {
-        ControlResult Cancel;
-        ControlResult Close;
-        ControlResult Drain;
-    };
+    using Prism::Testing::CarrierErrorFixture::DriveCloseCompletion;
+    using Prism::Testing::CarrierErrorFixture::TransmissionCloseResult;
 
     template <typename Awaitable>
     auto SpawnTask(Net::any_io_executor Executor, Awaitable Operation) -> TaskState
@@ -204,16 +223,10 @@ namespace
         std::exception_ptr Fatal;
         bool Completed = false;
         TransmissionCloseResult Result;
-        auto Completion = [&Fatal, &Completed, &Result](
-                              std::exception_ptr ErrorValue,
-                              TransmissionCloseResult Value) -> void
-        {
-            Fatal = std::move(ErrorValue);
-            Result = std::move(Value);
-            Completed = true;
-        };
         Net::co_spawn(
-            Context, CloseTransmission(std::move(Transport)), std::move(Completion));
+            Context,
+            CloseTransmission(std::move(Transport)),
+            DriveCloseCompletion{&Fatal, &Completed, &Result});
         Context.run();
         if (Fatal)
         {
@@ -489,19 +502,41 @@ namespace
     {
         Vmess::ServerConfig Config;
         Config.uuid = Uuid;
-        auto AcceptResult = co_await AcceptVmessStream(Server, Config);
+        auto AcceptResult = co_await Vmess::AcceptSession(Server, Config);
         if (!AcceptResult)
         {
             ADD_FAILURE() << "Accept Failed: " << static_cast<int>(AcceptResult.error().Code);
             co_return;
         }
-        if (!AcceptResult->Connection)
+
+        Vmess::Message Request{};
+        SharedTransmission Connection;
+        Vmess::SharedDgram Datagram;
+        if (auto* Stream = std::get_if<Vmess::AcceptedConnection>(&*AcceptResult))
         {
+            Request = std::move(Stream->Request);
+            Connection = std::move(Stream->Connection);
+        }
+        else
+        {
+            auto& Accepted = std::get<Vmess::AcceptedDatagram>(*AcceptResult);
+            Request = std::move(Accepted.Request);
+            Datagram = std::move(Accepted.Connection);
+            if (Datagram)
+            {
+                Connection = Datagram->Stream();
+            }
+        }
+        if (!Connection)
+        {
+            if (Datagram)
+            {
+                co_await ExpectCloseTransmission(Datagram);
+            }
             ADD_FAILURE() << "Accept succeeded without a VMess connection owner";
             co_return;
         }
-        auto Request = std::move(AcceptResult->Request);
-        auto Connection = std::move(AcceptResult->Connection);
+        EXPECT_EQ(Request.Cmd, Datagram ? Vmess::CmdUdp : Vmess::CmdTcp);
         const auto ResponseBodyKey = Vmess::detail::Sha256(Request.RequestKey);
         const auto ResponseBodyIv = Vmess::detail::Sha256(Request.RequestNonce);
         std::array<std::uint8_t, 16> ResponseKey{};
@@ -518,6 +553,10 @@ namespace
             std::span<const std::uint8_t>(EndBlock).first(EndBlockSize));
         const auto Write = co_await Connection->NextLayer()->WriteSome(EndBlockBytes);
         ExpectFullWrite(Write, EndBlockBytes.size());
+        if (Datagram)
+        {
+            co_await ExpectCloseTransmission(Datagram);
+        }
         co_await ExpectCloseTransmission(Connection);
         co_return;
     }

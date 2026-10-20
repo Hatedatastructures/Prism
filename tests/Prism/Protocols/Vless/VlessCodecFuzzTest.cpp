@@ -9,7 +9,11 @@
 #include <random>
 #include <span>
 #include <vector>
-#include <Prism/Protocols/Vless/Codec.hpp>
+#include <Prism/Protocols/Vless/AddressCodec.hpp>
+#include <Prism/Protocols/Vless/BeastCodec.hpp>
+#include <Prism/Protocols/Vless/RequestCodec.hpp>
+#include <Prism/Protocols/Vless/Types.hpp>
+#include <Prism/Protocols/Vless/UdpCodec.hpp>
 
 namespace
 {
@@ -50,9 +54,8 @@ TEST(CodecFuzz, VlessParseNeverCrashes)
             (void)Vless::ParseAddress(Data, Address, Consumed);
             EXPECT_LE(Consumed, Data.size());
 
-            Vless::Address Destination;
             std::span<const std::uint8_t> Payload;
-            (void)Vless::ParseUdpPkt(Data, Destination, Payload);
+            (void)Vless::ParseUdpPkt(Data, Payload);
             EXPECT_LE(Payload.size(), Data.size());
         }
         SUCCEED();

@@ -437,9 +437,7 @@ TEST(TuicAdmission, RejectsUnidirectionalStreamAfterAuthentication)
     Harness.SubmitUnidirectional(
         MakeScriptedStream(Io.get_executor(), MakeAuthWire()).Provider);
     Harness.SubmitExporter(TestExporter);
-    std::fprintf(stderr, "RUA before auth run\n");
     Io.run();
-    std::fprintf(stderr, "RUA after auth run\n");
     EXPECT_EQ(Harness.Authenticator()->Calls(), 1U);
 
     Io.restart();
@@ -447,9 +445,7 @@ TEST(TuicAdmission, RejectsUnidirectionalStreamAfterAuthentication)
     Harness.SubmitUnidirectional(RepeatedAuth.Provider);
     Harness.SubmitBidirectional(
         MakeScriptedStream(Io.get_executor(), MakeConnectWire()).Provider);
-    std::fprintf(stderr, "RUA before repeated run\n");
     Io.run();
-    std::fprintf(stderr, "RUA after repeated run\n");
 
     EXPECT_FALSE(RepeatedAuth.Transmission->IsOpen());
     EXPECT_EQ(RepeatedAuth.Transmission->ReadCalls(), 0U);
@@ -459,9 +455,7 @@ TEST(TuicAdmission, RejectsUnidirectionalStreamAfterAuthentication)
     Io.restart();
     Harness.Admission()->OnClosed();
     Io.run();
-    std::fprintf(stderr, "RUA after close run\n");
     Harness.CloseAndDrain();
-    std::fprintf(stderr, "RUA after drain\n");
 }
 
 TEST(TuicAdmission, ZeroPendingBidiCapacityRejectsEarlyStream)
@@ -485,9 +479,7 @@ TEST(TuicAdmission, ZeroPendingBidiCapacityRejectsEarlyStream)
     Harness.SubmitUnidirectional(
         MakeScriptedStream(Io.get_executor(), MakeAuthWire()).Provider);
     Harness.SubmitExporter(TestExporter);
-    std::fprintf(stderr, "ZP before run\n");
     Io.run();
-    std::fprintf(stderr, "ZP after run\n");
 
     EXPECT_FALSE(Bidi.Transmission->IsOpen());
     EXPECT_EQ(DialCalls, 0U);
@@ -495,10 +487,8 @@ TEST(TuicAdmission, ZeroPendingBidiCapacityRejectsEarlyStream)
     Io.restart();
     Harness.Admission()->OnClosed();
     Io.run();
-    std::fprintf(stderr, "ZP after close run\n");
     EXPECT_EQ(Harness.Record()->Runtime()->ActiveConnections(), 0U);
     Harness.CloseAndDrain();
-    std::fprintf(stderr, "ZP after drain\n");
 }
 
 TEST(TuicAdmission, PendingBidiCapacityClosesOnlyOverflowStreams)
@@ -524,9 +514,7 @@ TEST(TuicAdmission, PendingBidiCapacityClosesOnlyOverflowStreams)
     Harness.SubmitUnidirectional(
         MakeScriptedStream(Io.get_executor(), MakeAuthWire()).Provider);
     Harness.SubmitExporter(TestExporter);
-    std::fprintf(stderr, "PB before run\n");
     Io.run();
-    std::fprintf(stderr, "PB after run\n");
 
     EXPECT_GT(First.Transmission->ReadCalls(), 0U);
     EXPECT_EQ(Overflow.Transmission->ReadCalls(), 0U);
@@ -536,8 +524,6 @@ TEST(TuicAdmission, PendingBidiCapacityClosesOnlyOverflowStreams)
     Io.restart();
     Harness.Admission()->OnClosed();
     Io.run();
-    std::fprintf(stderr, "PB after close run\n");
     Harness.CloseAndDrain();
-    std::fprintf(stderr, "PB after drain\n");
 }
 

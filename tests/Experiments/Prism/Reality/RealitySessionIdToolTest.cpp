@@ -17,7 +17,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/steady_timer.hpp>
 
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
 #include "SessionIdTool.hpp"
 #include <Prism/Transport/MemoryStream.hpp>
 #include <gtest/gtest.h>

@@ -31,14 +31,15 @@
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
+#include <Prism/Protocols/Http1/Binding.hpp>
 #include <Prism/Protocols/Http1/Conn.hpp>
 #include <Prism/Protocols/Socks5/Socks5.hpp>
 #include <Prism/Runtime/Session.hpp>
 #include <Prism/Runtime/SessionRegistry.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/StreamFactory.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
@@ -55,6 +56,7 @@ namespace
     using SharedAccountBinding = std::shared_ptr<const Prism::Account::AccountBinding>;
     using SharedTransmission = Prism::SharedTransmission;
     using FaultCode = Prism::Fault::Code;
+    using FaultFailure = Prism::Fault::Failure;
 
     /** @brief 按 fixture 选项创建可由测试持有的出站传输 owner。 */
     auto MakeOptionalOutbound(Net::any_io_executor Executor, bool Provide)
@@ -90,18 +92,18 @@ namespace
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), {0, {FaultCode::Eof}});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -143,7 +145,7 @@ namespace
 
     auto MakeSocks5UserPassConnect() -> std::vector<std::uint8_t>
     {
-        constexpr std::string_view User = "account";
+        constexpr std::string_view User = "provider-fixture";
         constexpr std::string_view Password = "socks-password";
         constexpr std::string_view Host = "example.com";
 
@@ -165,7 +167,7 @@ namespace
         constexpr std::string_view Request =
             "CONNECT example.com:443 HTTP/1.1\r\n"
             "Host: example.com:443\r\n"
-            "Proxy-Authorization: Basic YTpi\r\n"
+            "Proxy-Authorization: Basic cHJvdmlkZXItZml4dHVyZTpi\r\n"
             "\r\n";
         return std::vector<std::uint8_t>(Request.begin(), Request.end());
     }
@@ -403,17 +405,18 @@ namespace
         }
 
     private:
-        using PostDialFn = std::function<Net::awaitable<FaultCode>(FaultCode)>;
+        using PostDialFn = std::function<Net::awaitable<FaultFailure>(FaultFailure)>;
 
         auto AcceptAuthenticationFailure(SharedTransmission Inbound)
             -> Net::awaitable<Prism::Contract::AcceptOutcome>
         {
             const auto Credential = Prism::Account::Credential::Password("wrong-password");
             auto Result = Prism::DirectoryAuthenticator(Directory_->Credentials).Authenticate(
-                Prism::AuthenticationRequest{.Identity = "account", .Credential = Credential.View(), .Rate = {}});
+                Prism::AuthenticationRequest{
+                    .Identity = "provider-fixture", .Credential = Credential.View(), .Rate = {}});
             EXPECT_FALSE(static_cast<bool>(Result));
-            (void)co_await MakePostDial(Inbound)(FaultCode::AuthFailed);
-            Inbound->Close();
+            (void)co_await MakePostDial(Inbound)(FaultFailure{FaultCode::AuthFailed});
+            (void)Inbound->Close();
             co_return std::unexpected(Prism::Contract::FailureFromProtocolError(Prism::Error::BadAuth));
         }
 
@@ -422,7 +425,8 @@ namespace
         {
             const auto Credential = Prism::Account::Credential::Password(Password_);
             auto Result = Prism::DirectoryAuthenticator(Directory_->Credentials).Authenticate(
-                Prism::AuthenticationRequest{.Identity = "account", .Credential = Credential.View(), .Rate = {}});
+                Prism::AuthenticationRequest{
+                    .Identity = "provider-fixture", .Credential = Credential.View(), .Rate = {}});
             if (!Result) co_return std::unexpected(Prism::Contract::FailureFromProtocolError(Prism::Error::BadAuth));
             Prism::Contract::ProtocolDataPlane Plane;
             Plane.Root = Prism::Contract::StreamDataPlane{Inbound};
@@ -450,34 +454,35 @@ namespace
             auto Accepted=co_await AcceptStream(Inbound,false);
             if(!Accepted)co_return std::move(Accepted);
             auto Owner=std::make_shared<Prism::Testing::MuxSession>(Inbound,
-                [this,Inbound](Prism::Contract::MuxRootRequest)->Net::awaitable<FaultCode>
+                [this,Inbound](Prism::Contract::MuxRootRequest)
+                    ->Net::awaitable<std::expected<void, FaultFailure>>
                 {
-                    (void)co_await MakePostDial(Inbound)(FaultCode::BadGateway);
-                    co_return FaultCode::BadGateway;
+                    (void)co_await MakePostDial(Inbound)(FaultFailure{FaultCode::BadGateway});
+                    co_return std::unexpected(FaultFailure{FaultCode::BadGateway});
                 });
             Accepted->Root=Prism::Contract::MuxRootDataPlane{std::move(Inbound),std::move(Owner)};
             Accepted->PostDial={};co_return std::move(Accepted);
         }
 
-        auto RunPostDial(const SharedTransmission &Client, const FaultCode Status)
-            -> Net::awaitable<FaultCode>
+        auto RunPostDial(const SharedTransmission &Client, const FaultFailure Status)
+            -> Net::awaitable<FaultFailure>
         {
             PostDialCalls_.fetch_add(1U, std::memory_order_acq_rel);
-            PostDialStatus_.store(Status, std::memory_order_release);
+            PostDialStatus_.store(Status.Code, std::memory_order_release);
             auto Response = Prism::Http11::Status::Ok;
-            if (Prism::Fault::Failed(Status)) Response = Prism::Http11::Status::BadGateway;
+            if (Status.Failed()) Response = Prism::Http11::Status::BadGateway;
             const auto ReplyStatus = co_await Prism::Http11::SendResponse(Client, Response);
-            PostDialReplyStatus_.store(ReplyStatus, std::memory_order_release);
+            PostDialReplyStatus_.store(ReplyStatus.Code, std::memory_order_release);
             const auto Override = PostDialReturnOverride_.load(std::memory_order_acquire);
             auto CallbackStatus = ReplyStatus;
-            if (Override != FaultCode::Success) CallbackStatus = Override;
-            PostDialCallbackStatus_.store(CallbackStatus, std::memory_order_release);
+            if (Override != FaultCode::Success) CallbackStatus = FaultFailure{Override};
+            PostDialCallbackStatus_.store(CallbackStatus.Code, std::memory_order_release);
             co_return CallbackStatus;
         }
 
         auto MakePostDial(const SharedTransmission &Client) -> PostDialFn
         {
-            return [this, Client](const FaultCode Status) -> Net::awaitable<FaultCode>
+            return [this, Client](const FaultFailure Status) -> Net::awaitable<FaultFailure>
             {
                 co_return co_await RunPostDial(Client, Status);
             };
@@ -571,12 +576,9 @@ TEST(PostDialReplyFailure, HttpConnectDeferredReplyWriteFailureStopsRelay)
     ASSERT_TRUE(Fixture.RegistrationActive());
     ASSERT_EQ(Fixture.RegistrySize(), 1U);
 
-    Prism::Http11::IngressOptions Config;
-    Config.RequireAuth = true;
-    Config.Authenticator =
-        std::make_shared<Prism::DirectoryAuthenticator>(Fixture.Directory()->Credentials);
     auto Binding = Composition::CandidateFactory::MakeHttp(
-        Composition::CandidateOptions{}, std::move(Config));
+        Composition::CandidateOptions{}, Prism::Testing::MakeHttp1Binding(
+            Fixture.Directory(), Net::system_executor()));
     ASSERT_TRUE(Binding.Accept);
 
     Runtime::SessionOptions Options;
@@ -642,6 +644,8 @@ TEST(PostDialReplyFailure, MuxOwnerFailureKeepsOriginalErrorWhenReplyFails)
     Runtime::SessionOptions Options;
     Options.Services->AcceptProtocol = Fixture.MakeAcceptForMuxFailure();
     Options.Services->Dial = Fixture.MakeDialFailure(FaultCode::ConnectionRefused);
+    Options.Services->GenerationUseState =
+        std::make_shared<Prism::Foundation::GenerationUseState>();
 
     const auto Result = Fixture.Run(std::move(Options));
 

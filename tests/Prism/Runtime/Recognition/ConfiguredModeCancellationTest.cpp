@@ -51,22 +51,27 @@ TEST(ConfiguredModeTest, ControlledCommitCleansIndependentSuccessorAndInboundExa
     {
         Net::io_context Io;
         auto Gate = std::make_shared<boost::asio::experimental::channel<void(boost::system::error_code)>>(Io, 1);
+        auto CommitEntered = std::make_shared<boost::asio::experimental::channel<void(
+            boost::system::error_code)>>(Io, 1);
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(Bytes({0xA1, 0x02, 0x03}));
         auto CallsState = std::make_shared<Calls>();
         CallsState->PendingCommit = true;
         CallsState->CommitGate = Gate;
+        CallsState->CommitEntered = CommitEntered;
         auto Decoy = std::make_shared<ScriptedTransport>(Io.get_executor());
         CallsState->ReturnedTransport = Decoy;
         auto Profile = MakeConfiguredProfile(
-            {CallsState, AcceptedPrepare(7), AcceptedCommit(7), 3, std::chrono::milliseconds(1)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+            {CallsState, AcceptedPrepare(7), AcceptedCommit(7), 3, std::chrono::milliseconds::zero()});
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
-        Control.Wait = [WaitCalls]
+        Control.Wait = [CommitEntered, WaitCalls]() -> Net::awaitable<rec::RecognitionControlEvent>
         {
-            return WaitForEvent(std::chrono::hours(1), rec::RecognitionControlEvent::TimedOut, WaitCalls);
+            ++*WaitCalls;
+            co_await CommitEntered->async_receive(Net::use_awaitable);
+            co_return rec::RecognitionControlEvent::TimedOut;
         };
         Control.WaitCancellationSafe = true;
         Control.CancelTransport = [Gate, Transport]
@@ -132,7 +137,7 @@ TEST(ConfiguredModeTest, PrepareCancellationIsNormalized)
         Spec.Candidates.push_back(std::move(Candidate));
         const auto Compiled = rec::Profile::Compile(std::move(Spec));
         ASSERT_TRUE(Compiled.has_value());
-        rec::ProbeBuffer Buffer(32);
+        rec::ProbeBuffer Buffer(32, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Compiled.value());
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -193,7 +198,7 @@ TEST(ConfiguredModeTest, CommitCancellationIsNormalizedAndReturnsNoSuccessor)
         Spec.Candidates.push_back(std::move(Candidate));
         const auto Compiled = rec::Profile::Compile(std::move(Spec));
         ASSERT_TRUE(Compiled.has_value());
-        rec::ProbeBuffer Buffer(32);
+        rec::ProbeBuffer Buffer(32, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Compiled.value());
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -265,7 +270,7 @@ TEST(ConfiguredModeTest, CancellationWaitsForCancelResistantPrepare)
         const auto Compiled = rec::Profile::Compile(std::move(Spec));
         ASSERT_TRUE(Compiled.has_value());
 
-        rec::ProbeBuffer Buffer(32);
+        rec::ProbeBuffer Buffer(32, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Compiled.value());
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -299,7 +304,7 @@ TEST(ConfiguredModeTest, OperationWinningNearCancellationIsOverriddenBeforeCommi
         auto Cancelled = std::make_shared<bool>(false);
         CallsState->CancelAfterPrepare = Cancelled;
         auto Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         rec::ConfiguredMode Mode(Profile);
         auto WaitCalls = std::make_shared<std::size_t>(0);
         rec::RecognitionControl Control;
@@ -337,7 +342,7 @@ TEST(ConfiguredModeTest, OperationWinningNearCancellationIsOverriddenBeforeCommi
         Cancelled = std::make_shared<bool>(false);
         CallsState->CancelAfterCommit = Cancelled;
         Profile = MakeConfiguredProfile({CallsState, AcceptedPrepare(7), AcceptedCommit(7)});
-        Buffer = rec::ProbeBuffer(Profile->Budget().MaxProbeBytes);
+        Buffer = rec::ProbeBuffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         Mode = rec::ConfiguredMode(Profile);
         Control = rec::RecognitionControl{};
         Control.Cancelled = [Cancelled] { return *Cancelled; };
@@ -417,7 +422,7 @@ TEST(ConfiguredModeTest, UsesMatchingSniRouteBeforePrepare)
         auto Profile = MakeConfiguredProfile(std::move(Request));
         ASSERT_NE(Profile, nullptr);
         ASSERT_TRUE(Profile->Budget().MaxProbeBytes >= Wire.size());
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(Wire));
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;
@@ -451,7 +456,7 @@ TEST(ConfiguredModeTest, RejectsUnmatchedSniWithoutPrepare)
         auto Profile = MakeConfiguredProfile(std::move(Request));
         ASSERT_NE(Profile, nullptr);
         ASSERT_TRUE(Profile->Budget().MaxProbeBytes >= Wire.size());
-        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes, MakeConfiguredProbeBytePool());
         ASSERT_TRUE(Buffer.Seed(Wire));
         rec::ConfiguredMode Mode(Profile);
         rec::RecognizeResult Result;

@@ -5,14 +5,16 @@
 
 #include <Prism/Composition/Recognition/ShadowtlsCarrier.hpp>
 #include <Prism/Composition/Recognition/TlsCarrierHelpers.hpp>
-#include <Prism/Protocols/Shadowtls/Detail/Record.hpp>
-#include <Prism/Protocols/Shadowtls/Detail/Io.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/CarrierWire.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/Conn.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/RecordProtector.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/Retirement.hpp>
 #include <Prism/Protocols/Shadowtls/Shadowtls.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Transmission.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/channel.hpp>
@@ -29,6 +31,7 @@
 #include <exception>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -166,7 +169,9 @@ namespace
                                       std::span<std::uint8_t> Buffer)
         -> Net::awaitable<Shadowtls::Result<std::size_t>>
     {
-        co_return co_await Shadowtls::Detail::Io::ReadExact(Transport, Buffer);
+        std::optional<Shadowtls::Failure> PendingTerminal;
+        co_return co_await Shadowtls::Detail::Io::ReadExact(
+            Transport, Buffer, PendingTerminal);
     }
 
     [[nodiscard]] auto WriteAllBytes(const SharedTransmission &Transport,
@@ -549,21 +554,21 @@ namespace
     protected:
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler),
                 {0, Prism::Fault::FromNative(Probe_->Native)});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler),
                 {0, Prism::Fault::FromNative(Probe_->Native)});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor(), std::move(Handler), Prism::IoResult{});
         }
 

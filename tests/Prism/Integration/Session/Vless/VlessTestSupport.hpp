@@ -243,6 +243,8 @@ namespace Prism::Testing::VlessE2E
             -> std::shared_ptr<Runtime::Session>
         {
             Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
             auto UseState = Prism::Testing::MakeProtocolIngressUseState();
             Options.Services->GenerationUseState = UseState;
             Options.Services->AcceptProtocol = Prism::Testing::MakeVlessIngress(

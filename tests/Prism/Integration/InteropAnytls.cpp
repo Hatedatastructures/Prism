@@ -237,7 +237,10 @@ namespace
             }
             co_return nullptr;
         }
-        co_return std::make_shared<Prism::Transport::Encrypted>(std::move(Stream));
+        auto BytePool = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8U});
+        co_return std::make_shared<Prism::Transport::Encrypted>(
+            std::move(Stream), std::move(BytePool));
     }
 
     [[nodiscard]] auto WriteAll(const Prism::SharedTransmission &Transport,
@@ -325,7 +328,7 @@ namespace
         return Result;
     }
 
-    [[nodiscard]] auto ReadStreamEcho(const Prism::SharedTransmission &Transport,
+    [[nodiscard]] auto ReadStreamEcho(Prism::Anytls::FrameReader &Reader,
                                       std::uint32_t StreamId,
                                       bool RequireSynAck) -> Net::awaitable<bool>
     {
@@ -334,7 +337,7 @@ namespace
         const auto Expected = std::as_bytes(std::span(Payload));
         for (int Attempt = 0; Attempt < 16 && ReceivedBytes < Expected.size(); ++Attempt)
         {
-            const auto Frame = co_await Prism::Anytls::ReadFrame(Transport);
+            const auto Frame = co_await Reader.Read();
             if (!Frame)
             {
                 co_return false;
@@ -366,12 +369,12 @@ namespace
         co_return SynAck && ReceivedBytes == Expected.size();
     }
 
-    [[nodiscard]] auto ReadServerSettings(const Prism::SharedTransmission &Transport)
+    [[nodiscard]] auto ReadServerSettings(Prism::Anytls::FrameReader &Reader)
         -> Net::awaitable<bool>
     {
         for (int Attempt = 0; Attempt < 8; ++Attempt)
         {
-            const auto Frame = co_await Prism::Anytls::ReadFrame(Transport);
+            const auto Frame = co_await Reader.Read();
             if (!Frame)
             {
                 co_return false;
@@ -388,12 +391,12 @@ namespace
         co_return false;
     }
 
-    [[nodiscard]] auto ReadUntilPeerEof(const Prism::SharedTransmission &Transport)
+    [[nodiscard]] auto ReadUntilPeerEof(Prism::Anytls::FrameReader &Reader)
         -> Net::awaitable<bool>
     {
         for (;;)
         {
-            const auto Frame = co_await Prism::Anytls::ReadFrame(Transport);
+            const auto Frame = co_await Reader.Read();
             if (!Frame)
             {
                 co_return Frame.error() == Prism::Error::UnexpectedEof;
@@ -401,55 +404,24 @@ namespace
         }
     }
 
-    [[nodiscard]] auto WaitForPeerEof(const Prism::SharedTransmission &Transport)
+    [[nodiscard]] auto WaitForPeerEof(const Prism::SharedTransmission &Transport,
+                                      Prism::Anytls::FrameReader &Reader)
         -> Net::awaitable<bool>
     {
         using Net::experimental::awaitable_operators::operator||;
         Net::steady_timer Deadline(Transport->Executor());
         Deadline.expires_after(std::chrono::seconds(5));
-        const auto Result = co_await (ReadUntilPeerEof(Transport) ||
+        const auto Result = co_await (ReadUntilPeerEof(Reader) ||
                                      Deadline.async_wait(Net::use_awaitable));
         co_return Result.index() == 0 && std::get<0>(Result);
     }
 
-    [[nodiscard]] auto RunApplicationClient(Options OptionsValue) -> Net::awaitable<int>
+    [[nodiscard]] auto RunApplicationSession(
+        const Prism::SharedTransmission& Transport,
+        const Options& OptionsValue,
+        const HostPort& Target) -> Net::awaitable<int>
     {
-        const auto Server = SplitHostPort(OptionsValue.Address);
-        const auto Target = SplitHostPort(OptionsValue.Target);
-        if (!Server || !Target)
-        {
-            std::fprintf(stderr, "FAIL: application mode requires -addr and -target host:port\n");
-            co_return 2;
-        }
-        Prism::Network::Dialer::Dialer Dialer(co_await Net::this_coro::executor);
-        auto DialResult = co_await Dialer.Connect({Prism::Network::ParseHost(Server->Host).value_or(Prism::Network::Host{}), Server->Port});
-        if (!DialResult)
-        {
-            const auto &Failure = DialResult.error();
-            std::fprintf(stderr, "FAIL: AnyTLS application TCP dial: Code=%d Native=%s:%d\n",
-                static_cast<int>(Failure.Code), Failure.Native.category().name(), Failure.Native.value());
-            co_return 1;
-        }
-        auto Raw = std::move(*DialResult);
-
-        Ssl::context Tls(Ssl::context::tlsv13_client);
-        if (OptionsValue.TlsVerify)
-        {
-            Tls.set_default_verify_paths();
-            Tls.set_verify_mode(Ssl::verify_peer);
-        }
-        else
-        {
-            Tls.set_verify_mode(Ssl::verify_none);
-        }
-        auto Transport = co_await ConnectNativeTls(std::move(Raw), Tls, OptionsValue.ServerName);
-        if (!Transport)
-        {
-            std::fprintf(stderr, "FAIL: AnyTLS application Native TLS handshake\n");
-            co_return 1;
-        }
-        std::printf("PHASE: NativeTlsOK\n");
-        std::fflush(stdout);
+        Prism::Anytls::FrameReader FrameReader(Transport);
 
         std::string Auth;
         if (Prism::Anytls::BuildAuthFrame(OptionsValue.Password, 0, Auth) != Prism::Error::None ||
@@ -466,34 +438,34 @@ namespace
         const auto SettingsBytes = std::as_bytes(std::span(Settings));
         if (!co_await SendFrame(Transport, {Prism::Anytls::Command::Settings, 0,
                                             std::vector<std::byte>(SettingsBytes.begin(), SettingsBytes.end())}) ||
-            (OptionsValue.SettingsVersion >= 2 && !co_await ReadServerSettings(Transport)))
+            (OptionsValue.SettingsVersion >= 2 && !co_await ReadServerSettings(FrameReader)))
         {
             (void)Transport->Close();
             std::fprintf(stderr, "FAIL: AnyTLS application SETTINGS exchange\n");
             co_return 1;
         }
 
-        const auto FirstTarget = MakeTargetPayload(*Target, Payload);
+        const auto FirstTarget = MakeTargetPayload(Target, Payload);
         if (FirstTarget.empty() ||
             !co_await SendFrame(Transport, {Prism::Anytls::Command::Syn, 1, {}}) ||
             !co_await SendFrame(Transport, {Prism::Anytls::Command::Push, 1, FirstTarget}) ||
-            !co_await ReadStreamEcho(Transport, 1, OptionsValue.SettingsVersion >= 2))
+            !co_await ReadStreamEcho(FrameReader, 1, OptionsValue.SettingsVersion >= 2))
         {
             (void)Transport->Close();
             std::fprintf(stderr, "FAIL: AnyTLS application stream 1\n");
             co_return 1;
         }
 
-        const auto SecondTarget = MakeTargetPayload(*Target, Payload);
+        const auto SecondTarget = MakeTargetPayload(Target, Payload);
         const auto PayloadBytes = std::as_bytes(std::span(Payload));
         if (SecondTarget.empty() ||
             !co_await SendFrame(Transport, {Prism::Anytls::Command::Syn, 3, {}}) ||
             !co_await SendFrame(Transport, {Prism::Anytls::Command::Push, 3, SecondTarget}) ||
-            !co_await ReadStreamEcho(Transport, 3, OptionsValue.SettingsVersion >= 2) ||
+            !co_await ReadStreamEcho(FrameReader, 3, OptionsValue.SettingsVersion >= 2) ||
             !co_await SendFrame(Transport, {Prism::Anytls::Command::Fin, 1, {}}) ||
             !co_await SendFrame(Transport, {Prism::Anytls::Command::Push, 3,
                                             std::vector<std::byte>(PayloadBytes.begin(), PayloadBytes.end())}) ||
-            !co_await ReadStreamEcho(Transport, 3, false) ||
+            !co_await ReadStreamEcho(FrameReader, 3, false) ||
             !co_await SendFrame(Transport, {Prism::Anytls::Command::Fin, 3, {}}))
         {
             (void)Transport->Close();
@@ -510,7 +482,7 @@ namespace
                          static_cast<unsigned>(Failure.Code), Failure.Native.category().name(),
                          Failure.Native.value());
         }
-        if (!co_await WaitForPeerEof(Transport))
+        if (!co_await WaitForPeerEof(Transport, FrameReader))
         {
             const auto Closed = Transport->Close();
             if (!Closed.has_value())
@@ -551,6 +523,47 @@ namespace
         std::printf("PASS: Prism Native TLS + AnyTLS application v%u streams (%zu bytes each)\n",
                      static_cast<unsigned>(OptionsValue.SettingsVersion), Payload.size());
         co_return 0;
+    }
+
+    [[nodiscard]] auto RunApplicationClient(Options OptionsValue) -> Net::awaitable<int>
+    {
+        const auto Server = SplitHostPort(OptionsValue.Address);
+        const auto Target = SplitHostPort(OptionsValue.Target);
+        if (!Server || !Target)
+        {
+            std::fprintf(stderr, "FAIL: application mode requires -addr and -target host:port\n");
+            co_return 2;
+        }
+        Prism::Network::Dialer::Dialer Dialer(co_await Net::this_coro::executor);
+        auto DialResult = co_await Dialer.Connect({Prism::Network::ParseHost(Server->Host).value_or(Prism::Network::Host{}), Server->Port});
+        if (!DialResult)
+        {
+            const auto &Failure = DialResult.error();
+            std::fprintf(stderr, "FAIL: AnyTLS application TCP dial: Code=%d Native=%s:%d\n",
+                static_cast<int>(Failure.Code), Failure.Native.category().name(), Failure.Native.value());
+            co_return 1;
+        }
+        auto Raw = std::move(*DialResult);
+
+        Ssl::context Tls(Ssl::context::tlsv13_client);
+        if (OptionsValue.TlsVerify)
+        {
+            Tls.set_default_verify_paths();
+            Tls.set_verify_mode(Ssl::verify_peer);
+        }
+        else
+        {
+            Tls.set_verify_mode(Ssl::verify_none);
+        }
+        auto Transport = co_await ConnectNativeTls(std::move(Raw), Tls, OptionsValue.ServerName);
+        if (!Transport)
+        {
+            std::fprintf(stderr, "FAIL: AnyTLS application Native TLS handshake\n");
+            co_return 1;
+        }
+        std::printf("PHASE: NativeTlsOK\n");
+        std::fflush(stdout);
+        co_return co_await RunApplicationSession(Transport, OptionsValue, *Target);
     }
 
     [[nodiscard]] auto RunClient(Options OptionsValue) -> Net::awaitable<int>

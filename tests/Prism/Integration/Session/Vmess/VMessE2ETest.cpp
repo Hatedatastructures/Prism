@@ -107,9 +107,10 @@ namespace
                 }
                 else
                 {
-                    auto ProtocolConnect = co_await Vmess::Connect({
-                        std::move(*Raw), Flow.ClientConfig, Flow.Target,
-                        static_cast<std::uint8_t>(Vmess::Command::Tcp)});
+                    auto ProtocolConnect = co_await Vmess::Connect(
+                        Vmess::ConnectParameters{
+                            std::move(*Raw), Flow.ClientConfig, Flow.Target,
+                            Vmess::Command::Tcp});
                     if (!ProtocolConnect)
                     {
                         Result.Failure = ProtocolConnect.error();
@@ -194,10 +195,12 @@ namespace
                 auto Raw = co_await DialVmessListener(Flow.Ioc, Flow.Listener);
                 if (Raw)
                 {
-                    auto ProtocolConnect = co_await Vmess::Connect({
-                        std::move(*Raw), Vmess::ClientConfig{TestUuid()},
-                        Vmess::Address{Vmess::AddressType::Domain, "example.com", 80},
-                        static_cast<std::uint8_t>(Vmess::Command::Tcp)});
+                    const auto ClientConfig = Vmess::ClientConfig{TestUuid()};
+                    const auto Target = Vmess::Address{
+                        Vmess::AddressType::Domain, "example.com", 80};
+                    auto ProtocolConnect = co_await Vmess::Connect(
+                        Vmess::ConnectParameters{
+                            std::move(*Raw), ClientConfig, Target, Vmess::Command::Tcp});
                     if (!ProtocolConnect)
                     {
                         ADD_FAILURE() << "Unexpected protocol handshake failure: "
@@ -250,10 +253,12 @@ namespace
                 auto Raw = co_await DialVmessListener(Flow.Ioc, Flow.Listener);
                 if (Raw)
                 {
-                    auto ProtocolConnect = co_await Vmess::Connect({
-                        std::move(*Raw), Vmess::ClientConfig{TestUuid()},
-                        Vmess::Address{Vmess::AddressType::Domain, "example.com", 80},
-                        static_cast<std::uint8_t>(Vmess::Command::Tcp)});
+                    const auto ClientConfig = Vmess::ClientConfig{TestUuid()};
+                    const auto Target = Vmess::Address{
+                        Vmess::AddressType::Domain, "example.com", 80};
+                    auto ProtocolConnect = co_await Vmess::Connect(
+                        Vmess::ConnectParameters{
+                            std::move(*Raw), ClientConfig, Target, Vmess::Command::Tcp});
                     if (!ProtocolConnect)
                     {
                         ADD_FAILURE() << "Unexpected protocol handshake failure: "
@@ -312,8 +317,8 @@ namespace
                         const auto TailCount = co_await Prism::Testing::TailReadGuarded(
                             Proxy, Tail, TailError);
                         Flow.CleanEof = TailCount == 0 &&
-                                        TailError == ::Prism::make_error_code(
-                                            ::Prism::Error::UnexpectedEof);
+                                        Prism::Fault::ToCode(TailError) ==
+                                            Prism::Fault::Code::Eof;
                     }
                 }
             }
@@ -346,10 +351,12 @@ namespace
                 auto Raw = co_await DialVmessListener(Flow.Ioc, Flow.Listener);
                 if (Raw)
                 {
-                    auto ProtocolConnect = co_await Vmess::Connect({
-                        std::move(*Raw), Vmess::ClientConfig{TestUuid()},
-                        Vmess::Address{Vmess::AddressType::Domain, "example.com", 80},
-                        static_cast<std::uint8_t>(Vmess::Command::Tcp)});
+                    const auto ClientConfig = Vmess::ClientConfig{TestUuid()};
+                    const auto Target = Vmess::Address{
+                        Vmess::AddressType::Domain, "example.com", 80};
+                    auto ProtocolConnect = co_await Vmess::Connect(
+                        Vmess::ConnectParameters{
+                            std::move(*Raw), ClientConfig, Target, Vmess::Command::Tcp});
                     if (!ProtocolConnect)
                     {
                         ADD_FAILURE() << "Unexpected protocol handshake failure: "
@@ -401,9 +408,9 @@ namespace
         Runtime::TcpListener listen(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
+            .Factory = VmessSessionFactory{StateObj, scfg},
             .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{1}),
-            .Factory = VmessSessionFactory{StateObj, scfg}});
+                Prism::GenerationId{1})});
 
         RunCoro(ioc, RunVmessConnectFlow(VmessConnectFlow{
             ioc, listen, Echo, Target, ccfg, StateObj, out}));
@@ -439,15 +446,23 @@ namespace
 
     TEST(TcpListener, VmessTcpConnectIpv6)
     {
+        std::string WireHost(16, '\0');
+        WireHost.back() = '\x01';
         const auto r = run_vmess_connect(
-            Vmess::Address{Vmess::AddressType::Ipv6, "::1", 80},
+            Vmess::Address{Vmess::AddressType::Ipv6, std::move(WireHost), 80},
             Vmess::ClientConfig{TestUuid()},
             Vmess::ServerConfig{TestUuid()});
         EXPECT_TRUE(r.Failure.Succeeded());
         EXPECT_EQ(r.Failure.Code, Fault::Code::Success);
         EXPECT_EQ(r.Echo, "vmess runtime payload");
-        // VMess ipv6 线缆为 16 字节二进制
-        EXPECT_EQ(r.Host.size(), 16u);
+        // 正式网络目标将 16 字节 loopback 呈现为数值文本。
+        const auto Host = Network::ParseHost(r.Host);
+        ASSERT_TRUE(Host);
+        const auto Address = Network::IpAddress(*Host);
+        ASSERT_TRUE(Address);
+        ASSERT_TRUE(Address->is_v6());
+        EXPECT_EQ(Address->to_v6().to_bytes(),
+            Net::ip::address_v6::loopback().to_bytes());
         EXPECT_EQ(r.Port, "80");
     }
 
@@ -468,10 +483,10 @@ namespace
         Runtime::TcpListener listen(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{2}),
             .Factory = VmessSessionFactory{
-                {}, Vmess::ServerConfig{TestUuid()}, {}, {}, true}});
+                {}, Vmess::ServerConfig{TestUuid()}, {}, {}, true},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{2})});
 
         bool saw_close = false;
         RunCoro(ioc, RunVmessDialRefusedFlow(
@@ -490,10 +505,10 @@ namespace
         Runtime::TcpListener listen(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{3}),
             .Factory = VmessSessionFactory{
-                StateObj, Vmess::ServerConfig{TestUuid()}}});
+                StateObj, Vmess::ServerConfig{TestUuid()}},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{3})});
 
         bool clean_eof = false;
         RunCoro(ioc, RunVmessHalfCloseFlow(
@@ -513,10 +528,10 @@ namespace
         Runtime::TcpListener listen(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{4}),
             .Factory = VmessSessionFactory{
-                StateObj, Vmess::ServerConfig{TestUuid()}, std::chrono::milliseconds(150)}});
+                StateObj, Vmess::ServerConfig{TestUuid()}, std::chrono::milliseconds(150)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{4})});
 
         bool closed = false;
         RunCoro(ioc, RunVmessIdleFlow(

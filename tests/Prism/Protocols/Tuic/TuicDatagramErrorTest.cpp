@@ -83,6 +83,86 @@ namespace
 
 } // namespace
 
+namespace
+{
+    auto RunReceiveBadAtyp(Net::io_context &IoContext) -> Net::awaitable<void>
+    {
+        auto Raw = MakeMock(IoContext.get_executor());
+        const auto Head = MakeTuicHead(0x99);
+        Raw->ToRead.assign(Head.begin(), Head.end());
+        auto Datagram = std::make_shared<Tuic::Dgram<>>(Raw);
+        Tuic::Address Source;
+        std::vector<std::uint8_t> Payload;
+        const auto Result = co_await Datagram->AsyncReceiveFrom(Source, Payload);
+        EXPECT_EQ(Result, Error::BadMessage);
+    }
+
+    auto RunReceivePayloadIoError(Net::io_context &IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Raw = MakeMock(IoContext.get_executor());
+        Raw->ToRead = {
+            0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 1,
+            0x01, 1, 2, 3, 4, 0x00, 0x50};
+        Raw->FailNextRead = true;
+        auto Datagram = std::make_shared<Tuic::Dgram<>>(Raw);
+        Tuic::Address Source;
+        std::vector<std::uint8_t> Payload;
+        const auto Result = co_await Datagram->AsyncReceiveFrom(Source, Payload);
+        EXPECT_EQ(Result, Error::IoError);
+    }
+
+    auto RunReceiveIpv6Truncated(Net::io_context &IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Raw = MakeMock(IoContext.get_executor());
+        const auto Head = MakeTuicHead(0x02);
+        std::vector<std::uint8_t> Wire(Head.begin(), Head.end());
+        Wire.insert(Wire.end(), 8, 0x21);
+        Raw->ToRead = std::move(Wire);
+        auto Datagram = std::make_shared<Tuic::Dgram<>>(Raw);
+        Tuic::Address Source;
+        std::vector<std::uint8_t> Payload;
+        const auto Result = co_await Datagram->AsyncReceiveFrom(Source, Payload);
+        EXPECT_EQ(Result, Error::NeedMore);
+    }
+
+    auto RunClosedStateOperations(Net::io_context &IoContext)
+        -> Net::awaitable<void>
+    {
+        auto Raw = MakeMock(IoContext.get_executor());
+        auto Datagram = std::make_shared<Tuic::Dgram<>>(Raw);
+        const auto Close = Datagram->Close();
+        EXPECT_TRUE(Close);
+        if (!Close)
+        {
+            co_return;
+        }
+        const auto Activity = Datagram->Activity();
+        EXPECT_TRUE(Activity);
+        if (!Activity)
+        {
+            co_return;
+        }
+        const auto Drained = co_await Activity->Drain();
+        EXPECT_TRUE(Drained);
+        if (!Drained)
+        {
+            co_return;
+        }
+        const std::string PayloadText = "x";
+        const auto SendResult = co_await Datagram->AsyncSendTo(
+            MakeTuicAddress(),
+            AsU8Span(PayloadText));
+        EXPECT_EQ(SendResult, Error::IoError);
+        Tuic::Address Source;
+        std::vector<std::uint8_t> Payload;
+        const auto ReceiveResult =
+            co_await Datagram->AsyncReceiveFrom(Source, Payload);
+        EXPECT_EQ(ReceiveResult, Error::IoError);
+    }
+}
+
 TEST(TuicDgramErr, SendWriteFail)
     {
         Net::io_context ioc;
@@ -169,19 +249,7 @@ TEST(TuicDgramErr, ReceiveBadCommand)
 TEST(TuicDgramErr, ReceiveBadAtyp)
     {
         Net::io_context ioc;
-
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto raw = MakeMock(ioc.get_executor());
-                     const auto head = MakeTuicHead(0x99);
-                     raw->ToRead.assign(head.begin(), head.end());
-                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
-                     Tuic::Address src;
-                     std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::BadMessage);
-                 });
+        RunCoroutine(ioc, RunReceiveBadAtyp(ioc));
     }
 
 TEST(TuicDgramErr, ReceiveDomainTruncated)
@@ -221,19 +289,7 @@ TEST(TuicDgramErr, ReceivePortEof)
 TEST(TuicDgramErr, ReceivePayloadIoError)
     {
         Net::io_context ioc;
-
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto raw = MakeMock(ioc.get_executor());
-                     raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 1, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->FailNextRead = true;
-                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
-                     Tuic::Address src;
-                     std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::IoError);
-                 });
+        RunCoroutine(ioc, RunReceivePayloadIoError(ioc));
     }
 
 TEST(TuicDgramErr, ReceivePayloadEof)
@@ -256,40 +312,12 @@ TEST(TuicDgramErr, ReceivePayloadEof)
 TEST(TuicDgramErr, ReceiveIpv6Truncated)
     {
         Net::io_context ioc;
-
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto raw = MakeMock(ioc.get_executor());
-                     const auto head = MakeTuicHead(0x02);
-                     std::vector<std::uint8_t> wire(head.begin(), head.end());
-                     wire.insert(wire.end(), 8, 0x21);
-                     raw->ToRead = wire;
-                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
-                     Tuic::Address src;
-                     std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::NeedMore);
-                 });
+        RunCoroutine(ioc, RunReceiveIpv6Truncated(ioc));
     }
 
 TEST(TuicDgramErr, ClosedStateOperations)
     {
         Net::io_context ioc;
-
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     auto raw = MakeMock(ioc.get_executor());
-                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
-                     dg->Close();
-                     const std::string p = "x";
-                     const auto serr = co_await dg->AsyncSendTo(MakeTuicAddress(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::IoError);
-                     Tuic::Address src;
-                     std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::UnexpectedEof);
-                 });
+        RunCoroutine(ioc, RunClosedStateOperations(ioc));
     }
 

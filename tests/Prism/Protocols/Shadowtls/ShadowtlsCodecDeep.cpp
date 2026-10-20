@@ -13,8 +13,8 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <Prism/Protocols/Shadowtls/Detail/Hello.hpp>
-#include <Prism/Protocols/Shadowtls/Detail/Record.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/ClientHello.hpp>
+#include <Prism/Protocols/Shadowtls/Detail/RecordProtector.hpp>
 
 namespace
 {

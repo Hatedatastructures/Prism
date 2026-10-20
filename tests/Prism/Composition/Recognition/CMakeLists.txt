@@ -1,16 +1,24 @@
 # Composition/Recognition tests
 AddPrismTest(CanonicalFactoryTest.cpp)
-target_link_libraries(CanonicalFactoryTest PRIVATE PrismIngressContract PrismComposition PrismTestSupport)
+target_link_libraries(CanonicalFactoryTest PRIVATE
+    PrismIngressContract PrismComposition PrismNetworkModel PrismTransport PrismFoundation
+    PrismProtocolVless PrismProtocolVmess PrismTestSupport)
 
 AddPrismTest(Task9ProtocolMatrixTest.cpp)
 target_link_libraries(Task9ProtocolMatrixTest PRIVATE PrismComposition PrismRuntime)
 AddPrismTest(CandidateFactoryTest.cpp)
-target_link_libraries(CandidateFactoryTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismTestSupport)
+target_link_libraries(CandidateFactoryTest PRIVATE
+    PrismFoundation PrismAccount PrismTransport PrismRuntime PrismComposition
+    PrismProtocolVless PrismProtocolTrojan PrismProtocolVmess PrismTestSupport)
 AddPrismTest(CandidateHeaderContractTest.cpp)
 target_link_libraries(CandidateHeaderContractTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismTestSupport)
+target_include_directories(CandidateHeaderContractTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 AddPrismTest(CandidateRegistryTest.cpp)
 target_sources(CandidateRegistryTest PRIVATE CandidateRegistryUdpPolicyTest.cpp)
-target_link_libraries(CandidateRegistryTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismTestSupport)
+target_link_libraries(CandidateRegistryTest PRIVATE
+    PrismFoundation PrismAccount PrismTransport PrismRuntime PrismComposition PrismNetworkModel
+    PrismProtocolVless PrismProtocolTrojan PrismProtocolVmess PrismTestSupport)
+target_include_directories(CandidateRegistryTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 AddPrismTest(ConfiguredRecognition.cpp)
 target_link_libraries(ConfiguredRecognition PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismProtocolHttp PrismProtocolSocks5 PrismProtocolVless PrismProtocolTrojan PrismProtocolVmess PrismProtocolShadowsocks2022 PrismTestSupport)
 AddPrismTest(MixedTrialRecognition.cpp)
@@ -18,15 +26,22 @@ target_link_libraries(MixedTrialRecognition PRIVATE PrismFoundation PrismTranspo
 AddPrismTest(RecognitionCarrierSelectionTest.cpp)
 target_sources(RecognitionCarrierSelectionTest PRIVATE RecognitionCarrierTestSupport.hpp
     ../../Protocols/Ws/WsFactorySupport.hpp)
-target_link_libraries(RecognitionCarrierSelectionTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismProtocolHttp2 PrismProtocolXhttp PrismProtocolGun PrismProtocolReality PrismProtocolWs PrismProtocolAnytls PrismTestSupport)
+target_link_libraries(RecognitionCarrierSelectionTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismProtocolHttp2 PrismProtocolXhttp PrismProtocolGun PrismProtocolReality PrismProtocolShadowtls PrismProtocolWs PrismProtocolAnytls PrismTestSupport)
 AddPrismTest(RecognitionCarrierProtocolTest.cpp)
 target_sources(RecognitionCarrierProtocolTest PRIVATE RecognitionCarrierTestSupport.hpp
     ../../Protocols/Ws/WsFactorySupport.hpp)
-target_link_libraries(RecognitionCarrierProtocolTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismProtocolHttp2 PrismProtocolXhttp PrismProtocolGun PrismProtocolReality PrismProtocolWs PrismProtocolAnytls PrismTestSupport)
+target_link_libraries(RecognitionCarrierProtocolTest PRIVATE
+    PrismFoundation PrismTransport PrismRuntime PrismComposition PrismProtocolHttp2
+    PrismProtocolXhttp PrismProtocolGun PrismProtocolReality PrismProtocolShadowtls
+    PrismProtocolRestls PrismProtocolWs PrismProtocolAnytls PrismIngressModel
+    PrismProtocolsCommon PrismTestSupport)
+target_include_directories(RecognitionCarrierProtocolTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 AddPrismTest(RealityRecognition.cpp)
 target_link_libraries(RealityRecognition PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismProtocolReality PrismTestSupport)
 AddPrismTest(LayeredCandidateTest.cpp)
 target_link_libraries(LayeredCandidateTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismProtocolHttp PrismTestSupport)
+target_include_directories(LayeredCandidateTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 
 AddPrismTest(AnytlsCarrierTest.cpp)
-target_link_libraries(AnytlsCarrierTest PRIVATE PrismComposition PrismRuntime PrismProtocolAnytls)
+target_link_libraries(AnytlsCarrierTest PRIVATE
+    PrismComposition PrismRuntime PrismTransport PrismProtocolAnytls PrismFoundation)

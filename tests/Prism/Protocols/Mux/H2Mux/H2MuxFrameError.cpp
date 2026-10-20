@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <span>
 
+#include <Prism/Protocols/Mux/Codec.hpp>
 #include <Prism/Protocols/Mux/H2Mux/Codec.hpp>
 #include <gtest/gtest.h>
 

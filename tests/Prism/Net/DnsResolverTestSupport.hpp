@@ -16,6 +16,8 @@
  */
 
 #include <Prism/Net/Dns/Resolver.hpp>
+#include <Prism/Net/Dns/Detail/Maintenance.hpp>
+#include <Prism/Net/Dns/Detail/ResolverFailure.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/bind_cancellation_slot.hpp>
@@ -335,6 +337,7 @@ private:
                 Net::buffer(buf), sender, Net::redirect_error(Net::use_awaitable, ec));
             // UDP 对端已取消时的 ICMP 不可达不能终止仍服务其他请求的测试 server。
             if (ec == Net::error::connection_reset && !Stopped_) continue;
+            if (ec == Net::error::operation_aborted && Stopped_) co_return;
             if (ec || Stopped_ || n < 12)
             {
                 std::fprintf(stderr, "dns-mini-receive-close error=%s/%d/%s count=%zu\n",

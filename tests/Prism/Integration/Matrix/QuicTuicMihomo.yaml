@@ -6,17 +6,19 @@ log-level: debug
 proxies:
   - name: prism-tuic
     type: tuic
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: 123e4567-e89b-12d3-a456-426614174000
     password: tuic_password
     sni: tuic-gateway-e2e
     skip-cert-verify: true
+    alpn:
+      - h3
     udp: true
 proxy-groups:
-  - name: proxy
+  - name: TUIC v5 QUIC
     type: select
     proxies:
       - prism-tuic
 rules:
-  - MATCH,proxy
+  - MATCH,PrismPreview-Active

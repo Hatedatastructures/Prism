@@ -14,6 +14,24 @@ function Stop-Proc([System.Diagnostics.Process]$p) {
     }
 }
 
+function Wait-ProcessExit {
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
+        [ValidateRange(1, 60000)][int]$WaitMilliseconds = 10000
+    )
+
+    $Exited = $Process.WaitForExit($WaitMilliseconds)
+    $ExitCode = $null
+    if ($Exited) {
+        $Process.Refresh()
+        $ExitCode = $Process.ExitCode
+    }
+    return [pscustomobject]@{
+        exited = $Exited
+        exit_code = $ExitCode
+    }
+}
+
 $goServerProc = $null
 $cppServerProc = $null
 try {
@@ -33,9 +51,16 @@ try {
     $cppServerProc = Start-Process -FilePath $CppServer -ArgumentList "127.0.0.1:19080" -PassThru -WindowStyle Hidden
     Start-Sleep -Milliseconds 800
     & $GoClient "127.0.0.1:19080"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "interop B (C++ server <- Go client) failed"
-        exit 1
+    $goClientExitCode = $LASTEXITCODE
+    $cppServerExit = Wait-ProcessExit -Process $cppServerProc
+    if ($goClientExitCode -ne 0 -or -not $cppServerExit.exited -or $cppServerExit.exit_code -ne 0) {
+        $cppServerStatus = if ($cppServerExit.exited) {
+            "exit code $($cppServerExit.exit_code)"
+        } else {
+            'did not exit within 10000 ms'
+        }
+        throw ("interop B failed (Go client exit code {0}; C++ server {1})" -f `
+            $goClientExitCode, $cppServerStatus)
     }
     Stop-Proc $cppServerProc
     $cppServerProc = $null

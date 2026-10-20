@@ -10,7 +10,7 @@
 #include <Prism/Composition/Recognition/TlsCandidateFactory.hpp>
 #include <Prism/Protocols/Http1/Binding.hpp>
 #include <Prism/Runtime/Recognition/Profile.hpp>
-#include <Prism/Runtime/Session/Detail/NegotiatedTlsRoute.hpp>
+#include <Prism/Runtime/Session/RecognitionAdmission.hpp>
 
 #include <boost/asio/system_executor.hpp>
 
@@ -22,6 +22,29 @@
 
 namespace
 {
+    /** @brief 保留一次 VLESS 入站交换所需的客户端、handler、输入和凭据。 */
+    struct VlessAccountLeaseExchange final
+    {
+        std::shared_ptr<Prism::MemoryStream> Client;
+        std::shared_ptr<Prism::Vless::IngressFactory> Handler;
+        Prism::Contract::StreamAcceptInput Input;
+        std::array<std::uint8_t, 16> Uuid{};
+    };
+
+    /** @brief 写入原始 VLESS 请求后，将同一入站输入交给 handler 接受。 */
+    [[nodiscard]] auto RunVlessAccountLeaseExchange(VlessAccountLeaseExchange Exchange)
+        -> Net::awaitable<Prism::Contract::AcceptOutcome>
+    {
+        const auto Wire = Prism::Testing::RecognitionWire::MakeVless(Exchange.Uuid);
+        const auto Written = co_await Exchange.Client->WriteExact(
+            std::span<const std::byte>{Wire});
+        if (Written.Failure.Failed())
+        {
+            co_return std::unexpected(Written.Failure);
+        }
+        co_return co_await Exchange.Handler->Accept(std::move(Exchange.Input));
+    }
+
     /**
      * @brief 无 profile 时记录 direct acceptor 调用并返回原始 NotSupported。
      */
@@ -35,9 +58,15 @@ namespace
             ++Calls;
             if (Input.Inbound)
             {
+                std::array<std::byte, 1> Prefix{};
+                const auto Read = co_await Input.Inbound->ReadSome(Prefix);
+                if (Read.Failure.Failed())
+                {
+                    co_return std::unexpected(Read.Failure);
+                }
                 Input.Inbound->Close();
             }
-            co_return std::unexpected(Prism::Contract::FailureFromProtocolError(Prism::Error::NotSupported));
+            co_return std::unexpected(Prism::Contract::FailureFromProtocolError(Prism::Error::Unsupported));
         }
     };
 
@@ -285,16 +314,9 @@ TEST(SessionRecognitionMode, ProtocolHandlerTransfersAccountLease)
             Io,
             [Client, Inbound, Handler, Bytes, UseState, Uuid, &Result]() -> Net::awaitable<void>
             {
-                const auto Wire = Prism::Testing::RecognitionWire::MakeVless(Uuid);
-                const auto Written = co_await Client->WriteExact(
-                    std::span<const std::byte>{Wire});
-                if (Written.Failure.Failed())
-                {
-                    Result = std::unexpected(Written.Failure);
-                    co_return;
-                }
-                Result = co_await Handler->Accept(
-                    Prism::Contract::StreamAcceptInput{Inbound, {}, Bytes, UseState});
+                Result = co_await RunVlessAccountLeaseExchange({
+                    Client, Handler,
+                    Prism::Contract::StreamAcceptInput{Inbound, {}, Bytes, UseState}, Uuid});
             });
 
         ASSERT_TRUE(Result);

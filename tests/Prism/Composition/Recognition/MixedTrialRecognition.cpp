@@ -16,6 +16,7 @@
 
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 #include <Prism/Composition/Recognition/ProfileBuilder.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
@@ -62,8 +63,14 @@ namespace
             }
             Offset += Written.Bytes;
         }
-        Source->Shutdown();
-        Core::Pipeline Pipeline(Request.Profile);
+        const auto Shutdown = co_await Source->WriteShutdown();
+        if (!Shutdown)
+        {
+            co_return;
+        }
+        auto Bytes = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8});
+        Core::Pipeline Pipeline(Request.Profile, std::move(Bytes));
         Request.Result = co_await Pipeline.Recognize(Inbound);
         if (Request.Result.transport)
         {
@@ -80,7 +87,7 @@ namespace
             }
             Request.Result.transport.reset();
         }
-        Source->Close();
+        (void)Source->Close();
     }
 
     auto RunNaturalCoro(Net::io_context &Io, Net::awaitable<void> Operation) -> void
@@ -128,7 +135,9 @@ namespace
         const auto Uuid = Prism::Testing::RecognitionWire::MakeUuid(1);
         auto Profile = BuildMixed({
             Prism::Testing::MakeVlessCandidate(Prism::Composition::Recognition::CandidateOptions{9}, Prism::Vless::ServerConfig{Uuid}),
-            Composition::CandidateFactory::MakeHttp(Prism::Composition::Recognition::CandidateOptions{2}),
+            Composition::CandidateFactory::MakeHttp(
+                Prism::Composition::Recognition::CandidateOptions{2},
+                Prism::Testing::MakeHttp1Binding()),
             Prism::Testing::MakeVmessCandidate(Prism::Composition::Recognition::CandidateOptions{7}, Prism::Vmess::ServerConfig{Uuid}),
         });
         ASSERT_NE(Profile, nullptr);
@@ -153,7 +162,8 @@ namespace
             if (Mode == Core::RecognitionMode::Configured) Options.ConfiguredCandidate = 2;
             Options.Budget.MaxCryptoTrials = 1;
             const auto Built = Composition::ProfileBuilder::Build(
-                {Composition::CandidateFactory::MakeHttp(Composition::CandidateOptions{2})},
+                {Composition::CandidateFactory::MakeHttp(
+                    Composition::CandidateOptions{2}, Prism::Testing::MakeHttp1Binding())},
                 std::move(Options));
             ASSERT_TRUE(Built) << Core::ToStringView(Built.error());
             const auto Result = RunMixed(Built->Profile,

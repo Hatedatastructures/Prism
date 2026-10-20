@@ -18,6 +18,7 @@
 #include <string>
 
 #include <Prism/Transport/MemoryStream.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 #include <Prism/Protocols/Mux/Smux/Smux.hpp>
 #include <Prism/Protocols/Mux/Stream.hpp>
@@ -116,7 +117,7 @@ namespace
         auto StartWriteShutdown(Completion Handler) -> void override
         {
             if (auto* Inner = NextLayer()) { Inner->WriteShutdown(std::move(Handler)); return; }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 
@@ -125,7 +126,7 @@ namespace
         Net::io_context Ioc;
         auto Transport = std::make_shared<ZeroProgressTransport>(Ioc.get_executor());
         auto Conn = std::make_shared<Anytls::Conn<>>(Transport, "password");
-        Error Result = Error::None;
+        std::expected<void, Prism::Fault::Failure> Result;
 
         RunCoroutine(Ioc,
                  [&]() -> Net::awaitable<void>
@@ -133,7 +134,8 @@ namespace
                      Result = co_await Conn->WriteHandshake(0);
                  });
 
-        EXPECT_EQ(Result, Error::IoError);
+        ASSERT_FALSE(Result);
+        EXPECT_EQ(Result.error().Code, Prism::Fault::Code::WouldBlock);
         EXPECT_EQ(Transport->Writes_, 1u);
         Prism::Testing::ExpectFixtureCloseReceipt(Prism::Testing::DriveClose(Ioc, Transport));
     }
@@ -144,7 +146,7 @@ namespace
         auto Transport = std::make_shared<ZeroProgressTransport>(Ioc.get_executor());
         Transport->Overreport_ = true;
         auto Conn = std::make_shared<Anytls::Conn<>>(Transport, "password");
-        Error Result = Error::None;
+        std::expected<void, Prism::Fault::Failure> Result;
 
         RunCoroutine(Ioc,
                  [&]() -> Net::awaitable<void>
@@ -152,7 +154,8 @@ namespace
                      Result = co_await Conn->WriteHandshake(0);
                  });
 
-        EXPECT_EQ(Result, Error::IoError);
+        ASSERT_FALSE(Result);
+        EXPECT_EQ(Result.error().Code, Prism::Fault::Code::InvalidArgument);
         EXPECT_EQ(Transport->Writes_, 1u);
         Prism::Testing::ExpectFixtureCloseReceipt(Prism::Testing::DriveClose(Ioc, Transport));
     }
@@ -163,7 +166,7 @@ namespace
         auto Transport = std::make_shared<Prism::PrismMockTransport>(Ioc.get_executor());
         Transport->OverreportRead = true;
         auto Conn = std::make_shared<Anytls::Conn<>>(Transport, "password");
-        Error Result = Error::None;
+        std::expected<void, Prism::Fault::Failure> Result;
 
         RunCoroutine(Ioc,
                  [&]() -> Net::awaitable<void>
@@ -171,7 +174,8 @@ namespace
                      Result = co_await Conn->ReadHandshake();
                  });
 
-        EXPECT_EQ(Result, Error::UnexpectedEof);
+        ASSERT_FALSE(Result);
+        EXPECT_EQ(Result.error().Code, Prism::Fault::Code::InvalidArgument);
         EXPECT_EQ(Transport->ReadsDone, 1u);
         Prism::Testing::ExpectFixtureCloseReceipt(Prism::Testing::DriveClose(Ioc, Transport));
     }
@@ -231,7 +235,9 @@ namespace
         std::shared_ptr<Gun::Conn<>> Conn,
         std::shared_ptr<MemoryStream> Peer) -> Net::awaitable<void>
     {
-        EXPECT_EQ(co_await Conn->WriteHandshake("example.com"), Error::None);
+        const auto Handshake = co_await Conn->WriteHandshake("example.com");
+        EXPECT_TRUE(Handshake);
+        if (!Handshake) co_return;
         std::array<std::byte, 8> WriteBuffer{std::byte{0x42}};
         Prism::Fault::Failure ErrorCode;
         EXPECT_EQ(([&](Prism::IoResult Result) { ErrorCode = Result.Failure; return Result.Bytes; })(co_await Conn->WriteSome(std::span<const std::byte>(WriteBuffer))),
@@ -267,12 +273,15 @@ namespace
         auto Stream = std::make_shared<Mux::StreamTransmission>(Handle);
         EXPECT_TRUE(Stream->IsOpen());
         EXPECT_EQ(Stream->Handle(), Handle);
+        std::array<std::byte, 4> Buffer{};
+        auto PendingRead = Net::co_spawn(Stream->Executor(), Stream->ReadSome(Buffer),
+            Net::use_awaitable);
+        co_await Net::post(Stream->Executor(), Net::use_awaitable);
         const auto CancelResult = Stream->Cancel();
         EXPECT_TRUE(CancelResult.has_value());
-        std::array<std::byte, 4> Buffer{};
-        Prism::Fault::Failure ErrorCode;
-        const auto ReadCount = ([&](Prism::IoResult Result) { ErrorCode = Result.Failure; return Result.Bytes; })(co_await Stream->ReadSome(std::span<std::byte>(Buffer)));
-        EXPECT_EQ(ReadCount, 0u);
+        const auto Read = co_await std::move(PendingRead);
+        EXPECT_EQ(Read.Bytes, 0U);
+        EXPECT_EQ(Read.Failure.Code, Prism::Fault::Code::Canceled);
         // 非空句柄 Close / Reset（co_spawn 投递）。
         const auto CloseResult = Stream->Close();
         Stream->Reset();

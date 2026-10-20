@@ -2,16 +2,28 @@
 param([string]$RepoRoot = (Split-Path -Parent $PSScriptRoot))
 
 $ErrorActionPreference = 'Stop'
-$PrismRoot = Join-Path $RepoRoot 'Prism'
+$ProductionRoots = @(
+    (Join-Path $RepoRoot 'Include/Prism')
+    (Join-Path $RepoRoot 'Src/Prism')
+)
 $Problems = [Collections.Generic.List[string]]::new()
-$Headers = @(Get-ChildItem -LiteralPath $PrismRoot -Recurse -File -Filter '*.hpp')
+$ProductionFiles = @()
+foreach ($ProductionRoot in $ProductionRoots) {
+    $ProductionFiles += Get-ChildItem -LiteralPath $ProductionRoot -Recurse -File |
+        Where-Object { $_.Extension -in '.hpp', '.h', '.cpp', '.cc', '.cxx' }
+}
+$Headers = @($ProductionFiles | Where-Object { $_.Extension -eq '.hpp' })
 $FilePaths = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
-Get-ChildItem -LiteralPath $PrismRoot -Recurse -File | ForEach-Object {
-    $RelativePath = [IO.Path]::GetRelativePath($RepoRoot, $_.FullName).Replace('\', '/')
-    $FilePaths.Add($RelativePath, $RelativePath)
+foreach ($ProductionFile in $ProductionFiles) {
+    $RelativePath = [IO.Path]::GetRelativePath($RepoRoot, $ProductionFile.FullName).Replace('\', '/')
+    $LogicalPath = $RelativePath -replace '^(?:Include|Src)/', ''
+    if ($FilePaths.ContainsKey($LogicalPath)) {
+        throw "Production include path has duplicate public/private owners: $LogicalPath"
+    }
+    $FilePaths.Add($LogicalPath, $RelativePath)
 }
 $Consumers = [Collections.Generic.List[IO.FileInfo]]::new()
-foreach ($Header in $Headers) { $Consumers.Add($Header) }
+foreach ($ProductionFile in $ProductionFiles) { $Consumers.Add($ProductionFile) }
 foreach ($TestRoot in @('tests/Prism', 'tests/Experiments/Prism')) {
     $TestPath = Join-Path $RepoRoot $TestRoot
     if (Test-Path -LiteralPath $TestPath -PathType Container) {
@@ -20,11 +32,7 @@ foreach ($TestRoot in @('tests/Prism', 'tests/Experiments/Prism')) {
             ForEach-Object { $Consumers.Add($_) }
     }
 }
-$Implementations = @(Get-ChildItem -LiteralPath $PrismRoot -Recurse -File |
-    Where-Object { $_.Extension -in '.cpp', '.cc', '.cxx' })
-foreach ($Implementation in $Implementations) {
-    $Problems.Add("生产实现扩展名未退役: $($Implementation.FullName)")
-}
+$Implementations = @($ProductionFiles | Where-Object { $_.Extension -in '.cpp', '.cc', '.cxx' })
 
 $RetiredIncludes = @(
     'Prism/Runtime/Contract/DataPlane.hpp',
@@ -50,7 +58,7 @@ foreach ($RetiredPath in $RetiredIncludes) {
         $Problems.Add("已要求退役的生产源码仍存在: $RetiredPath")
     }
 }
-foreach ($RelativePath in $FilePaths.Values) {
+foreach ($RelativePath in $FilePaths.Keys) {
     if ($RelativePath -match '^Prism/(Ingress|Runtime/Front|Composition/Api|Scheduler|Net/Route|Net/Outbound)/' -and
         [IO.Path]::GetExtension($RelativePath) -in '.hpp', '.h', '.cpp', '.cc', '.cxx') {
         $Problems.Add("已要求退役的生产目录仍公开源码: $RelativePath")
@@ -59,8 +67,9 @@ foreach ($RelativePath in $FilePaths.Values) {
 
 foreach ($Header in $Consumers) {
     $Relative = [IO.Path]::GetRelativePath($RepoRoot, $Header.FullName).Replace('\', '/')
+    $LogicalRelative = $Relative -replace '^(?:Include|Src)/', ''
     $Lines = [IO.File]::ReadAllLines($Header.FullName)
-    if ($Relative.StartsWith('Prism/') -and $Lines.Length -gt 600) {
+    if ($LogicalRelative.StartsWith('Prism/') -and $Header.Extension -eq '.hpp' -and $Lines.Length -gt 600) {
         $Problems.Add("$Relative`: $($Lines.Length) 行超过 600")
     }
     for ($Index = 0; $Index -lt $Lines.Length; ++$Index) {
@@ -85,27 +94,30 @@ foreach ($Header in $Consumers) {
         elseif (!$FilePaths.ContainsKey($Include)) {
             $Problems.Add("$Position 引用不存在的生产文件 $Include")
         }
-        elseif ($FilePaths[$Include] -cne $Include) {
+        elseif (($FilePaths[$Include] -replace '^(?:Include|Src)/', '') -cne $Include) {
             $Problems.Add("$Position include大小写与真实路径不一致: $Include -> $($FilePaths[$Include])")
+        }
+        elseif ($Relative.StartsWith('Include/Prism/') -and $FilePaths[$Include].StartsWith('Src/Prism/')) {
+            $Problems.Add("$Position 公共头依赖 Src 私有头 $Include")
         }
         if ($RetiredIncludes -contains $Include -or
             $Include -match '^Prism/(Ingress|Runtime/Front|Composition/Api|Scheduler|Net/Route|Net/Outbound)/') {
             $Problems.Add("$Position 仍引用已要求退役的接口 $Include")
         }
-        if ($Relative -match '^Prism/Protocols/' -and
+        if ($LogicalRelative -match '^Prism/Protocols/' -and
             $Include -match '^Prism/(Composition|Application|Runtime)/') {
             $Problems.Add("$Position 协议反向依赖 $Include")
         }
-        if ($Relative -match '^Prism/Contract/' -and
+        if ($LogicalRelative -match '^Prism/Contract/' -and
             $Include -match '^Prism/(Composition|Application|Runtime|Boundary|Protocols)/') {
             $Problems.Add("$Position 中立合同依赖实现 $Include")
         }
-        if ($Relative -match '^Prism/Runtime/' -and
+        if ($LogicalRelative -match '^Prism/Runtime/' -and
             ($Include -match '^Prism/(Composition|Application)/' -or
              $Include -match '^Prism/Protocols/(?!Common/|Quic/)')) {
             $Problems.Add("$Position Runtime 依赖协议/装配实现 $Include")
         }
-        if ($Relative -match '^Prism/Boundary/' -and
+        if ($LogicalRelative -match '^Prism/Boundary/' -and
             ($Include -match '^Prism/(Composition|Application)/' -or
              $Include -match '^Prism/Protocols/(?!Common/|Quic/)')) {
             $Problems.Add("$Position Boundary 依赖协议/装配实现 $Include")
@@ -113,7 +125,7 @@ foreach ($Header in $Consumers) {
     }
 }
 
-# 用户规定的测试布局与生产 header-only 门禁一起检查，不编译或改写文件。
+# 用户规定的测试布局与生产 Include/Src 边界一起检查，不编译或改写文件。
 $TestLayoutRoot = Join-Path $RepoRoot 'tests/Prism'
 $TestLayoutFiles = @(Get-ChildItem -LiteralPath $TestLayoutRoot -Recurse -File)
 foreach ($TestFile in $TestLayoutFiles) {
@@ -155,5 +167,5 @@ if ($Problems.Count -ne 0) {
     Write-Output "Prism contract gate FAILED: $($Problems.Count) 个源码问题"
     exit 1
 }
-Write-Output "Prism contract gate passed: $($Headers.Count) headers, $($Consumers.Count) source consumers, 0 production implementations; include directions, exact path case, retired interfaces and $($TestLayoutFiles.Count) test layout files checked"
+Write-Output "Prism contract gate passed: $($Headers.Count) headers, $($Implementations.Count) production implementations, $($Consumers.Count) source consumers; public/private includes, direction, exact path case, retired interfaces and $($TestLayoutFiles.Count) test layout files checked"
 exit 0

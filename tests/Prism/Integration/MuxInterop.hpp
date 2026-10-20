@@ -34,9 +34,9 @@
 #include <vector>
 
 #include <Prism/Protocols/Http2/Session.hpp>
-#include <Prism/Protocols/Mux/H2Mux/Client.hpp>
-#include <Prism/Protocols/Mux/Smux/Client.hpp>
-#include <Prism/Protocols/Mux/Yamux/Client.hpp>
+#include <Prism/Protocols/Mux/H2Mux/H2Mux.hpp>
+#include <Prism/Protocols/Mux/Smux/Smux.hpp>
+#include <Prism/Protocols/Mux/Yamux/Yamux.hpp>
 #include <Prism/Protocols/Mux/Stream.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
 #include <Prism/Transport/Transmission.hpp>

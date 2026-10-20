@@ -177,6 +177,20 @@ namespace Prism::Testing
 
     /** @brief 候选解析测试使用真实有退休 receipt 的 HTTP/1 binding owner。 */
     inline auto MakeHttp1Binding(
+        std::shared_ptr<ProviderAccounts> Accounts,
+        boost::asio::any_io_executor Executor)
+        -> std::shared_ptr<Prism::Http11::Binding>
+    {
+        if (!Accounts) throw std::runtime_error("HTTP1 fixture accounts are missing");
+        auto Prepared = Prism::Http11::PrepareProviderBinding(
+            "http-fixture",
+            {Accounts->Generation, Accounts->Credentials, Accounts->Authenticator},
+            std::move(Executor));
+        if (!Prepared) throw std::runtime_error("HTTP1 fixture prepare failed");
+        return Prism::Http11::BindProvider(std::move(*Prepared));
+    }
+
+    inline auto MakeHttp1Binding(
         std::string Instance = "http-fixture",
         boost::asio::any_io_executor Executor = boost::asio::system_executor())
         -> std::shared_ptr<Prism::Http11::Binding>

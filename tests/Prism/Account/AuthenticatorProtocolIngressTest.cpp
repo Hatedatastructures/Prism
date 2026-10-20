@@ -182,6 +182,26 @@ namespace
         co_return Grace.index() == 0U;
     }
 
+    struct Socks5AcceptRequest final
+    {
+        std::shared_ptr<MemoryStream> Server;
+        std::shared_ptr<ServerWaitState> State;
+        std::shared_ptr<Socks5::ServerConfig> Config;
+    };
+
+    auto AcceptSocks5AndRecord(Socks5AcceptRequest Request) -> Net::awaitable<void>
+    {
+        const auto Accepted = co_await Socks5::Accept(Request.Server, *Request.Config);
+        if (!Accepted)
+        {
+            Request.State->HandshakeFailure = Accepted.error();
+            co_return;
+        }
+        Request.State->ErrorCode = Error::None;
+        Request.State->HasConnection = Accepted->Connection != nullptr;
+        Request.State->ServerConnection = std::move(Accepted->Connection);
+    }
+
     auto RunSocks5InjectedAuth(
         std::shared_ptr<MemoryStream> Client,
         std::shared_ptr<MemoryStream> Server,
@@ -191,19 +211,7 @@ namespace
         auto Config = std::make_shared<Socks5::ServerConfig>();
         Config->EnableAuth = true;
         Config->Authenticator = Auth;
-        auto ServerCoroutine = [Server, State, Config]() -> Net::awaitable<void>
-        {
-            const auto Accepted = co_await Socks5::Accept(Server, *Config);
-            if (!Accepted)
-            {
-                State->HandshakeFailure = Accepted.error();
-                co_return;
-            }
-            State->ErrorCode = Error::None;
-            State->HasConnection = Accepted->Connection != nullptr;
-            State->ServerConnection = std::move(Accepted->Connection);
-        };
-        StartServer(Server->Executor(), ServerCoroutine(), State);
+        StartServer(Server->Executor(), AcceptSocks5AndRecord({Server, State, Config}), State);
 
         Socks5::ClientConfig ClientConfigValue;
         ClientConfigValue.EnableAuth = true;
@@ -236,19 +244,7 @@ namespace
         auto Config = std::make_shared<Socks5::ServerConfig>();
         Config->EnableAuth = true;
         Config->Authenticator = Auth;
-        auto ServerCoroutine = [Server, State, Config]() -> Net::awaitable<void>
-        {
-            const auto Accepted = co_await Socks5::Accept(Server, *Config);
-            if (!Accepted)
-            {
-                State->HandshakeFailure = Accepted.error();
-                co_return;
-            }
-            State->ErrorCode = Error::None;
-            State->HasConnection = Accepted->Connection != nullptr;
-            State->ServerConnection = std::move(Accepted->Connection);
-        };
-        StartServer(Server->Executor(), ServerCoroutine(), State);
+        StartServer(Server->Executor(), AcceptSocks5AndRecord({Server, State, Config}), State);
 
         Socks5::ClientConfig ClientConfigValue;
         ClientConfigValue.EnableAuth = true;

@@ -1,0 +1,36 @@
+set(PrismProtocolTuicHeaders
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Admission.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Binding.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Codec.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Conn.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/ConnAuth.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/ConnDatagram.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/ConnIo.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/ConnSession.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/ConnStream.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Detail/DatagramPackets.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Dgram.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/DgramPacketReceiver.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Tuic.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Tuic/Types.hpp"
+)
+
+PrismAddStaticTarget(PrismProtocolTuic
+    SOURCES
+        AdmissionRetirement.cpp
+        AdmissionRuntime.cpp
+        AdmissionInput.cpp
+        AdmissionInputDelivery.cpp
+        Binding.cpp
+        Codec.cpp
+        DatagramPackets.cpp
+        DgramPacketReceiver.cpp
+        Tuic.cpp
+        ServiceBinding.cpp
+    HEADERS
+        ${PrismProtocolTuicHeaders}
+    PRIVATE_HEADERS
+        AdmissionInput.hpp
+        NativeSession.hpp
+        ServiceBinding.hpp
+)

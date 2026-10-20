@@ -26,7 +26,8 @@ namespace
     using Prism::Application::Configuration::ConfigurationGeneration;
     using Prism::Application::Configuration::GenerationBuildOptions;
     using Prism::Application::Configuration::GenerationBuilder;
-    using Prism::Application::Configuration::Parser;
+    using Prism::Application::Configuration::ConfigurationParser;
+    using Prism::Application::Configuration::ConfigurationValidator;
     using Prism::Application::Configuration::PreparedGenerationBuildRequest;
     using Prism::Application::Configuration::ReloadCoordinator;
     using Prism::Application::Configuration::ReloadRequest;
@@ -165,7 +166,7 @@ namespace
         std::size_t ResolverCalls = 0;
         const auto Resolver = MakeCountingResolver(ResolverCalls, true);
 
-        const auto Parsed = Parser::Parse({
+        const auto Parsed = ConfigurationParser::Parse({
             .Json = ValidSecretJson,
             .Options = {.Secrets = SecretRefResolver{Resolver}}});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -187,7 +188,7 @@ namespace
         const auto Json = MakeMissingSecretWithLaterRouteJson();
         ASSERT_NE(Json.find("later-route"), std::string::npos);
 
-        const auto Parsed = Parser::Parse({
+        const auto Parsed = ConfigurationParser::Parse({
             .Json = Json,
             .Options = {.Secrets = SecretRefResolver{Resolver}}});
 
@@ -199,7 +200,7 @@ namespace
     TEST(PrismTaskC11d2SecretResolution,
          KeepsResolvedSecretAvailableAfterGenerationPinWithoutAnotherResolverCall)
     {
-        const auto Parsed = Parser::Parse({
+        const auto Parsed = ConfigurationParser::Parse({
             .Json = ValidSecretJson,
             .Options = {.CheckSecrets = false}});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -234,7 +235,7 @@ namespace
             return Reference == SecretReference ? std::optional<std::string>{SecretValue}
                                                 : std::nullopt;
         };
-        auto Prepared = Parser::PrepareFile({
+        auto Prepared = ConfigurationParser::PrepareFile({
             .Path = File.Path(),
             .Options = {.Secrets = SecretRefResolver{Resolver}}});
 
@@ -259,7 +260,7 @@ namespace
     {
         TemporaryJsonFile File(MakeMissingSecretWithLaterRouteJson());
         std::size_t ResolverCalls = 0;
-        const auto Prepared = Parser::PrepareFile({
+        const auto Prepared = ConfigurationParser::PrepareFile({
             .Path = File.Path(),
             .Options = {.Secrets = SecretRefResolver{
                             MakeCountingResolver(ResolverCalls, false)}}});
@@ -273,7 +274,7 @@ namespace
     TEST(PrismTaskC11d4SecretResolution,
          DirectBuilderUsesInlineFirstFallsBackOnceAndDropsUnusedInlineValues)
     {
-        const auto Parsed = Parser::Parse({
+        const auto Parsed = ConfigurationParser::Parse({
             .Json = MakeRepeatedSecretReferencesJson(),
             .Options = {.CheckSecrets = false}});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
@@ -309,7 +310,7 @@ namespace
     TEST(PrismTaskC11d4SecretResolution,
          RejectedReloadLeavesThePublishedInlineSecretAndClearsCandidateConfiguration)
     {
-        const auto Parsed = Parser::Parse({
+        const auto Parsed = ConfigurationParser::Parse({
             .Json = ValidSecretJson,
             .Options = {.CheckSecrets = false}});
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;

@@ -49,7 +49,7 @@ func serveConnection(connection net.Conn) error {
 	return err
 }
 
-func runClient(server, target string) error {
+func runClient(server, target, user, password string) error {
 	connection, err := net.DialTimeout("tcp", server, 5*time.Second)
 	if err != nil {
 		return err
@@ -60,6 +60,11 @@ func runClient(server, target string) error {
 		return err
 	}
 	request.URL.Host = target
+	if user != "" || password != "" {
+		request.SetBasicAuth(user, password)
+		request.Header.Set("Proxy-Authorization", request.Header.Get("Authorization"))
+		request.Header.Del("Authorization")
+	}
 	if err = request.Write(connection); err != nil {
 		return err
 	}
@@ -91,13 +96,15 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:19086", "server listen address")
 	server := flag.String("server", "127.0.0.1:19086", "client server address")
 	target := flag.String("target", "example.com:443", "CONNECT target")
+	user := flag.String("user", "", "optional proxy user")
+	password := flag.String("password", "", "optional proxy password")
 	flag.Parse()
 
 	var err error
 	if *mode == "server" {
 		err = runServer(*listen)
 	} else {
-		err = runClient(*server, *target)
+		err = runClient(*server, *target, *user, *password)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

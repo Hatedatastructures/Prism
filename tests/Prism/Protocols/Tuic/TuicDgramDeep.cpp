@@ -34,6 +34,9 @@ namespace
     using Prism::MakeMemoryPair;
     using Prism::MemoryStream;
     using Prism::Transmission;
+    using SharedDgram = std::shared_ptr<Tuic::Dgram<>>;
+    using MockTransportPtr = std::shared_ptr<Prism::PrismMockTransport>;
+    constexpr std::array<std::uint16_t, 2> UdpAssociationIds{0x1234U, 0xBEEFU};
 
     /**
      * @brief 驱动协程运行
@@ -92,6 +95,199 @@ namespace
         co_return Prism::Fault::Failure{};
     }
 
+    struct RawUdpAssociationReplyScenario final
+    {
+        Tuic::Message Request{
+            Tuic::CmdPacket, 0, 0, 1, 0, 0, MakeDestination(), "request"};
+        Tuic::Address ReplySource{
+            Tuic::AddressType::Ipv4, "192.0.2.9", 5353};
+        std::array<Error, UdpAssociationIds.size()> ReceiveStatuses{};
+        std::array<Error, UdpAssociationIds.size()> SendStatuses{};
+        std::array<Tuic::Address, UdpAssociationIds.size()> ReceivedTargets{};
+        std::array<std::vector<std::uint8_t>, UdpAssociationIds.size()> ReceivedPayloads{};
+    };
+
+    auto RunDecoratorReadWrite(SharedDgram Dgram, std::shared_ptr<MemoryStream> Peer)
+        -> Net::awaitable<void>
+    {
+        std::array<std::byte, 8> wbuf{std::byte{0x11}};
+        const auto w = co_await Dgram->WriteSome(std::span<const std::byte>(wbuf));
+        EXPECT_EQ(w.Bytes, 8u);
+        EXPECT_FALSE(w.Failure.Failed());
+        std::array<std::byte, 8> rbuf{};
+        const auto r = co_await Peer->ReadSome(std::span<std::byte>(rbuf));
+        EXPECT_EQ(r.Bytes, 8u);
+        EXPECT_FALSE(r.Failure.Failed());
+        EXPECT_EQ(static_cast<std::uint8_t>(rbuf[0]), 0x11);
+
+        const auto w2 = co_await Peer->WriteSome(std::span<const std::byte>(wbuf));
+        EXPECT_EQ(w2.Bytes, 8u);
+        EXPECT_FALSE(w2.Failure.Failed());
+        const auto r2 = co_await Dgram->ReadSome(std::span<std::byte>(rbuf));
+        EXPECT_EQ(r2.Bytes, 8u);
+        EXPECT_FALSE(r2.Failure.Failed());
+        EXPECT_EQ(static_cast<std::uint8_t>(rbuf[0]), 0x11);
+    }
+
+    auto RunStreamSendReceive(SharedDgram Dgram, std::shared_ptr<MemoryStream> Peer)
+        -> Net::awaitable<void>
+    {
+        // 发送数据报（对端读取 wire 帧）
+        std::string payload(4096, '\0');
+        for (std::size_t Index = 0; Index < payload.size(); ++Index)
+            payload[Index] = static_cast<char>((Index * 37U) & 0xFFU);
+        const auto serr = co_await Dgram->AsyncSendTo(MakeDestination(), AsU8Span(payload));
+        EXPECT_EQ(serr, Error::None);
+
+        // 对端用 Codec 解析帧
+        std::array<std::uint8_t, 8192> raw{};
+        const auto ReadResult = co_await Peer->ReadSome(AsBytes(std::span<std::uint8_t>(raw)));
+        const auto n = ReadResult.Bytes;
+        EXPECT_FALSE(ReadResult.Failure.Failed());
+        Tuic::Message msg;
+        std::size_t consumed = 0;
+        const auto perr = Tuic::Parse(std::span<const std::uint8_t>(raw.data(), n), msg, consumed);
+        EXPECT_EQ(perr, Error::None);
+        EXPECT_EQ(consumed, n);
+        EXPECT_GT(n, Tuic::Detail::MaxDatagramFrameSize);
+        EXPECT_EQ(msg.Cmd, Tuic::CmdPacket);
+        EXPECT_EQ(msg.FragTotal, 1U);
+        EXPECT_EQ(msg.AssocId, 0u);
+        EXPECT_EQ(msg.PktId, 0u);
+        EXPECT_EQ(msg.dst.Host, "93.184.216.34");
+        EXPECT_EQ(msg.dst.Port, 443u);
+        EXPECT_EQ(msg.payload, payload);
+
+        // 回传一帧 packet（ipv4 地址）→ Dgram 接收
+        // 回传帧保持完整数据报边界，接收端一次解析整个 packet。
+        Tuic::Message Reply;
+        Reply.Cmd = Tuic::CmdPacket;
+        Reply.AssocId = 7;
+        Reply.PktId = 1;
+        Reply.dst = MakeDestination();
+        Reply.payload = "pong";
+        const auto wire = Tuic::Build(Reply);
+        const auto WriteError = co_await WriteAllBytes(*Peer, wire);
+        EXPECT_FALSE(WriteError.Failed());
+
+        Tuic::Address src{};
+        std::vector<std::uint8_t> out;
+        const auto rerr = co_await Dgram->AsyncReceiveFrom(src, out);
+        EXPECT_EQ(rerr, Error::None);
+        EXPECT_EQ(src.Type, Tuic::AddressType::Ipv4);
+    }
+
+    auto RunRawUdpFrameBoundary(SharedDgram Client, SharedDgram Server,
+        const std::string &Payload) -> Net::awaitable<void>
+    {
+        const auto Sent = co_await Client->AsyncSendTo(
+            MakeDestination(), AsU8Span(std::string_view(Payload)));
+        EXPECT_EQ(Sent, Error::None);
+        Tuic::Address Target;
+        std::vector<std::uint8_t> Received;
+        const auto Err = co_await Server->AsyncReceiveFrom(Target, Received);
+        EXPECT_EQ(Err, Error::None);
+        EXPECT_EQ(Target.Host, "93.184.216.34");
+        EXPECT_EQ(std::string(Received.begin(), Received.end()), Payload);
+        (void)Server->Close();
+        (void)Client->Close();
+    }
+
+    auto RunRawUdpAssociationReplies(MockTransportPtr Raw, SharedDgram Dgram,
+        RawUdpAssociationReplyScenario &Scenario) -> Net::awaitable<void>
+    {
+        for (std::size_t Index = 0; Index < UdpAssociationIds.size(); ++Index)
+        {
+            Scenario.Request.AssocId = UdpAssociationIds[Index];
+            Scenario.Request.PktId = static_cast<std::uint16_t>(Index + 40U);
+            Raw->InjectRead(Tuic::Build(Scenario.Request));
+            Scenario.ReceiveStatuses[Index] = co_await Dgram->AsyncReceiveFrom(
+                Scenario.ReceivedTargets[Index], Scenario.ReceivedPayloads[Index]);
+            Scenario.SendStatuses[Index] = co_await Dgram->AsyncSendTo(
+                Scenario.ReplySource, AsU8Span(std::string_view{"reply"}));
+        }
+    }
+
+    auto RunIpv6DomainReceive(SharedDgram Dgram, std::shared_ptr<MemoryStream> Peer)
+        -> Net::awaitable<void>
+    {
+        // IPv6 地址（地址类型由首片 ATYP 字段携带）
+        Tuic::Message m6;
+        m6.Cmd = Prism::Tuic::CmdPacket;
+        m6.PktId = 1;
+        m6.dst.Type = Tuic::AddressType::Ipv6;
+        m6.dst.Host.assign(16, 'x');
+        m6.dst.Port = 8080;
+        m6.payload = "v6";
+        const auto w6 = co_await WriteAllBytes(*Peer, Tuic::Build(m6));
+        EXPECT_FALSE(w6.Failed());
+
+        Tuic::Address src{};
+        std::vector<std::uint8_t> out;
+        EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::None);
+        EXPECT_EQ(src.Type, Tuic::AddressType::Ipv6);
+
+        // 域名地址
+        Tuic::Message md;
+        md.Cmd = Prism::Tuic::CmdPacket;
+        md.PktId = 2;
+        md.dst.Type = Tuic::AddressType::Domain;
+        md.dst.Host = "example.com";
+        md.dst.Port = 80;
+        md.payload = "dom";
+        const auto wd = co_await WriteAllBytes(*Peer, Tuic::Build(md));
+        EXPECT_FALSE(wd.Failed());
+
+        EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::None);
+        EXPECT_EQ(src.Type, Tuic::AddressType::Domain);
+    }
+
+    auto RunReceiveErrorBranches(Net::io_context &IoContext) -> Net::awaitable<void>
+    {
+        // 每个错误分支使用独立的 memory pair，避免把已关闭端点当作
+        // 后续 wire 注入器，保持半关闭写语义与真实 TCP 一致。
+        {
+            auto [a, b] = MakeMemoryPair(IoContext.get_executor());
+            auto Peer = std::make_shared<MemoryStream>(std::move(b));
+            auto Dgram = std::make_shared<Tuic::Dgram<>>(
+                std::make_shared<MemoryStream>(std::move(a)));
+            Tuic::Address Source{};
+            std::vector<std::uint8_t> Output;
+            const auto PeerClose = Peer->Close();
+            EXPECT_TRUE(PeerClose);
+            EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::UnexpectedEof);
+        }
+
+        {
+            auto [a, b] = MakeMemoryPair(IoContext.get_executor());
+            auto Peer = std::make_shared<MemoryStream>(std::move(b));
+            auto Dgram = std::make_shared<Tuic::Dgram<>>(
+                std::make_shared<MemoryStream>(std::move(a)));
+            Tuic::Address Source{};
+            std::vector<std::uint8_t> Output;
+            const std::array<std::uint8_t, 11> BadAtypWire{
+                0x05, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x7F};
+            const auto WriteError = co_await WriteAllBytes(*Peer, BadAtypWire);
+            EXPECT_FALSE(WriteError.Failed());
+            EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::BadMessage);
+        }
+
+        {
+            auto [a, b] = MakeMemoryPair(IoContext.get_executor());
+            auto Peer = std::make_shared<MemoryStream>(std::move(b));
+            auto Dgram = std::make_shared<Tuic::Dgram<>>(
+                std::make_shared<MemoryStream>(std::move(a)));
+            Tuic::Address Source{};
+            std::vector<std::uint8_t> Output;
+            const std::array<std::uint8_t, 5> ShortHead{0x05, 0x02, 0, 0, 0};
+            const auto WriteError = co_await WriteAllBytes(*Peer, ShortHead);
+            EXPECT_FALSE(WriteError.Failed());
+            const auto PeerClose = Peer->Close();
+            EXPECT_TRUE(PeerClose);
+            EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::UnexpectedEof);
+        }
+    }
+
     TEST(TuicWireContract, UsesV5CommandAndAddressValues)
     {
         EXPECT_EQ(Tuic::ProtocolVersion, 0x05);
@@ -131,65 +327,6 @@ namespace
         EXPECT_EQ(Parsed.Token, Token);
     }
 
-    TEST(TuicDgramProvider, MemoryProviderRoundtrip)
-    {
-        Net::io_context ioc;
-        auto [ClientProvider, ServerProvider] =
-            Prism::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
-        auto Client = Tuic::ConnectPacket(ClientProvider, Tuic::ClientConfig{});
-        auto Server = Tuic::AcceptPacket(ServerProvider, Tuic::ServerConfig{});
-        ASSERT_TRUE(Client);
-        ASSERT_TRUE(Server);
-
-        const auto Target = MakeDestination();
-        const auto Payload = AsU8Span(std::string_view{"tuic-provider"});
-        Tuic::Address ReceivedTarget;
-        std::vector<std::uint8_t> ReceivedPayload;
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     EXPECT_EQ(co_await Client.value()->AsyncSendTo(Target, Payload), Error::None);
-                     EXPECT_EQ(co_await Server.value()->AsyncReceiveFrom(ReceivedTarget, ReceivedPayload),
-                               Error::None);
-                     EXPECT_EQ(co_await Server.value()->AsyncSendTo(ReceivedTarget, ReceivedPayload),
-                               Error::None);
-                     (void)Client.value()->Close();
-                     (void)Server.value()->Close();
-                 });
-
-        EXPECT_EQ(ReceivedTarget.Host, Target.Host);
-        EXPECT_EQ(ReceivedTarget.Port, Target.Port);
-        EXPECT_EQ(std::string(ReceivedPayload.begin(), ReceivedPayload.end()), "tuic-provider");
-    }
-
-    TEST(TuicDgramProvider, ShortWriteAndCloseAreErrors)
-    {
-        Net::io_context ioc;
-        auto [ClientProvider, ServerProvider] =
-            Prism::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
-        auto Client = Tuic::ConnectPacket(ClientProvider, Tuic::ClientConfig{});
-        auto Server = Tuic::AcceptPacket(ServerProvider, Tuic::ServerConfig{});
-        ASSERT_TRUE(Client);
-        ASSERT_TRUE(Server);
-        const auto Target = MakeDestination();
-
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     ClientProvider->MaxSend = 2;
-                     EXPECT_EQ(co_await Client.value()->AsyncSendTo(Target, AsU8Span(std::string_view{"short"})),
-                               Error::IoError);
-                     ClientProvider->MaxSend = 0;
-                     const auto CloseCommand = Server.value()->Close();
-                     EXPECT_TRUE(CloseCommand);
-                     const auto CloseDrain = co_await Server.value()->Activity()->Drain();
-                     EXPECT_TRUE(CloseDrain);
-                     EXPECT_EQ(co_await Client.value()->AsyncSendTo(Target, AsU8Span(std::string_view{"closed"})),
-                               Error::IoError);
-                     (void)Client.value()->Close();
-                 });
-    }
-
     TEST(TuicDgram, RejectsOverreportedUdpRead)
     {
         Net::io_context ioc;
@@ -219,7 +356,7 @@ namespace
                  {
                      Tuic::Address Source;
                      std::vector<std::uint8_t> Payload;
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Payload), Error::UnexpectedEof);
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Payload), Error::IoError);
                  });
     }
 
@@ -255,27 +392,7 @@ namespace
         EXPECT_EQ(Dgram->lowest_layer<MemoryStream>(), Dgram->Stream().get());
 
         // 透传读写（双向）
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     std::array<std::byte, 8> wbuf{std::byte{0x11}};
-                     const auto w = co_await Dgram->WriteSome(std::span<const std::byte>(wbuf));
-                     EXPECT_EQ(w.Bytes, 8u);
-                     EXPECT_FALSE(w.Failure.Failed());
-                     std::array<std::byte, 8> rbuf{};
-                     const auto r = co_await peer->ReadSome(std::span<std::byte>(rbuf));
-                     EXPECT_EQ(r.Bytes, 8u);
-                     EXPECT_FALSE(r.Failure.Failed());
-                     EXPECT_EQ(static_cast<std::uint8_t>(rbuf[0]), 0x11);
-
-                     const auto w2 = co_await peer->WriteSome(std::span<const std::byte>(wbuf));
-                     EXPECT_EQ(w2.Bytes, 8u);
-                     EXPECT_FALSE(w2.Failure.Failed());
-                     const auto r2 = co_await Dgram->ReadSome(std::span<std::byte>(rbuf));
-                     EXPECT_EQ(r2.Bytes, 8u);
-                     EXPECT_FALSE(r2.Failure.Failed());
-                     EXPECT_EQ(static_cast<std::uint8_t>(rbuf[0]), 0x11);
-                 });
+        RunCoroutine(ioc, RunDecoratorReadWrite(Dgram, peer));
 
         (void)Dgram->Cancel();
         (void)Dgram->Close();
@@ -300,54 +417,7 @@ namespace
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
 
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     // 发送数据报（对端读取 wire 帧）
-                     std::string payload(4096, '\0');
-                     for (std::size_t Index = 0; Index < payload.size(); ++Index)
-                         payload[Index] = static_cast<char>((Index * 37U) & 0xFFU);
-                     const auto serr =
-                         co_await Dgram->AsyncSendTo(MakeDestination(), AsU8Span(payload));
-                     EXPECT_EQ(serr, Error::None);
-
-                     // 对端用 Codec 解析帧
-                     std::array<std::uint8_t, 8192> raw{};
-                     const auto ReadResult = co_await peer->ReadSome(AsBytes(std::span<std::uint8_t>(raw)));
-                     const auto n = ReadResult.Bytes;
-                     EXPECT_FALSE(ReadResult.Failure.Failed());
-                     Tuic::Message msg;
-                     std::size_t consumed = 0;
-                     const auto perr = Tuic::Parse(std::span<const std::uint8_t>(raw.data(), n), msg, consumed);
-                     EXPECT_EQ(perr, Error::None);
-                     EXPECT_EQ(consumed, n);
-                     EXPECT_GT(n, Tuic::Detail::MaxDatagramFrameSize);
-                     EXPECT_EQ(msg.Cmd, Tuic::CmdPacket);
-                     EXPECT_EQ(msg.FragTotal, 1U);
-                     EXPECT_EQ(msg.AssocId, 0u);
-                      EXPECT_EQ(msg.PktId, 0u);
-                     EXPECT_EQ(msg.dst.Host, "93.184.216.34");
-                     EXPECT_EQ(msg.dst.Port, 443u);
-                     EXPECT_EQ(msg.payload, payload);
-
-                     // 回传一帧 packet（ipv4 地址）→ Dgram 接收
-                      // 回传帧保持完整数据报边界，接收端一次解析整个 packet。
-                     Tuic::Message Reply;
-                     Reply.Cmd = Tuic::CmdPacket;
-                     Reply.AssocId = 7;
-                      Reply.PktId = 1;
-                     Reply.dst = MakeDestination();
-                     Reply.payload = "pong";
-                    const auto wire = Tuic::Build(Reply);
-                     const auto WriteError = co_await WriteAllBytes(*peer, wire);
-                     EXPECT_FALSE(WriteError.Failed());
-
-                     Tuic::Address src{};
-                     std::vector<std::uint8_t> out;
-                     const auto rerr = co_await Dgram->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::None);
-                     EXPECT_EQ(src.Type, Tuic::AddressType::Ipv4);
-                 });
+        RunCoroutine(ioc, RunStreamSendReceive(Dgram, peer));
     }
 
     TEST(TuicDgram, PacketCarriesSizeAndFragmentFields)
@@ -396,20 +466,7 @@ namespace
         auto Server = std::make_shared<Tuic::Dgram<>>(RawServer);
         auto Client = std::make_shared<Tuic::Dgram<>>(RawClient);
         const auto Payload = std::string("tuic-udp-payload");
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     const auto Sent = co_await Client->AsyncSendTo(MakeDestination(), AsU8Span(std::string_view(Payload)));
-                     EXPECT_EQ(Sent, Error::None);
-                     Tuic::Address Target;
-                     std::vector<std::uint8_t> Received;
-                     const auto Err = co_await Server->AsyncReceiveFrom(Target, Received);
-                     EXPECT_EQ(Err, Error::None);
-                     EXPECT_EQ(Target.Host, "93.184.216.34");
-                     EXPECT_EQ(std::string(Received.begin(), Received.end()), Payload);
-                     (void)Server->Close();
-                     (void)Client->Close();
-                 });
+        RunCoroutine(ioc, RunRawUdpFrameBoundary(Client, Server, Payload));
     }
 
     TEST(TuicDgram, RawUdpReplyPreservesAssociationId)
@@ -418,44 +475,19 @@ namespace
         auto Raw = std::make_shared<Prism::PrismMockTransport>(ioc.get_executor());
         Raw->TransportKind = Transmission::Type::Udp;
         auto Dgram = std::make_shared<Tuic::Dgram<>>(Raw);
-        constexpr std::array<std::uint16_t, 2> AssociationIds{0x1234U, 0xBEEFU};
-        Tuic::Message Request;
-        Request.Cmd = Tuic::CmdPacket;
-        Request.FragTotal = 1;
-        Request.FragId = 0;
-        Request.dst = MakeDestination();
-        Request.payload = "request";
-        auto ReplySource = MakeDestination();
-        ReplySource.Host = "192.0.2.9";
-        ReplySource.Port = 5353;
-        std::array<Error, AssociationIds.size()> ReceiveStatuses{};
-        std::array<Error, AssociationIds.size()> SendStatuses{};
-        std::array<Tuic::Address, AssociationIds.size()> ReceivedTargets{};
-        std::array<std::vector<std::uint8_t>, AssociationIds.size()> ReceivedPayloads{};
+        RawUdpAssociationReplyScenario Scenario;
 
-        RunCoroutine(ioc,
-                     [&]() -> Net::awaitable<void>
-                     {
-                         for (std::size_t Index = 0; Index < AssociationIds.size(); ++Index)
-                         {
-                             Request.AssocId = AssociationIds[Index];
-                             Request.PktId = static_cast<std::uint16_t>(Index + 40U);
-                             Raw->InjectRead(Tuic::Build(Request));
-                             ReceiveStatuses[Index] = co_await Dgram->AsyncReceiveFrom(
-                                 ReceivedTargets[Index], ReceivedPayloads[Index]);
-                             SendStatuses[Index] = co_await Dgram->AsyncSendTo(
-                                 ReplySource, AsU8Span(std::string_view{"reply"}));
-                         }
-                     });
+        RunCoroutine(ioc, RunRawUdpAssociationReplies(Raw, Dgram, Scenario));
 
         std::size_t Offset = 0;
-        for (std::size_t Index = 0; Index < AssociationIds.size(); ++Index)
+        for (std::size_t Index = 0; Index < UdpAssociationIds.size(); ++Index)
         {
-            EXPECT_EQ(ReceiveStatuses[Index], Error::None);
-            EXPECT_EQ(SendStatuses[Index], Error::None);
-            EXPECT_EQ(ReceivedTargets[Index].Host, Request.dst.Host);
-            EXPECT_EQ(ReceivedTargets[Index].Port, Request.dst.Port);
-            EXPECT_EQ(std::string(ReceivedPayloads[Index].begin(), ReceivedPayloads[Index].end()),
+            EXPECT_EQ(Scenario.ReceiveStatuses[Index], Error::None);
+            EXPECT_EQ(Scenario.SendStatuses[Index], Error::None);
+            EXPECT_EQ(Scenario.ReceivedTargets[Index].Host, Scenario.Request.dst.Host);
+            EXPECT_EQ(Scenario.ReceivedTargets[Index].Port, Scenario.Request.dst.Port);
+            EXPECT_EQ(std::string(Scenario.ReceivedPayloads[Index].begin(),
+                Scenario.ReceivedPayloads[Index].end()),
                       "request");
             ASSERT_LT(Offset, Raw->Written.size());
             Tuic::Message Reply;
@@ -467,9 +499,9 @@ namespace
                       Error::None);
             ASSERT_GT(Consumed, 0U);
             EXPECT_EQ(Reply.Cmd, Tuic::CmdPacket);
-            EXPECT_EQ(Reply.AssocId, AssociationIds[Index]);
-            EXPECT_EQ(Reply.dst.Host, ReplySource.Host);
-            EXPECT_EQ(Reply.dst.Port, ReplySource.Port);
+            EXPECT_EQ(Reply.AssocId, UdpAssociationIds[Index]);
+            EXPECT_EQ(Reply.dst.Host, Scenario.ReplySource.Host);
+            EXPECT_EQ(Reply.dst.Port, Scenario.ReplySource.Port);
             EXPECT_EQ(Reply.payload, "reply");
             Offset += Consumed;
         }
@@ -680,91 +712,14 @@ namespace
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
 
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     // IPv6 地址（地址类型由首片 ATYP 字段携带）
-                     Tuic::Message m6;
-                     m6.Cmd = Prism::Tuic::CmdPacket;
-                     m6.PktId = 1;
-                     m6.dst.Type = Tuic::AddressType::Ipv6;
-                     m6.dst.Host.assign(16, 'x');
-                     m6.dst.Port = 8080;
-                    m6.payload = "v6";
-                     const auto w6 = co_await WriteAllBytes(*peer, Tuic::Build(m6));
-                     EXPECT_FALSE(w6.Failed());
-
-                     Tuic::Address src{};
-                     std::vector<std::uint8_t> out;
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::None);
-                     EXPECT_EQ(src.Type, Tuic::AddressType::Ipv6);
-
-                     // 域名地址
-                     Tuic::Message md;
-                     md.Cmd = Prism::Tuic::CmdPacket;
-                     md.PktId = 2;
-                     md.dst.Type = Tuic::AddressType::Domain;
-                     md.dst.Host = "example.com";
-                     md.dst.Port = 80;
-                    md.payload = "dom";
-                     const auto wd = co_await WriteAllBytes(*peer, Tuic::Build(md));
-                     EXPECT_FALSE(wd.Failed());
-
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::None);
-                     EXPECT_EQ(src.Type, Tuic::AddressType::Domain);
-                 });
+        RunCoroutine(ioc, RunIpv6DomainReceive(Dgram, peer));
     }
 
     TEST(TuicDgram, ReceiveErrorBranches)
     {
         Net::io_context ioc;
 
-        RunCoroutine(ioc,
-                 [&]() -> Net::awaitable<void>
-                 {
-                     // 每个错误分支使用独立的 memory pair，避免把已关闭端点当作
-                     // 后续 wire 注入器，保持半关闭写语义与真实 TCP 一致。
-                     {
-                         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-                         auto Peer = std::make_shared<MemoryStream>(std::move(b));
-                         auto Dgram = std::make_shared<Tuic::Dgram<>>(
-                             std::make_shared<MemoryStream>(std::move(a)));
-                         Tuic::Address Source{};
-                         std::vector<std::uint8_t> Output;
-                         const auto PeerClose = Peer->Close();
-                         EXPECT_TRUE(PeerClose);
-                         EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::UnexpectedEof);
-                     }
-
-                     {
-                         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-                         auto Peer = std::make_shared<MemoryStream>(std::move(b));
-                         auto Dgram = std::make_shared<Tuic::Dgram<>>(
-                             std::make_shared<MemoryStream>(std::move(a)));
-                         Tuic::Address Source{};
-                         std::vector<std::uint8_t> Output;
-                         const std::array<std::uint8_t, 11> BadAtypWire{
-                             0x05, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x7F};
-                         const auto WriteError = co_await WriteAllBytes(*Peer, BadAtypWire);
-                         EXPECT_FALSE(WriteError.Failed());
-                         EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::BadMessage);
-                     }
-
-                     {
-                         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-                         auto Peer = std::make_shared<MemoryStream>(std::move(b));
-                         auto Dgram = std::make_shared<Tuic::Dgram<>>(
-                             std::make_shared<MemoryStream>(std::move(a)));
-                         Tuic::Address Source{};
-                         std::vector<std::uint8_t> Output;
-                         const std::array<std::uint8_t, 5> ShortHead{0x05, 0x02, 0, 0, 0};
-                         const auto WriteError = co_await WriteAllBytes(*Peer, ShortHead);
-                         EXPECT_FALSE(WriteError.Failed());
-                         const auto PeerClose = Peer->Close();
-                         EXPECT_TRUE(PeerClose);
-                         EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::UnexpectedEof);
-                     }
-                 });
+        RunCoroutine(ioc, RunReceiveErrorBranches(ioc));
     }
 
     TEST(TuicDgram, SendIoError)

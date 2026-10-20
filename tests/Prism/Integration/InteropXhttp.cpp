@@ -39,7 +39,6 @@
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Protocols/Xhttp/Xhttp.hpp>
-#include <Prism/Protocols/Xhttp/Detail/StreamTransport.hpp>
 #include <Prism/Transport/Reliable.hpp>
 
 namespace

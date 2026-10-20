@@ -4,6 +4,7 @@
  */
 
 #include <Prism/Account/Authenticator.hpp>
+#include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Protocols/Http1/Conn.hpp>
 #include <Prism/Protocols/Http1/IngressFactory.hpp>
 #include <Prism/Protocols/Http1/ForwardRequest.hpp>

@@ -13,6 +13,8 @@
 
 #include <gtest/gtest.h>
 
+#include <Prism/Transport/Transmission.hpp>
+
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/channel.hpp>
@@ -39,11 +41,11 @@
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Protocols/Http2/Session.hpp>
-#include <Prism/Protocols/Xhttp/Conn.hpp>
+#include <Prism/Protocols/Xhttp/Entry.hpp>
 #include <Prism/Protocols/Xhttp/Detail/StreamTransport.hpp>
 #include <Prism/Protocols/Xhttp/Detail/SplitClient.hpp>
 #include <Prism/Protocols/Xhttp/Detail/SplitServer.hpp>
-#include <Prism/Protocols/Xhttp/Types.hpp>
+#include <Prism/Protocols/Xhttp/ConnectionTypes.hpp>
 #include <Prism/Protocols/Xhttp/Detail/SplitTransport.hpp>
 #include <Prism/Protocols/Xhttp/Detail/Wire.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
@@ -103,11 +105,12 @@ namespace
         const auto Activity = Transport->Activity();
         if (!Activity)
         {
-            Result->Failure = {Prism::Fault::Code::InvalidArgument};
+            if (Result->Failure.Succeeded())
+                Result->Failure = {Prism::Fault::Code::InvalidArgument};
             co_return;
         }
         const auto Drained = co_await Activity->Drain();
-        if (!Drained) Result->Failure = Drained.error();
+        if (!Drained && Result->Failure.Succeeded()) Result->Failure = Drained.error();
         Result->Retired = Activity->IsRetired();
         if (!Result->Retired && Result->Failure.Succeeded())
             Result->Failure = {Prism::Fault::Code::Blocked};
@@ -122,16 +125,15 @@ namespace
         return *Result;
     }
 
-    auto CloseAndDrainRawActivity(
+    auto DrainRawActivity(
         Prism::SharedTransmission Transport,
         const std::shared_ptr<TransportRetirementResult> &Result) -> Net::awaitable<void>
     {
-        const auto Closed = Transport->Close();
-        if (!Closed) Result->Failure = Closed.error();
         const auto Activity = Transport->Activity();
         if (!Activity)
         {
-            Result->Failure = {Prism::Fault::Code::InvalidArgument};
+            if (Result->Failure.Succeeded())
+                Result->Failure = {Prism::Fault::Code::InvalidArgument};
             co_return;
         }
         const auto Drained = co_await Activity->Drain();
@@ -139,6 +141,15 @@ namespace
         Result->Retired = Activity->IsRetired();
         if (!Result->Retired && Result->Failure.Succeeded())
             Result->Failure = {Prism::Fault::Code::Blocked};
+    }
+
+    auto CloseAndDrainRawActivity(
+        Prism::SharedTransmission Transport,
+        const std::shared_ptr<TransportRetirementResult> &Result) -> Net::awaitable<void>
+    {
+        const auto Closed = Transport->Close();
+        if (!Closed && Result->Failure.Succeeded()) Result->Failure = Closed.error();
+        co_await DrainRawActivity(std::move(Transport), Result);
     }
 
     auto CloseAndDrainTransmission(Prism::SharedTransmission Transport)
@@ -195,6 +206,7 @@ namespace
         std::size_t Count{0};
         std::error_code ErrorCode;
         bool Completed{false};
+        bool Admitted{false};
     };
 
     template <typename TransportType>
@@ -346,14 +358,14 @@ namespace
         auto StartRead(std::span<std::byte>, Completion Handler) -> void override
         {
             const std::error_code ErrorCode = std::make_error_code(std::errc::not_connected);
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(Executor_,
                 std::move(Handler), Prism::IoResult{0, Prism::Fault::FromNative(ErrorCode)});
         }
 
         auto StartWrite(std::span<const std::byte>, Completion Handler) -> void override
         {
             const std::error_code ErrorCode = std::make_error_code(std::errc::not_connected);
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(Executor_,
                 std::move(Handler), Prism::IoResult{0, Prism::Fault::FromNative(ErrorCode)});
         }
 
@@ -365,7 +377,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), {});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override

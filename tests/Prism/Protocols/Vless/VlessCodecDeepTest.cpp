@@ -15,7 +15,11 @@
 #include <vector>
 #include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Foundation/Error.hpp>
-#include <Prism/Protocols/Vless/Codec.hpp>
+#include <Prism/Protocols/Vless/AddressCodec.hpp>
+#include <Prism/Protocols/Vless/BeastCodec.hpp>
+#include <Prism/Protocols/Vless/RequestCodec.hpp>
+#include <Prism/Protocols/Vless/Types.hpp>
+#include <Prism/Protocols/Vless/UdpCodec.hpp>
 
 namespace
 {
@@ -115,8 +119,7 @@ TEST(VlessCodecDeep, EncodeAddressRejectsInvalidAddress)
 
         Address.Type = static_cast<Vless::AddressType>(0x7F);
         Address.Host = "example.com";
-        const std::array<std::uint8_t, 1> Payload{0x42};
-        EXPECT_TRUE(Vless::BuildUdpPkt(Address, Payload).empty());
+        EXPECT_TRUE(Vless::EncodeAddress(Address).empty());
     }
 
 TEST(VlessCodecDeep, ParseRequestBranches)
@@ -173,7 +176,7 @@ TEST(VlessCodecDeep, ParserErrors)
         Wrong[0] = 0x00;
         Wrong[1] = 0x22;
         EXPECT_EQ(Parser.Put(Net::buffer(Wrong), ErrorCode), 0u);
-        EXPECT_EQ(ErrorCode, make_error_code(Error::AuthFailed));
+        EXPECT_EQ(ErrorCode, make_error_code(Error::BadAuth));
         Parser.Reset();
         // 成功（Uuid 匹配 + ipv4）
         std::vector<std::uint8_t> Ok{0x00};

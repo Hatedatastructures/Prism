@@ -9,6 +9,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <optional>
 #include <string>
@@ -245,7 +246,22 @@ namespace Prism::Testing::Socks5AccountIngress
 
             const auto *ActiveSessions =
                 FindJsonValue(AccountItems->get_array().front(), "active_sessions");
-            return ActiveSessions != nullptr && ActiveSessions->is_number() &&
+            if (ActiveSessions == nullptr)
+            {
+                return false;
+            }
+            const auto Expected = Active ? std::string_view{"1"} : std::string_view{"0"};
+            if (ActiveSessions->is_string())
+            {
+                const auto &Decimal = ActiveSessions->get<std::string>();
+                std::uint64_t Count = 0U;
+                const auto [End, ParseError] = std::from_chars(
+                    Decimal.data(), Decimal.data() + Decimal.size(), Count);
+                return ParseError == std::errc{} &&
+                       End == Decimal.data() + Decimal.size() &&
+                       Count == (Active ? 1U : 0U);
+            }
+            return ActiveSessions->is_number() &&
                    ActiveSessions->get_number() == (Active ? 1.0 : 0.0);
         }
 

@@ -5,7 +5,12 @@
 
 #include <gtest/gtest.h>
 
+#include <Prism/Operations/HttpRequest.hpp>
 #include <Prism/Operations/HttpServer.hpp>
+#include <Prism/Operations/ManagementModels.hpp>
+#include <Prism/Operations/Models.hpp>
+#include <Prism/Operations/ResponseDeliveryReceipt.hpp>
+#include <Prism/Operations/Routes/RequestParser.hpp>
 #include <Prism/Operations/Routes/RouteDispatch.hpp>
 #include "OperationsHttpAuthTestSupport.hpp"
 
@@ -153,12 +158,16 @@ namespace
         co_await Socket.async_read_some(
             Net::buffer(Buffer), Net::redirect_error(Net::use_awaitable, Error));
         Request.Result->Closed = static_cast<bool>(Error);
+        const auto Drain = co_await Request.Server.Drain(HttpServer::Deadline::max());
+        if (Drain.Failure.Failed() || Drain.RemainingConnections != 0U)
+        {
+            Request.Result->Failure =
+                std::make_exception_ptr(std::runtime_error("server_drain_failed"));
+        }
         Request.Result->Completed = true;
-        (void)Request.Server.CloseAdmission();
         boost::system::error_code CloseError;
         Socket.close(CloseError);
-        Request.Watchdog->cancel();
-        Request.Io.stop();
+        (void)Request.Watchdog->cancel();
     }
 
     auto RunIdleSocketWatchdog(
@@ -518,6 +527,16 @@ TEST(OperationsHttpServer, RoutesAcceptedCommandsWithOperationId)
     const std::string Request =
         std::string{"POST /Operations/Reload HTTP/1.1\r\nHost: localhost\r\nX-Correlation-Id: 11\r\n"} +
         "Content-Type: application/json\r\nContent-Length: " + std::to_string(Body.size()) + "\r\n\r\n" + Body;
+    auto AuthenticatedRequest = Request;
+    const auto HeaderEnd = AuthenticatedRequest.find("\r\n\r\n");
+    ASSERT_NE(HeaderEnd, std::string::npos);
+    AuthenticatedRequest.insert(
+        HeaderEnd + 2U, "Authorization: Bearer test-token\r\n");
+    Prism::Operations::HttpRequest ParsedRequest;
+    ASSERT_EQ(Prism::Operations::RequestParserDetail::ParseRequest(
+        AuthenticatedRequest, ParsedRequest), ParseStatus::Complete);
+    EXPECT_EQ(ParsedRequest.Correlation, "11");
+    EXPECT_EQ(ParsedRequest.Body, Body);
 
     const auto Exchange = RunExchange(
         Io,
@@ -525,9 +544,12 @@ TEST(OperationsHttpServer, RoutesAcceptedCommandsWithOperationId)
         Request);
 
     EXPECT_FALSE(Exchange.Error);
-    EXPECT_NE(Exchange.Response.find("HTTP/1.1 202"), std::string::npos);
-    EXPECT_NE(Exchange.Response.find("\"correlation\":\"11\""), std::string::npos);
-    EXPECT_NE(Exchange.Response.find("\"operation\":\"1\""), std::string::npos);
+    EXPECT_NE(Exchange.Response.find("HTTP/1.1 202"), std::string::npos)
+        << Exchange.Response;
+    EXPECT_NE(Exchange.Response.find("\"correlation\":\"11\""), std::string::npos)
+        << Exchange.Response;
+    EXPECT_NE(Exchange.Response.find("\"operation\":\"1\""), std::string::npos)
+        << Exchange.Response;
 }
 
 TEST(OperationsHttpServer, RoutesGetOperationStatus)
@@ -560,13 +582,15 @@ TEST(OperationsHttpServer, RoutesGetOperationStatus)
 TEST(OperationsHttpServer, OmitsEventDetailsWhenIncludeDetailsIsFalse)
 {
     Net::io_context Io;
+    std::atomic<bool> ReceivedIncludeDetails{true};
     Router RouterValue(Io.get_executor(),
-        Prism::Operations::RouterHandlers{[](Query QueryValue) -> Net::awaitable<QueryResult>
+        Prism::Operations::RouterHandlers{[&ReceivedIncludeDetails](Query QueryValue) -> Net::awaitable<QueryResult>
             {
-                const auto QueryData = std::get<Prism::Operations::EventQuery>(QueryValue.Value);
-                Prism::Operations::EventSnapshot Event;
-                Event.Sequence = 1;
-                Event.Detail = "api_key=event-secret";
+                const auto &QueryData = std::get<Prism::Operations::ManagementQuery>(QueryValue.Value);
+                const auto &EventsRead = std::get<Prism::Operations::EventsRead>(QueryData.Value);
+                ReceivedIncludeDetails.store(EventsRead.IncludeDetails, std::memory_order_release);
+                Prism::Operations::EventSnapshot Event{
+                    .Sequence = 1, .Detail = "api_key=event-secret"};
                 co_return QueryResult::Events(QueryData.Correlation,
                     Prism::Statistics::EventPage{{Event}, 1, false});
             },
@@ -580,6 +604,9 @@ TEST(OperationsHttpServer, OmitsEventDetailsWhenIncludeDetailsIsFalse)
         "Host: localhost\r\n\r\n");
 
     EXPECT_FALSE(Exchange.Error);
+    EXPECT_NE(Exchange.Response.find("HTTP/1.1 200 OK"), std::string::npos);
+    EXPECT_FALSE(ReceivedIncludeDetails.load(std::memory_order_acquire));
+    EXPECT_NE(Exchange.Response.find(R"("sequence":"1")"), std::string::npos);
     EXPECT_EQ(Exchange.Response.find("\"detail\""), std::string::npos);
     EXPECT_EQ(Exchange.Response.find("event-secret"), std::string::npos);
 }

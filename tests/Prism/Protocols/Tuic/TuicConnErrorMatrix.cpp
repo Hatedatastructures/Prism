@@ -121,6 +121,107 @@ namespace
             Net::use_awaitable);
     }
 
+    struct HandshakeStreams final
+    {
+        MemoryStream Client;
+        MemoryStream Server;
+        MemoryStream AuthClient;
+        MemoryStream AuthServer;
+    };
+
+    auto RunTruncatedHeaderScenario(
+        Net::io_context &IoContext,
+        HandshakeStreams Streams) -> Net::awaitable<void>
+    {
+        Tuic::ServerConfig Config;
+        Config.uuid = MakeUuid();
+        Config.password = "pw";
+        Config.AuthStream = std::make_shared<MemoryStream>(
+            std::move(Streams.AuthServer));
+        Config.Exporter = TestExporter;
+
+        const auto Done = std::make_shared<CompletionChannel>(
+            IoContext.get_executor(),
+            1);
+        auto Failure = std::make_shared<std::exception_ptr>();
+        auto ServerCompletion = [Done, Failure](std::exception_ptr Exception) -> void
+        {
+            *Failure = Exception;
+            (void)Done->try_send(boost::system::error_code{});
+        };
+        auto ServerOperation = RunTruncatedServer(
+            std::make_shared<MemoryStream>(std::move(Streams.Server)),
+            Config);
+        Net::co_spawn(
+            IoContext.get_executor(),
+            std::move(ServerOperation),
+            std::move(ServerCompletion));
+
+        const auto ClientClosed = Streams.Client.Close();
+        EXPECT_TRUE(ClientClosed);
+        const auto AuthClosed = Streams.AuthClient.Close();
+        EXPECT_TRUE(AuthClosed);
+        if (!ClientClosed || !AuthClosed)
+        {
+            co_return;
+        }
+        (void)co_await Done->async_receive(Net::use_awaitable);
+        EXPECT_FALSE(*Failure);
+    }
+
+    auto RunSuccessfulHandshakeScenario(
+        Net::io_context &IoContext,
+        HandshakeStreams Streams) -> Net::awaitable<void>
+    {
+        const auto Uuid = MakeUuid();
+        const auto Done = std::make_shared<CompletionChannel>(
+            IoContext.get_executor(),
+            1);
+        auto Failure = std::make_shared<std::exception_ptr>();
+        auto ServerConfig = Tuic::ServerConfig{};
+        ServerConfig.uuid = Uuid;
+        ServerConfig.password = "pw";
+        ServerConfig.AuthStream = std::make_shared<MemoryStream>(
+            std::move(Streams.AuthServer));
+        ServerConfig.Exporter = TestExporter;
+        auto ServerOperation = RunHandshakeServer(
+            std::make_shared<MemoryStream>(std::move(Streams.Server)),
+            ServerConfig,
+            Done);
+        auto ServerCompletion = [Done, Failure](std::exception_ptr Exception) -> void
+        {
+            *Failure = Exception;
+            (void)Done->try_send(boost::system::error_code{});
+        };
+        Net::co_spawn(
+            IoContext.get_executor(),
+            std::move(ServerOperation),
+            std::move(ServerCompletion));
+
+        Tuic::ClientConfig ClientConfig;
+        ClientConfig.uuid = Uuid;
+        ClientConfig.password = "pw";
+        ClientConfig.AuthStream = std::make_shared<MemoryStream>(
+            std::move(Streams.AuthClient));
+        ClientConfig.Exporter = TestExporter;
+        const auto Target = Address{
+            Tuic::AddressType::Domain,
+            "t.internal",
+            443};
+        auto [ErrorValue, Connection] = co_await Tuic::Connect(
+            std::make_shared<MemoryStream>(std::move(Streams.Client)),
+            ClientConfig,
+            Target);
+        EXPECT_EQ(ErrorValue, Error::None);
+        EXPECT_NE(Connection, nullptr);
+        (void)co_await Done->async_receive(Net::use_awaitable);
+        EXPECT_FALSE(*Failure);
+        if (Connection)
+        {
+            Connection->Close();
+        }
+    }
+
     TEST(TuicConnErrorMatrix, TruncatedHeader)
     {
         Net::io_context IoContext;
@@ -128,40 +229,12 @@ namespace
             Prism::MakeMemoryPair(IoContext.get_executor());
         auto [AuthClient, AuthServer] =
             Prism::MakeMemoryPair(IoContext.get_executor());
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            Tuic::ServerConfig Config;
-            Config.uuid = MakeUuid();
-            Config.password = "pw";
-            Config.AuthStream = std::make_shared<MemoryStream>(
-                std::move(AuthServer));
-            Config.Exporter = TestExporter;
-
-            const auto Done =
-                std::make_shared<CompletionChannel>(
-                    IoContext.get_executor(),
-                    1);
-            auto Failure = std::make_shared<std::exception_ptr>();
-            auto ServerCompletion =
-                [Done, Failure](std::exception_ptr Exception) -> void
-            {
-                *Failure = Exception;
-                (void)Done->try_send(boost::system::error_code{});
-            };
-            auto ServerOperation = RunTruncatedServer(
-                std::make_shared<MemoryStream>(std::move(ServerStream)),
-                Config);
-            Net::co_spawn(
-                IoContext.get_executor(),
-                std::move(ServerOperation),
-                std::move(ServerCompletion));
-
-            (void)ClientStream;
-            AuthClient.Close();
-            (void)co_await Done->async_receive(Net::use_awaitable);
-            EXPECT_FALSE(*Failure);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
+        RunCoroutine(
+            IoContext,
+            RunTruncatedHeaderScenario(
+                IoContext,
+                {std::move(ClientStream), std::move(ServerStream),
+                 std::move(AuthClient), std::move(AuthServer)}));
     }
 
     TEST(TuicConnErrorMatrix, HandshakeOk)
@@ -171,58 +244,11 @@ namespace
             Prism::MakeMemoryPair(IoContext.get_executor());
         auto [AuthClient, AuthServer] =
             Prism::MakeMemoryPair(IoContext.get_executor());
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            const auto Uuid = MakeUuid();
-            const auto Done =
-                std::make_shared<CompletionChannel>(
-                    IoContext.get_executor(),
-                    1);
-            auto Failure = std::make_shared<std::exception_ptr>();
-            auto Config = Tuic::ServerConfig{};
-            Config.uuid = Uuid;
-            Config.password = "pw";
-            Config.AuthStream = std::make_shared<MemoryStream>(
-                std::move(AuthServer));
-            Config.Exporter = TestExporter;
-            auto ServerOperation = RunHandshakeServer(
-                std::make_shared<MemoryStream>(std::move(ServerStream)),
-                Config,
-                Done);
-            auto ServerCompletion =
-                [Done, Failure](std::exception_ptr Exception) -> void
-            {
-                *Failure = Exception;
-                (void)Done->try_send(boost::system::error_code{});
-            };
-            Net::co_spawn(
-                IoContext.get_executor(),
-                std::move(ServerOperation),
-                std::move(ServerCompletion));
-
-            Tuic::ClientConfig ClientConfig;
-            ClientConfig.uuid = Uuid;
-            ClientConfig.password = "pw";
-            ClientConfig.AuthStream = std::make_shared<MemoryStream>(
-                std::move(AuthClient));
-            ClientConfig.Exporter = TestExporter;
-            const auto Target = Address{
-                Tuic::AddressType::Domain,
-                "t.internal",
-                443};
-            auto [ErrorValue, Connection] = co_await Tuic::Connect(
-                std::make_shared<MemoryStream>(std::move(ClientStream)),
-                ClientConfig,
-                Target);
-            EXPECT_EQ(ErrorValue, Error::None);
-            EXPECT_NE(Connection, nullptr);
-            co_await Done->async_receive(Net::use_awaitable);
-            EXPECT_FALSE(*Failure);
-            if (Connection)
-            {
-                Connection->Close();
-            }
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
+        RunCoroutine(
+            IoContext,
+            RunSuccessfulHandshakeScenario(
+                IoContext,
+                {std::move(ClientStream), std::move(ServerStream),
+                 std::move(AuthClient), std::move(AuthServer)}));
     }
 } // namespace

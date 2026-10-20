@@ -6,6 +6,7 @@
 
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Identifier/Id.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
 
 #include <memory>
@@ -15,6 +16,13 @@
 
 namespace Prism::Testing::Runtime
 {
+
+    [[nodiscard]] inline auto MakeListenerTestBytePool()
+        -> std::shared_ptr<Prism::Memory::BytePool>
+    {
+        return std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U * 1024U, 64U});
+    }
 
     class ListenerTestGeneration final : public Prism::Foundation::GenerationLifetime
     {

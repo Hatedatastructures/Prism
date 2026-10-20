@@ -7,7 +7,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const dirs = [".superpowers/sdd/2026-10-09-preview-quality-modification-plan", "logs", "Prism"];
+const dirs = [
+  ".superpowers/sdd/2026-10-09-preview-quality-modification-plan",
+  "logs",
+  "Include/Prism",
+  "Src/Prism",
+];
 if (process.argv.includes("--include-docs")) dirs.push("docs");
 const full = process.argv.includes("--full");
 

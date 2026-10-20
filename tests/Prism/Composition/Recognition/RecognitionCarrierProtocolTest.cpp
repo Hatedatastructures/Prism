@@ -10,6 +10,7 @@
 #include <Prism/Composition/Recognition/CandidateRegistry.hpp>
 #include <Prism/Composition/Provider/BoundCatalog.hpp>
 #include <Prism/Composition/Provider/TlsCarrierProvider.hpp>
+#include <Prism/Composition/Recognition/TlsCarrierFailure.hpp>
 #include <Prism/Composition/Recognition/RestlsCarrier.hpp>
 #include <Prism/Contract/Ingress/CarrierConfiguration.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
@@ -580,7 +581,7 @@ TEST(RecognitionCarrier, WebsocketServerAcceptFactoryRunsRealHandshake)
                 return RunWsClient(std::move(Inbound), "edge.example");
             });
 
-        EXPECT_TRUE(Result.ClientError.Succeeded());
+        EXPECT_EQ(Result.ClientError, Prism::Error::None);
         EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::Accepted);
         EXPECT_EQ(Result.Commit.Metadata.Carrier, "ws");
     }
@@ -607,7 +608,7 @@ TEST(RecognitionCarrier, WebsocketConcreteAcceptRunsOnlyAtCommit)
             {
                 return RunWsClient(std::move(Inbound), "edge.example");
             });
-        EXPECT_TRUE(Result.ClientError.Succeeded());
+        EXPECT_EQ(Result.ClientError, Prism::Error::None);
         EXPECT_TRUE(State->Failure.Succeeded());
         EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::Accepted);
         EXPECT_EQ(State->Calls, 1U);

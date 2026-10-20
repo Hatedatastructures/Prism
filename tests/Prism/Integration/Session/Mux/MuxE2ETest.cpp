@@ -1,6 +1,7 @@
 /** @file MuxE2ETest.cpp @brief 当前 Runtime listener 消费协议正式 mux owner 的真实转发与半关闭。 */
 #include <TestSupport/Fixtures/MuxRoot.hpp>
 #include <TestSupport/Fixtures/StreamFactory.hpp>
+#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
 #include <Prism/Runtime/Listener.hpp>
 #include <Prism/Runtime/SessionAdmissionTestSupport.hpp>
 #include <Prism/Runtime/Session.hpp>
@@ -34,12 +35,32 @@ namespace
         Net::co_spawn(Io,Operation(),[&](std::exception_ptr Error){Failure=Error;});Io.run();
         EXPECT_TRUE(Done);EXPECT_FALSE(Failure);EXPECT_FALSE(Transport->IsOpen());EXPECT_TRUE(Weak.expired());
     }
+    auto MakeMuxRuntimeSession(std::shared_ptr<F::State> S,
+        std::shared_ptr<Prism::Trojan::IngressFactory> Factory,
+        bool& RuntimeDialCalled) -> std::shared_ptr<Prism::Runtime::Session>
+    {
+        Prism::Runtime::SessionOptions Options;
+        Options.Services->Bytes = S->Bytes;
+        Options.Services->GenerationUseState = S->UseState;
+        Options.Services->AcceptProtocol = std::move(Factory);
+        Options.Services->Dial = [&RuntimeDialCalled](const Prism::Network::Target&)
+            -> Net::awaitable<std::expected<Prism::SharedTransmission, Prism::Fault::Failure>>
+        {
+            RuntimeDialCalled = true;
+            co_return std::unexpected(Prism::Fault::Failure{F::Code::IoError});
+        };
+        return std::make_shared<Prism::Runtime::Session>(std::move(Options));
+    }
+
     auto RunMuxSessionScenario(std::shared_ptr<F::State> S) -> Net::awaitable<void>
     {
         Prism::Trojan::ServerConfig Configuration;
-        Configuration.AuthenticatorOwner=S->Accounts->Authenticator;
-        auto Factory=std::make_shared<Prism::Trojan::IngressFactory>(Prism::Trojan::IngressOptions{
-            .Configuration=std::move(Configuration),.Mux=S->Binding});
+        Configuration.Password = std::string(F::Password);
+        Configuration.EnableMux = true;
+        auto Factory = Prism::Testing::MakeTrojanIngress(
+            std::move(Configuration), Prism::Testing::ProtocolIngressResources{
+                .Datagrams = {}, .UseState = S->UseState, .Executor = S->Executor},
+            Prism::Trojan::IngressRoute{.Mux = S->Binding});
         bool RuntimeDialCalled=false;
         Prism::Runtime::TcpListener::Options ListenerOptions;
         ListenerOptions.Executor=S->Executor;
@@ -49,12 +70,7 @@ namespace
             [Factory,&RuntimeDialCalled,S](Prism::Runtime::SessionAdmission)
                 ->std::shared_ptr<Prism::Runtime::Session>
         {
-            Prism::Runtime::SessionOptions Options;Options.Services->Bytes=S->Bytes;
-            Options.Services->AcceptProtocol=Factory;
-            Options.Services->Dial=[&RuntimeDialCalled](const Prism::Network::Target&)
-                ->Net::awaitable<std::expected<Prism::SharedTransmission,Prism::Fault::Failure>>
-            { RuntimeDialCalled=true;co_return std::unexpected(Prism::Fault::Failure{F::Code::IoError}); };
-            return std::make_shared<Prism::Runtime::Session>(std::move(Options));
+            return MakeMuxRuntimeSession(S, Factory, RuntimeDialCalled);
         };
         Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
         EXPECT_EQ(co_await Listener.Start(F::Tcp::endpoint(F::Tcp::v4(),0)),F::Code::Success);

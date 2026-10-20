@@ -32,7 +32,7 @@
 
 #include <Prism/Net/Dialer/Dialer.hpp>
 #include <Prism/Protocols/Vless/Vless.hpp>
-#include <Prism/Protocols/Vless/Xudp/Codec.hpp>
+#include <Prism/Protocols/Vless/Xudp/VlessXudp.hpp>
 #include <Prism/Transport/Reliable.hpp>
 
 namespace

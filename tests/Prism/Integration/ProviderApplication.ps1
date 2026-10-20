@@ -472,15 +472,19 @@ function GetFileEvidence($Path){
         SHA256=(Get-FileHash -Algorithm SHA256 -LiteralPath $FullPath).Hash.ToUpperInvariant()
     }
 }
-function GetSourceManifest($Root){
-    $RootFull=[IO.Path]::GetFullPath($Root)
+function GetSourceManifest($Roots){
     $Extensions=@('.c','.cc','.cpp','.cxx','.h','.hh','.hpp','.hxx','.inc','.inl','.ipp')
     $PathMap=@{}
     $RelativePaths=[Collections.Generic.List[string]]::new()
-    Get-ChildItem -LiteralPath $RootFull -Recurse -File|Where-Object{$Extensions -contains $_.Extension.ToLowerInvariant()}|ForEach-Object{
-        $Relative=[IO.Path]::GetRelativePath($RootFull,$_.FullName).Replace('\','/')
-        $PathMap[$Relative]=$_.FullName
-        [void]$RelativePaths.Add($Relative)
+    $RootEvidence=[Collections.Generic.List[object]]::new()
+    foreach($SourceRoot in $Roots){
+        $RootFull=[IO.Path]::GetFullPath($SourceRoot.Path)
+        [void]$RootEvidence.Add([ordered]@{Prefix=$SourceRoot.Prefix;Path=$RootFull})
+        Get-ChildItem -LiteralPath $RootFull -Recurse -File|Where-Object{$Extensions -contains $_.Extension.ToLowerInvariant()}|ForEach-Object{
+            $Relative=$SourceRoot.Prefix+'/'+[IO.Path]::GetRelativePath($RootFull,$_.FullName).Replace('\','/')
+            $PathMap[$Relative]=$_.FullName
+            [void]$RelativePaths.Add($Relative)
+        }
     }
     $RelativePaths.Sort([StringComparer]::Ordinal)
     $Entries=[Collections.Generic.List[object]]::new()
@@ -492,7 +496,7 @@ function GetSourceManifest($Root){
     $Lines=@($Entries.ToArray()|ForEach-Object{($_.SHA256+"`t"+$_.Path)})
     $Canonical=if($Lines.Count){[string]::Join("`n",$Lines)+"`n"}else{''}
     return [ordered]@{
-        Root=$RootFull
+        Roots=@($RootEvidence.ToArray())
         GeneratedUtc=[DateTime]::UtcNow.ToString('o')
         Algorithm='SHA256(file bytes); canonical UTF-8 LF lines SHA256<TAB>normalized relative path, ordinal path order; manifest hash is SHA256(canonical bytes)'
         FileCount=$Entries.Count
@@ -780,7 +784,7 @@ function AssertCaseContract {
     }
 }
 function Config($Kind,$Name){
-    $Value=Get-Content -Raw (Join-Path $RepoRoot 'Prism/Application/Configuration/PrismConfiguration.json')|ConvertFrom-Json -AsHashtable
+    $Value=Get-Content -Raw (Join-Path $RepoRoot 'Include/Prism/Application/Configuration/PrismConfiguration.json')|ConvertFrom-Json -AsHashtable
     $Value.Runtime.WorkerCount=2
     $Value.Listeners.Tcp[0].Port=FreePort
     $Value.Listeners.Udp[0].Port=FreeUdpPort
@@ -839,16 +843,18 @@ function GetDynamicConfigurationValue($Configuration,$Key){
 }
 try{
     $Prism=Join-Path $RepoRoot 'build/src/Prism.exe'
-    $PrismMain=Join-Path $RepoRoot 'Prism/Application/Main/PrismMain.hpp'
-    $Startup=Join-Path $RepoRoot 'Prism/Application/Startup/Start.hpp'
-    $ConfigTemplate=Join-Path $RepoRoot 'Prism/Application/Configuration/PrismConfiguration.json'
+    $PrismMain=Join-Path $RepoRoot 'Src/Prism/Application/Main/PrismMain.cpp'
+    $Startup=Join-Path $RepoRoot 'Src/Prism/Application/Startup/Start.cpp'
+    $ConfigTemplate=Join-Path $RepoRoot 'Include/Prism/Application/Configuration/PrismConfiguration.json'
     $RunnerPath=[IO.Path]::GetFullPath($PSCommandPath)
     $RunnerEvidence=GetFileEvidence $RunnerPath
     $MainEvidence=GetFileEvidence $PrismMain
     $StartupEvidence=GetFileEvidence $Startup
     $ConfigTemplateEvidence=GetFileEvidence $ConfigTemplate
     $PrismEvidence=GetFileEvidence $Prism
-    $SourceManifest=GetSourceManifest (Join-Path $RepoRoot 'Prism')
+    $SourceManifest=GetSourceManifest @(
+        @{Path=(Join-Path $RepoRoot 'Include/Prism');Prefix='Include/Prism'},
+        @{Path=(Join-Path $RepoRoot 'Src/Prism');Prefix='Src/Prism'})
     WriteJson $SourceManifestPath $SourceManifest
     $EpochLines=@(
         'Provider18EvidenceEpoch/v1'

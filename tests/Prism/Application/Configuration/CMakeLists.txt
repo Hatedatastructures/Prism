@@ -5,17 +5,24 @@ AddPrismTest(ConfigurationSchemaTest.cpp)
 AddPrismTest(ConfigurationSecretTest.cpp)
 AddPrismTest(ConfigurationCapabilityTest.cpp)
 AddPrismTest(ConfigurationGenerationTest.cpp)
-target_link_libraries(ConfigurationAssemblyTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
+target_link_libraries(ConfigurationAssemblyTest PRIVATE
+    PrismApplication PrismConfiguration PrismComposition PrismNetworkModel PrismProtocolVless
+    PrismRuntime PrismTestSupport)
 target_sources(ConfigurationAssemblyTest PRIVATE ConfigurationTestSupport.hpp)
-target_link_libraries(ConfigurationPreflightTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
+target_link_libraries(ConfigurationPreflightTest PRIVATE
+    PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
 target_sources(ConfigurationPreflightTest PRIVATE ConfigurationTestSupport.hpp)
-target_link_libraries(ConfigurationSchemaTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
+target_link_libraries(ConfigurationSchemaTest PRIVATE
+    PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
 target_sources(ConfigurationSchemaTest PRIVATE ConfigurationTestSupport.hpp)
-target_link_libraries(ConfigurationSecretTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
+target_link_libraries(ConfigurationSecretTest PRIVATE
+    PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
 target_sources(ConfigurationSecretTest PRIVATE ConfigurationTestSupport.hpp)
-target_link_libraries(ConfigurationCapabilityTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
+target_link_libraries(ConfigurationCapabilityTest PRIVATE
+    PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
 target_sources(ConfigurationCapabilityTest PRIVATE ConfigurationTestSupport.hpp)
-target_link_libraries(ConfigurationGenerationTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
+target_link_libraries(ConfigurationGenerationTest PRIVATE
+    PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
 target_sources(ConfigurationGenerationTest PRIVATE ConfigurationTestSupport.hpp)
 AddPrismTest(ConfigurationOrderTest.cpp)
 target_link_libraries(ConfigurationOrderTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
@@ -24,4 +31,11 @@ target_link_libraries(ConfigurationValidationHeadersTest PRIVATE PrismConfigurat
 AddPrismTest(SecretResolutionStageTest.cpp)
 target_link_libraries(SecretResolutionStageTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
 AddPrismTest(ConfigurationStageOrderTest.cpp)
-target_link_libraries(ConfigurationStageOrderTest PRIVATE PrismApplication)
+target_link_libraries(ConfigurationStageOrderTest PRIVATE
+    PrismApplication PrismConfiguration PrismComposition)
+foreach(PrismConfigurationWhiteboxTarget IN ITEMS
+        ConfigurationOrderTest
+        ConfigurationValidationHeadersTest)
+    target_include_directories(${PrismConfigurationWhiteboxTarget} PRIVATE
+        "${PROJECT_SOURCE_DIR}/Src")
+endforeach()

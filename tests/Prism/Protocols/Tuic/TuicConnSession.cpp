@@ -221,6 +221,274 @@ namespace
                 RecordingDirectoryAuthenticator::StaticPassword()));
     }
 
+    struct ConnectAcceptScenario final
+    {
+        Net::io_context &IoContext;
+        Tcp::acceptor &Acceptor;
+        std::uint16_t Port;
+        Tuic::ClientConfig ClientConfig;
+        Tuic::ServerConfig ServerConfig;
+        Address Target;
+        std::string Echoed;
+        bool ServerAccepted{false};
+
+        auto RunServer() -> Net::awaitable<void>
+        {
+            auto Socket = co_await Acceptor.async_accept(Net::use_awaitable);
+            auto ServerTransport = std::make_shared<Reliable>(std::move(Socket));
+            auto [ErrorValue, Request, Connection] =
+                co_await Tuic::Accept(ServerTransport, ServerConfig);
+            if (ErrorValue != Error::None || !Connection)
+            {
+                co_return;
+            }
+            ServerAccepted = true;
+            std::array<std::byte, 64> Buffer{};
+            const auto ReadResult = co_await Connection->ReadSome(
+                std::span<std::byte>(Buffer));
+            if (!ReadResult.Failure.Failed() && ReadResult.Bytes > 0)
+            {
+                const auto EchoBuffer = std::span<const std::byte>(
+                    Buffer.data(), ReadResult.Bytes);
+                const auto WriteResult = co_await Connection->WriteExact(EchoBuffer);
+                EXPECT_FALSE(WriteResult.Failure.Failed());
+            }
+            Connection->Close();
+            (void)Request;
+        }
+
+        auto Run() -> Net::awaitable<void>
+        {
+            const auto ServerDone = SpawnTask(
+                IoContext.get_executor(),
+                RunServer());
+            Tcp::socket Socket(IoContext.get_executor());
+            const auto Endpoint = Tcp::endpoint(
+                Net::ip::address_v4::loopback(), Port);
+            co_await Socket.async_connect(Endpoint, Net::use_awaitable);
+            auto ClientTransport = std::make_shared<Reliable>(std::move(Socket));
+            auto [ErrorValue, Connection] = co_await Tuic::Connect(
+                ClientTransport, ClientConfig, Target);
+            EXPECT_EQ(ErrorValue, Error::None);
+            EXPECT_NE(Connection, nullptr);
+            if (ErrorValue != Error::None || !Connection)
+            {
+                co_return;
+            }
+            const std::string Message = "tuic-Stream";
+            const auto MessageBytes =
+                Prism::AsBytes(Prism::AsU8Span(Message));
+            const auto WriteResult = co_await Connection->WriteExact(MessageBytes);
+            EXPECT_FALSE(WriteResult.Failure.Failed());
+            std::array<std::byte, 64> Buffer{};
+            const auto ReadResult = co_await Connection->ReadSome(
+                std::span<std::byte>(Buffer));
+            EXPECT_FALSE(ReadResult.Failure.Failed());
+            Echoed.assign(
+                reinterpret_cast<const char *>(Buffer.data()), ReadResult.Bytes);
+            Connection->Close();
+            const auto ServerCompleted = co_await ServerDone->async_receive(
+                Net::use_awaitable);
+            EXPECT_TRUE(ServerCompleted);
+        }
+    };
+
+    template <typename RecordType>
+    struct ExporterRejectionScenario final
+    {
+        Net::io_context &IoContext;
+        MemoryStream ClientStream;
+        MemoryStream ServerStream;
+        Tuic::ClientConfig ClientConfig;
+        Tuic::ServerConfig ServerConfig;
+        RecordType &Record;
+        bool ServerRejected{false};
+
+        auto RunServer() -> Net::awaitable<void>
+        {
+            auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+                std::make_shared<MemoryStream>(std::move(ServerStream)),
+                ServerConfig);
+            ServerRejected = ErrorValue == Error::BadAuth && !Connection;
+            EXPECT_EQ(ErrorValue, Error::BadAuth);
+            EXPECT_FALSE(Connection);
+            EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
+            if (Connection)
+            {
+                Connection->Close();
+            }
+            (void)Request;
+        }
+
+        auto Run() -> Net::awaitable<void>
+        {
+            const auto ServerDone = SpawnTask(
+                IoContext.get_executor(),
+                RunServer());
+            auto [ErrorValue, Connection] = co_await Tuic::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientStream)),
+                ClientConfig,
+                Address{Tuic::AddressType::Domain, "example.com", 443});
+            EXPECT_EQ(ErrorValue, Error::None);
+            if (Connection)
+            {
+                Connection->Close();
+            }
+            const auto ServerCompleted = co_await ServerDone->async_receive(
+                Net::use_awaitable);
+            EXPECT_TRUE(ServerCompleted);
+        }
+    };
+
+    template <typename RecordType>
+    struct ValidExporterScenario final
+    {
+        Net::io_context &IoContext;
+        MemoryStream ClientStream;
+        MemoryStream ServerStream;
+        Tuic::ClientConfig ClientConfig;
+        Tuic::ServerConfig ServerConfig;
+        RecordType &Record;
+        std::shared_ptr<RecordingDirectoryAuthenticator> Authenticator;
+        bool ServerAuthenticated{false};
+
+        auto RunServer() -> Net::awaitable<void>
+        {
+            auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+                std::make_shared<MemoryStream>(std::move(ServerStream)),
+                ServerConfig);
+            ServerAuthenticated = ErrorValue == Error::None &&
+                                  static_cast<bool>(Connection);
+            EXPECT_EQ(ErrorValue, Error::None);
+            EXPECT_TRUE(Connection);
+            if (!Authenticator)
+            {
+                ADD_FAILURE() << "TUIC server scenario must retain its authenticator";
+                if (Connection)
+                {
+                    (void)Connection->Close();
+                }
+                (void)Request;
+                co_return;
+            }
+            EXPECT_EQ(Authenticator->CallCount(), 1U);
+            const auto Received = Authenticator->LastCredential();
+            EXPECT_EQ(Received.Kind(), Prism::Account::CredentialKind::Password);
+            EXPECT_TRUE(Prism::Account::Credential::ConstantTimeEqual(
+                Received,
+                Prism::Account::CredentialView::Password(
+                    RecordingDirectoryAuthenticator::StaticPassword())));
+            if (!Connection)
+            {
+                (void)Request;
+                co_return;
+            }
+            auto Lease = Connection->TakeAuthLease();
+            EXPECT_TRUE(Lease);
+            EXPECT_EQ(Record->Runtime()->ActiveConnections(), 1U);
+            Lease.Release();
+            EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
+            Connection->Close();
+            (void)Request;
+        }
+
+        auto Run() -> Net::awaitable<void>
+        {
+            const auto ServerDone = SpawnTask(
+                IoContext.get_executor(),
+                RunServer());
+            auto [ErrorValue, Connection] = co_await Tuic::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientStream)),
+                ClientConfig,
+                Address{Tuic::AddressType::Domain, "example.com", 443});
+            EXPECT_EQ(ErrorValue, Error::None);
+            if (Connection)
+            {
+                Connection->Close();
+            }
+            const auto ServerCompleted = co_await ServerDone->async_receive(
+                Net::use_awaitable);
+            EXPECT_TRUE(ServerCompleted);
+        }
+    };
+
+    struct WrongPasswordScenario final
+    {
+        Net::io_context &IoContext;
+        MemoryStream ClientStream;
+        MemoryStream ServerStream;
+        Tuic::ClientConfig ClientConfig;
+        Tuic::ServerConfig ServerConfig;
+
+        auto RunServer() -> Net::awaitable<void>
+        {
+            auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+                std::make_shared<MemoryStream>(std::move(ServerStream)),
+                ServerConfig);
+            EXPECT_EQ(ErrorValue, Error::BadAuth);
+            EXPECT_FALSE(Connection);
+            (void)Request;
+        }
+
+        auto Run() -> Net::awaitable<void>
+        {
+            const auto ServerDone = SpawnTask(
+                IoContext.get_executor(),
+                RunServer());
+            auto [ErrorValue, Connection] = co_await Tuic::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientStream)),
+                ClientConfig,
+                Address{Tuic::AddressType::Domain, "example.com", 443});
+            EXPECT_EQ(ErrorValue, Error::None);
+            EXPECT_TRUE(Connection);
+            if (Connection)
+            {
+                Connection->Close();
+            }
+            const auto ServerCompleted = co_await ServerDone->async_receive(
+                Net::use_awaitable);
+            EXPECT_TRUE(ServerCompleted);
+        }
+    };
+
+    struct BadFrameScenario final
+    {
+        Net::io_context &IoContext;
+        Tcp::acceptor &Acceptor;
+        std::uint16_t Port;
+        Tuic::ServerConfig ServerConfig;
+        bool AcceptRejected{false};
+
+        auto RunServer() -> Net::awaitable<void>
+        {
+            auto Socket = co_await Acceptor.async_accept(Net::use_awaitable);
+            auto Transport = std::make_shared<Reliable>(std::move(Socket));
+            auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+                Transport, ServerConfig);
+            AcceptRejected = ErrorValue != Error::None;
+            (void)Request;
+            (void)Connection;
+        }
+
+        auto Run() -> Net::awaitable<void>
+        {
+            const auto ServerDone = SpawnTask(
+                IoContext.get_executor(),
+                RunServer());
+            Tcp::socket Socket(IoContext.get_executor());
+            const auto Endpoint = Tcp::endpoint(
+                Net::ip::address_v4::loopback(), Port);
+            co_await Socket.async_connect(Endpoint, Net::use_awaitable);
+            const std::string Garbage = "\xff\xfe\xfd\xfc";
+            const auto GarbageBuffer = Net::buffer(Garbage);
+            co_await Socket.async_write_some(GarbageBuffer, Net::use_awaitable);
+            Socket.close();
+            const auto ServerCompleted = co_await ServerDone->async_receive(
+                Net::use_awaitable);
+            EXPECT_TRUE(ServerCompleted);
+        }
+    };
+
     TEST(TuicConnSession, ConnectAcceptRoundtrip)
     {
         Net::io_context IoContext;
@@ -247,77 +515,16 @@ namespace
             Tuic::AddressType::Domain,
             "example.com",
             443};
-        std::string Echoed;
-        bool ServerAccepted = false;
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            auto ServerOperation = [&]() -> Net::awaitable<void>
-            {
-                auto Socket = co_await Acceptor.async_accept(Net::use_awaitable);
-                auto ServerTransport = std::make_shared<Reliable>(
-                    std::move(Socket));
-                auto [ErrorValue, Request, Connection] =
-                    co_await Tuic::Accept(ServerTransport, ServerConfig);
-                if (ErrorValue != Error::None || !Connection)
-                {
-                    co_return;
-                }
-                ServerAccepted = true;
-                std::array<std::byte, 64> Buffer{};
-                const auto ReadResult = co_await Connection->ReadSome(
-                    std::span<std::byte>(Buffer));
-                if (!ReadResult.Failure.Failed() && ReadResult.Bytes > 0)
-                {
-                    const auto EchoBuffer = std::span<const std::byte>(
-                        Buffer.data(),
-                        ReadResult.Bytes);
-                    const auto WriteResult = co_await Connection->WriteExact(EchoBuffer);
-                    EXPECT_FALSE(WriteResult.Failure.Failed());
-                }
-                Connection->Close();
-                (void)Request;
-            };
-            const auto ServerDone = SpawnTask(
-                IoContext.get_executor(),
-                ServerOperation());
-
-            Tcp::socket Socket(IoContext.get_executor());
-            const auto Endpoint = Tcp::endpoint(
-                Net::ip::address_v4::loopback(),
-                Port);
-            co_await Socket.async_connect(Endpoint, Net::use_awaitable);
-            auto ClientTransport = std::make_shared<Reliable>(
-                std::move(Socket));
-            auto [ErrorValue, Connection] = co_await Tuic::Connect(
-                ClientTransport,
-                ClientConfig,
-                Target);
-            EXPECT_EQ(ErrorValue, Error::None);
-            EXPECT_NE(Connection, nullptr);
-            if (ErrorValue != Error::None || !Connection)
-            {
-                co_return;
-            }
-            const std::string Message = "tuic-Stream";
-            const auto MessageBytes =
-                Prism::AsBytes(Prism::AsU8Span(Message));
-            const auto WriteResult = co_await Connection->WriteExact(MessageBytes);
-            EXPECT_FALSE(WriteResult.Failure.Failed());
-            std::array<std::byte, 64> Buffer{};
-            const auto ReadResult = co_await Connection->ReadSome(
-                std::span<std::byte>(Buffer));
-            EXPECT_FALSE(ReadResult.Failure.Failed());
-            Echoed.assign(
-                reinterpret_cast<const char *>(Buffer.data()),
-                ReadResult.Bytes);
-            Connection->Close();
-            const auto ServerCompleted = co_await ServerDone->async_receive(
-                Net::use_awaitable);
-            EXPECT_TRUE(ServerCompleted);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
-        EXPECT_TRUE(ServerAccepted);
-        EXPECT_EQ(Echoed, "tuic-Stream");
+        ConnectAcceptScenario Scenario{
+            IoContext,
+            Acceptor,
+            Port,
+            std::move(ClientConfig),
+            std::move(ServerConfig),
+            Target};
+        RunCoroutine(IoContext, Scenario.Run());
+        EXPECT_TRUE(Scenario.ServerAccepted);
+        EXPECT_EQ(Scenario.Echoed, "tuic-Stream");
     }
 
     TEST(TuicConnSession, AuthenticatorAcceptanceCannotBypassExporter)
@@ -349,45 +556,15 @@ namespace
         ServerConfig.Credential = MakeStaticCredential();
         ServerConfig.AuthenticatorOwner = Authenticator;
 
-        bool ServerRejected = false;
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            auto ServerOperation = [&]() -> Net::awaitable<void>
-            {
-                auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
-                    std::make_shared<MemoryStream>(std::move(ServerStream)),
-                    ServerConfig);
-                ServerRejected = ErrorValue == Error::BadAuth && !Connection;
-                EXPECT_EQ(ErrorValue, Error::BadAuth);
-                EXPECT_FALSE(Connection);
-                EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
-                if (Connection)
-                {
-                    Connection->Close();
-                }
-                (void)Request;
-            };
-            const auto ServerDone = SpawnTask(
-                IoContext.get_executor(),
-                ServerOperation());
-            auto [ErrorValue, Connection] = co_await Tuic::Connect(
-                std::make_shared<MemoryStream>(std::move(ClientStream)),
-                ClientConfig,
-                Address{
-                    Tuic::AddressType::Domain,
-                    "example.com",
-                    443});
-            EXPECT_EQ(ErrorValue, Error::None);
-            if (Connection)
-            {
-                Connection->Close();
-            }
-            const auto ServerCompleted = co_await ServerDone->async_receive(
-                Net::use_awaitable);
-            EXPECT_TRUE(ServerCompleted);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
-        EXPECT_TRUE(ServerRejected);
+        ExporterRejectionScenario<decltype(Record)> Scenario{
+            IoContext,
+            std::move(ClientStream),
+            std::move(ServerStream),
+            std::move(ClientConfig),
+            std::move(ServerConfig),
+            Record};
+        RunCoroutine(IoContext, Scenario.Run());
+        EXPECT_TRUE(Scenario.ServerRejected);
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
     }
 
@@ -420,61 +597,16 @@ namespace
         ServerConfig.Credential = MakeStaticCredential();
         ServerConfig.AuthenticatorOwner = Authenticator;
 
-        bool ServerAuthenticated = false;
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            auto ServerOperation = [&]() -> Net::awaitable<void>
-            {
-                auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
-                    std::make_shared<MemoryStream>(std::move(ServerStream)),
-                    ServerConfig);
-                ServerAuthenticated = ErrorValue == Error::None &&
-                                      static_cast<bool>(Connection);
-                EXPECT_EQ(ErrorValue, Error::None);
-                EXPECT_TRUE(Connection);
-                EXPECT_EQ(Authenticator->CallCount(), 1U);
-                const auto Received = Authenticator->LastCredential();
-                EXPECT_EQ(
-                    Received.Kind(),
-                    Prism::Account::CredentialKind::Password);
-                EXPECT_TRUE(Prism::Account::Credential::ConstantTimeEqual(
-                    Received,
-                    Prism::Account::CredentialView::Password(
-                        RecordingDirectoryAuthenticator::StaticPassword())));
-                if (!Connection)
-                {
-                    (void)Request;
-                    co_return;
-                }
-                auto Lease = Connection->TakeAuthLease();
-                EXPECT_TRUE(Lease);
-                EXPECT_EQ(Record->Runtime()->ActiveConnections(), 1U);
-                Lease.Release();
-                EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
-                Connection->Close();
-                (void)Request;
-            };
-            const auto ServerDone = SpawnTask(
-                IoContext.get_executor(),
-                ServerOperation());
-            auto [ErrorValue, Connection] = co_await Tuic::Connect(
-                std::make_shared<MemoryStream>(std::move(ClientStream)),
-                ClientConfig,
-                Address{
-                    Tuic::AddressType::Domain,
-                    "example.com",
-                    443});
-            EXPECT_EQ(ErrorValue, Error::None);
-            if (Connection)
-            {
-                Connection->Close();
-            }
-            const auto ServerCompleted = co_await ServerDone->async_receive(
-                Net::use_awaitable);
-            EXPECT_TRUE(ServerCompleted);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
-        EXPECT_TRUE(ServerAuthenticated);
+        ValidExporterScenario<decltype(Record)> Scenario{
+            IoContext,
+            std::move(ClientStream),
+            std::move(ServerStream),
+            std::move(ClientConfig),
+            std::move(ServerConfig),
+            Record,
+            Authenticator};
+        RunCoroutine(IoContext, Scenario.Run());
+        EXPECT_TRUE(Scenario.ServerAuthenticated);
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
     }
 
@@ -497,38 +629,13 @@ namespace
         ServerConfig.AuthStream = std::make_shared<MemoryStream>(
             std::move(AuthServer));
         ServerConfig.Exporter = TestExporter;
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            auto ServerOperation = [&]() -> Net::awaitable<void>
-            {
-                auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
-                    std::make_shared<MemoryStream>(std::move(ServerStream)),
-                    ServerConfig);
-                EXPECT_EQ(ErrorValue, Error::BadAuth);
-                EXPECT_FALSE(Connection);
-                (void)Request;
-            };
-            const auto ServerDone = SpawnTask(
-                IoContext.get_executor(),
-                ServerOperation());
-            auto [ErrorValue, Connection] = co_await Tuic::Connect(
-                std::make_shared<MemoryStream>(std::move(ClientStream)),
-                ClientConfig,
-                Address{
-                    Tuic::AddressType::Domain,
-                    "example.com",
-                    443});
-            EXPECT_EQ(ErrorValue, Error::None);
-            EXPECT_TRUE(Connection);
-            if (Connection)
-            {
-                Connection->Close();
-            }
-            const auto ServerCompleted = co_await ServerDone->async_receive(
-                Net::use_awaitable);
-            EXPECT_TRUE(ServerCompleted);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
+        WrongPasswordScenario Scenario{
+            IoContext,
+            std::move(ClientStream),
+            std::move(ServerStream),
+            std::move(ClientConfig),
+            std::move(ServerConfig)};
+        RunCoroutine(IoContext, Scenario.Run());
     }
 
     TEST(TuicConnSession, BadFrameRejected)
@@ -541,39 +648,12 @@ namespace
         Tuic::ServerConfig ServerConfig;
         ServerConfig.uuid = MakeUuid();
         ServerConfig.password = "pw";
-        bool AcceptRejected = false;
-        auto Coroutine = [&]() -> Net::awaitable<void>
-        {
-            auto ServerOperation = [&]() -> Net::awaitable<void>
-            {
-                auto Socket = co_await Acceptor.async_accept(Net::use_awaitable);
-                auto Transport = std::make_shared<Reliable>(std::move(Socket));
-                auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
-                    Transport,
-                    ServerConfig);
-                AcceptRejected = ErrorValue != Error::None;
-                (void)Request;
-                (void)Connection;
-            };
-            const auto ServerDone = SpawnTask(
-                IoContext.get_executor(),
-                ServerOperation());
-            Tcp::socket Socket(IoContext.get_executor());
-            const auto Endpoint = Tcp::endpoint(
-                Net::ip::address_v4::loopback(),
-                Port);
-            co_await Socket.async_connect(Endpoint, Net::use_awaitable);
-            const std::string Garbage = "\xff\xfe\xfd\xfc";
-            const auto GarbageBuffer = Net::buffer(Garbage);
-            co_await Socket.async_write_some(
-                GarbageBuffer,
-                Net::use_awaitable);
-            Socket.close();
-            const auto ServerCompleted = co_await ServerDone->async_receive(
-                Net::use_awaitable);
-            EXPECT_TRUE(ServerCompleted);
-        };
-        RunCoroutine(IoContext, std::move(Coroutine));
-        EXPECT_TRUE(AcceptRejected);
+        BadFrameScenario Scenario{
+            IoContext,
+            Acceptor,
+            Port,
+            std::move(ServerConfig)};
+        RunCoroutine(IoContext, Scenario.Run());
+        EXPECT_TRUE(Scenario.AcceptRejected);
     }
 } // namespace

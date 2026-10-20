@@ -11,6 +11,7 @@
 #include <span>
 #include <vector>
 #include <Prism/Protocols/Http3/Qpack.hpp>
+#include <Prism/Protocols/HttpCompression/Huffman.hpp>
 
 namespace
 {
@@ -95,7 +96,7 @@ TEST(FuzzExtended, QpackHuffmanDecode)
         {
             const auto Data = MutateBytes(Rng);
             std::vector<std::uint8_t> Output;
-            (void)Qpack::HuffmanDecode(std::span<const std::uint8_t>(Data), Output);
+            (void)Prism::HttpCompression::HuffmanDecode(std::span<const std::uint8_t>(Data), Output);
             // 注：qpack huffman 位填充可致输出略膨胀（实测 ~1.32x，最短码 5bit 界限 1.6x），
             //     无安全上限可断言；保持健壮性角色（不崩溃 + ASan 捕获越界）。
         }
@@ -106,13 +107,13 @@ TEST(FuzzExtended, QpackHuffmanRejectsLongInvalidPrefix)
         std::array<std::uint8_t, 16> Invalid{};
         Invalid.fill(0xFF);
         std::vector<std::uint8_t> Output;
-        EXPECT_FALSE(Qpack::HuffmanDecode(Invalid, Output));
+        EXPECT_FALSE(Prism::HttpCompression::HuffmanDecode(Invalid, Output));
     }
 
 TEST(FuzzExtended, QpackHuffmanRejectsFullBytePadding)
     {
         const std::array<std::uint8_t, 1> Invalid{0xFF};
         std::vector<std::uint8_t> Output;
-        EXPECT_FALSE(Qpack::HuffmanDecode(Invalid, Output));
+        EXPECT_FALSE(Prism::HttpCompression::HuffmanDecode(Invalid, Output));
     }
 

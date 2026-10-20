@@ -19,9 +19,12 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 
-#include <Prism/Protocols/Shadowtls/Server.hpp>
+#include <Prism/Protocols/Shadowtls/Shadowtls.hpp>
 #include <Prism/Composition/Recognition/TlsCandidateFactory.hpp>
+#include <Prism/Composition/Recognition/ShadowtlsCarrier.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/Profile.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
 #include <Prism/Transport/Reliable.hpp>
@@ -34,6 +37,7 @@ namespace
     namespace Net = boost::asio;
     namespace Transport = Prism::Transport;
     namespace Shadowtls = Prism::Shadowtls;
+    namespace Network = Prism::Network;
     using Tcp = Net::ip::tcp;
     using SharedTransmission = Prism::SharedTransmission;
 
@@ -78,27 +82,25 @@ namespace
         std::string Password{"relay-password"};
     };
 
-    struct ShadowtlsDialTarget final
+    auto DialShadowtlsTarget(Network::Target Target)
+        -> Net::awaitable<std::expected<SharedTransmission, Prism::Fault::Failure>>
     {
-        Net::ip::address Address;
-        std::uint16_t Port;
-
-        auto operator()(std::span<const std::uint8_t>) const
-            -> Net::awaitable<SharedTransmission>
+        const auto Address = Network::IpAddress(Target.Host);
+        if (!Address)
         {
-            Tcp::socket TargetSocket(co_await Net::this_coro::executor);
-            boost::system::error_code ConnectError;
-            co_await TargetSocket.async_connect(
-                Tcp::endpoint(Address, Port),
-                Net::redirect_error(Net::use_awaitable, ConnectError));
-            if (ConnectError)
-            {
-                co_return nullptr;
-            }
-            co_return std::make_shared<Transport::Reliable>(
-                std::move(TargetSocket));
+            co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
         }
-    };
+        Tcp::socket TargetSocket(co_await Net::this_coro::executor);
+        boost::system::error_code ConnectError;
+        co_await TargetSocket.async_connect(Tcp::endpoint(*Address, Target.Port),
+            Net::redirect_error(Net::use_awaitable, ConnectError));
+        if (ConnectError)
+        {
+            co_return std::unexpected(Prism::Fault::FromNative(
+                static_cast<std::error_code>(ConnectError)));
+        }
+        co_return std::make_shared<Transport::Reliable>(std::move(TargetSocket));
+    }
 
     [[nodiscard]] auto ParseOptions(int Argc, char **Argv) -> std::optional<Options>
     {
@@ -170,12 +172,23 @@ namespace
     auto RunShadowtlsSession(ShadowtlsSessionRequest Request)
         -> Net::awaitable<int>
     {
-        Shadowtls::ServerOptions RelayOptions;
-        RelayOptions.DialTarget = ShadowtlsDialTarget{
-            Request.TargetAddress, Request.TargetPort};
-        auto Carrier = Prism::Composition::Recognition::MakeShadowtlsServerAccept(
-            std::move(RelayOptions),
-            Shadowtls::ServerConfig{Request.OptionsValue.Password});
+        Prism::Composition::Recognition::ShadowtlsCarrierOptions CarrierOptions;
+        CarrierOptions.HandshakeDest = Request.TargetAddress.to_string() + ":" +
+            std::to_string(Request.TargetPort);
+        CarrierOptions.Password = Request.OptionsValue.Password;
+        CarrierOptions.Dial = [](const Network::Target& Target)
+        {
+            return DialShadowtlsTarget(Target);
+        };
+        auto Carrier = Prism::Composition::Recognition::MakeConfiguredShadowtlsServerAccept(
+            std::move(CarrierOptions));
+        if (!Carrier)
+        {
+            (void)Request.Inbound->Close();
+            std::fprintf(stderr, "FAIL: ShadowTLS carrier configuration error=%d\n",
+                static_cast<int>(Carrier.error()));
+            co_return 1;
+        }
         Prism::Composition::Recognition::TlsCandidateOptions CandidateOptions;
         CandidateOptions.Id = 1;
         CandidateOptions.Name = "shadowtls";
@@ -184,7 +197,7 @@ namespace
         CandidateOptions.Alpn = {"h2", "http/1.1"};
         CandidateOptions.Carrier = Prism::Composition::Recognition::TlsCarrier::Shadowtls;
         auto Binding = Prism::Composition::Recognition::TlsCandidateFactory::Make(
-            std::move(CandidateOptions), std::move(Carrier));
+            std::move(CandidateOptions), std::move(*Carrier));
         Prism::Recognition::ProfileSpec ProfileSpec;
         ProfileSpec.ConfiguredCandidate = 1;
         ProfileSpec.Candidates.push_back(std::move(Binding.Spec));
@@ -195,7 +208,9 @@ namespace
             std::fprintf(stderr, "FAIL: ShadowTLS recognition profile compile\n");
             co_return 1;
         }
-        Prism::Recognition::Pipeline Pipeline(*Compiled);
+        auto BytePool = std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{.BlockCount = 8U});
+        Prism::Recognition::Pipeline Pipeline(*Compiled, std::move(BytePool));
         auto Recognition = co_await Pipeline.Recognize(Request.Inbound);
         if (!Recognition.success ||
             Recognition.Status != Prism::Recognition::RecognitionStatus::Accepted ||
@@ -217,9 +232,9 @@ namespace
             std::fprintf(stderr, "FAIL: ShadowTLS inner read\n");
             co_return 1;
         }
-        const auto Bytes = std::span<const std::byte>(
+        const auto PayloadBytes = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(Payload.data()), Payload.size());
-        if (!std::equal(Buffer.begin(), Buffer.end(), Bytes.begin()))
+        if (!std::equal(Buffer.begin(), Buffer.end(), PayloadBytes.begin()))
         {
             (void)Result->Close();
             std::fprintf(stderr, "FAIL: ShadowTLS inner payload mismatch\n");

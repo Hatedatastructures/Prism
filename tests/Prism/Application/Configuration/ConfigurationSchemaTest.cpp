@@ -7,7 +7,7 @@
 
 TEST(PrismTask3Configuration, ParsesTheAuthoritativePascalCaseSchema)
     {
-        const auto Parsed = Parser::ParseJson(ValidJson);
+        const auto Parsed = ConfigurationParser::ParseJson(ValidJson);
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
         EXPECT_EQ(Parsed->SchemaVersion, 1U);
@@ -27,7 +27,7 @@ TEST(PrismTask3Configuration, MapsNativeTlsEchConfigurationFields)
             "\"PrivateKeyFile\": \"ech.key\", \"EchConfigFile\": \"ech.config\"}},\n"
             "  \"Builtins\": [],");
 
-        const auto Parsed = Parser::ParseJson(Json);
+        const auto Parsed = ConfigurationParser::ParseJson(Json);
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
         EXPECT_TRUE(Parsed->NativeTls.Enabled);
@@ -46,7 +46,7 @@ TEST(PrismTask3Configuration, RejectsNativeTlsEchWithoutCompleteServerKeyFiles)
             "\"PrivateKeyFile\": \"key.pem\", \"Ech\": {\"Enabled\": true, "
             "\"PrivateKeyFile\": \"ech.key\"}},\n  \"Builtins\": [],");
 
-        const auto Parsed = Parser::ParseJson(Json);
+        const auto Parsed = ConfigurationParser::ParseJson(Json);
 
         ASSERT_FALSE(Parsed.has_value());
         EXPECT_EQ(Parsed.error().Code, ConfigurationErrorCode::MissingField);
@@ -55,7 +55,7 @@ TEST(PrismTask3Configuration, RejectsNativeTlsEchWithoutCompleteServerKeyFiles)
 
 TEST(PrismTaskLoggingConfiguration, ParsesPascalCaseLoggingAndTraceFields)
     {
-        const auto Parsed = Parser::ParseJson(ValidJson);
+        const auto Parsed = ConfigurationParser::ParseJson(ValidJson);
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
         EXPECT_EQ(Parsed->Logging.Level, "Info");
@@ -101,7 +101,7 @@ TEST(PrismTaskLoggingConfiguration, AcceptsTheThreeExactRenderModes)
                                      std::string(Mode) + "\",";
             const auto Json = ReplaceFirst(
                 std::string(ValidJson), "\"Level\": \"Info\",", Replacement);
-            const auto Parsed = Parser::ParseJson(Json);
+            const auto Parsed = ConfigurationParser::ParseJson(Json);
             ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
             EXPECT_EQ(Parsed->Logging.RenderMode, Mode);
         }
@@ -114,8 +114,8 @@ TEST(PrismTask3Configuration, RejectsUnknownFieldsAtEverySchemaBoundary)
         const auto UnknownNested = ReplaceFirst(
             std::string(ValidJson), "\"WorkerCount\": 2,", "\"WorkerCount\": 2, \"Unknown\": true,");
 
-        const auto TopResult = Parser::ParseJson(UnknownTopLevel);
-        const auto NestedResult = Parser::ParseJson(UnknownNested);
+        const auto TopResult = ConfigurationParser::ParseJson(UnknownTopLevel);
+        const auto NestedResult = ConfigurationParser::ParseJson(UnknownNested);
 
         ASSERT_FALSE(TopResult.has_value());
         EXPECT_EQ(TopResult.error().Code, ConfigurationErrorCode::UnknownField);
@@ -128,7 +128,7 @@ TEST(PrismTask3Configuration, ReportsMissingRequiredTopLevelFieldPath)
         const auto MissingSchemaVersion = ReplaceFirst(
             std::string(ValidJson), "  \"SchemaVersion\": 1,\n", "");
 
-        const auto Result = Parser::ParseJson(MissingSchemaVersion);
+        const auto Result = ConfigurationParser::ParseJson(MissingSchemaVersion);
 
         ASSERT_FALSE(Result.has_value());
         EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::MissingField);
@@ -144,8 +144,8 @@ TEST(PrismTask3Configuration, RetainsLastValueForRepeatedTopLevelAndNestedKeys)
             std::string(ValidJson), "    \"WorkerCount\": 2,\n",
             "    \"WorkerCount\": 2,\n    \"WorkerCount\": 3,\n");
 
-        const auto TopLevelResult = Parser::ParseJson(RepeatedTopLevel);
-        const auto NestedResult = Parser::ParseJson(RepeatedNested);
+        const auto TopLevelResult = ConfigurationParser::ParseJson(RepeatedTopLevel);
+        const auto NestedResult = ConfigurationParser::ParseJson(RepeatedNested);
 
         ASSERT_TRUE(TopLevelResult.has_value()) << TopLevelResult.error().Message;
         EXPECT_EQ(TopLevelResult->SchemaVersion, 1U);
@@ -162,8 +162,8 @@ TEST(PrismTask3Configuration, ReportsRequiredFieldBeforeOtherRootErrors)
         MissingWithWrongType = ReplaceFirst(
             std::move(MissingWithWrongType), "\"WorkerCount\": 2", "\"WorkerCount\": \"2\"");
 
-        const auto UnknownResult = Parser::ParseJson(MissingWithUnknown);
-        const auto WrongTypeResult = Parser::ParseJson(MissingWithWrongType);
+        const auto UnknownResult = ConfigurationParser::ParseJson(MissingWithUnknown);
+        const auto WrongTypeResult = ConfigurationParser::ParseJson(MissingWithWrongType);
 
         const auto ExpectMissingSchemaVersion = [](const auto &Result)
         {
@@ -181,7 +181,7 @@ TEST(PrismTask3Configuration, PreservesParseCodeForObjectShapeErrors)
             std::string(ValidJson), "\"Dns\": {\"Servers\": [\"1.1.1.1\"], \"Timeout\": 1000}",
             "\"Dns\": []");
 
-        const auto Result = Parser::ParseJson(InvalidDnsShape);
+        const auto Result = ConfigurationParser::ParseJson(InvalidDnsShape);
 
         ASSERT_FALSE(Result.has_value());
         EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::Parse);
@@ -190,7 +190,7 @@ TEST(PrismTask3Configuration, PreservesParseCodeForObjectShapeErrors)
 
 TEST(PrismTask3Configuration, AppliesSchemaDefaultsDuringDecode)
     {
-        const auto Result = Parser::ParseJson(ValidJson);
+        const auto Result = ConfigurationParser::ParseJson(ValidJson);
 
         ASSERT_TRUE(Result.has_value()) << Result.error().Message;
         EXPECT_EQ(Result->Logging.RenderMode, "CompactHuman");
@@ -206,8 +206,8 @@ TEST(PrismTask3Configuration, RejectsInvalidNumericTypesAndBounds)
         const auto OutOfRange = ReplaceFirst(
             std::string(ValidJson), "\"Port\": 1080", "\"Port\": 65536");
 
-        const auto WrongTypeResult = Parser::ParseJson(WrongType);
-        const auto OutOfRangeResult = Parser::ParseJson(OutOfRange);
+        const auto WrongTypeResult = ConfigurationParser::ParseJson(WrongType);
+        const auto OutOfRangeResult = ConfigurationParser::ParseJson(OutOfRange);
 
         ASSERT_FALSE(WrongTypeResult.has_value());
         EXPECT_EQ(WrongTypeResult.error().Code, ConfigurationErrorCode::InvalidType);
@@ -224,8 +224,8 @@ TEST(PrismTaskLoggingConfiguration, RejectsUnknownLoggingAndTraceFields)
             std::string(ValidJson), "\"IncludeStream\": false",
             "\"IncludeStream\": false, \"Unknown\": true");
 
-        const auto LoggingResult = Parser::ParseJson(UnknownLogging);
-        const auto TraceResult = Parser::ParseJson(UnknownTrace);
+        const auto LoggingResult = ConfigurationParser::ParseJson(UnknownLogging);
+        const auto TraceResult = ConfigurationParser::ParseJson(UnknownTrace);
 
         ASSERT_FALSE(LoggingResult.has_value());
         EXPECT_EQ(LoggingResult.error().Code, ConfigurationErrorCode::UnknownField);
@@ -252,13 +252,13 @@ TEST(PrismTaskLoggingConfiguration, RejectsInvalidLoggingValues)
             std::string(ValidJson), "\"Level\": \"Info\",",
             "\"Level\": \"Info\", \"RenderMode\": \"structured\",");
 
-        const auto LevelResult = Parser::ParseJson(InvalidLevel);
-        const auto DirectoryResult = Parser::ParseJson(InvalidDirectory);
-        const auto FileNameResult = Parser::ParseJson(InvalidFileName);
-        const auto RotateBytesResult = Parser::ParseJson(InvalidRotateBytes);
-        const auto RotateFilesResult = Parser::ParseJson(InvalidRotateFiles);
-        const auto FlushIntervalResult = Parser::ParseJson(InvalidFlushInterval);
-        const auto RenderModeResult = Parser::ParseJson(InvalidRenderMode);
+        const auto LevelResult = ConfigurationParser::ParseJson(InvalidLevel);
+        const auto DirectoryResult = ConfigurationParser::ParseJson(InvalidDirectory);
+        const auto FileNameResult = ConfigurationParser::ParseJson(InvalidFileName);
+        const auto RotateBytesResult = ConfigurationParser::ParseJson(InvalidRotateBytes);
+        const auto RotateFilesResult = ConfigurationParser::ParseJson(InvalidRotateFiles);
+        const auto FlushIntervalResult = ConfigurationParser::ParseJson(InvalidFlushInterval);
+        const auto RenderModeResult = ConfigurationParser::ParseJson(InvalidRenderMode);
 
         ASSERT_FALSE(LevelResult.has_value());
         EXPECT_EQ(LevelResult.error().Code, ConfigurationErrorCode::InvalidValue);
@@ -283,7 +283,7 @@ TEST(PrismTaskLoggingConfiguration, RejectsInvalidLoggingTypes)
         const auto InvalidConsole = ReplaceFirst(
             std::string(ValidJson), "\"Console\": false", "\"Console\": \"false\"");
 
-        const auto Result = Parser::ParseJson(InvalidConsole);
+        const auto Result = ConfigurationParser::ParseJson(InvalidConsole);
 
         ASSERT_FALSE(Result.has_value());
         EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::InvalidType);
@@ -297,7 +297,7 @@ TEST(PrismTask3Configuration, RejectsDuplicateIds)
             "\"Routes\": [{\"Id\": \"same\", \"Match\": \"*\", \"Target\": \"direct\", \"Requires\": []},"
             "{\"Id\": \"same\", \"Match\": \"example\", \"Target\": \"direct\", \"Requires\": []}],");
 
-        const auto Result = Parser::ParseJson(Json);
+        const auto Result = ConfigurationParser::ParseJson(Json);
 
         ASSERT_FALSE(Result.has_value());
         EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::DuplicateId);
@@ -309,8 +309,8 @@ TEST(PrismTask3Configuration, RejectsInvalidPortsAndTimeouts)
         const auto BadTimeout = ReplaceFirst(
             std::string(ValidJson), "\"Timeout\": 5000", "\"Timeout\": 0");
 
-        const auto PortResult = Parser::ParseJson(BadPort);
-        const auto TimeoutResult = Parser::ParseJson(BadTimeout);
+        const auto PortResult = ConfigurationParser::ParseJson(BadPort);
+        const auto TimeoutResult = ConfigurationParser::ParseJson(BadTimeout);
 
         ASSERT_FALSE(PortResult.has_value());
         EXPECT_EQ(PortResult.error().Code, ConfigurationErrorCode::InvalidValue);
@@ -332,9 +332,9 @@ TEST(PrismTaskDConfiguration, RequiresOneTcpListenerAndOneSharedUdpQuicEntry)
             std::string(ValidJson), "\"Port\": 1081, \"Timeout\": 5000}],\n    \"Timeout\": 5000",
             "\"Port\": 1082, \"Timeout\": 5000}],\n    \"Timeout\": 5000");
 
-        const auto NoTcpResult = Parser::ParseJson(NoTcp);
-        const auto TwoTcpResult = Parser::ParseJson(TwoTcp);
-        const auto MismatchedResult = Parser::ParseJson(MismatchedQuic);
+        const auto NoTcpResult = ConfigurationParser::ParseJson(NoTcp);
+        const auto TwoTcpResult = ConfigurationParser::ParseJson(TwoTcp);
+        const auto MismatchedResult = ConfigurationParser::ParseJson(MismatchedQuic);
 
         ASSERT_FALSE(NoTcpResult.has_value());
         EXPECT_EQ(NoTcpResult.error().Path, "Listeners.Tcp");
@@ -350,7 +350,7 @@ TEST(PrismTaskDConfiguration, RejectsSecondDeclaredQuicListenerBeforeProjection)
             "\"Quic\": [{\"Id\": \"quic-main\", \"Address\": \"127.0.0.1\", \"Port\": 1081, \"Timeout\": 5000}]",
             "\"Quic\": [{\"Id\":\"quic-main\",\"Address\":\"127.0.0.1\",\"Port\":1081,\"Timeout\":5000},"
             "{\"Id\":\"quic-second\",\"Address\":\"127.0.0.1\",\"Port\":1082,\"Timeout\":5000}]");
-        const auto Result = Parser::ParseJson(Json);
+        const auto Result = ConfigurationParser::ParseJson(Json);
         ASSERT_FALSE(Result.has_value());
         EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::InvalidValue);
         EXPECT_EQ(Result.error().Path, "Listeners");
@@ -367,7 +367,7 @@ TEST(PrismTaskDConfiguration, RejectsMultipleProtocolsOnSharedQuicListener)
             "\"Accounts\":",
             "\"Secrets\": {\"secret/quic/password\": \"quic-password\"},\n  \"Accounts\":");
 
-        const auto Result = Parser::ParseJson(Json);
+        const auto Result = ConfigurationParser::ParseJson(Json);
 
         ASSERT_FALSE(Result.has_value());
         EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::InvalidValue);
@@ -385,10 +385,10 @@ TEST(PrismTaskDConfiguration, ValidatesOperationsEndpointAddressAndPort)
         const auto InvalidIpv6 = ReplaceFirst(
             std::string(ValidJson), "127.0.0.1:9090", "::1:9090");
 
-        const auto AddressResult = Parser::ParseJson(InvalidAddress);
-        const auto PortResult = Parser::ParseJson(InvalidPort);
-        const auto MissingPortResult = Parser::ParseJson(MissingPort);
-        const auto Ipv6Result = Parser::ParseJson(InvalidIpv6);
+        const auto AddressResult = ConfigurationParser::ParseJson(InvalidAddress);
+        const auto PortResult = ConfigurationParser::ParseJson(InvalidPort);
+        const auto MissingPortResult = ConfigurationParser::ParseJson(MissingPort);
+        const auto Ipv6Result = ConfigurationParser::ParseJson(InvalidIpv6);
 
         for (const auto &Result : {AddressResult, PortResult, MissingPortResult, Ipv6Result})
         {

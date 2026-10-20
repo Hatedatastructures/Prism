@@ -18,14 +18,21 @@ target_sources(TcpEchoFramingTest PRIVATE Hysteria2/TcpEcho.hpp)
 target_link_libraries(TcpEchoFramingTest PRIVATE PrismFoundation)
 AddPrismTest(Task9FrontIntegration.cpp)
 target_sources(Task9FrontIntegration PRIVATE ../../TestSupport/Prism/QuicFactory.hpp)
-target_link_libraries(Task9FrontIntegration PRIVATE PrismRuntime PrismComposition PrismProtocolQuicNative PrismProtocolSocks5 PrismBoundary PrismTestSupport)
+target_link_libraries(Task9FrontIntegration PRIVATE PrismRuntime PrismComposition PrismProtocolQuic PrismProtocolQuicNative
+    PrismProtocolSocks5 PrismBoundary PrismFoundation PrismIngressContract PrismTestSupport)
+AddPrismTest(InteropTuicTerminalReadTest.cpp)
+target_sources(InteropTuicTerminalReadTest PRIVATE
+    InteropTuicLifecycle.hpp InteropTuicTerminalIo.hpp)
+target_link_libraries(InteropTuicTerminalReadTest PRIVATE
+    PrismFoundation PrismIoContracts PrismTransport PrismProtocolTuic PrismTestSupport
+    BoostSystemHeaderOnly)
 
 add_executable(InteropSs2022Client InteropSs2022Client.cpp)
 target_compile_options(InteropSs2022Client PRIVATE -g1 -Os)
-target_link_libraries(InteropSs2022Client PRIVATE PrismProtocolShadowsocks2022 PrismTestSupport BoostSystemHeaderOnly)
+target_link_libraries(InteropSs2022Client PRIVATE PrismProtocolShadowsocks2022 PrismFoundation PrismTestSupport BoostSystemHeaderOnly)
 add_executable(InteropProviderDatagrams InteropProviderDatagrams.cpp)
 target_compile_options(InteropProviderDatagrams PRIVATE -g1 -Os)
-target_link_libraries(InteropProviderDatagrams PRIVATE PrismProtocolShadowsocks2022 PrismProtocolSocks5 BoostSystemHeaderOnly)
+target_link_libraries(InteropProviderDatagrams PRIVATE PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismFoundation BoostSystemHeaderOnly)
 add_executable(InteropSs2022Server InteropSs2022Server.cpp)
 target_compile_options(InteropSs2022Server PRIVATE -g1 -Os)
 target_link_libraries(InteropSs2022Server PRIVATE PrismProtocolShadowsocks2022 PrismTestSupport BoostSystemHeaderOnly)
@@ -33,7 +40,7 @@ target_link_libraries(InteropSs2022Server PRIVATE PrismProtocolShadowsocks2022 P
 # L4 生产对拍：Prism 客户端 → 生产 Prism 服务端（独立可执行，非 gtest）
 add_executable(InteropPrismL4 InteropPrismL4.cpp)
 target_compile_options(InteropPrismL4 PRIVATE -g1 -Os)
-target_link_libraries(InteropPrismL4 PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess PrismTestSupport BoostSystemHeaderOnly)
+target_link_libraries(InteropPrismL4 PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolsCommon PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess PrismTestSupport BoostSystemHeaderOnly)
 
 # Trojan 外部互操作：client（普通 TCP/application-mux）与 server 分离。
 add_executable(InteropTrojanClient InteropTrojanClient.cpp)
@@ -41,7 +48,8 @@ target_compile_options(InteropTrojanClient PRIVATE -g1 -Os)
 target_link_libraries(InteropTrojanClient PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolTrojan BoostSystemHeaderOnly)
 add_executable(InteropTrojanMux InteropTrojanMux.cpp)
 target_compile_options(InteropTrojanMux PRIVATE -g1 -Os)
-target_link_libraries(InteropTrojanMux PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolTrojan BoostSystemHeaderOnly)
+target_link_libraries(InteropTrojanMux PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolTrojan
+        PrismProtocolHttp2 PrismProtocolMux BoostSystemHeaderOnly)
 add_executable(InteropTrojanServer InteropTrojanServer.cpp)
 target_compile_options(InteropTrojanServer PRIVATE -g1 -Os)
 target_link_libraries(InteropTrojanServer PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolTrojan BoostSystemHeaderOnly)
@@ -52,7 +60,8 @@ target_compile_options(InteropVmessClient PRIVATE -g1 -Os)
 target_link_libraries(InteropVmessClient PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolVmess BoostSystemHeaderOnly)
 add_executable(InteropVmessMux InteropVmessMux.cpp)
 target_compile_options(InteropVmessMux PRIVATE -g1 -Os)
-target_link_libraries(InteropVmessMux PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolVmess BoostSystemHeaderOnly)
+target_link_libraries(InteropVmessMux PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolVmess
+        PrismProtocolHttp2 PrismProtocolMux BoostSystemHeaderOnly)
 add_executable(InteropVmessServer InteropVmessServer.cpp)
 target_compile_options(InteropVmessServer PRIVATE -g1 -Os)
 target_link_libraries(InteropVmessServer PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolVmess BoostSystemHeaderOnly)
@@ -78,7 +87,7 @@ target_link_libraries(InteropHttp PRIVATE PrismFoundation PrismTransport PrismNe
 # 双模式真实单端口识别：外部 Go client -> Profile -> TcpListener -> handler -> echo。
 add_executable(InteropRecognition InteropRecognition.cpp)
 target_compile_options(InteropRecognition PRIVATE -g1 -Os)
-target_link_libraries(InteropRecognition PRIVATE PrismFoundation PrismTransport PrismNet PrismRuntime
+target_link_libraries(InteropRecognition PRIVATE PrismFoundation PrismTransport PrismNet PrismNetworkModel PrismRuntime
         PrismComposition PrismProtocolHttp PrismProtocolSocks5 PrismProtocolVless PrismProtocolVmess PrismTestSupport
         OpenSSL::SSL OpenSSL::Crypto BoostSystemHeaderOnly)
 
@@ -91,8 +100,8 @@ target_link_libraries(InteropNativeTls PRIVATE PrismFoundation PrismTransport Pr
 # ShadowTLS v3 外部互操作：Prism relay server 与独立 Go/mihomo client。
 add_executable(InteropShadowtls InteropShadowtls.cpp)
 target_compile_options(InteropShadowtls PRIVATE -g1 -Os)
-target_link_libraries(InteropShadowtls PRIVATE PrismFoundation PrismTransport PrismNet
-        PrismProtocolShadowtls BoostSystemHeaderOnly)
+target_link_libraries(InteropShadowtls PRIVATE PrismFoundation PrismTransport PrismNet PrismRuntime
+        PrismComposition PrismProtocolShadowtls BoostSystemHeaderOnly)
 
 # WebSocket RFC 6455 外部互操作：Prism 帧连接与独立 Go reference 双向 TCP。
 add_executable(InteropWs InteropWs.cpp)
@@ -115,6 +124,7 @@ target_link_libraries(InteropGun PRIVATE PrismFoundation PrismTransport PrismNet
 
 # Standard gRPC/HTTP2 Gun endpoint external interop (h2c reference).
 add_executable(InteropGunGrpc InteropGunGrpc.cpp)
+target_include_directories(InteropGunGrpc PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_compile_options(InteropGunGrpc PRIVATE -g1 -Os)
 target_link_libraries(InteropGunGrpc PRIVATE PrismFoundation PrismTransport PrismNet
         PrismProtocolGun PrismProtocolHttp2 BoostSystemHeaderOnly)
@@ -122,7 +132,7 @@ target_link_libraries(InteropGunGrpc PRIVATE PrismFoundation PrismTransport Pris
 # XHTTP Stream-one 外部互操作：Go x/net/http2 client → Prism TLS/h2 server。
 add_executable(InteropXhttp InteropXhttp.cpp)
 target_compile_options(InteropXhttp PRIVATE -g1 -Os)
-target_link_libraries(InteropXhttp PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolXhttp
+target_link_libraries(InteropXhttp PRIVATE PrismFoundation PrismTransport PrismNet PrismIoContracts PrismProtocolXhttp
         OpenSSL::SSL OpenSSL::Crypto BoostSystemHeaderOnly)
 
 # TrustTunnel 标准 TLS/HTTP2 CONNECT 外部互操作：Go x/net/http2 双向。
@@ -133,10 +143,13 @@ target_link_libraries(InteropTrusttunnel PRIVATE PrismFoundation PrismTransport 
 
 # TUIC v5 外部互操作：Prism 原生 QUIC 服务端与独立 quic-go 客户端。
 # 此目标只验证 Native standalone harness，不覆盖 Prism Application ingress。
-add_executable(InteropTuic InteropTuic.cpp)
-target_sources(InteropTuic PRIVATE ../../TestSupport/Prism/QuicFactory.hpp)
+add_executable(InteropTuic InteropTuic.cpp InteropTuicServer.cpp)
+target_sources(InteropTuic PRIVATE InteropTuicLifecycle.hpp InteropTuicOptions.hpp
+    InteropTuicTerminalIo.hpp
+    ../../TestSupport/Prism/QuicFactory.hpp)
 target_compile_options(InteropTuic PRIVATE -g1 -Os)
-target_link_libraries(InteropTuic PRIVATE PrismFoundation PrismTransport PrismProtocolQuicNative PrismProtocolTuic BoostSystemHeaderOnly)
+target_link_libraries(InteropTuic PRIVATE PrismFoundation PrismTransport PrismNet PrismIngressContract
+    PrismProtocolQuic PrismProtocolQuicNative PrismProtocolTuic BoostSystemHeaderOnly)
 
 if(PRISM_ENABLE_INTEROP AND WIN32)
     find_program(PrismTuicInteropPowerShell NAMES pwsh powershell REQUIRED)
@@ -183,16 +196,27 @@ if(PRISM_ENABLE_INTEROP AND WIN32)
 endif()
 
 # Hysteria2 外部互操作：Prism 原生 QUIC/HTTP3 与独立 sing-quic 客户端。
-add_executable(InteropHysteria2 InteropHysteria2.cpp)
+add_executable(InteropHysteria2
+    InteropHysteria2.cpp
+    InteropHysteria2TcpServer.cpp
+    InteropHysteria2UdpServer.cpp
+    InteropHysteria2Support.cpp)
+target_sources(InteropHysteria2 PRIVATE InteropHysteria2Support.hpp)
 target_sources(InteropHysteria2 PRIVATE ../../TestSupport/Prism/QuicFactory.hpp)
 target_sources(InteropHysteria2 PRIVATE Hysteria2/TcpEcho.hpp)
 target_compile_options(InteropHysteria2 PRIVATE -g1 -Os)
-target_link_libraries(InteropHysteria2 PRIVATE PrismFoundation PrismProtocolHysteria2 PrismProtocolHttp3 PrismProtocolQuicNative BoostSystemHeaderOnly)
+target_link_libraries(InteropHysteria2 PRIVATE PrismFoundation PrismAccount PrismIngressContract PrismRuntime PrismProtocolHysteria2
+    PrismProtocolHttp3 PrismProtocolQuic PrismProtocolQuicNative PrismTestSupport BoostSystemHeaderOnly)
 add_executable(InteropHysteria2Client InteropHysteria2Client.cpp)
 target_compile_options(InteropHysteria2Client PRIVATE -g1 -Os)
-target_link_libraries(InteropHysteria2Client PRIVATE PrismFoundation PrismProtocolHysteria2 PrismProtocolHttp3 PrismProtocolQuicNative BoostSystemHeaderOnly)
+target_link_libraries(InteropHysteria2Client PRIVATE PrismFoundation PrismProtocolHysteria2 PrismProtocolHttp3
+    PrismProtocolQuic PrismProtocolQuicNative OpenSSL::SSL BoostSystemHeaderOnly)
 
 # Hysteria2 HTTP/3 初始化失败路径回归；真实外部互操作由 InteropHysteria2 执行。
 add_executable(Hysteria2InteropBlocker Hysteria2InteropBlocker.cpp)
 target_compile_options(Hysteria2InteropBlocker PRIVATE -g1 -Os)
 target_link_libraries(Hysteria2InteropBlocker PRIVATE PrismProtocolHttp3 PrismProtocolQuic)
+add_test(NAME Hysteria2InteropBlocker COMMAND $<TARGET_FILE:Hysteria2InteropBlocker>)
+set_tests_properties(Hysteria2InteropBlocker PROPERTIES
+    LABELS "protocol;http3;quic;regression"
+    TIMEOUT 30)

@@ -3,6 +3,8 @@
  * @brief 经真实管理 listener 验证同源 Web 资源与 Operations HTTP 控制面。
  */
 
+#include "OperationsWebTestSupport.hpp"
+
 #include <gtest/gtest.h>
 
 #include <Prism/Operations/Controller.hpp>
@@ -164,6 +166,7 @@ namespace
     struct WireResponse final
     {
         int Status{0};
+        std::string Wire;
         std::string Headers;
         std::string Body;
         boost::system::error_code Error;
@@ -192,6 +195,7 @@ namespace
         -> WireResponse
     {
         WireResponse Result;
+        Result.Wire = Wire;
         Result.Closed = Closed;
         Result.Error = Error;
         const auto HeaderEnd = Wire.find("\r\n\r\n");
@@ -381,8 +385,12 @@ namespace
             auto Loaded = Web::LoadCatalog(OwnedRoot_);
             ASSERT_TRUE(Loaded);
             Catalog_ = std::move(*Loaded);
-            IndexDigest_ = Web::Detail::Digest(IndexBody);
-            AssetDigest_ = Web::Detail::Digest(AssetBody);
+            const auto IndexDigest = Prism::Testing::OperationsWeb::Sha256Hex(IndexBody);
+            ASSERT_TRUE(IndexDigest);
+            IndexDigest_ = std::move(*IndexDigest);
+            const auto AssetDigest = Prism::Testing::OperationsWeb::Sha256Hex(AssetBody);
+            ASSERT_TRUE(AssetDigest);
+            AssetDigest_ = std::move(*AssetDigest);
         }
 
         auto TearDown() -> void override
@@ -409,8 +417,10 @@ namespace
             if (!Output) return false;
             Output.write(Body.data(), static_cast<std::streamsize>(Body.size()));
             if (!Output) return false;
+            auto Digest = Prism::Testing::OperationsWeb::Sha256Hex(Body);
+            if (!Digest) return false;
             Manifest_.Assets.push_back(Web::ResourceDescriptor{Path,
-                std::string(Web::ContentTypeFor(Path)), Web::Detail::Digest(Body),
+                std::string(Web::ContentTypeFor(Path)), std::move(*Digest),
                 static_cast<std::uint64_t>(Body.size()), Path.starts_with("assets/")});
             return true;
         }
@@ -452,6 +462,31 @@ namespace
     {
         return Response.Complete && Response.Closed && !Response.Error && Response.Status == Status;
     }
+
+    /** @brief 汇总一次失败响应可观测的全部字段，便于分阶段复现。 */
+    [[nodiscard]] auto ResponseWire(const WireResponse &Response) -> std::string
+    {
+        std::string Text;
+        Text.append("wire=").append(std::to_string(Response.Wire.size()))
+            .append(" status=").append(std::to_string(Response.Status))
+            .append(" complete=").append(Response.Complete ? "1" : "0")
+            .append(" closed=").append(Response.Closed ? "1" : "0")
+            .append(" error=").append(Response.Error.message())
+            .append(" headers=[").append(Response.Headers).append("]");
+        return Text;
+    }
+
+    /** @brief 报告单个响应在哪个阶段失败；诊断只描述已收到的 wire，不改变断言语义。 */
+    [[nodiscard]] auto CheckResponse(
+        const WireResponse &Response, const int Status, const std::string_view Label) -> bool
+    {
+        SCOPED_TRACE(std::string(Label));
+        EXPECT_EQ(Response.Status, Status) << ResponseWire(Response);
+        EXPECT_TRUE(Response.Complete) << ResponseWire(Response);
+        EXPECT_TRUE(Response.Closed) << ResponseWire(Response);
+        EXPECT_FALSE(Response.Error) << ResponseWire(Response);
+        return IsResponse(Response, Status);
+    }
 }
 
 TEST_F(WebHttpRuntimeFixture, ServesPublishedCatalogAndDrainsRealHttpConnections)
@@ -485,21 +520,27 @@ TEST_F(WebHttpRuntimeFixture, ServesPublishedCatalogAndDrainsRealHttpConnections
     ASSERT_TRUE(Scenario);
     EXPECT_GT(HandlerCount, 0U);
     EXPECT_TRUE(ClientIo.stopped());
-    EXPECT_TRUE(IsResponse(Scenario->Bootstrap, 200));
+    const auto Joined = Server.Join();
+    EXPECT_TRUE(Joined);
+    EXPECT_TRUE(CheckResponse(Scenario->Bootstrap, 200, "bootstrap"));
     ASSERT_EQ(Scenario->BootstrapToken.size(), 64U);
     for (const auto &Page : Scenario->Pages)
     {
-        ASSERT_TRUE(IsResponse(Page, 200));
+        ASSERT_TRUE(CheckResponse(Page, 200, "catalog page"));
         EXPECT_EQ(Page.Body, IndexBody);
-        EXPECT_EQ(Web::Detail::Digest(Page.Body), IndexDigest_);
+        const auto Digest = Prism::Testing::OperationsWeb::Sha256Hex(Page.Body);
+        ASSERT_TRUE(Digest);
+        EXPECT_EQ(*Digest, IndexDigest_);
         EXPECT_NE(Page.Headers.find("Cache-Control: no-store"), std::string::npos);
         EXPECT_NE(Page.Headers.find("Content-Security-Policy:"), std::string::npos);
         EXPECT_NE(Page.Headers.find("X-Content-Type-Options: nosniff"), std::string::npos);
         EXPECT_NE(Page.Headers.find("Referrer-Policy: no-referrer"), std::string::npos);
     }
-    ASSERT_TRUE(IsResponse(Scenario->Asset, 200));
+    ASSERT_TRUE(CheckResponse(Scenario->Asset, 200, "catalog asset"));
     EXPECT_EQ(Scenario->Asset.Body, AssetBody);
-    EXPECT_EQ(Web::Detail::Digest(Scenario->Asset.Body), AssetDigest_);
+    const auto AssetDigest = Prism::Testing::OperationsWeb::Sha256Hex(Scenario->Asset.Body);
+    ASSERT_TRUE(AssetDigest);
+    EXPECT_EQ(*AssetDigest, AssetDigest_);
     EXPECT_NE(Scenario->Asset.Headers.find("Content-Type: text/javascript; charset=utf-8"),
         std::string::npos);
     EXPECT_NE(Scenario->Asset.Headers.find(
@@ -508,17 +549,22 @@ TEST_F(WebHttpRuntimeFixture, ServesPublishedCatalogAndDrainsRealHttpConnections
     for (const auto *Response : {&Scenario->MissingAsset, &Scenario->UnknownApi,
             &Scenario->UnknownPath, &Scenario->Traversal, &Scenario->EncodedTraversal})
     {
-        EXPECT_TRUE(Response->Complete);
+        EXPECT_TRUE(Response->Complete)
+            << "status=" << Response->Status
+            << " wire_size=" << Response->Wire.size()
+            << " closed=" << Response->Closed
+            << " error=" << Response->Error.message()
+            << " headers=" << Response->Headers;
         EXPECT_NE(Response->Status, 200);
         EXPECT_EQ(Response->Body.find(IndexBody), std::string::npos);
     }
-    EXPECT_TRUE(IsResponse(Scenario->WrongHost, 403));
-    EXPECT_TRUE(IsResponse(Scenario->WrongOrigin, 403));
-    EXPECT_TRUE(IsResponse(Scenario->Health, 200));
+    EXPECT_TRUE(CheckResponse(Scenario->WrongHost, 403, "wrong host"));
+    EXPECT_TRUE(CheckResponse(Scenario->WrongOrigin, 403, "wrong origin"));
+    EXPECT_TRUE(CheckResponse(Scenario->Health, 200, "health"));
     EXPECT_NE(Scenario->Health.Body.find("\"ready\":true"), std::string::npos);
     EXPECT_EQ(Seen->QueryCalls.load(std::memory_order_relaxed), 1U);
-    EXPECT_TRUE(IsResponse(Scenario->MissingTokenCommand, 403));
-    EXPECT_TRUE(IsResponse(Scenario->ValidCommand, 202));
+    EXPECT_TRUE(CheckResponse(Scenario->MissingTokenCommand, 403, "missing token"));
+    EXPECT_TRUE(CheckResponse(Scenario->ValidCommand, 202, "valid command"));
     EXPECT_NE(Scenario->ValidCommand.Body.find("\"status\":\"accepted\""), std::string::npos);
     EXPECT_NE(Scenario->ValidCommand.Body.find("\"configuration_issues\":[]"), std::string::npos);
     EXPECT_NE(Scenario->ValidCommand.Body.find("\"restart_required_fields\":[]"), std::string::npos);
@@ -528,6 +574,48 @@ TEST_F(WebHttpRuntimeFixture, ServesPublishedCatalogAndDrainsRealHttpConnections
     EXPECT_TRUE(Scenario->Drain->Failure.Succeeded());
     EXPECT_EQ(Scenario->Drain->RemainingConnections, 0U);
     EXPECT_NE(Server.LocalEndpoint().port(), 0U);
+}
+
+TEST(OperationsWebHttpRuntime, ServesManagementApiWithoutPublishedCatalog)
+{
+    auto Seen = std::make_shared<HandlerObservations>();
+    Controller::Options Options;
+    Options.BindEndpoint = Controller::Endpoint(Net::ip::address_v4::loopback(), 0);
+    Options.Handlers = MakeHandlers(Seen);
+    Options.ReadDeadline = std::chrono::milliseconds{5000};
+    Options.DrainTimeout = std::chrono::milliseconds{5000};
+    Options.Bootstrap = Prism::Testing::OperationsHttp::MakeTestBootstrap();
+    Controller Server(std::move(Options));
+    const auto Started = Server.Start();
+    ASSERT_TRUE(Started);
+
+    Net::io_context ClientIo;
+    std::optional<HttpScenarioResult> Scenario;
+    std::exception_ptr Failure;
+    Net::co_spawn(ClientIo, RunHttpScenario(HttpScenarioInput{Server, *Started}),
+        [&Scenario, &Failure](std::exception_ptr Error, HttpScenarioResult Value)
+        {
+            Failure = std::move(Error);
+            if (!Failure) Scenario.emplace(std::move(Value));
+        });
+    const auto HandlerCount = ClientIo.run();
+
+    ASSERT_FALSE(Failure);
+    ASSERT_TRUE(Scenario);
+    EXPECT_GT(HandlerCount, 0U);
+    EXPECT_TRUE(ClientIo.stopped());
     const auto Joined = Server.Join();
     EXPECT_TRUE(Joined);
+    EXPECT_TRUE(CheckResponse(Scenario->Asset, 404, "missing catalog asset"));
+    EXPECT_TRUE(CheckResponse(Scenario->Bootstrap, 200, "bootstrap"));
+    ASSERT_EQ(Scenario->BootstrapToken.size(), 64U);
+    EXPECT_TRUE(CheckResponse(Scenario->Health, 200, "health"));
+    EXPECT_NE(Scenario->Health.Body.find("\"ready\":true"), std::string::npos);
+    EXPECT_EQ(Seen->QueryCalls.load(std::memory_order_relaxed), 1U);
+    EXPECT_TRUE(CheckResponse(Scenario->MissingTokenCommand, 403, "missing token"));
+    EXPECT_TRUE(CheckResponse(Scenario->ValidCommand, 202, "valid command"));
+    EXPECT_EQ(Seen->CommandCalls.load(std::memory_order_relaxed), 1U);
+    ASSERT_TRUE(Scenario->Drain);
+    EXPECT_TRUE(Scenario->Drain->Failure.Succeeded());
+    EXPECT_EQ(Scenario->Drain->RemainingConnections, 0U);
 }

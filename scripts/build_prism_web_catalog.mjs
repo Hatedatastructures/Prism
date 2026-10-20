@@ -15,7 +15,8 @@ function SamePath(Left, Right) {
     return Left === Right;
 }
 if (!SamePath(Directory, Expected) || !SamePath(path.resolve(process.cwd()), Root) ||
-    !fs.existsSync(path.join(Root, 'Prism/Application/Startup/Start.hpp')) ||
+    !fs.existsSync(path.join(Root, 'Include/Prism/Application/Definition.hpp')) ||
+    !fs.existsSync(path.join(Root, 'Src/Prism/Application/Startup/Start.cpp')) ||
     !fs.existsSync(BuildDirectory))
     throw new Error('资源清单只能生成到指定二进制树的 Web 子目录');
 const CanonicalRoot = fs.realpathSync(Directory);

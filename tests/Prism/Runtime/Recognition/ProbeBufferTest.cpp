@@ -23,7 +23,9 @@
 #include <utility>
 #include <vector>
 
+#include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Fault/Handling.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
 #include <Prism/Transport/Transmission.hpp>
 
@@ -36,6 +38,13 @@ namespace
     using Prism::SharedTransmission;
     using Prism::Transmission;
 
+    /** @brief 创建足以容纳固定探测前缀的测试字节池。 */
+    auto MakeProbeBufferBytePool() -> std::shared_ptr<Prism::Memory::BytePool>
+    {
+        return std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{8U, 4U});
+    }
+
     struct ReadStep
     {
         std::vector<std::byte> Data;
@@ -46,7 +55,10 @@ namespace
     class ScriptedTransport final : public Transmission
     {
     public:
-        explicit ScriptedTransport(Net::any_io_executor Executor) : Executor_(std::move(Executor)) {}
+        explicit ScriptedTransport(Net::any_io_executor Executor)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor))
+        {
+        }
 
         void Push(std::vector<std::byte> Data, std::error_code Error = {})
         {
@@ -79,7 +91,7 @@ namespace
             ReadSizes_.push_back(Buffer.size());
             if (Steps_.empty())
             {
-                Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+                Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
                 return;
             }
             auto &Step = Steps_.front();
@@ -101,19 +113,19 @@ namespace
                     Steps_.pop_front();
                 }
             }
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{Count, std::move(Failure)});
         }
 
         auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                                                   Prism::IoResult{Buffer.size(), {}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -145,7 +157,10 @@ namespace
     class OverReportingTransport final : public Transmission
     {
     public:
-        explicit OverReportingTransport(Net::any_io_executor Executor) : Executor_(std::move(Executor)) {}
+        explicit OverReportingTransport(Net::any_io_executor Executor)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor))
+        {
+        }
 
         [[nodiscard]] auto ReadCalls() const noexcept -> std::size_t
         {
@@ -160,19 +175,19 @@ namespace
         auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
             ++ReadCalls_;
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{Buffer.size() + 1, {}});
         }
 
         auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                                                   Prism::IoResult{Buffer.size(), {}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override
@@ -311,6 +326,36 @@ namespace
         }
     }
 
+    /** @brief 保存首次读取终态与回放验证所需的测试状态。 */
+    struct ReplayFirstTerminalScenario final
+    {
+        ProbeBuffer &Buffer;
+        std::shared_ptr<ScriptedTransport> Transport;
+        std::error_code Reset;
+        Prism::Recognition::ProbeFillResult Fill{};
+        Prism::IoResult PrefixResult{};
+        Prism::IoResult FollowingResult{};
+        std::array<std::byte, 1> Prefix{};
+        std::size_t ReadsAfterEnsure{};
+        bool ReplayCreated{};
+    };
+
+    /** @brief 捕获 EOF 后执行显式失败回放，并读取前缀及终态。 */
+    auto RunReplayKeepsFirstCapturedTerminalScenario(ReplayFirstTerminalScenario &Scenario)
+        -> Net::awaitable<void>
+    {
+        Scenario.Fill = co_await Scenario.Buffer.Ensure(*Scenario.Transport, 2U);
+        Scenario.ReadsAfterEnsure = Scenario.Transport->ReadCalls();
+        const auto Replay = Scenario.Buffer.Replay(
+            Scenario.Transport, Prism::Fault::FromNative(Scenario.Reset));
+        Scenario.ReplayCreated = static_cast<bool>(Replay);
+        if (Scenario.ReplayCreated)
+        {
+            Scenario.PrefixResult = co_await (*Replay)->ReadSome(Scenario.Prefix);
+            Scenario.FollowingResult = co_await (*Replay)->ReadSome(Scenario.Prefix);
+        }
+    }
+
     // 捕获生产错误：分片读若未累计每次返回的字节会丢失预读数据。
     TEST(ProbeBufferTest, ReadsFragmentedInputOnlyToMinimum)
     {
@@ -319,7 +364,7 @@ namespace
         Transport->Push(Bytes({0x01}));
         Transport->Push(Bytes({0x02}));
         Transport->Push(Bytes({0x03}));
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -336,7 +381,7 @@ namespace
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(Bytes({0x01, 0x02, 0x03}));
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -356,7 +401,7 @@ namespace
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(Bytes({0x10, 0x11}), std::make_error_code(std::errc::connection_reset));
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, RunReadDataAndErrorScenario(Transport, Buffer));
     }
@@ -368,7 +413,7 @@ namespace
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(Bytes({0x20}));
         Transport->Push({});
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -385,7 +430,7 @@ namespace
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->PushZeroProgress();
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -402,7 +447,7 @@ namespace
         Net::io_context Io;
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(Bytes({0x30, 0x31, 0x32, 0x33}));
-        ProbeBuffer Buffer(3);
+        ProbeBuffer Buffer(3, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -421,7 +466,7 @@ namespace
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(Bytes({0x40, 0x41}));
         Transport->Push(Bytes({0x42, 0x43}));
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, RunSnapshotGrowthScenario(Transport, Buffer));
     }
@@ -433,7 +478,7 @@ namespace
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         Transport->Push(Bytes({0x50, 0x51, 0x52}));
         Transport->Push(Bytes({0x53, 0x54}));
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, RunReplayScenario(Transport, Buffer));
     }
@@ -443,7 +488,7 @@ namespace
     {
         Net::io_context Io;
         auto Transport = std::make_shared<OverReportingTransport>(Io.get_executor());
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -465,7 +510,7 @@ namespace
         const auto Eof = Prism::Fault::make_error_code(
             Prism::Fault::ToCode(boost::asio::error::eof));
         Transport->Push({}, Eof);
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -485,7 +530,7 @@ namespace
         auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
         const auto Error = std::make_error_code(std::errc::connection_reset);
         Transport->Push({}, Error);
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
 
         RunCoro(Io, [&]() -> Net::awaitable<void>
                 {
@@ -506,7 +551,7 @@ namespace
         Transport->Push(Bytes({0x60, 0x61}));
         SharedTransmission Replay;
         {
-            ProbeBuffer Buffer(8);
+            ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
             Replay = Buffer.Replay(Transport);
             EXPECT_EQ(Replay.get(), Transport.get());
         }
@@ -514,9 +559,112 @@ namespace
         RunCoro(Io, RunEmptyReplayScenario(Replay));
     }
 
+    TEST(ProbeBufferTest, ZeroMaximumReadsDoNotConsumeTransportOrBuffer)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        Transport->Push(Bytes({0x62}));
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
+        Prism::Recognition::ProbeFillResult Fill;
+        Prism::Recognition::ProbeReadResult EmptyRead;
+        Prism::Recognition::ProbeReadResult Read;
+        std::size_t CallsAfterZeroReads = 0;
+        bool EmptyAfterZeroReads = false;
+
+        RunCoro(Io, [&]() -> Net::awaitable<void>
+                {
+                    Fill = co_await Buffer.ReadSome(*Transport, 0U);
+                    EmptyRead = co_await Buffer.ReadSomeWithTerminal(*Transport, 0U);
+                    CallsAfterZeroReads = Transport->ReadCalls();
+                    EmptyAfterZeroReads = Buffer.Empty();
+                    Read = co_await Buffer.ReadSomeWithTerminal(*Transport, 1U);
+                    co_return;
+                }());
+
+        EXPECT_EQ(Fill.Status, RecognitionStatus::Accepted);
+        EXPECT_EQ(Fill.Added, 0U);
+        EXPECT_FALSE(Fill.Error);
+        EXPECT_EQ(EmptyRead.Status, RecognitionStatus::Accepted);
+        EXPECT_EQ(EmptyRead.Added, 0U);
+        EXPECT_FALSE(EmptyRead.Failure.Failed());
+        EXPECT_EQ(CallsAfterZeroReads, 0U);
+        EXPECT_TRUE(EmptyAfterZeroReads);
+        EXPECT_EQ(Read.Status, RecognitionStatus::Accepted);
+        EXPECT_EQ(Read.Added, 1U);
+        EXPECT_FALSE(Read.Failure.Failed());
+        EXPECT_EQ(Buffer.Data()[0], static_cast<std::byte>(0x62));
+        EXPECT_EQ(Transport->ReadCalls(), 1U);
+    }
+
+    TEST(ProbeBufferTest, ReplayKeepsFirstCapturedTerminalOverExplicitLaterFailure)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        const auto Eof = Prism::Fault::make_error_code(Prism::Fault::Code::Eof);
+        const auto Reset = std::make_error_code(std::errc::connection_reset);
+        Transport->Push(Bytes({0x63}), Eof);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
+        ReplayFirstTerminalScenario Scenario{Buffer, Transport, Reset};
+
+        RunCoro(Io, RunReplayKeepsFirstCapturedTerminalScenario(Scenario));
+
+        const auto &Fill = Scenario.Fill;
+        const auto &PrefixResult = Scenario.PrefixResult;
+        const auto &FollowingResult = Scenario.FollowingResult;
+        const auto &Prefix = Scenario.Prefix;
+        const auto ReadsAfterEnsure = Scenario.ReadsAfterEnsure;
+        const auto ReplayCreated = Scenario.ReplayCreated;
+
+        ASSERT_TRUE(ReplayCreated);
+        EXPECT_EQ(Fill.Status, RecognitionStatus::IoError);
+        EXPECT_EQ(Fill.Added, 1U);
+        EXPECT_EQ(Fill.Error, Eof);
+        EXPECT_EQ(PrefixResult.Bytes, 1U);
+        EXPECT_EQ(Prefix[0], static_cast<std::byte>(0x63));
+        EXPECT_EQ(PrefixResult.Failure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(PrefixResult.Failure.Native, Eof);
+        EXPECT_EQ(FollowingResult.Bytes, 0U);
+        EXPECT_EQ(FollowingResult.Failure.Code, Prism::Fault::Code::Eof);
+        EXPECT_EQ(FollowingResult.Failure.Native, Eof);
+        EXPECT_EQ(Transport->ReadCalls(), ReadsAfterEnsure);
+    }
+
+    TEST(ProbeBufferTest, EmptyReplayReturnsTypedTerminalWithoutConsumingTransport)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        const auto Native = std::make_error_code(std::errc::connection_reset);
+        const auto Terminal = Prism::Fault::FromNative(Native);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
+
+        const auto Replay = Buffer.Replay(Transport, Terminal);
+
+        ASSERT_TRUE(Replay);
+        const auto Preview = *Replay;
+        const std::span<std::byte> EmptyBuffer;
+        std::array<std::byte, 1> ReadBuffer{};
+        Prism::IoResult EmptyResult;
+        Prism::IoResult TerminalResult;
+
+        RunCoro(Io, [&]() -> Net::awaitable<void>
+                {
+                    EmptyResult = co_await Preview->ReadSome(EmptyBuffer);
+                    TerminalResult = co_await Preview->ReadSome(ReadBuffer);
+                    co_return;
+                }());
+
+        EXPECT_EQ(EmptyResult.Bytes, 0U);
+        EXPECT_FALSE(EmptyResult.Failure.Failed());
+        EXPECT_EQ(TerminalResult.Bytes, 0U);
+        EXPECT_EQ(TerminalResult.Failure.Code, Terminal.Code);
+        EXPECT_EQ(TerminalResult.Failure.Native, Native);
+        EXPECT_EQ(Transport->ReadCalls(), 0U);
+        EXPECT_TRUE(Buffer.Empty());
+    }
+
     TEST(ProbeBufferTest, SeedsProbePrefixBeforeIncrementalGrowth)
     {
-        ProbeBuffer Buffer(8);
+        ProbeBuffer Buffer(8, MakeProbeBufferBytePool());
         const auto Prefix = Bytes({0x16, 0x03, 0x03});
 
         EXPECT_TRUE(Buffer.Seed(Prefix));

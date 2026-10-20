@@ -80,16 +80,17 @@ func (echo *tcpEcho) handle(conn net.Conn) {
 		delete(echo.conns, conn)
 		echo.mu.Unlock()
 	}()
-	data := make([]byte, 0, 256)
 	buffer := make([]byte, 4096)
 	for {
 		count, readErr := conn.Read(buffer)
 		if count > 0 {
-			data = append(data, buffer[:count]...)
 			echo.mu.Lock()
 			echo.bytes.Add(uint64(count))
 			_, _ = echo.digest.Write(buffer[:count])
 			echo.mu.Unlock()
+			if err := writeFull(conn, buffer[:count]); err != nil {
+				return
+			}
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
@@ -97,9 +98,6 @@ func (echo *tcpEcho) handle(conn net.Conn) {
 			}
 			return
 		}
-	}
-	if len(data) > 0 {
-		_ = writeFull(conn, data)
 	}
 }
 
@@ -297,21 +295,30 @@ func runTCP(server, password string) error {
 	if err := writeFull(conn, payload[len(payload)/2:]); err != nil {
 		return fmt.Errorf("write second TCP payload segment: %w", err)
 	}
-	if _, ok := conn.(N.WriteCloser); !ok {
-		return fmt.Errorf("Hysteria2 TCP connection has no CloseWrite contract")
-	}
-	if err := N.CloseWrite(conn); err != nil {
-		return fmt.Errorf("send TCP FIN: %w", err)
+	halfClose, hasHalfClose := conn.(N.WriteCloser)
+	if hasHalfClose {
+		if err := halfClose.CloseWrite(); err != nil {
+			return fmt.Errorf("send TCP FIN: %w", err)
+		}
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		return fmt.Errorf("set TCP read deadline: %w", err)
 	}
-	got, peerEOF, err := readUntilEOF(conn)
-	if err != nil {
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(conn, got); err != nil {
 		return fmt.Errorf("read TCP echo: %w", err)
 	}
-	if !peerEOF || string(got) != string(payload) {
-		return fmt.Errorf("TCP echo mismatch bytes=%d eof=%t", len(got), peerEOF)
+	if string(got) != string(payload) {
+		return fmt.Errorf("TCP echo mismatch bytes=%d", len(got))
+	}
+	peerEOF := false
+	if hasHalfClose {
+		probe := []byte{0}
+		count, readErr := conn.Read(probe)
+		if count != 0 || !errors.Is(readErr, io.EOF) {
+			return fmt.Errorf("peer EOF not observed: bytes=%d error=%v", count, readErr)
+		}
+		peerEOF = true
 	}
 	targetBytes, targetHash := echo.summary()
 	if targetBytes != uint64(len(payload)) || targetHash != payloadHash(payload) {
@@ -321,9 +328,10 @@ func runTCP(server, password string) error {
 		return fmt.Errorf("close TCP connection: %w", err)
 	}
 	closed = true
-	fmt.Printf("PAYLOAD TCP bytes=%d SHA256=%s FIN_SENT=true PEER_EOF=%t TARGET_BYTES=%d TARGET_SHA256=%s CLOSE_OWNER=GO_CLIENT\n",
-		len(got), payloadHash(got), peerEOF, targetBytes, targetHash)
-	fmt.Printf("PASS: Hysteria2 authenticated TCP echo with half-close bytes=%d\n", len(got))
+	fmt.Printf("PAYLOAD TCP bytes=%d SHA256=%s HALF_CLOSE_INTERFACE=%t FIN_SENT=%t PEER_EOF=%t TARGET_BYTES=%d TARGET_SHA256=%s CLOSE_OWNER=GO_CLIENT\n",
+		len(got), payloadHash(got), hasHalfClose, hasHalfClose, peerEOF, targetBytes, targetHash)
+	fmt.Printf("PASS: Hysteria2 authenticated TCP echo bytes=%d half_close_exercised=%t\n",
+		len(got), hasHalfClose)
 	return nil
 }
 

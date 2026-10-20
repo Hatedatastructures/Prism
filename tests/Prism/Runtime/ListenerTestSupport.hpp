@@ -73,6 +73,24 @@ namespace
         std::expected<void, Prism::Fault::Failure> Result;
     };
 
+    /** @brief 发布关闭或排空操作的真实结果并通知等待方。 */
+    auto CompleteListenerOperation(
+        const std::shared_ptr<ListenerOperationCompletion> &Completion,
+        std::exception_ptr Exception,
+        std::expected<void, Prism::Fault::Failure> Result) -> void
+    {
+        if (Exception)
+        {
+            Completion->Result.emplace(std::unexpected(
+                Prism::Fault::Failure{Prism::Fault::Code::GenericError}));
+        }
+        else
+        {
+            Completion->Result.emplace(std::move(Result));
+        }
+        (void)Completion->Completed.try_send(boost::system::error_code{});
+    }
+
     struct ListenerTransmissionCloseAttempt final
     {
         Prism::Transmission::ControlResult Request;
@@ -106,16 +124,8 @@ namespace
             [Completion](std::exception_ptr Exception,
                          std::expected<void, Prism::Fault::Failure> Result)
             {
-                if (Exception)
-                {
-                    Completion->Result.emplace(std::unexpected(
-                        Prism::Fault::Failure{Prism::Fault::Code::GenericError}));
-                }
-                else
-                {
-                    Completion->Result.emplace(std::move(Result));
-                }
-                (void)Completion->Completed.try_send(boost::system::error_code{});
+                CompleteListenerOperation(
+                    Completion, std::move(Exception), std::move(Result));
             });
         return Completion;
     }

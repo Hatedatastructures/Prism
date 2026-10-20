@@ -4,8 +4,11 @@
  */
 
 #include "TaskLifecycleTestSupport.hpp"
+#include <Prism/Runtime/Session.hpp>
 #include <Prism/Runtime/SessionAdmissionTestSupport.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
 
 namespace
@@ -14,6 +17,7 @@ namespace
     struct ListenerIdentityProbe final
     {
         std::shared_ptr<Prism::Runtime::SessionControl> Control;
+        std::shared_ptr<Signal> FactoryReady;
         std::shared_ptr<Signal> ErrorReady;
         Prism::Fault::Code &StartResult;
     };
@@ -22,14 +26,15 @@ namespace
     struct ListenerIdentityFactory final
     {
         std::shared_ptr<Prism::Runtime::SessionControl> Control;
-        std::shared_ptr<std::optional<std::size_t>> FactoryWorker;
+        std::shared_ptr<std::optional<Prism::WorkerId>> FactoryWorker;
         std::shared_ptr<std::optional<Prism::Lifecycle::TaskIdentity>> Observed;
+        std::shared_ptr<Signal> FactoryReady;
         std::shared_ptr<Signal> ErrorReady;
 
         auto operator()(Prism::Runtime::SessionAdmission Admission)
             -> std::shared_ptr<Prism::Runtime::Session>
         {
-            *FactoryWorker = static_cast<std::size_t>(Admission.Worker.Value() - 1U);
+            *FactoryWorker = Admission.Worker;
             Control->SetErrorHook(Prism::Runtime::SessionControl::IdentityErrorHook{
                 [Observed = Observed, ErrorReady = ErrorReady](
                     const Prism::Lifecycle::TaskIdentity &IdentityValue,
@@ -38,11 +43,84 @@ namespace
                     *Observed = IdentityValue;
                     (void)ErrorReady->try_send(boost::system::error_code{});
                 }});
+            EXPECT_TRUE(FactoryReady->try_send(boost::system::error_code{}));
             Prism::Runtime::SessionOptions Options;
             Options.Control = Control;
+            Options.Services->Bytes = Prism::Testing::Runtime::MakeListenerTestBytePool();
             return std::make_shared<Prism::Runtime::Session>(std::move(Options));
         }
     };
+
+    struct ThrowingListenerFactory final
+    {
+        std::shared_ptr<Signal> FactoryReady;
+
+        auto operator()(Prism::Runtime::SessionAdmission)
+            -> std::shared_ptr<Prism::Runtime::Session>
+        {
+            EXPECT_TRUE(FactoryReady->try_send(boost::system::error_code{}));
+            throw std::runtime_error("listener session factory failure");
+        }
+    };
+
+    auto WaitForListenerSignalOrTimeout(
+        const std::shared_ptr<Signal> &SignalValue,
+        Net::io_context &Ioc) -> Net::awaitable<bool>
+    {
+        Net::steady_timer Timer(Ioc);
+        Timer.expires_after(std::chrono::seconds(2));
+        using Net::experimental::awaitable_operators::operator||;
+        boost::system::error_code ErrorCode;
+        auto Race = co_await (SignalValue->async_receive(
+                                  Net::redirect_error(Net::use_awaitable, ErrorCode)) ||
+                              Timer.async_wait(Net::use_awaitable));
+        co_return Race.index() == 0U && !ErrorCode;
+    }
+
+    struct ListenerFactoryExceptionScenarioRequest final
+    {
+        Net::io_context &Ioc;
+        Prism::Runtime::TcpListener &Listener;
+        std::shared_ptr<Signal> FactoryReady;
+        std::shared_ptr<Signal> FailureReady;
+    };
+
+    auto RunListenerFactoryExceptionScenario(
+        ListenerFactoryExceptionScenarioRequest Request) -> Net::awaitable<void>
+    {
+        const auto Started = co_await Request.Listener.Start(
+            Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        EXPECT_EQ(Started, Prism::Fault::Code::Success);
+        if (Started != Prism::Fault::Code::Success) co_return;
+        Net::ip::tcp::socket Client(co_await Net::this_coro::executor);
+        boost::system::error_code ErrorCode;
+        co_await Client.async_connect(
+            Net::ip::tcp::endpoint(
+                Net::ip::address_v4::loopback(), Request.Listener.LocalEndpoint().port()),
+            Net::redirect_error(Net::use_awaitable, ErrorCode));
+        EXPECT_FALSE(ErrorCode);
+        if (ErrorCode)
+        {
+            (void)co_await Request.Listener.Shutdown();
+            co_return;
+        }
+
+        const bool FactoryCalled =
+            co_await WaitForListenerSignalOrTimeout(Request.FactoryReady, Request.Ioc);
+        EXPECT_TRUE(FactoryCalled);
+        if (!FactoryCalled)
+        {
+            Client.close(ErrorCode);
+            (void)co_await Request.Listener.Shutdown();
+            co_return;
+        }
+        const bool FailureDelivered =
+            co_await WaitForListenerSignalOrTimeout(Request.FailureReady, Request.Ioc);
+        EXPECT_TRUE(FailureDelivered);
+        Client.close(ErrorCode);
+        const auto Shutdown = co_await Request.Listener.Shutdown();
+        EXPECT_TRUE(Shutdown);
+    }
 
     /**
      * @brief 在当前 executor 验证 listener 的任务身份并等待 listener/control 关闭。
@@ -64,6 +142,14 @@ namespace
         co_await Client.async_connect(
             Net::ip::tcp::endpoint(
                 Net::ip::address_v4::loopback(), Listener.LocalEndpoint().port()),
+            Net::redirect_error(Net::use_awaitable, ErrorCode));
+        EXPECT_FALSE(ErrorCode);
+        if (ErrorCode)
+        {
+            co_await Listener.Shutdown();
+            co_return;
+        }
+        co_await Probe.FactoryReady->async_receive(
             Net::redirect_error(Net::use_awaitable, ErrorCode));
         EXPECT_FALSE(ErrorCode);
         if (ErrorCode)
@@ -276,15 +362,16 @@ TEST(TcpListenerLifecycle, ListenerTaskIdentityReachesSessionErrorHook)
         Net::io_context Ioc;
         auto Observed =
             std::make_shared<std::optional<Prism::Lifecycle::TaskIdentity>>();
-        auto FactoryWorker = std::make_shared<std::optional<std::size_t>>();
+        auto FactoryWorker = std::make_shared<std::optional<Prism::WorkerId>>();
         auto ErrorReady = std::make_shared<Signal>(Ioc.get_executor(), 1);
+        auto FactoryReady = std::make_shared<Signal>(Ioc.get_executor(), 1);
         auto Control = std::make_shared<Prism::Runtime::SessionControl>();
         Prism::Runtime::TcpListener::Options ListenerOptions;
         ListenerOptions.Executor = Ioc.get_executor();
         ListenerOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
             Prism::GenerationId{1});
         ListenerOptions.Factory = ListenerIdentityFactory{
-            Control, FactoryWorker, Observed, ErrorReady};
+            Control, FactoryWorker, Observed, FactoryReady, ErrorReady};
         ListenerOptions.WorkerCount = 4;
         Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
 
@@ -292,7 +379,7 @@ TEST(TcpListenerLifecycle, ListenerTaskIdentityReachesSessionErrorHook)
         const auto Failure = RunCoro(
             Ioc,
             RunListenerIdentityScenario(Listener,
-                ListenerIdentityProbe{Control, ErrorReady, StartResult}));
+                ListenerIdentityProbe{Control, FactoryReady, ErrorReady, StartResult}));
 
         EXPECT_EQ(Failure, nullptr);
         EXPECT_EQ(StartResult, Prism::Fault::Code::Success);
@@ -301,7 +388,36 @@ TEST(TcpListenerLifecycle, ListenerTaskIdentityReachesSessionErrorHook)
         EXPECT_TRUE(static_cast<bool>((*Observed)->TaskId));
         EXPECT_TRUE(static_cast<bool>((*Observed)->SessionId));
         EXPECT_TRUE(static_cast<bool>((*Observed)->WorkerId));
-        EXPECT_EQ((*Observed)->WorkerId, Prism::WorkerId{**FactoryWorker});
+        EXPECT_EQ((*Observed)->WorkerId, **FactoryWorker);
+    }
+
+TEST(TcpListenerLifecycle, FactoryExceptionNotifiesListenerFailure)
+    {
+        Net::io_context Ioc;
+        auto FactoryReady = std::make_shared<Signal>(Ioc.get_executor(), 1U);
+        auto FailureReady = std::make_shared<Signal>(Ioc.get_executor(), 1U);
+        std::optional<Prism::Fault::Code> ObservedFailure;
+        Prism::Runtime::TcpListener::Options ListenerOptions;
+        ListenerOptions.Executor = Ioc.get_executor();
+        ListenerOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            Prism::GenerationId{1});
+        ListenerOptions.Factory = ThrowingListenerFactory{FactoryReady};
+        ListenerOptions.OnFailure = [&ObservedFailure, FailureReady](
+                                        const Prism::Fault::Code Code)
+        {
+            ObservedFailure = Code;
+            (void)FailureReady->try_send(boost::system::error_code{});
+        };
+        Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
+
+        const auto Failure = RunCoro(
+            Ioc,
+            RunListenerFactoryExceptionScenario(ListenerFactoryExceptionScenarioRequest{
+                Ioc, Listener, FactoryReady, FailureReady}));
+
+        EXPECT_EQ(Failure, nullptr);
+        ASSERT_TRUE(ObservedFailure.has_value());
+        EXPECT_EQ(*ObservedFailure, Prism::Fault::Code::GenericError);
     }
 
 TEST(SessionControlLifecycle, CancelSealsFutureOperations)

@@ -25,11 +25,14 @@
 #include <tuple>
 #include <vector>
 #include <Prism/Transport/MemoryStream.hpp>
-#include <Prism/Protocols/Shadowsocks2022/Codec.hpp>
-#include <Prism/Protocols/Shadowsocks2022/Conn.hpp>
-#include <Prism/Protocols/Shadowsocks2022/Dgram.hpp>
+#include <Prism/Protocols/Shadowsocks2022/ChunkCodec.hpp>
+#include <Prism/Protocols/Shadowsocks2022/KeyDerivation.hpp>
 #include <Prism/Protocols/Shadowsocks2022/RequestState.hpp>
 #include <Prism/Protocols/Shadowsocks2022/RequestWire.hpp>
+#include <Prism/Protocols/Shadowsocks2022/ResponseCodec.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Types.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Conn.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Dgram.hpp>
 #include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <gtest/gtest.h>
 namespace

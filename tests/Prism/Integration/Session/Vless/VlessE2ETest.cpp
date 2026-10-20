@@ -89,7 +89,8 @@ namespace
                 else
                 {
                     auto ProtocolConnect = co_await Vless::Connect(
-                        std::move(*Raw), Flow.ClientConfig, Flow.Target);
+                        Vless::ConnectParameters{
+                            std::move(*Raw), Flow.ClientConfig, Flow.Target});
                     if (!ProtocolConnect)
                     {
                         Result.Failure = ProtocolConnect.error();
@@ -170,9 +171,9 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
+            .Factory = VlessSessionFactory{ChainState, ServerConfiguration},
             .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{1}),
-            .Factory = VlessSessionFactory{ChainState, ServerConfiguration}});
+                Prism::GenerationId{1})});
 
         RunCoro(Io, RunVlessConnectFlow(VlessConnectFlow{
             Io, Listener, Echo, Target, ClientConfiguration, ChainState, Result}));
@@ -288,10 +289,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{2}),
             .Factory = VlessSessionFactory{
-                ChainState, Vless::ServerConfig{TestUuid()}, std::chrono::seconds(2)}});
+                ChainState, Vless::ServerConfig{TestUuid()}, std::chrono::seconds(2)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{2})});
 
         bool HandshakeOk = false;
         std::string EchoBack;
@@ -379,10 +380,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{3}),
             .Factory = VlessSessionFactory{
-                {}, Vless::ServerConfig{TestUuid()}, {}, {}, true}});
+                {}, Vless::ServerConfig{TestUuid()}, {}, {}, true},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{3})});
 
         bool SawClose = false;
         RunCoro(Io, RunVlessDialRefusedFlow(
@@ -527,10 +528,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{4}),
             .Factory = VlessSessionFactory{
-                ChainState, Vless::ServerConfig{TestUuid()}}});
+                ChainState, Vless::ServerConfig{TestUuid()}},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{4})});
 
         std::string EchoBack;
         RunCoro(Io, RunVlessHalfCloseFlow(
@@ -604,10 +605,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{5}),
             .Factory = VlessSessionFactory{
-                ChainState, Vless::ServerConfig{TestUuid()}, std::chrono::milliseconds(100)}});
+                ChainState, Vless::ServerConfig{TestUuid()}, std::chrono::milliseconds(100)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{5})});
 
         bool Closed = false;
         RunCoro(Io, RunVlessIdleFlow(
@@ -698,10 +699,10 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
-                Prism::GenerationId{6}),
             .Factory = VlessSessionFactory{
-                ChainState, Vless::ServerConfig{TestUuid()}, {}, RecorderOwner}});
+                ChainState, Vless::ServerConfig{TestUuid()}, {}, RecorderOwner},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{6})});
 
         RunCoro(Io, RunVlessTrafficFlow(
             VlessTrafficFlow{Io, Listener, Echo, Traffic}));

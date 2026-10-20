@@ -1,29 +1,24 @@
 # http3 子模块测试
 AddPrismTest(HttpQuicCoverage.cpp)
-target_link_libraries(HttpQuicCoverage PRIVATE PrismProtocolQuic PrismProtocolHttp3 PrismTestSupport)
-AddPrismTest(NativeQuicLoopback.cpp)
-target_link_libraries(NativeQuicLoopback PRIVATE PrismProtocolQuicNative PrismTestSupport)
-AddPrismTest(NativeQuicLoopbackOwnershipTest.cpp)
-target_link_libraries(NativeQuicLoopbackOwnershipTest PRIVATE PrismProtocolQuicNative PrismTestSupport)
-target_sources(NativeQuicLoopbackOwnershipTest PRIVATE NativeQuicLoopbackSupport.hpp ../../../TestSupport/Prism/QuicFactory.hpp)
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-        # Match the unoptimized PrismProtocolQuicNative library used by Debug builds.
-        target_compile_options(NativeQuicLoopback PRIVATE -U_FORTIFY_SOURCE)
-        target_compile_options(NativeQuicLoopbackOwnershipTest PRIVATE -U_FORTIFY_SOURCE)
-    else()
-        # Match the optimized Release QUIC library ABI.
-        target_compile_options(NativeQuicLoopback PRIVATE -O3)
-        target_compile_options(NativeQuicLoopbackOwnershipTest PRIVATE -O3)
-    endif()
-endif()
+target_link_libraries(HttpQuicCoverage PRIVATE
+    PrismFoundation PrismProtocolHttp3Core PrismProtocolHttp3)
 AddPrismTest(QpackEncodeOut.cpp)
-target_link_libraries(QpackEncodeOut PRIVATE PrismFoundation PrismProtocolHttp3 PrismTestSupport)
+target_link_libraries(QpackEncodeOut PRIVATE PrismFoundation PrismProtocolHttp3Core)
 AddPrismTest(QpackInteropTest.cpp)
-target_link_libraries(QpackInteropTest PRIVATE PrismFoundation PrismProtocolHttp3 PrismTestSupport)
+target_link_libraries(QpackInteropTest PRIVATE PrismFoundation PrismProtocolHttp3Core)
 AddPrismTest(NativeHttp3Session.cpp)
-target_link_libraries(NativeHttp3Session PRIVATE PrismProtocolHttp3 PrismProtocolQuic PrismProtocolQuicNative PrismTestSupport)
+target_link_libraries(NativeHttp3Session PRIVATE PrismFoundation PrismIoContracts PrismLifecycle
+    PrismProtocolHttp3 PrismProtocolQuic PrismProtocolQuicNative)
+AddPrismTest(NativeHttp3ReadLoopTest.cpp)
+target_include_directories(NativeHttp3ReadLoopTest PRIVATE
+    ${PROJECT_SOURCE_DIR}/Src
+    "${nghttp3_SOURCE_DIR}/lib/includes")
+target_link_libraries(NativeHttp3ReadLoopTest PRIVATE PrismFoundation PrismIoContracts PrismLifecycle
+    PrismProtocolHttp3 PrismProtocolQuic PrismProtocolQuicNative)
 AddPrismTest(SessionHeaderContractTest.cpp)
-target_link_libraries(SessionHeaderContractTest PRIVATE PrismProtocolHttp3 PrismTestSupport)
+target_include_directories(SessionHeaderContractTest PRIVATE
+    ${PROJECT_SOURCE_DIR}/Src
+    "${nghttp3_SOURCE_DIR}/lib/includes")
+target_link_libraries(SessionHeaderContractTest PRIVATE PrismFoundation PrismProtocolHttp3)
 AddPrismTest(Http3QpackFuzzTest.cpp)
-target_link_libraries(Http3QpackFuzzTest PRIVATE PrismProtocolHttp3 PrismTestSupport)
+target_link_libraries(Http3QpackFuzzTest PRIVATE PrismProtocolHttp3Core PrismProtocolHttpCompression)

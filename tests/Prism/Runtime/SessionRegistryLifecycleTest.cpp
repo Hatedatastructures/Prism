@@ -10,6 +10,7 @@
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/use_future.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <atomic>
@@ -30,6 +31,56 @@ namespace
 {
 
     namespace net = boost::asio;
+}
+
+namespace Prism::Runtime
+{
+    class SessionRegistryLifecycleTestAccess final
+    {
+    public:
+        static auto FailNextErrorHookWithRuntimeError(SessionControl &Control) -> void
+        {
+            Control.State_->ErrorHookFailureInjection.store(
+                SessionControl::State::HookFailureInjection::RuntimeError,
+                std::memory_order_release);
+        }
+
+        static auto FailNextErrorHookWithAllocation(SessionControl &Control) -> void
+        {
+            Control.State_->ErrorHookFailureInjection.store(
+                SessionControl::State::HookFailureInjection::AllocationFailure,
+                std::memory_order_release);
+        }
+
+        static auto FailNextMetricsHookWithRuntimeError(SessionControl &Control) -> void
+        {
+            Control.State_->MetricsHookFailureInjection.store(
+                SessionControl::State::HookFailureInjection::RuntimeError,
+                std::memory_order_release);
+        }
+
+        static auto FailNextMetricsHookWithAllocation(SessionControl &Control) -> void
+        {
+            Control.State_->MetricsHookFailureInjection.store(
+                SessionControl::State::HookFailureInjection::AllocationFailure,
+                std::memory_order_release);
+        }
+
+        static auto Contains(SessionRegistry &Registry, const std::uint64_t Id) -> bool
+        {
+            const auto Records = Registry.State_->Records.load(std::memory_order_acquire);
+            return Records->contains(Id);
+        }
+
+        static auto RequestShutdown(SessionRegistry &Registry) -> void
+        {
+            Registry.RequestShutdown();
+        }
+    };
+}
+
+namespace
+{
 
     auto make_info(std::uint64_t Id) -> Prism::Runtime::SessionInfo
     {
@@ -349,6 +400,88 @@ namespace
         EXPECT_TRUE(OperationCancelled.load(std::memory_order_acquire))
             << "timer did not complete through operation_aborted before the 500 ms watchdog";
         EXPECT_EQ(Control->Metrics().Active, 0U);
+        EXPECT_EQ(Registry.Size(), 0U);
+    }
+
+    TEST(SessionRegistry, PublishedRegistrationRollsBackAfterErrorHookThrow)
+    {
+        boost::asio::io_context Io;
+        Prism::Runtime::SessionRegistry Registry;
+        auto Control = std::make_shared<Prism::Runtime::SessionControl>(Io.get_executor());
+        Prism::Runtime::SessionRegistryLifecycleTestAccess::FailNextErrorHookWithRuntimeError(
+            *Control);
+
+        auto Registration = Registry.Register(make_info(501U), Control);
+
+        EXPECT_FALSE(Registration);
+        EXPECT_EQ(Registry.Size(), 0U);
+        EXPECT_EQ(Registry.PendingRemovals(), 0U);
+        EXPECT_FALSE(
+            Prism::Runtime::SessionRegistryLifecycleTestAccess::Contains(Registry, 501U));
+    }
+
+    TEST(SessionRegistry, PublishedRegistrationRollsBackAfterErrorHookBadAlloc)
+    {
+        boost::asio::io_context Io;
+        Prism::Runtime::SessionRegistry Registry;
+        auto Control = std::make_shared<Prism::Runtime::SessionControl>(Io.get_executor());
+        Prism::Runtime::SessionRegistryLifecycleTestAccess::FailNextErrorHookWithAllocation(
+            *Control);
+
+        auto Registration = Registry.Register(make_info(502U), Control);
+
+        EXPECT_FALSE(Registration);
+        EXPECT_EQ(Registry.Size(), 0U);
+        EXPECT_EQ(Registry.PendingRemovals(), 0U);
+        EXPECT_FALSE(
+            Prism::Runtime::SessionRegistryLifecycleTestAccess::Contains(Registry, 502U));
+    }
+
+    TEST(SessionRegistry, PublishedRegistrationRollsBackAfterMetricsHookThrow)
+    {
+        boost::asio::io_context Io;
+        Prism::Runtime::SessionRegistry Registry;
+        auto Control = std::make_shared<Prism::Runtime::SessionControl>(Io.get_executor());
+        Prism::Runtime::SessionRegistryLifecycleTestAccess::FailNextMetricsHookWithRuntimeError(
+            *Control);
+
+        auto Registration = Registry.Register(make_info(503U), Control);
+
+        EXPECT_FALSE(Registration);
+        EXPECT_EQ(Registry.Size(), 0U);
+        EXPECT_EQ(Registry.PendingRemovals(), 0U);
+        EXPECT_FALSE(
+            Prism::Runtime::SessionRegistryLifecycleTestAccess::Contains(Registry, 503U));
+    }
+
+    TEST(SessionRegistry, PublishedRegistrationRollsBackAfterMetricsHookBadAlloc)
+    {
+        boost::asio::io_context Io;
+        Prism::Runtime::SessionRegistry Registry;
+        auto Control = std::make_shared<Prism::Runtime::SessionControl>(Io.get_executor());
+        Prism::Runtime::SessionRegistryLifecycleTestAccess::FailNextMetricsHookWithAllocation(
+            *Control);
+
+        auto Registration = Registry.Register(make_info(504U), Control);
+
+        EXPECT_FALSE(Registration);
+        EXPECT_EQ(Registry.Size(), 0U);
+        EXPECT_EQ(Registry.PendingRemovals(), 0U);
+        EXPECT_FALSE(
+            Prism::Runtime::SessionRegistryLifecycleTestAccess::Contains(Registry, 504U));
+    }
+
+    TEST(SessionRegistry, RequestShutdownRejectsLaterRegistrationWithoutCancellation)
+    {
+        boost::asio::io_context Io;
+        Prism::Runtime::SessionRegistry Registry;
+        auto Control = std::make_shared<Prism::Runtime::SessionControl>(Io.get_executor());
+
+        Prism::Runtime::SessionRegistryLifecycleTestAccess::RequestShutdown(Registry);
+        auto Registration = Registry.Register(make_info(505U), Control);
+
+        EXPECT_FALSE(Registration);
+        EXPECT_FALSE(Control->IsCancelled());
         EXPECT_EQ(Registry.Size(), 0U);
     }
 

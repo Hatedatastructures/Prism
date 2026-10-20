@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
 #include <Prism/Runtime/Recognition/RawIngressProbe.hpp>
 #include <Prism/Runtime/Recognition/Tls.hpp>
@@ -42,6 +43,13 @@ namespace
     namespace Net = boost::asio;
     namespace rec = Prism::Recognition;
 
+    /** @brief 创建 TLS 重组与回放测试使用的有界前缀池。 */
+    auto MakeTlsReassemblyBytePool() -> std::shared_ptr<Prism::Memory::BytePool>
+    {
+        return std::make_shared<Prism::Memory::BytePool>(
+            Prism::Memory::BytePoolOptions{64U * 1024U, 64U});
+    }
+
     struct ReadStep
     {
         std::vector<std::byte> Data;
@@ -51,7 +59,10 @@ namespace
     class ScriptedTransport final : public Prism::Transmission
     {
     public:
-        explicit ScriptedTransport(Net::any_io_executor Executor) : Executor_(std::move(Executor)) {}
+        explicit ScriptedTransport(Net::any_io_executor Executor)
+            : Prism::Transmission(Executor), Executor_(std::move(Executor))
+        {
+        }
 
         auto Push(std::vector<std::byte> Data, std::error_code Error = {}) -> void
         {
@@ -93,7 +104,7 @@ namespace
             ReadRequests_.push_back(Buffer.size());
             if (Buffer.empty() || Steps_.empty())
             {
-                Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+                Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
                 return;
             }
 
@@ -107,19 +118,19 @@ namespace
                 Failure = Prism::Fault::FromNative(Step.Error);
                 Steps_.pop_front();
             }
-            Prism::Transport::Detail::PostResult(
+            Prism::Transmission::PostResult(
                 Executor_, std::move(Handler), Prism::IoResult{Count, std::move(Failure)});
         }
 
         auto StartWrite(std::span<const std::byte> Buffer, Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler),
+            Prism::Transmission::PostResult(Executor_, std::move(Handler),
                                                   Prism::IoResult{Buffer.size(), {}});
         }
 
         auto StartWriteShutdown(Completion Handler) -> void override
         {
-            Prism::Transport::Detail::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
+            Prism::Transmission::PostResult(Executor_, std::move(Handler), Prism::IoResult{0, {}});
         }
 
         [[nodiscard]] auto OnClose() -> ControlResult override

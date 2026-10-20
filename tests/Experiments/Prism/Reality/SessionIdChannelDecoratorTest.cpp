@@ -4,8 +4,9 @@
  */
 
 #include "SessionIdChannelTestSupport.hpp"
-#include <Prism/Protocols/Reality/Detail/Key.hpp>
-#include <Prism/Protocols/Reality/Types.hpp>
+#include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>
+#include <Prism/Protocols/Reality/CarrierTypes.hpp>
+#include <Prism/Transport/Transmission.hpp>
 #include "SessionIdChannel.hpp"
 #include <TestSupport/Prism/PrismMockTransport.hpp>
 
@@ -72,7 +73,7 @@ namespace
                 Inner->WriteShutdown(std::move(Handler));
                 return;
             }
-            Prism::Transport::Detail::PostResult(Executor(), std::move(Handler), {});
+            Prism::Transmission::PostResult(Executor(), std::move(Handler), {});
         }
     };
 

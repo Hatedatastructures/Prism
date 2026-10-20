@@ -8,13 +8,15 @@ const SNAP_DIR = ".superpowers/sdd/2026-10-09-preview-quality-modification-plan/
 const rel = (p) => path.relative(root, p).split(path.sep).join("/");
 
 const SCOPES = [
-  ["Prism", /\.(hpp|h|cpp|cxx|cc)$/i],
+  ["Include/Prism", /\.(hpp|h|cpp|cxx|cc)$/i],
+  ["Src/Prism", /\.(hpp|h|cpp|cxx|cc)$/i],
   ["tests/Prism", /\.(hpp|cpp)$/i],
   ["scripts", /^check_prism_.*\.(mjs|ps1)$|^prism_source_snapshot\.mjs$/i],
 ];
-const EXTRA = ["Prism/CMakeLists.txt", "Prism/CMake/PrismBoundary.cmake", "CMakeLists.txt",
+const EXTRA = ["Src/Prism/CMakeLists.txt", "Src/Prism/CMake/PrismBoundary.cmake",
+  "Src/Prism/CMake/PrismTargets.cmake", "Src/Prism/CMake/PrismLinks.cmake", "CMakeLists.txt",
   "tests/CMakeLists.txt", "tests/Prism/CMakeLists.txt",
-  "Prism/Application/Configuration/PrismConfiguration.json"];
+  "Include/Prism/Application/Configuration/PrismConfiguration.json"];
 
 function walk(dir, re, acc) {
   if (!fs.existsSync(dir)) return acc;
