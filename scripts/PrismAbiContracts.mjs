@@ -48,13 +48,13 @@ RegisterAbi('Src/Prism/Protocols/Quic/NativeConnectionCallbacks.cpp',
   quicCallbacks.map(([name, count, contract]) => [`NativeConnection::${name}`, count, contract]));
 RegisterAbi('Src/Prism/Application/BoundaryStartup.hpp',
   [['SelectNativeTlsAlpn', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/Integration/InteropHysteria2Support.cpp',
+RegisterAbi('Test/Prism/Integration/Interop/InteropHysteria2Support.cpp',
   [['SelectH3', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/Integration/InteropTrusttunnel.cpp',
+RegisterAbi('Test/Prism/Integration/Interop/InteropTrusttunnel.cpp',
   [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/Integration/InteropXhttp.cpp',
+RegisterAbi('Test/Prism/Integration/Interop/InteropXhttp.cpp',
   [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
-RegisterAbi('tests/Prism/Protocols/Trusttunnel/TrusttunnelHttp2TransportSupport.hpp',
+RegisterAbi('Test/Prism/Protocols/Trusttunnel/Datagram/TrustTunnelSupport.hpp',
   [['SelectH2', 6, 'SSL_CTX_set_alpn_select_cb']]);
 
 /** 按当前文件、符号和真实参数数目返回唯一上游 ABI 契约。 */

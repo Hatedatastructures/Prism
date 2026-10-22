@@ -67,6 +67,7 @@ namespace Prism::Protocols
 
         auto TransferMuxRoot() noexcept -> void override {}
         auto RetainMuxRoot() noexcept -> void override { RetainMuxRootTicket(); }
+        auto OnMuxRootRetired() noexcept -> void override;
 
     protected:
         std::shared_ptr<RootOwner> RootSlot_;

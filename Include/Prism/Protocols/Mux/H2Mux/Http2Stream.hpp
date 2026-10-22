@@ -92,6 +92,10 @@ namespace Prism::Mux::H2Mux
 
         auto MarkIncomingPending(bool Pending) -> void;
 
+        /** @brief 由 root 在 catalog 登记后提交唯一 :status 200 并释放入向待定状态。 */
+        [[nodiscard]] auto AcceptRequest()
+            -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>;
+
         /** @brief 远端 END_STREAM 只封止接收；仍须完成本地终态及在途读写。 */
         auto SetRemoteClosed() -> void;
 
@@ -105,7 +109,9 @@ namespace Prism::Mux::H2Mux
         [[nodiscard]] auto CloseBase() -> ControlResult;
         [[nodiscard]] auto PeerResetFailure() const noexcept -> Prism::Fault::Failure
         {
+            if (LocalReset_) return {Prism::Fault::Code::Canceled};
             // HTTP/2 会话对关闭或重置的流统一返回 ConnectionAborted；wire 错误码由会话闭包保留。
+            // typed 结果不得携带底层 close/cancel 的 native cause。
             return {Prism::Fault::Code::ConnectionAborted};
         }
 
@@ -122,6 +128,13 @@ namespace Prism::Mux::H2Mux
         }
 
         [[nodiscard]] auto CanAttemptRetirement() const noexcept -> bool;
+
+        /** @brief 仍占用本端并发流配额的流：双向终态尚未同时成立。 */
+        [[nodiscard]] auto OccupiesQuota() const noexcept -> bool
+        {
+            // 只有本地终态与远端终态都已成立才释放并发 slot。
+            return !Retired_ && !(LocalTerminal_ && RemoteClosed_);
+        }
 
         [[nodiscard]] auto HasPendingControl() const noexcept -> bool
         {
@@ -173,9 +186,31 @@ namespace Prism::Mux::H2Mux
                 if (!Input.Owner)
                     co_return std::tuple{Prism::IoResult{0, {Prism::Fault::Code::InvalidArgument}}};
                 std::error_code ErrorCode;
-                const auto Count = co_await Net::co_spawn(
-                    Input.Owner->Executor(), Input.Owner->ReadPartial(Input.Buffer, ErrorCode), Net::deferred);
-                co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(ErrorCode)}};
+                std::size_t Count = 0;
+                try
+                {
+                    Count = co_await Net::co_spawn(
+                        Input.Owner->Executor(),
+                        Input.Owner->ReadPartial(Input.Buffer, ErrorCode),
+                        Net::deferred);
+                }
+                catch (const boost::system::system_error &Exception)
+                {
+                    ErrorCode = static_cast<std::error_code>(Exception.code());
+                }
+                catch (const std::system_error &Exception)
+                {
+                    ErrorCode = Exception.code();
+                }
+                catch (...)
+                {
+                    ErrorCode = std::make_error_code(std::errc::io_error);
+                }
+                auto Failure = Prism::Fault::FromNative(ErrorCode);
+                // ConnectionAborted 是 H2 流级 typed 终态，不携带根连接 native cause。
+                if (Failure.Code == Prism::Fault::Code::ConnectionAborted)
+                    Failure.Native.clear();
+                co_return std::tuple{Prism::IoResult{Count, Failure}};
             }
         };
 
@@ -188,9 +223,30 @@ namespace Prism::Mux::H2Mux
                 if (!Input.Owner)
                     co_return std::tuple{Prism::IoResult{0, {Prism::Fault::Code::InvalidArgument}}};
                 std::error_code ErrorCode;
-                const auto Count = co_await Net::co_spawn(
-                    Input.Owner->Executor(), Input.Owner->WritePartial(Input.Buffer, ErrorCode), Net::deferred);
-                co_return std::tuple{Prism::IoResult{Count, Prism::Fault::FromNative(ErrorCode)}};
+                std::size_t Count = 0;
+                try
+                {
+                    Count = co_await Net::co_spawn(
+                        Input.Owner->Executor(),
+                        Input.Owner->WritePartial(Input.Buffer, ErrorCode),
+                        Net::deferred);
+                }
+                catch (const boost::system::system_error &Exception)
+                {
+                    ErrorCode = static_cast<std::error_code>(Exception.code());
+                }
+                catch (const std::system_error &Exception)
+                {
+                    ErrorCode = Exception.code();
+                }
+                catch (...)
+                {
+                    ErrorCode = std::make_error_code(std::errc::io_error);
+                }
+                auto Failure = Prism::Fault::FromNative(ErrorCode);
+                if (Failure.Code == Prism::Fault::Code::ConnectionAborted)
+                    Failure.Native.clear();
+                co_return std::tuple{Prism::IoResult{Count, Failure}};
             }
         };
 
@@ -229,7 +285,13 @@ namespace Prism::Mux::H2Mux
         Net::any_io_executor Executor_;
         std::shared_ptr<Http2State> State_;
         std::int32_t StreamId_{0};
-        Net::experimental::channel<void(boost::system::error_code)> Notify_;
+        /**
+         * @brief 唤醒通道必须在所属 io_context 存活期间释放。
+         * @details Stream 可能被调用方保留到连接退休之后；退休时显式释放通道，
+         *          避免对象析构晚于 channel service 导致的 use-after-free。
+         */
+        std::unique_ptr<Net::experimental::channel<void(
+            boost::system::error_code)>> Notify_;
         std::deque<std::vector<std::byte>> Rx_;
         bool RemoteClosed_{false};
         bool Closed_{false};
@@ -241,6 +303,10 @@ namespace Prism::Mux::H2Mux
         bool LocalEndPending_{false};
         bool ResetPending_{false};
         bool ResetByPeer_{false};
+        /** @brief 本端发起的 RST/Cancel 与对端 RST 区分；本地取消按 Canceled 交付。 */
+        bool LocalReset_{false};
+        /** @brief 本端正常 Close 已封止读取；与远端 EOF 区分。 */
+        bool LocalClose_{false};
         std::uint32_t RemoteResetCode_{Prism::Http2::ErrorNoError};
         bool LocalTerminal_{false};
         bool LocalEndFlushed_{false};

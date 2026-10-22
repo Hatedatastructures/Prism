@@ -252,7 +252,6 @@ namespace Prism::Quic::Detail
                     co_return std::unexpected(Failure);
                 }
             }
-            IncomingNotify_.reset();
             boost::system::error_code NotifyError;
             co_await IncomingNotify_.async_receive(Net::redirect_error(Net::use_awaitable, NotifyError));
             if (NotifyError)
@@ -305,7 +304,6 @@ namespace Prism::Quic::Detail
                     co_return std::unexpected(Failure);
                 }
             }
-            IncomingUnidirectionalNotify_.reset();
             boost::system::error_code NotifyError;
             co_await IncomingUnidirectionalNotify_.async_receive(
                 Net::redirect_error(Net::use_awaitable, NotifyError));

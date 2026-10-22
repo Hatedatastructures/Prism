@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <mutex>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -145,7 +146,7 @@ namespace Prism
             /** @brief 成功的最终 close 退休已经完成的可重试 cancel 命令。 */
             auto ReleaseKnownCancelFailuresAfterClose() noexcept -> void;
 
-            auto Execute(std::size_t Index, bool& HandlerInvoked) -> bool;
+            auto Execute(std::size_t Index, bool& HandlerInvoked, bool IsRetry) -> bool;
 
             auto RecordKnownFailure(
                 std::size_t Index,
@@ -170,9 +171,9 @@ namespace Prism
             std::shared_ptr<Prism::Executor::ContextOwner> Context;
             std::shared_ptr<Prism::Executor::ClosingStorage> Storage;
             std::shared_ptr<Prism::Executor::ExecutorReclaimer> Reclaimer;
-            // 终态保持粘滞；完成时关闭通道，唤醒所有跨 executor 等待者。
-            boost::asio::experimental::concurrent_channel<void(boost::system::error_code)>
-                CloseDispatchChanges{Reclaimer->Executor(), 1};
+            /** @brief 关闭回执等待状态只由等待协程持有；owner 仅保存弱引用。 */
+            struct CloseWaitState;
+            std::weak_ptr<CloseWaitState> CloseWaiter;
             std::shared_ptr<IoActivity> Activity;
             std::array<Command, CancelCapacity + 1> Commands;
             std::atomic<bool> Finished{false};
@@ -183,6 +184,7 @@ namespace Prism
             std::atomic<CloseAttemptPhase> CloseAttempt{CloseAttemptPhase::Idle};
             std::atomic<std::size_t> CloseAttemptWaiters{0};
             std::atomic<bool> CloseAttemptCompletionClaimed{false};
+            std::mutex CloseDispatchMutex;
             std::atomic<bool> ExternalReceiptPending{false}, ExternalCloseConfirmed{false};
             std::atomic<bool> ExternalReceiptRetryInFlight{false};
             Prism::Fault::FailureState Failure;

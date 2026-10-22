@@ -479,11 +479,11 @@ FetchContent_MakeAvailable(nghttp3)
 # Prism production and its test support must be configured after all fetched
 # dependencies have declared their public targets.
 add_subdirectory(Src/Prism)
-add_subdirectory(tests/TestSupport)
+add_subdirectory(Test/TestSupport)
 set(BUILD_TESTING ${PRISM_BUILD_TESTING} CACHE BOOL "Build Prism tests" FORCE)
 if(PRISM_BUILD_TESTING)
     message(STATUS "Prism test targets: ENABLED")
-    add_subdirectory(tests)
+    add_subdirectory(Test)
 else()
     message(STATUS "Prism test targets: DISABLED by explicit PRISM_BUILD_TESTING=OFF")
 endif()

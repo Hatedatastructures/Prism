@@ -68,7 +68,7 @@ function Get-InteropReferenceVersions {
     )
 
     $Versions = [ordered]@{}
-    $GoMod = Join-Path $RepoRoot 'tests/Prism/Integration/Go/go.mod'
+    $GoMod = Join-Path $RepoRoot 'Test/Prism/Integration/Go/go.mod'
     if (-not (Test-Path -LiteralPath $GoMod -PathType Leaf)) {
         return $Versions
     }

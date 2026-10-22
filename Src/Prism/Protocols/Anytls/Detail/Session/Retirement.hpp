@@ -241,6 +241,11 @@ namespace Prism::Anytls::Detail
             RequestRetirement();
         }
 
+        auto OnMuxRootRetired() noexcept -> void override
+        {
+            RootGenerationLease_ = {};
+        }
+
         /** @brief 在创建协程帧前把已持实物的 owner 登记到无分配 ClosingStorage。 */
         auto RetainForRetry() noexcept -> void
         {

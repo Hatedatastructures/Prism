@@ -35,14 +35,14 @@ function createFixture(t, testCMake, extraTestFiles = []) {
   writeFile(root, "Src/Prism/Included.cpp", "int Included() { return 1; }\n");
   writeFile(root, "Src/Prism/CMake/IncludedList.cpp", "int IncludedList() { return 2; }\n");
   writeFile(root, "Src/Prism/Detail/Private.hpp", "#pragma once\n");
-  writeFile(root, "tests/Prism/FirstTest.cpp", "TEST(Probe, First) {}\n");
-  writeFile(root, "tests/Prism/SecondTest.cpp", "TEST(Probe, Second) {}\n");
-  writeFile(root, "tests/TestSupport/CMakeLists.txt", [
+  writeFile(root, "Test/Prism/FirstTest.cpp", "TEST(Probe, First) {}\n");
+  writeFile(root, "Test/Prism/SecondTest.cpp", "TEST(Probe, Second) {}\n");
+  writeFile(root, "Test/TestSupport/CMakeLists.txt", [
     "add_library(PrismTestSupport INTERFACE)",
     "target_include_directories(PrismTestSupport INTERFACE ${PROJECT_SOURCE_DIR}/tests)",
   ].join("\n"));
   for (const [relativePath, content] of extraTestFiles) writeFile(root, relativePath, content);
-  writeFile(root, "tests/Prism/CMakeLists.txt", testCMake);
+  writeFile(root, "Test/Prism/CMakeLists.txt", testCMake);
   return root;
 }
 
@@ -53,8 +53,8 @@ function createVisibilityFixture(t, { probeSource, productionCMake = "" }) {
     "add_subdirectory(../TestSupport)",
     "add_executable(VisibilityConsumer VisibilityProbe.cpp)",
     "target_link_libraries(VisibilityConsumer PRIVATE Prism PrismTestSupport)",
-  ].join("\n"), [["tests/Prism/VisibilityProbe.cpp", probeSource]]);
-  writeFile(root, "tests/TestSupport/Prism/VisibilitySupport.hpp", [
+  ].join("\n"), [["Test/Prism/VisibilityProbe.cpp", probeSource]]);
+  writeFile(root, "Test/TestSupport/Prism/VisibilitySupport.hpp", [
     "#pragma once",
     "#include <Prism/Probe.hpp>",
   ].join("\n"));
@@ -85,13 +85,13 @@ function createPublicHeaderOwnerFixture(t, {
   testCMake.push(...consumerCommands);
   if (consumerCondition) testCMake.push("endif()");
   const root = createFixture(t, testCMake.join("\n"), [[
-    "tests/Prism/VisibilityProbe.cpp",
+    "Test/Prism/VisibilityProbe.cpp",
     [
       "#include <TestSupport/Prism/VisibilitySupport.hpp>",
       "int main() { return 0; }",
     ].join("\n"),
   ], [
-    "tests/TestSupport/Prism/VisibilitySupport.hpp",
+    "Test/TestSupport/Prism/VisibilitySupport.hpp",
     [
       "#pragma once",
       `#include <Prism/${headerName}>`,
@@ -104,7 +104,7 @@ function createPublicHeaderOwnerFixture(t, {
   if (testSupportLinks.length > 0) {
     supportCMake.push(`target_link_libraries(PrismTestSupport INTERFACE ${testSupportLinks.join(" ")})`);
   }
-  writeFile(root, "tests/TestSupport/CMakeLists.txt", supportCMake.join("\n"));
+  writeFile(root, "Test/TestSupport/CMakeLists.txt", supportCMake.join("\n"));
   if (productionCMake) {
     fs.appendFileSync(path.join(root, "Src", "Prism", "CMakeLists.txt"), `\n${productionCMake}\n`);
   }
@@ -127,7 +127,7 @@ test("expands source-root prefixes and permits multiple test CPP files in one ta
     "set(EXTRA_TEST_SOURCES SecondTest.cpp)",
     "list(APPEND EXTRA_TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/ThirdTest.cpp)",
     "target_sources(FirstTest PRIVATE ${EXTRA_TEST_SOURCES})",
-  ].join("\n"), [["tests/Prism/ThirdTest.cpp", "TEST(Probe, Third) {}\n"]]);
+  ].join("\n"), [["Test/Prism/ThirdTest.cpp", "TEST(Probe, Third) {}\n"]]);
 
   const result = runScanner(root);
 
@@ -170,7 +170,7 @@ test("resolves source variables used by CXX translation-unit properties", (t) =>
     "set(OWNER_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Probe.cpp)",
     "set_source_files_properties(${OWNER_SOURCES} PROPERTIES LANGUAGE CXX)",
   ].join("\n"));
-  writeFile(root, "tests/Prism/FirstTest.cpp", [
+  writeFile(root, "Test/Prism/FirstTest.cpp", [
     '#include "../../Src/Prism/Probe.cpp"',
     "TEST(Probe, First) {}",
   ].join("\n"));
@@ -189,8 +189,8 @@ test("inherits parent source variables into subdirectory CMake files", (t) => {
     "set(CHILD_TEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Child/ChildTest.cpp)",
     "add_subdirectory(Child)",
   ].join("\n"));
-  writeFile(root, "tests/Prism/Child/CMakeLists.txt", "AddPrismTest(${CHILD_TEST_SOURCE})\n");
-  writeFile(root, "tests/Prism/Child/ChildTest.cpp", "TEST(Probe, Child) {}\n");
+  writeFile(root, "Test/Prism/Child/CMakeLists.txt", "AddPrismTest(${CHILD_TEST_SOURCE})\n");
+  writeFile(root, "Test/Prism/Child/ChildTest.cpp", "TEST(Probe, Child) {}\n");
 
   const result = runScanner(root);
 
@@ -216,7 +216,7 @@ test("rejects a source owner target that was never declared", (t) => {
     "AddPrismTest(FirstTest.cpp)",
     "AddPrismTest(SecondTest.cpp)",
     "target_sources(UnknownTarget PRIVATE Helper.cpp)",
-  ].join("\n"), [["tests/Prism/Helper.cpp", "int Helper() { return 0; }\n"]]);
+  ].join("\n"), [["Test/Prism/Helper.cpp", "int Helper() { return 0; }\n"]]);
 
   const result = runScanner(root);
 
@@ -230,7 +230,7 @@ test("requires the test target to own the private Src include root", (t) => {
     "AddPrismTest(FirstTest.cpp)",
     "AddPrismTest(SecondTest.cpp)",
   ].join("\n"));
-  writeFile(root, "tests/Prism/FirstTest.cpp", [
+  writeFile(root, "Test/Prism/FirstTest.cpp", [
     "#include <Prism/Detail/Private.hpp>",
     "TEST(Probe, First) {}",
   ].join("\n"));
@@ -253,7 +253,7 @@ test("rejects case-mismatched private includes on case-sensitive and insensitive
     "AddPrismTest(SecondTest.cpp)",
     "target_include_directories(FirstTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)",
   ].join("\n"));
-  writeFile(root, "tests/Prism/FirstTest.cpp", [
+  writeFile(root, "Test/Prism/FirstTest.cpp", [
     "#include <Prism/detail/private.hpp>",
     "TEST(Probe, First) {}",
   ].join("\n"));
@@ -321,13 +321,13 @@ test("reports partial public-owner coverage for ambiguous TestSupport headers", 
     "add_executable(VisibilityConsumer VisibilityProbe.cpp)",
     "target_link_libraries(VisibilityConsumer PRIVATE PrismTestSupport)",
   ].join("\n"), [[
-    "tests/Prism/VisibilityProbe.cpp",
+    "Test/Prism/VisibilityProbe.cpp",
     [
       "#include <TestSupport/Prism/VisibilitySupport.hpp>",
       "int main() { return 0; }",
     ].join("\n"),
   ], [
-    "tests/TestSupport/Prism/VisibilitySupport.hpp",
+    "Test/TestSupport/Prism/VisibilitySupport.hpp",
     [
       "#pragma once",
       "#include <Prism/Probe.hpp>",
@@ -340,7 +340,7 @@ test("reports partial public-owner coverage for ambiguous TestSupport headers", 
     "Src/Prism/OwnerB.cpp",
     "int OwnerB() { return 0; }\n",
   ]]);
-  writeFile(root, "tests/TestSupport/CMakeLists.txt", [
+  writeFile(root, "Test/TestSupport/CMakeLists.txt", [
     "add_library(PrismTestSupport INTERFACE)",
     "target_include_directories(PrismTestSupport INTERFACE ${PROJECT_SOURCE_DIR}/Include ${PROJECT_SOURCE_DIR}/tests)",
   ].join("\n"));
@@ -358,7 +358,7 @@ test("reports partial public-owner coverage for ambiguous TestSupport headers", 
   assert.equal(result.summary.testOwnerLinkCoverage.status, "partial");
   assert.equal(result.summary.testOwnerLinkCoverage.ambiguousTestSupportSkipCount, 1);
   assert.deepEqual(result.summary.testOwnerLinkCoverage.ambiguousTestSupportSkips, [{
-    header: "tests/TestSupport/Prism/VisibilitySupport.hpp",
+    header: "Test/TestSupport/Prism/VisibilitySupport.hpp",
     consumerTarget: "VisibilityConsumer",
     owners: ["Prism", "PrismOwnerB"],
     publicHeaders: ["Include/Prism/Probe.hpp", "Include/Prism/Second.hpp"],
@@ -374,7 +374,7 @@ test("follows a compiled public header owner through a static target's private l
       "target_link_libraries(VisibilityConsumer PRIVATE ProbeFacade)",
     ],
   });
-  writeFile(root, "tests/Prism/Facade.cpp", "int Facade() { return 0; }\n");
+  writeFile(root, "Test/Prism/Facade.cpp", "int Facade() { return 0; }\n");
 
   const result = runScanner(root);
 
@@ -391,7 +391,7 @@ test("does not propagate a shared target's private owner link to its consumer", 
       "target_link_libraries(VisibilityConsumer PRIVATE SharedFacade)",
     ],
   });
-  writeFile(root, "tests/Prism/SharedFacade.cpp", "int SharedFacade() { return 0; }\n");
+  writeFile(root, "Test/Prism/SharedFacade.cpp", "int SharedFacade() { return 0; }\n");
 
   const result = runScanner(root);
 
@@ -409,7 +409,7 @@ test("follows an explicit LINK_ONLY dependency from a static target", (t) => {
       "target_link_libraries(VisibilityConsumer PRIVATE ProbeFacade)",
     ],
   });
-  writeFile(root, "tests/Prism/Facade.cpp", "int Facade() { return 0; }\n");
+  writeFile(root, "Test/Prism/Facade.cpp", "int Facade() { return 0; }\n");
 
   const result = runScanner(root);
 
@@ -426,7 +426,7 @@ test("does not propagate a legacy LINK_PRIVATE owner dependency", (t) => {
       "target_link_libraries(VisibilityConsumer PRIVATE LegacyFacade)",
     ],
   });
-  writeFile(root, "tests/Prism/LegacyFacade.cpp", "int LegacyFacade() { return 0; }\n");
+  writeFile(root, "Test/Prism/LegacyFacade.cpp", "int LegacyFacade() { return 0; }\n");
 
   const result = runScanner(root);
 
@@ -444,7 +444,7 @@ test("follows a compiled public header owner through a static target's public li
       "target_link_libraries(VisibilityConsumer PRIVATE ProbeFacade)",
     ],
   });
-  writeFile(root, "tests/Prism/Facade.cpp", "int Facade() { return 0; }\n");
+  writeFile(root, "Test/Prism/Facade.cpp", "int Facade() { return 0; }\n");
 
   const result = runScanner(root);
 
@@ -463,8 +463,8 @@ test("follows a compiled public header owner through a static target cycle", (t)
       "target_link_libraries(VisibilityConsumer PRIVATE ProbeCycleA)",
     ],
   });
-  writeFile(root, "tests/Prism/CycleA.cpp", "int CycleA() { return 0; }\n");
-  writeFile(root, "tests/Prism/CycleB.cpp", "int CycleB() { return 0; }\n");
+  writeFile(root, "Test/Prism/CycleA.cpp", "int CycleA() { return 0; }\n");
+  writeFile(root, "Test/Prism/CycleB.cpp", "int CycleB() { return 0; }\n");
 
   const result = runScanner(root);
 
@@ -507,7 +507,7 @@ test("inherits public include roots through a linked alias target", (t) => {
     "add_library(PrismOwnerAlias ALIAS Prism)",
     "target_link_libraries(VisibilityConsumer PRIVATE PrismOwnerAlias)",
   ].join("\n"), [[
-    "tests/Prism/VisibilityProbe.cpp",
+    "Test/Prism/VisibilityProbe.cpp",
     [
       "#include <Prism/Probe.hpp>",
       "int main() { return 0; }",

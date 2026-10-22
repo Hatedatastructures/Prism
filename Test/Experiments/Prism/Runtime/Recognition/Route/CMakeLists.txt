@@ -1,0 +1,5 @@
+# Recognition 路由实验测试。
+AddExperimentTest(RecognitionRouteTest.cpp)
+target_include_directories(ExperimentRecognitionRouteTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ExperimentRecognitionRouteTest PRIVATE
+    ExperimentalRecognitionSupport PrismFoundation PrismTransport PrismRuntime)

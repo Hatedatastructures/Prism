@@ -38,6 +38,8 @@ namespace Prism::Contract
             -> Prism::Account::StreamLease;
         virtual auto TransferMuxRoot() noexcept -> void = 0;
         virtual auto RetainMuxRoot() noexcept -> void = 0;
+        /** @brief root 已完成物理退休；同票据归还仅供根生命周期的活动预约。 */
+        virtual auto OnMuxRootRetired() noexcept -> void = 0;
 
     protected:
         auto ReleaseMuxRootParentStreamLease() noexcept -> void;
@@ -81,6 +83,13 @@ namespace Prism::Contract
         {
             if (!Owner_) return {};
             return Owner_->MuxRootTransport();
+        }
+
+        /** @brief 仅用于把根物理退休事实通知给创建票据，不转移资源。 */
+        [[nodiscard]] auto CreateOwner() const noexcept
+            -> std::shared_ptr<MuxRootCreateOwner>
+        {
+            return Owner_;
         }
 
         /** @brief 每个已预约请求仅允许创建一个正式 mux session。 */

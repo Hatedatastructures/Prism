@@ -73,6 +73,8 @@ namespace Prism::Trusttunnel::Detail
             co_return std::expected<void, Prism::Fault::Failure>{};
         }
         const auto Drained = co_await Carrier->Drain();
+        const bool ExchangeCompleted =
+            Transport && Transport->ExchangeComplete();
         if (Carrier->IsRetired())
         {
             (void)Failure.TrySet(Lifecycle->Failure());
@@ -84,12 +86,17 @@ namespace Prism::Trusttunnel::Detail
             Response.reset();
             Retired.store(true, std::memory_order_release);
         }
-        else if (!Drained)
+        else if (!Drained && !(ExchangeCompleted &&
+                 CarrierLifecycle::IsTeardownFailure(Drained.error())))
         {
             (void)Failure.TrySet(Drained.error());
         }
-        if (!Drained) co_return std::unexpected(Drained.error());
+        if (!Drained && !(ExchangeCompleted &&
+            CarrierLifecycle::IsTeardownFailure(Drained.error())))
+            co_return std::unexpected(Drained.error());
         const auto First = Failure.Load();
+        if (ExchangeCompleted && CarrierLifecycle::IsTeardownFailure(First))
+            co_return std::expected<void, Prism::Fault::Failure>{};
         if (First.Failed()) co_return std::unexpected(First);
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
@@ -290,15 +297,14 @@ namespace Prism::Trusttunnel::Detail
         State->Session = std::make_shared<H2::Session>(Encrypted->Executor(), false);
         State->Wire = MakeHttp2Wire(Encrypted);
         State->Response = std::make_shared<Http2ResponseChannel>(Encrypted->Executor(), 1);
-        const auto EncryptedOwner = State->Encrypted;
-        const auto WireOwner = State->Wire;
         State->Transport = std::make_shared<Http2Transport>(
             Http2Transport::Options{
                 .Executor = Encrypted->Executor(),
                 .Write = Http2ClientDataWriter{State->Session, State->Wire},
                 .Finish = Http2ClientFinisher{State->Session, State->Wire},
-                .Close = [EncryptedOwner, WireOwner]
-                { return CloseHttp2ClientCarrier(EncryptedOwner, WireOwner); }});
+                // carrier 的最终关闭由 CarrierOwner 统一提交；本层只封止 H2 stream，
+                // 避免对同一 Encrypted/Wire 重复下发控制命令。
+                .Close = Http2Transport::CloseCb{}});
         State->Session->OnHeaders = Http2ClientHeadersObserver{
             State->Transport, State->Response, State->Lifecycle};
         State->Session->OnData = [Transport = State->Transport](std::int32_t StreamId,
@@ -311,6 +317,7 @@ namespace Prism::Trusttunnel::Detail
         State->Carrier = std::make_shared<CarrierOwner>(
             CarrierOwnerLayers{
                 State->Transport, State->Wire, State->Encrypted, State->Lifecycle, {}});
+        State->Lifecycle->Transport = State->Transport;
         return State;
     }
 
@@ -330,11 +337,16 @@ namespace Prism::Trusttunnel::Detail
                 const bool LocalClose =
                     State->Lifecycle &&
                     State->Lifecycle->IsLocalCloseCancellation(Step.Failure);
-                Failure = LocalClose ? Prism::Fault::Failure{} : Step.Failure;
+                const bool CleanTeardown = State->Transport &&
+                    State->Transport->ExchangeComplete() &&
+                    CarrierLifecycle::IsTeardownFailure(Step.Failure);
+                Failure = (LocalClose || CleanTeardown)
+                    ? Prism::Fault::Failure{} : Step.Failure;
                 if (Step.ReadTerminal)
                 {
                     State->Transport->NotifyReadTerminal(
-                        LocalClose ? Prism::Fault::Failure{Prism::Fault::Code::Eof} : Failure);
+                        (LocalClose || CleanTeardown)
+                            ? Prism::Fault::Failure{Prism::Fault::Code::Eof} : Failure);
                     const auto Closed = State->Transport->CloseCarrierForReadTerminal();
                     if (Closed.Failed()) State->Lifecycle->RecordFailure(Closed);
                 }

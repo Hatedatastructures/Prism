@@ -17,6 +17,7 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/system/system_error.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -35,9 +36,10 @@ namespace Prism::Tuic
         if (!Carrier) return {};
         auto FirstFailure = std::expected<void, Prism::Fault::Failure>{};
         const auto Cancelled = Carrier->Cancel();
-        if (!Cancelled) FirstFailure = std::unexpected(Cancelled.error());
+        if (!Cancelled && Cancelled.error().Code != Prism::Fault::Code::Canceled)
+            FirstFailure = std::unexpected(Cancelled.error());
         const auto Closed = Carrier->Close();
-        if (!Closed && !FirstFailure)
+        if (!Closed && Closed.error().Code != Prism::Fault::Code::Canceled && !FirstFailure)
             FirstFailure = std::unexpected(Closed.error());
         return FirstFailure;
     }
@@ -48,21 +50,22 @@ namespace Prism::Tuic
         if (!Carrier) co_return std::expected<void, Prism::Fault::Failure>{};
         auto FirstFailure = std::expected<void, Prism::Fault::Failure>{};
         const auto Cancelled = Carrier->Cancel();
-        if (!Cancelled) FirstFailure = std::unexpected(Cancelled.error());
+        if (!Cancelled && Cancelled.error().Code != Prism::Fault::Code::Canceled)
+            FirstFailure = std::unexpected(Cancelled.error());
         const auto Closed = Carrier->Close();
-        if (!Closed && !FirstFailure)
+        if (!Closed && Closed.error().Code != Prism::Fault::Code::Canceled && !FirstFailure)
             FirstFailure = std::unexpected(Closed.error());
         const auto Activity = Carrier->Activity();
         if (!Activity)
         {
-            if (FirstFailure) co_return std::unexpected(FirstFailure.error());
+            if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
             co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
         }
         Activity->Seal();
         const auto Drained = co_await Activity->Drain();
-        if (!Drained && !FirstFailure)
+        if (!Drained && Drained.error().Code != Prism::Fault::Code::Canceled && !FirstFailure)
             FirstFailure = std::unexpected(Drained.error());
-        if (FirstFailure) co_return std::unexpected(FirstFailure.error());
+        if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
@@ -86,7 +89,7 @@ namespace Prism::Tuic
         const auto OutboundResult = co_await DrainTransmission(Outbound);
         if (!OutboundResult && !FirstFailure)
             FirstFailure = std::unexpected(OutboundResult.error());
-        if (FirstFailure) co_return std::unexpected(FirstFailure.error());
+        if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
@@ -123,7 +126,9 @@ namespace Prism::Tuic
         try
         {
             const auto Drained = co_await DrainStream(Id);
-            if (!Drained) Outcome.CleanupFailure = Drained.error();
+            if (!Drained && !(Closed_ &&
+                Drained.error().Code == Prism::Fault::Code::Canceled))
+                Outcome.CleanupFailure = Drained.error();
         }
         catch (...)
         {
@@ -178,9 +183,9 @@ namespace Prism::Tuic
         }
         (void)Provider;
         const auto Drained = co_await DrainTransmission(Transport);
-        if (!Drained && !FirstFailure)
+        if (!Drained && Drained.error().Code != Prism::Fault::Code::Canceled && !FirstFailure)
             FirstFailure = std::unexpected(Drained.error());
-        if (FirstFailure) co_return std::unexpected(FirstFailure.error());
+        if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
@@ -305,10 +310,10 @@ namespace Prism::Tuic
         else if (!Completion.Result)
         {
             RecordFailure(Completion.Result.error());
-            Inputs_.Block();
         }
         else
         {
+            MaybeFinishClose();
             return;
         }
         InputEvent Event;
@@ -341,8 +346,67 @@ namespace Prism::Tuic
                 FirstFailure = std::unexpected(
                     Prism::Fault::Failure{Prism::Fault::Code::Blocked});
         }
-        if (FirstFailure) co_return std::unexpected(FirstFailure.error());
+        if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
         co_return std::expected<void, Prism::Fault::Failure>{};
+    }
+
+    auto ConnectionAdmission::RetirePendingCarriers() noexcept -> void
+    {
+        if (!AuthenticationStarted_ && AuthStream_)
+            RetireCarrier(std::move(AuthStream_));
+        for (auto &Stream : PendingStreams_)
+            RetireCarrier(std::move(Stream));
+        PendingStreams_.clear();
+        if (!ActiveDatagram_ && PendingDatagramTransport_)
+            RetireCarrier(std::move(PendingDatagramTransport_));
+        PendingDatagram_.reset();
+    }
+
+    auto ConnectionAdmission::RetireCarrier(Prism::SharedTransmission Carrier) noexcept -> void
+    {
+        if (!Carrier) return;
+        if (!Children_.Enter())
+        {
+            InputEvent Event;
+            Event.Carrier = std::move(Carrier);
+            StoreFailedInput(std::move(Event));
+            return;
+        }
+        auto Self = shared_from_this();
+        try
+        {
+            Net::co_spawn(Executor_, DrainTransmission(Carrier),
+                [Self, Carrier](std::exception_ptr Error,
+                    std::expected<void, Prism::Fault::Failure> Result) mutable
+                {
+                    Self->FinishRetiringCarrier(
+                        std::move(Error), std::move(Result));
+                });
+        }
+        catch (...)
+        {
+            Children_.Leave();
+            InputEvent Event;
+            Event.Carrier = std::move(Carrier);
+            StoreFailedInput(std::move(Event));
+        }
+    }
+
+    auto ConnectionAdmission::FinishRetiringCarrier(
+        std::exception_ptr Error,
+        std::expected<void, Prism::Fault::Failure> Result) noexcept -> void
+    {
+        if (Error)
+        {
+            RecordFatal(std::move(Error));
+        }
+        else if (!Result && !(Closed_ &&
+            Result.error().Code == Prism::Fault::Code::Canceled))
+        {
+            RecordFailure(Result.error());
+        }
+        Children_.Leave();
+        MaybeFinishClose();
     }
 
     auto ConnectionAdmission::TrackRetryableInputDelivery(
@@ -466,49 +530,90 @@ namespace Prism::Tuic
         if (OwnerCloseFailure_) RetryOwnerClose_ = true;
         Inputs_.Seal();
         CloseOnExecutor();
-        const auto RetriedInputs = RetryRejectedInputDeliveries();
-        if (!RetriedInputs) co_return std::unexpected(RetriedInputs.error());
         auto FirstFailure = std::expected<void, Prism::Fault::Failure>{};
+        const auto RetriedInputs = RetryRejectedInputDeliveries();
+        if (!RetriedInputs) FirstFailure = std::unexpected(RetriedInputs.error());
         const auto InputsDrained = co_await Inputs_.Drain();
         if (!InputsDrained)
         {
-            RecordFailure(InputsDrained.error());
-            FirstFailure = std::unexpected(InputsDrained.error());
+            if (!FirstFailure) FirstFailure = std::unexpected(InputsDrained.error());
         }
         MaybeFinishClose();
         Children_.Seal();
         const auto ChildrenDrained = co_await Children_.Drain();
         if (!ChildrenDrained)
         {
-            RecordFailure(ChildrenDrained.error());
             if (!FirstFailure)
                 FirstFailure = std::unexpected(ChildrenDrained.error());
         }
         MaybeFinishClose();
+        const auto StoredInputsDrained = co_await DrainStoredInputs();
+        if (!StoredInputsDrained && !FirstFailure)
+            FirstFailure = std::unexpected(StoredInputsDrained.error());
         const auto CarriersDrained = co_await DrainPendingCarriers();
         if (!CarriersDrained)
         {
-            RecordFailure(CarriersDrained.error());
             if (!FirstFailure)
                 FirstFailure = std::unexpected(CarriersDrained.error());
         }
+        MaybeFinishClose();
+        if ((NativeClosed_.load(std::memory_order_acquire) || Finalizing_) &&
+            CloseOwnerAccepted_ && Inputs_.Active() == 0 && Children_.Active() == 0 &&
+            ActiveStreams_.empty() && !ActiveDatagram_)
+            ReleaseRetirement();
         const auto Failure = Failure_.Load();
         if (Failure.Failed()) co_return std::unexpected(Failure);
         if (OwnerCloseFailure_) co_return std::unexpected(*OwnerCloseFailure_);
-        if (FirstFailure) co_return std::unexpected(FirstFailure.error());
-        if (FailedInputCount_.load(std::memory_order_acquire) != 0U)
-            co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
-        AccountLease_.Release();
-        AccountId_ = {};
-        Identity_.clear();
-        AuthStream_.reset();
-        Exporter_ = {};
-        PendingStreams_.clear();
-        PendingDatagram_.reset();
-        PendingDatagramTransport_.reset();
-        ActiveDatagram_.reset();
-        ActiveDatagramTransport_.reset();
-        DatagramInput_.store({}, std::memory_order_release);
+        if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
+        co_return std::expected<void, Prism::Fault::Failure>{};
+    }
+
+    auto ConnectionAdmission::DrainStoredInputs()
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
+    {
+        auto FirstFailure = std::expected<void, Prism::Fault::Failure>{};
+        for (;;)
+        {
+            const auto Stored = (std::min)(
+                FailedInputCount_.load(std::memory_order_acquire), FailedInputCapacity_);
+            auto Index = FailedInputDrainIndex_.load(std::memory_order_acquire);
+            if (Index >= Stored) break;
+            for (; Index < Stored; ++Index)
+            {
+                auto Event = std::move(FailedInputs_[Index]);
+                FailedInputs_[Index] = {};
+                if (Event.Carrier)
+                {
+                    const auto Drained = co_await DrainTransmission(
+                        std::move(Event.Carrier));
+                    if (!Drained && Drained.error().Code != Prism::Fault::Code::Canceled &&
+                        !FirstFailure)
+                        FirstFailure = std::unexpected(Drained.error());
+                }
+                if (Event.StreamProvider)
+                {
+                    const auto Activity = Event.StreamProvider->Activity();
+                    (void)Event.StreamProvider->Close();
+                    if (Activity)
+                    {
+                        Activity->Seal();
+                        const auto Drained = co_await Activity->Drain();
+                        if (!Drained &&
+                            Drained.error().Code != Prism::Fault::Code::Canceled &&
+                            !FirstFailure)
+                            FirstFailure = std::unexpected(Drained.error());
+                    }
+                }
+                if (Event.Provider)
+                {
+                    Event.Provider->Cancel();
+                    Event.Provider->Close();
+                }
+                Event = {};
+                FailedInputDrainIndex_.store(Index + 1U, std::memory_order_release);
+            }
+        }
+        if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
@@ -536,6 +641,7 @@ namespace Prism::Tuic
         if (!PendingClose) RecordFailure(PendingClose.error());
         const auto DatagramClose = CloseTransmission(ActiveDatagramTransport_);
         if (!DatagramClose) RecordFailure(DatagramClose.error());
+        RetirePendingCarriers();
         for (const auto &[Id, Stream] : ActiveStreams_)
         {
             (void)Id;
@@ -559,13 +665,22 @@ namespace Prism::Tuic
             return;
         const auto CloseResult = RequestOwnerClose();
         if (!CloseResult) return;
-        if (NativeClosed_.load(std::memory_order_acquire) && CloseOwnerAccepted_ &&
-            Failure_.Load().Succeeded() &&
-            FailedInputCount_.load(std::memory_order_acquire) == 0U && AccountLease_)
-        {
-            AccountLease_.Release();
-            AccountId_ = {};
-            Identity_.clear();
-        }
+        if (NativeClosed_.load(std::memory_order_acquire) || Finalizing_)
+            ReleaseRetirement();
+    }
+
+    auto ConnectionAdmission::ReleaseRetirement() noexcept -> void
+    {
+        AccountLease_.Release();
+        AccountId_ = {};
+        Identity_.clear();
+        AuthStream_.reset();
+        Exporter_ = {};
+        PendingStreams_.clear();
+        PendingDatagram_.reset();
+        PendingDatagramTransport_.reset();
+        ActiveDatagram_.reset();
+        ActiveDatagramTransport_.reset();
+        DatagramInput_.store({}, std::memory_order_release);
     }
 }

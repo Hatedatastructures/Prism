@@ -609,8 +609,8 @@ function(AssertPrismStandaloneClosure Target)
 
     AssertPrismExactCasePath("${CMAKE_SOURCE_DIR}/Include/Prism")
     AssertPrismExactCasePath("${CMAKE_SOURCE_DIR}/Src/Prism")
-    AssertPrismExactCasePath("${CMAKE_SOURCE_DIR}/tests/Prism")
-    message(STATUS "AssertPrismExactCasePaths passed: Include/Prism, Src/Prism, and tests/Prism")
+    AssertPrismExactCasePath("${CMAKE_SOURCE_DIR}/Test/Prism")
+    message(STATUS "AssertPrismExactCasePaths passed: Include/Prism, Src/Prism, and Test/Prism")
 
     CollectPrismTargetClosure(${Target} _closure)
     foreach(_dependency IN LISTS _closure)

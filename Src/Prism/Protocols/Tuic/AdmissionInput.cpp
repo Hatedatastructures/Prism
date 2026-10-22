@@ -223,21 +223,26 @@ namespace Prism::Tuic
     auto ConnectionAdmission::OnClosed() -> void
     {
         NativeClosed_.store(true, std::memory_order_release);
+        auto Self = shared_from_this();
+        try
+        {
+            Net::post(Executor_, [Self]
+            {
+                if (Self->OwnerCloseFailure_) Self->RetryOwnerClose_ = true;
+                const auto Retried = Self->RetryRejectedInputDeliveries();
+                if (!Retried && !Self->Inputs_.IsBlocked() &&
+                    Retried.error().Code != Prism::Fault::Code::Blocked)
+                    Self->RecordFailure(Retried.error());
+                Self->CloseOnExecutor();
+                Self->MaybeFinishClose();
+            });
+        }
+        catch (...)
+        {
+            RecordFatal(std::current_exception());
+        }
         if (NativeClosedQueued_.exchange(true, std::memory_order_acq_rel))
         {
-            auto Self = shared_from_this();
-            try
-            {
-                Net::post(Executor_, [Self]
-                {
-                    const auto Retried = Self->RetryRejectedInputDeliveries();
-                    if (!Retried) Self->RecordFailure(Retried.error());
-                });
-            }
-            catch (...)
-            {
-                RecordFatal(std::current_exception());
-            }
             return;
         }
         InputEvent Event;
@@ -300,12 +305,14 @@ namespace Prism::Tuic
 
     auto ConnectionAdmission::StoreFailedInput(InputEvent Event) noexcept -> void
     {
+        // 失败实物保留到最终 Drain，但输入屏障计数必须立即归还，否则排空顺序会自锁。
+        Event.Reservation.reset();
         const auto Index = FailedInputCount_.fetch_add(1U, std::memory_order_acq_rel);
         if (Index >= FailedInputCapacity_)
         {
+            Event = {};
             RecordFailure({Prism::Fault::Code::ResourceUnavailable,
                 std::make_error_code(std::errc::no_buffer_space)});
-            Inputs_.Block();
             return;
         }
         FailedInputs_[Index] = std::move(Event);
@@ -315,7 +322,6 @@ namespace Prism::Tuic
     {
         RecordFailure({Prism::Fault::Code::Blocked});
         StoreFailedInput(std::move(Event));
-        Inputs_.Block();
     }
 
     auto ConnectionAdmission::RecordFatal(std::exception_ptr Error) noexcept -> void

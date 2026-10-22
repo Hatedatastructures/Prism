@@ -8,6 +8,7 @@
 #include <boost/asio/this_coro.hpp>
 #include <boost/system/error_code.hpp>
 #include <algorithm>
+#include <array>
 #include <utility>
 #include <cstddef>
 #include <cstdint>
@@ -20,10 +21,45 @@
 #include <vector>
 namespace Prism::Mux::H2Mux
 {
+    namespace
+    {
+        /** @brief root 接管应用准入时，对超额 CONNECT 返回可观察的单字节拒绝体。 */
+        auto RejectConnect(
+            const std::shared_ptr<Prism::Http2::Session> &Session,
+            const std::int32_t StreamId,
+            Prism::Fault::FailureState &Failure) -> void
+        {
+            if (!Session)
+            {
+                (void)Failure.TrySet(
+                    Prism::Fault::Failure{Prism::Fault::Code::ProtocolError});
+                return;
+            }
+            const auto Headers = Session->SubmitHeaders(
+                StreamId, Prism::Http2::HeaderList{{":status", "200"}}, false);
+            if (!Headers)
+            {
+                (void)Failure.TrySet(Headers.error());
+                return;
+            }
+            const std::array<std::byte, 1> Status{std::byte{0x01}};
+            const auto Submitted = Session->SubmitData(StreamId, Status, true);
+            if (Submitted != Prism::Http2::SubmitDataStatus::Accepted)
+            {
+                (void)Failure.TrySet(Prism::Fault::Failure{
+                    Submitted == Prism::Http2::SubmitDataStatus::Closed
+                        ? Prism::Fault::Code::ConnectionAborted
+                        : Prism::Fault::Code::ProtocolError});
+            }
+        }
+    }
+
     Http2State::Http2State(
         Prism::SharedTransmission RawValue,
-        const std::size_t MaxStreamsValue)
+        const std::size_t MaxStreamsValue,
+        const bool DeferAcceptValue)
         : Strand(RawValue->Executor()), Raw(std::move(RawValue)), MaxStreams(MaxStreamsValue),
+          DeferAccept(DeferAcceptValue),
           Notify(Strand, 1), RetirementNotify(Strand, 1), StreamDrainNotify(Strand, 1),
           RunCompletionNotify(Strand, 1),
           DrainGate(std::make_shared<DrainChannel>(Strand, 1)),
@@ -36,7 +72,14 @@ namespace Prism::Mux::H2Mux
 
     auto Http2State::NotifyStreamDrain() -> void
     {
+        StreamDrainPending.store(true, std::memory_order_release);
         (void)StreamDrainNotify.try_send(boost::system::error_code{});
+    }
+
+    auto Http2State::NotifyAccept() noexcept -> void
+    {
+        NotifyPending.store(true, std::memory_order_release);
+        (void)Notify.try_send(boost::system::error_code{});
     }
 
     auto Http2State::RecordConnectionTerminal(const Http2State::Failure Value) noexcept -> void
@@ -54,7 +97,7 @@ namespace Prism::Mux::H2Mux
     auto Http2State::OnHeaders(
         const std::int32_t StreamId,
         const Prism::Http2::HeaderList &RequestHeaders,
-        const bool /*EndStream*/) -> void
+        const bool EndStream) -> void
     {
         if (Closed || Streams.contains(StreamId)) return;
         const Prism::Http2::Header *Method = nullptr;
@@ -129,27 +172,49 @@ namespace Prism::Mux::H2Mux
             if (!Rejected) RecordFailure(Rejected.error());
             return;
         }
-        if (Streams.size() >= MaxStreams)
+        const auto QuotaUsed = static_cast<std::size_t>(std::count_if(
+            Streams.begin(), Streams.end(), [](const auto &Entry)
+            {
+                return Entry.second->OccupiesQuota();
+            }));
+        if (QuotaUsed >= MaxStreams)
         {
-            if (std::find(DeferredRefusedStreams.begin(), DeferredRefusedStreams.end(), StreamId) ==
-                DeferredRefusedStreams.end())
-                DeferredRefusedStreams.push_back(StreamId);
+            if (DeferAccept.load(std::memory_order_acquire))
+            {
+                // root 已接管应用层准入：超额 CONNECT 也必须让客户端观察到
+                // 单字节 {1} + END_STREAM，而不是只有不可见正文的 RST。
+                RejectConnect(Session, StreamId, FirstFailure);
+            }
+            else
+            {
+                // 纯帧引擎没有应用层拒绝合同，以 RFC 9113 的 REFUSED_STREAM 结束。
+                const auto Reset = Session->ResetStream(
+                    StreamId, Prism::Http2::ErrorRefusedStream);
+                if (!Reset) RecordFailure(Reset.error());
+            }
             return;
         }
         auto Stream = std::make_shared<Http2Stream>(shared_from_this(), StreamId);
         Streams.emplace(StreamId, Stream);
         Incoming.push_back(Stream);
-        const auto Headers = Session->SubmitHeaders(
-            StreamId, Prism::Http2::HeaderList{{":status", "200"}}, false);
-        if (!Headers)
+        if (!DeferAccept.load(std::memory_order_acquire))
         {
-            RecordFailure(Headers.error());
-            RemoveIncoming(StreamId);
-            const auto Reset = Stream->StartReset(Prism::Http2::ErrorInternal);
-            if (!Reset) RecordFailure(Reset.error());
-            return;
+            const auto Headers = Session->SubmitHeaders(
+                StreamId, Prism::Http2::HeaderList{{":status", "200"}}, false);
+            if (!Headers)
+            {
+                RecordFailure(Headers.error());
+                RemoveIncoming(StreamId);
+                const auto Reset = Stream->StartReset(Prism::Http2::ErrorInternal);
+                if (!Reset) RecordFailure(Reset.error());
+                return;
+            }
         }
-        Notify.try_send(boost::system::error_code{});
+        // 远端已在本端 accept 前结束发送：记录该事实，避免 child 启动后把
+        // 已收到的 END_STREAM 误当成仍在等待的远端半关闭。
+        // 保持 IncomingPending_，仅登记远端半关闭事实。
+        if (EndStream) Stream->SetRemoteClosed();
+        NotifyAccept();
     }
 
     auto Http2State::OnData(
@@ -243,11 +308,15 @@ namespace Prism::Mux::H2Mux
         while (true)
         {
             boost::system::error_code NotificationError;
-            co_await RetirementNotify.async_receive(
-                Net::redirect_error(Net::use_awaitable, NotificationError));
-            co_await Net::dispatch(Strand, Net::use_awaitable);
-            if (NotificationError && !Closed)
-                RecordFailure(Prism::Fault::FromNative(static_cast<std::error_code>(NotificationError)));
+            if (!RetirementPending.exchange(false, std::memory_order_acq_rel))
+            {
+                co_await RetirementNotify.async_receive(
+                    Net::redirect_error(Net::use_awaitable, NotificationError));
+                co_await Net::dispatch(Strand, Net::use_awaitable);
+                if (NotificationError && !Closed)
+                    RecordFailure(Prism::Fault::FromNative(
+                        static_cast<std::error_code>(NotificationError)));
+            }
             while (true)
             {
                 const auto Iterator = std::find_if(Streams.begin(), Streams.end(), [](const auto &Entry)
@@ -257,20 +326,6 @@ namespace Prism::Mux::H2Mux
                 if (Iterator == Streams.end()) break;
                 const auto StreamId = Iterator->first;
                 const auto Stream = Iterator->second;
-                const auto StreamActivity = Stream->Activity();
-                const auto Activity = co_await StreamActivity->Drain();
-                co_await Net::dispatch(Strand, Net::use_awaitable);
-                if (!Activity)
-                {
-                    Stream->MarkRetirementFailed(Activity.error());
-                    continue;
-                }
-                if (!StreamActivity->IsRetired())
-                {
-                    Stream->MarkRetirementFailed(
-                        Prism::Fault::Failure{Prism::Fault::Code::Blocked});
-                    continue;
-                }
                 const auto EndDrain = co_await Stream->DrainTerminations();
                 co_await Net::dispatch(Strand, Net::use_awaitable);
                 if (!EndDrain)
@@ -278,15 +333,25 @@ namespace Prism::Mux::H2Mux
                     Stream->MarkRetirementFailed(EndDrain.error());
                     continue;
                 }
+                const auto StreamActivity = Stream->Activity();
+                if (!StreamActivity->IsRetired())
+                {
+                    Stream->MarkRetirementFailed(
+                        Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+                    continue;
+                }
                 Stream->MarkRetirementRecovered();
                 if (Stream->CanRetire()) RetireStream(StreamId, Stream);
             }
             if (Closed)
             {
-                const auto PendingControl = std::any_of(Streams.begin(), Streams.end(), [](const auto &Entry)
-                {
-                    return Entry.second->HasPendingControl();
-                });
+                // DrainStreams 在 Tasks::Drain 之后承担最终流关闭；pump 不能等待
+                // Streams.empty()，否则会与调用方形成互等死锁。
+                const auto PendingControl = std::any_of(
+                    Streams.begin(), Streams.end(), [](const auto &Entry)
+                    {
+                        return Entry.second->HasPendingControl();
+                    });
                 if (!PendingControl) co_return;
             }
         }
@@ -294,6 +359,7 @@ namespace Prism::Mux::H2Mux
 
     auto Http2State::QueueRetirement() -> void
     {
+        RetirementPending.store(true, std::memory_order_release);
         (void)RetirementNotify.try_send(boost::system::error_code{});
     }
 
@@ -306,7 +372,7 @@ namespace Prism::Mux::H2Mux
         RemoveIncoming(StreamId);
         Stream->MarkRetired();
         Streams.erase(Iterator);
-        Notify.try_send(boost::system::error_code{});
+        NotifyAccept();
     }
 
     auto Http2State::RecordFailure(const Failure Value) noexcept -> void
@@ -316,6 +382,12 @@ namespace Prism::Mux::H2Mux
 
     auto Http2State::RecordCloseCancellation(const Failure Value) noexcept -> void
     {
+        // 连接拆除期间底层 channel/socket 关闭会同步报告 connection_reset；
+        // 它不是应用失败，也不得覆盖已排空或首因结果。
+        if (Value.Failed() && Value.Native ==
+                std::make_error_code(std::errc::connection_reset) &&
+            CloseRequested.load(std::memory_order_acquire))
+            return;
         if (Value.Code != Prism::Fault::Code::Canceled ||
             !CloseRequested.load(std::memory_order_acquire))
         {
@@ -409,40 +481,49 @@ namespace Prism::Mux::H2Mux
             const auto Stream = Iterator->second;
             if (Stream->AwaitsTerminalClose())
             {
-                boost::system::error_code NotificationError;
-                co_await StreamDrainNotify.async_receive(
-                    Net::redirect_error(Net::use_awaitable, NotificationError));
-                co_await Net::dispatch(Strand, Net::use_awaitable);
-                if (NotificationError)
+                // 根 Drain 是最终关闭者：accepted child 未自行 Close 时，必须由这里
+                // 提交最终 Close，产生 terminal 回执后再等待，否则永远停在 Pending。
+                const auto Closed = Stream->Close();
+                if (!Closed)
                 {
-                    RecordFailure(Prism::Fault::FromNative(
-                        static_cast<std::error_code>(NotificationError)));
-                    co_return false;
+                    Stream->MarkRetirementFailed(Closed.error());
+                    Complete = false;
+                    continue;
                 }
+                boost::system::error_code NotificationError;
+                if (!StreamDrainPending.exchange(
+                        false, std::memory_order_acq_rel))
+                {
+                    co_await StreamDrainNotify.async_receive(
+                        Net::redirect_error(Net::use_awaitable, NotificationError));
+                    co_await Net::dispatch(Strand, Net::use_awaitable);
+                    if (NotificationError)
+                    {
+                        RecordFailure(Prism::Fault::FromNative(
+                            static_cast<std::error_code>(NotificationError)));
+                        co_return false;
+                    }
+                }
+                // terminal close 等待是被接受的清理状态；不能为了唤醒线程把它
+                // 记成 `Blocked` 首因，否则会覆盖已经交付的 Stream/Connection 终态。
                 continue;
             }
             LastStreamId = StreamId;
-            const auto StreamActivity = Stream->Activity();
-            const auto Activity = co_await StreamActivity->Drain();
-            co_await Net::dispatch(Strand, Net::use_awaitable);
-            if (!Activity)
-            {
-                Stream->MarkRetirementFailed(Activity.error());
-                Complete = false;
-                continue;
-            }
-            if (!StreamActivity->IsRetired())
-            {
-                Stream->MarkRetirementFailed(
-                    Prism::Fault::Failure{Prism::Fault::Code::Blocked});
-                Complete = false;
-                continue;
-            }
             const auto Terminations = co_await Stream->DrainTerminations();
             co_await Net::dispatch(Strand, Net::use_awaitable);
             if (!Terminations)
             {
+                if (Stream->AwaitsTerminalClose()) continue;
                 Stream->MarkRetirementFailed(Terminations.error());
+                Complete = false;
+                continue;
+            }
+            const auto StreamActivity = Stream->Activity();
+            if (!StreamActivity->IsRetired())
+            {
+                if (Stream->AwaitsTerminalClose()) continue;
+                Stream->MarkRetirementFailed(
+                    Prism::Fault::Failure{Prism::Fault::Code::Blocked});
                 Complete = false;
                 continue;
             }
@@ -578,7 +659,8 @@ namespace Prism::Mux::H2Mux
                 (void)StreamId;
                 Stream->SetConnectionClosed(Terminal);
             }
-            Incoming.clear();
+            // 终态前已解析的 CONNECT 仍属于已登记流；直接清空会丢弃其已缓冲
+            // DATA 并让 accept owner 永远看不到数据。真正的移除由退休完成。
             QueueRetirement();
         }
         if (Raw)

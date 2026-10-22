@@ -72,6 +72,8 @@ namespace Prism::Contract
 
         auto RetainMuxRoot() noexcept -> void override;
 
+        auto OnMuxRootRetired() noexcept -> void override;
+
         [[nodiscard]] auto Track(const Prism::SharedTransmission& Transport)
             -> std::expected<void, Prism::Fault::Failure>;
 

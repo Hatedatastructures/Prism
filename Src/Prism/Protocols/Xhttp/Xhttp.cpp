@@ -15,6 +15,7 @@
 #include <Prism/Protocols/Xhttp/Detail/StreamTransport.hpp>
 
 #include <boost/asio/redirect_error.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/system/system_error.hpp>
@@ -83,38 +84,19 @@ namespace Prism::Xhttp
                     Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument}));
             }
 
+            const auto TrackedRaw = Admission.Track(Request.Raw);
+            if (!TrackedRaw)
+            {
+                co_return std::unexpected(co_await Admission.Retire(TrackedRaw.error()));
+            }
             Prism::Transport::Connector Connector(std::move(Request.Raw));
             auto Stream = std::make_shared<Prism::Transport::Encrypted::StreamType>(
                 std::move(Connector), Request.SslContext);
-            auto EncryptedOwner = std::make_shared<Prism::Transport::Encrypted>(
-                Stream, Request.Bytes);
-            const auto Tracked = Admission.Track(
-                std::static_pointer_cast<Prism::Transmission>(EncryptedOwner));
-            if (!Tracked)
-            {
-                auto Released = EncryptedOwner->ReleaseStream();
-                if (Released)
-                {
-                    auto Detached = std::move(*Released);
-                    Stream.reset();
-                    Detached.reset();
-                }
-                else
-                {
-                    const auto Closed = EncryptedOwner->Close();
-                    const auto Drained = co_await EncryptedOwner->Activity()->Drain();
-                    if (!Closed || !Drained)
-                    {
-                        co_return std::unexpected(co_await Admission.Retire(Tracked.error()));
-                    }
-                }
-                co_return std::unexpected(co_await Admission.Retire(Tracked.error()));
-            }
             if (!Request.Host.empty())
             {
                 const auto &HostName = Request.Host;
                 if (SSL_set_tlsext_host_name(
-                        EncryptedOwner->Stream().native_handle(), HostName.c_str()) != 1)
+                        Stream->native_handle(), HostName.c_str()) != 1)
                 {
                     co_return std::unexpected(co_await Admission.Retire(
                         Prism::Fault::Failure{Prism::Fault::Code::TlsHsfail}));
@@ -122,20 +104,18 @@ namespace Prism::Xhttp
             }
 
             constexpr unsigned char Alpn[] = {2, 'h', '2'};
-            if (SSL_set_alpn_protos(
-                    EncryptedOwner->Stream().native_handle(), Alpn, sizeof(Alpn)) != 0)
+            if (SSL_set_alpn_protos(Stream->native_handle(), Alpn, sizeof(Alpn)) != 0)
             {
                 co_return std::unexpected(co_await Admission.Retire(
                     Prism::Fault::Failure{Prism::Fault::Code::TlsHsfail}));
             }
 
-            Net::steady_timer Deadline(EncryptedOwner->Executor());
+            Net::steady_timer Deadline(Stream->get_executor());
             Deadline.expires_after(std::chrono::seconds(30));
-            auto DoHandshake = [EncryptedOwner]() -> Net::awaitable<boost::system::error_code>
+            auto DoHandshake = [Stream]() -> Net::awaitable<boost::system::error_code>
             {
                 boost::system::error_code Error;
-                co_await EncryptedOwner->Stream().async_handshake(
-                    Net::ssl::stream_base::client,
+                co_await Stream->async_handshake(Net::ssl::stream_base::client,
                     Net::redirect_error(Net::use_awaitable, Error));
                 co_return Error;
             };
@@ -172,20 +152,14 @@ namespace Prism::Xhttp
                 {
                     Failure.Code = Prism::Fault::Code::TlsHsfail;
                     if (SSL_get_verify_result(
-                            EncryptedOwner->Stream().native_handle()) != X509_V_OK)
+                            Stream->native_handle()) != X509_V_OK)
                     {
                         Failure.Code = Prism::Fault::Code::Verifyfail;
                     }
                 }
                 co_return std::unexpected(co_await Admission.Retire(Failure));
             }
-            auto Released = EncryptedOwner->ReleaseStream();
-            if (!Released)
-            {
-                co_return std::unexpected(co_await Admission.Retire(Released.error()));
-            }
-            Stream = std::move(*Released);
-            co_return std::move(Stream);
+            co_return Stream;
         }
     }
 

@@ -30,7 +30,7 @@ Runtime TCP listener / Boundary UDP-QUIC ingress -> Runtime admission/session
 2. 明确变更属于协议行为、识别、Composition binding，还是通用入口；只改相应 owner。识别困难时也不能过度读取或丢弃预读数据；检查 probe、replay 与 admission 的边界。
 3. 保持协议规定的认证、目标解析、错误映射、取消、半关闭和最终关闭语义。
 4. 若配置或能力绑定受影响，同步检查当前配置解析、校验与 Composition 装配路径。
-5. 在对应模块 CMake 登记实现与私有头，并更新 `tests/Prism/Protocols/<Name>/` 或真实跨模块集成场景的测试；适用时覆盖成功、格式错误、认证失败、超时、上游失败、EOF、取消、半关闭、最终关闭顺序。
+5. 在对应模块 CMake 登记实现与私有头，并更新 `Test/Prism/Protocols/<Name>/` 或真实跨模块集成场景的测试；适用时覆盖成功、格式错误、认证失败、超时、上游失败、EOF、取消、半关闭、最终关闭顺序。
 
 ## 边界要求
 

@@ -377,8 +377,8 @@ try {
                 $ClientPath = $SmokeClient
                 if ([string]::IsNullOrWhiteSpace($ClientPath)) {
                     $Candidates = @(
-                        (Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropPrismL4.exe'),
-                        (Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropPrismL4')
+                        (Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropPrismL4.exe'),
+                        (Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropPrismL4')
                     )
                     $ClientPath = $Candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
                 } else {

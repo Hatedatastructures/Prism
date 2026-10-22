@@ -28,6 +28,31 @@
 
 namespace Prism::Tuic
 {
+    namespace
+    {
+        /** @brief 在 connection strand 上删除 admission，并交付一次最终化通知。 */
+        auto FinalizeAdmission(
+            Net::any_io_executor Executor,
+            ConnectionAdmission *Value,
+            std::function<void()> Finalized) noexcept -> void
+        {
+            try
+            {
+                Net::post(Executor,
+                    [Value, Finalized = std::move(Finalized)]() mutable
+                    {
+                        delete Value;
+                        if (Finalized) Finalized();
+                    });
+            }
+            catch (...)
+            {
+                delete Value;
+                if (Finalized) Finalized();
+            }
+        }
+    }
+
     auto ConnectionAdmission::CloseAndDrainAuthenticationConnection(
         std::shared_ptr<Conn<>> Connection)
         -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
@@ -41,8 +66,10 @@ namespace Prism::Tuic
         else
         {
             const auto Closed = Connection->Close();
-            if (!Closed) FirstFailure = std::unexpected(Closed.error());
             const auto Activity = Connection->Activity();
+            if (!Closed && !(Closed.error().Code == Prism::Fault::Code::Canceled &&
+                Activity && Activity->IsRetired()))
+                FirstFailure = std::unexpected(Closed.error());
             if (!Activity)
             {
                 if (!FirstFailure) FirstFailure = std::unexpected(
@@ -52,14 +79,16 @@ namespace Prism::Tuic
             {
                 Activity->Seal();
                 const auto Drained = co_await Activity->Drain();
-                if (!Drained && !FirstFailure)
+                if (!Drained && !FirstFailure &&
+                    !(Drained.error().Code == Prism::Fault::Code::Canceled &&
+                        Activity->IsRetired()))
                     FirstFailure = std::unexpected(Drained.error());
             }
         }
         const auto AuthStreamDrained = co_await DrainTransmission(AuthStream_);
         if (!AuthStreamDrained && !FirstFailure)
             FirstFailure = std::unexpected(AuthStreamDrained.error());
-        if (FirstFailure) co_return std::unexpected(FirstFailure.error());
+        if (!FirstFailure) co_return std::unexpected(FirstFailure.error());
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
@@ -100,12 +129,8 @@ namespace Prism::Tuic
                 [Executor = std::move(Executor), Finalized = std::move(Finalized)](
                     ConnectionAdmission *Value) mutable
                 {
-                    Net::dispatch(Executor,
-                        [Value, Finalized = std::move(Finalized)]() mutable
-                        {
-                            delete Value;
-                            if (Finalized) Finalized();
-                        });
+                    FinalizeAdmission(
+                        std::move(Executor), Value, std::move(Finalized));
                 });
         }
         catch (const std::bad_alloc &)
@@ -134,7 +159,11 @@ namespace Prism::Tuic
     ConnectionAdmission::~ConnectionAdmission() noexcept
     {
         assert(Executor_.running_in_this_thread());
+        Finalizing_ = true;
         CloseOnExecutor();
+        if (CloseOwnerAccepted_ && Inputs_.Active() == 0 && Children_.Active() == 0 &&
+            ActiveStreams_.empty() && !ActiveDatagram_)
+            ReleaseRetirement();
     }
 
     auto ConnectionAdmission::StartAuthentication() -> void
@@ -196,14 +225,17 @@ namespace Prism::Tuic
             (Authentication.Status == Error::UnexpectedEof ||
              Authentication.Terminal->Code != Prism::Fault::Code::Eof))
         {
-            RecordFailure(*Authentication.Terminal);
+            if (!(Closed_ &&
+                Authentication.Terminal->Code == Prism::Fault::Code::Canceled))
+                RecordFailure(*Authentication.Terminal);
         }
         const auto Status = Authentication.EffectiveStatus();
         if (Closed_)
         {
             const auto Drained = co_await CloseAndDrainAuthenticationConnection(
                 AuthenticationConnection);
-            if (!Drained) RecordFailure(Drained.error());
+            if (!Drained && Drained.error().Code != Prism::Fault::Code::Canceled)
+                RecordFailure(Drained.error());
             co_return;
         }
         if (Status != Error::None)
@@ -222,9 +254,12 @@ namespace Prism::Tuic
             AuthenticationConnection);
         if (!Drained)
         {
-            RecordFailure(Drained.error());
-            CloseOnExecutor();
-            co_return;
+            if (Drained.error().Code != Prism::Fault::Code::Canceled)
+            {
+                RecordFailure(Drained.error());
+                CloseOnExecutor();
+                co_return;
+            }
         }
         if (Closed_)
         {
@@ -293,8 +328,14 @@ namespace Prism::Tuic
         }
         if (!Children_.Enter())
         {
-            RecordFailure({Prism::Fault::Code::Blocked});
-            Children_.Block();
+            if (!Closed_)
+            {
+                RecordFailure({Prism::Fault::Code::Blocked});
+                Children_.Block();
+            }
+            (void)CloseTransmission(Connection);
+            ActiveStreams_.erase(Id);
+            MaybeFinishClose();
             return;
         }
 
@@ -591,9 +632,12 @@ namespace Prism::Tuic
         }
         if (!Result)
         {
-            RecordFailure(Result.error());
-            Children_.Block();
-            return;
+            if (!(Closed_ && Result.error().Code == Prism::Fault::Code::Canceled))
+            {
+                RecordFailure(Result.error());
+                Children_.Block();
+                return;
+            }
         }
         if (ActiveDatagram_ != Provider)
         {

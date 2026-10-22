@@ -10,12 +10,12 @@ const rel = (p) => path.relative(root, p).split(path.sep).join("/");
 const SCOPES = [
   ["Include/Prism", /\.(hpp|h|cpp|cxx|cc)$/i],
   ["Src/Prism", /\.(hpp|h|cpp|cxx|cc)$/i],
-  ["tests/Prism", /\.(hpp|cpp)$/i],
+  ["Test/Prism", /\.(hpp|cpp)$/i],
   ["scripts", /^check_prism_.*\.(mjs|ps1)$|^prism_source_snapshot\.mjs$/i],
 ];
 const EXTRA = ["Src/Prism/CMakeLists.txt", "Src/Prism/CMake/PrismBoundary.cmake",
   "Src/Prism/CMake/PrismTargets.cmake", "Src/Prism/CMake/PrismLinks.cmake", "CMakeLists.txt",
-  "tests/CMakeLists.txt", "tests/Prism/CMakeLists.txt",
+  "Test/CMakeLists.txt", "Test/Prism/CMakeLists.txt",
   "Include/Prism/Application/Configuration/PrismConfiguration.json"];
 
 function walk(dir, re, acc) {

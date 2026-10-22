@@ -12,6 +12,18 @@
 
 namespace Prism::Transport::Detail
 {
+    /** @brief 关闭回执等待通道只由实际等待者共同持有，owner 仅保留弱引用。 */
+    struct TransmissionControlOwner::CloseWaitState final
+    {
+        explicit CloseWaitState(boost::asio::any_io_executor Executor)
+            : Changes(std::move(Executor), 1)
+        {
+        }
+
+        boost::asio::experimental::concurrent_channel<
+            void(boost::system::error_code)> Changes;
+    };
+
     TransmissionControlOwner::TransmissionControlOwner(
         boost::asio::any_io_executor Domain, std::shared_ptr<IoActivity> ActivityOwner)
         : Context(Prism::Executor::ContextOwner::Find(Domain)),
@@ -60,8 +72,22 @@ namespace Prism::Transport::Detail
         }
         if (!Succeeded)
         {
+            // 关闭已成功交付时，cancel 的失败不能反过来否定最终关闭结果；
+            // 仅保留该 cancel 预约供显式 Retry，不把 owner 判为不可恢复。
             if (Owner->IsControlClosed(Index))
-                Owner->ReleaseCommand(Index);
+            {
+                if (Index < CancelCapacity &&
+                    CommandValue.KnownControlFailure.load(std::memory_order_acquire) ==
+                        KnownFailurePhase::Recorded)
+                {
+                    CommandValue.Retryable.store(true, std::memory_order_release);
+                    Owner->Storage->Retain(Owner);
+                }
+                else
+                {
+                    Owner->ReleaseCommand(Index);
+                }
+            }
             else if (!Owner->Unrecoverable.load(std::memory_order_acquire))
                 CommandValue.Retryable.store(true, std::memory_order_release);
             FinishRetry();
@@ -86,7 +112,7 @@ namespace Prism::Transport::Detail
         Invoked = true;
         try
         {
-            Succeeded = Owner->Execute(Index, HandlerInvoked);
+            Succeeded = Owner->Execute(Index, HandlerInvoked, Retry);
             Returned = true;
         }
         catch (...)
@@ -188,6 +214,8 @@ namespace Prism::Transport::Detail
 
     auto TransmissionControlOwner::AwaitCloseDispatch() -> boost::asio::awaitable<ControlResult>
     {
+        // 等待期间保持 owner 与等待状态存活；调用方只传入回执接口。
+        auto Self = shared_from_this();
         for (;;)
         {
             const auto Phase = CloseAttempt.load(std::memory_order_acquire);
@@ -206,7 +234,18 @@ namespace Prism::Transport::Detail
                 continue;
             }
             boost::system::error_code Error;
-            co_await CloseDispatchChanges.async_receive(
+            std::shared_ptr<CloseWaitState> Waiter;
+            {
+                std::lock_guard Guard(CloseDispatchMutex);
+                Waiter = CloseWaiter.lock();
+                if (!Waiter)
+                {
+                    Waiter = std::make_shared<CloseWaitState>(
+                        Reclaimer->Executor());
+                    CloseWaiter = Waiter;
+                }
+            }
+            co_await Waiter->Changes.async_receive(
                 boost::asio::redirect_error(boost::asio::use_awaitable, Error));
             const auto AfterWait = CloseAttempt.load(std::memory_order_acquire);
             if (AfterWait == CloseAttemptPhase::Terminal)
@@ -230,6 +269,9 @@ namespace Prism::Transport::Detail
 
     auto TransmissionControlOwner::BeginCloseAttempt() noexcept -> bool
     {
+        const auto Current = CloseAttempt.load(std::memory_order_acquire);
+        if (Current != CloseAttemptPhase::Idle)
+            return false;
         auto Expected = CloseAttemptPhase::Idle;
         return CloseAttempt.compare_exchange_strong(
             Expected, CloseAttemptPhase::Posting, std::memory_order_acq_rel);
@@ -255,7 +297,12 @@ namespace Prism::Transport::Detail
 
     auto TransmissionControlOwner::NotifyCloseAttemptWaiter() noexcept -> void
     {
-        CloseDispatchChanges.close();
+        std::lock_guard Guard(CloseDispatchMutex);
+        if (const auto Waiter = CloseWaiter.lock())
+        {
+            Waiter->Changes.close();
+            CloseWaiter.reset();
+        }
     }
 
     auto TransmissionControlOwner::DeliverExternalClose() noexcept -> void
@@ -456,10 +503,12 @@ namespace Prism::Transport::Detail
 
     auto TransmissionControlOwner::RequestRetirement() -> void
     {
+        const auto RetireRequested = shared_from_this();
         if (ExternalCloseConfirmed.load(std::memory_order_acquire) ||
-            LocalClosed.load(std::memory_order_acquire) || Finished.load(std::memory_order_acquire) ||
             Unrecoverable.load(std::memory_order_acquire) || !Reclaimer->CanDispatch())
             return;
+        // 已成功关闭只封止新操作，不解除仍待显式重试的 cancel 命令；
+        // 若因 LocalClosed/Finished 提前返回，失败的取消预约会永久保留。
         if (ExternalReceiptPending.load(std::memory_order_acquire))
         {
             bool Idle = false;
@@ -473,18 +522,20 @@ namespace Prism::Transport::Detail
         }
         for (std::size_t Index = 0; Index <= CancelCapacity; ++Index)
         {
-            if (!Commands[Index].Used.load() || !Commands[Index].Carrier.load() ||
-                Commands[Index].KnownControlFailure.load(std::memory_order_acquire) != KnownFailurePhase::Recorded)
-                continue;
+            auto& CommandValue = Commands[Index];
+            if (!CommandValue.Used.load() || !CommandValue.Carrier.load()) continue;
+            const auto FailurePhase =
+                CommandValue.KnownControlFailure.load(std::memory_order_acquire);
+            if (FailurePhase != KnownFailurePhase::Recorded) continue;
             Activity->BeginControlRetry();
             auto Expected = RetryState::Idle;
-            if (!Commands[Index].Retry.compare_exchange_strong(
+            if (!CommandValue.Retry.compare_exchange_strong(
                     Expected, RetryState::InFlight, std::memory_order_acq_rel))
             {
                 Activity->EndControlRetry();
                 continue;
             }
-            if (!Commands[Index].Retryable.exchange(false, std::memory_order_acq_rel))
+            if (!CommandValue.Retryable.exchange(false, std::memory_order_acq_rel))
             {
                 CompleteRetryWithoutOperation(Index);
                 continue;
@@ -492,8 +543,8 @@ namespace Prism::Transport::Detail
             if (Index == CancelCapacity)
             {
                 CloseAttemptCompletionClaimed.store(false, std::memory_order_release);
-                CloseAttempt.store(CloseAttemptPhase::Posting, std::memory_order_release);
-                CloseDispatchChanges.reset();
+                CloseAttempt.store(CloseAttemptPhase::Idle, std::memory_order_release);
+                (void)BeginCloseAttempt();
             }
             const auto Posted = Reclaimer->Post(Delivery(shared_from_this(), Index, true));
             if (!Posted && Index == CancelCapacity)
@@ -514,7 +565,8 @@ namespace Prism::Transport::Detail
             (Blocked.load(std::memory_order_acquire) && !Reclaimer->CanDispatch());
     }
 
-    auto TransmissionControlOwner::Execute(std::size_t Index, bool& HandlerInvoked) -> bool
+    auto TransmissionControlOwner::Execute(
+        std::size_t Index, bool& HandlerInvoked, const bool IsRetry) -> bool
     {
         const auto Carrier = Commands[Index].Carrier.load();
         if (!Carrier)
@@ -525,7 +577,7 @@ namespace Prism::Transport::Detail
             return false;
         }
         if (ExternalCloseConfirmed.load(std::memory_order_acquire) ||
-            (Index < CancelCapacity && LocalClosed.load(std::memory_order_acquire)))
+            (Index < CancelCapacity && LocalClosed.load(std::memory_order_acquire) && !IsRetry))
         {
             HandlerInvoked = true;
             return true;

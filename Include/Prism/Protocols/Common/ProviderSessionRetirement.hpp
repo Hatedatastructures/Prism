@@ -147,6 +147,22 @@ namespace Prism::Protocols
             UseLease_ = std::move(Lease);
         }
 
+        auto AttachMuxRootGenerationLease(
+            Prism::Foundation::GenerationUseLease &&Lease) noexcept -> void override
+        {
+            RootGenerationUseLease_ = std::move(Lease);
+        }
+
+        /** @brief 根物理退休后才归还票据的接入使用租约，保持 root 存活期间双计数。 */
+        auto OnMuxRootRetired() noexcept -> void override
+        {
+            // 票据在 root 存活期间同时记录 owner 槽；退休通知必须清掉唯一 session 强引用，
+            // 否则 registry 节点释放后 root 仍被票据保活，Active() 永远看不到真实归零。
+            ProviderMuxRootState::OnMuxRootRetired();
+            RootGenerationUseLease_ = {};
+            UseLease_ = {};
+        }
+
         /** @brief Accept 返回前标记握手与发布代码已退栈。 */
         auto FinishAccept() noexcept -> void
         { AcceptFinished_.store(true, std::memory_order_release); }

@@ -68,4 +68,10 @@ namespace Prism::Protocols
     {
         return std::move(RootGenerationUseLease_);
     }
+
+    auto ProviderMuxRootState::OnMuxRootRetired() noexcept -> void
+    {
+        Root_.store({}, std::memory_order_release);
+        if (RootSlot_) RootSlot_->Mux.reset();
+    }
 } // namespace Prism::Protocols

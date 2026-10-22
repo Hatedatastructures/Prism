@@ -107,7 +107,7 @@ const scopes = Array.isArray(values.scope) ? values.scope : [values.scope];
 for (const scope of scopes) {
   const scopeDirectory = path.resolve(values.repo, scope);
   if (!fs.existsSync(scopeDirectory)) throw new Error(`检查范围不存在：${scope}`);
-  const isTestScope = path.relative(values.repo, scopeDirectory).replaceAll('\\', '/').startsWith('tests/');
+  const isTestScope = path.relative(values.repo, scopeDirectory).replaceAll('\\', '/').startsWith('Test/');
   for (const file of Sources(scopeDirectory)) {
     const bytes = fs.readFileSync(file);
     const source = bytes.toString('utf8');
@@ -123,8 +123,8 @@ for (const scope of scopes) {
     result.parseRecoveries.push(...recoveries.map(recovery => ({ path: relative, ...recovery })));
     // 这两个 CPP 的已核生成宏展开为 TEST 函数定义，调用末尾不需要表达式分号。
     const testDefinitionMacro =
-      ['tests/Prism/Integration/Layering/CarrierTcpIntegrityBenchmark.cpp',
-        'tests/Prism/Integration/Layering/CarrierTcpThroughputBenchmark.cpp'].some(
+      ['Test/Prism/Integration/Layering/CarrierIntegrityTest.cpp',
+        'Test/Prism/Integration/Layering/CarrierThroughputTest.cpp'].some(
           file => file.toLowerCase() === relative.toLowerCase()) &&
       HasComboTestDefinition(tree);
     const stack = [tree.rootNode];

@@ -76,11 +76,11 @@ $CodecVectorTools = @{
     websocket = 'wscmp'
 }
 
-$CppClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSs2022Client.exe'
-$CppServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSs2022Server.exe'
-$GoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/ss2022_server.exe'
-$GoClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/ss2022_client.exe'
-$InteropScript = Join-Path $RepoRoot 'tests/Prism/Integration/Go/Interop/run_interop.ps1'
+$CppClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropSs2022Client.exe'
+$CppServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropSs2022Server.exe'
+$GoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/ss2022_server.exe'
+$GoClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/ss2022_client.exe'
+$InteropScript = Join-Path $RepoRoot 'Test/Prism/Integration/Go/Interop/run_interop.ps1'
 $Pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
 if (-not $Pwsh) {
     $Pwsh = (Get-Command powershell -ErrorAction SilentlyContinue).Source
@@ -103,63 +103,63 @@ if ((Test-Path -LiteralPath $CppClient -PathType Leaf) -and
         'SS2022 C++/Go interop executables or PowerShell runner are unavailable'
 }
 
-$TrojanClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrojanClient.exe'
-$TrojanServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrojanServer.exe'
-$TrojanGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/trojan.exe'
+$TrojanClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTrojanClient.exe'
+$TrojanServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTrojanServer.exe'
+$TrojanGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/trojan.exe'
 $TrojanPort = 19082
-$VmessClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVmessClient.exe'
-$VmessServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVmessServer.exe'
-$VmessGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/singvmess.exe'
-$VmessGoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/vmess_server.exe'
+$VmessClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVmessClient.exe'
+$VmessServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVmessServer.exe'
+$VmessGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/singvmess.exe'
+$VmessGoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/vmess_server.exe'
 $VmessPort = 19083
-$VlessClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVlessClient.exe'
-$VlessServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVlessServer.exe'
-$VlessGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/vless.exe'
+$VlessClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVlessClient.exe'
+$VlessServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVlessServer.exe'
+$VlessGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/vless.exe'
 $VlessPort = 19084
-$Socks5Cpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSocks5.exe'
-$Socks5Go = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/socks5.exe'
+$Socks5Cpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropSocks5.exe'
+$Socks5Go = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/socks5.exe'
 $Socks5Port = 19085
-$HttpCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHttp.exe'
-$HttpGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/http.exe'
+$HttpCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropHttp.exe'
+$HttpGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/http.exe'
 $HttpPort = 19086
-$RecognitionCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropRecognition.exe'
+$RecognitionCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropRecognition.exe'
 $RecognitionDeterministicPort = 19110
 $RecognitionDeterministicSocks5Port = 19112
 $RecognitionMixedTrialPort = 19111
 $RecognitionMixedTrojanPort = 19113
 $RecognitionMixedVmessPort = 19114
 $RecognitionMixedSs2022Port = 19115
-$NativeTlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropNativeTls.exe'
-$NativeTlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/native_tls.exe'
+$NativeTlsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropNativeTls.exe'
+$NativeTlsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/native_tls.exe'
 $NativeTlsPort = 19092
-$WsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropWs.exe'
-$WsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/websocket.exe'
+$WsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropWs.exe'
+$WsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/websocket.exe'
 $WsPort = 19093
-$AnytlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropAnytls.exe'
-$AnytlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/anytls.exe'
+$AnytlsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropAnytls.exe'
+$AnytlsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/anytls.exe'
 $AnytlsPort = 19094
-$GunCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropGun.exe'
-$GunGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/gun.exe'
+$GunCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropGun.exe'
+$GunGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/gun.exe'
 $GunPort = 19095
-$XhttpCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropXhttp.exe'
-$XhttpGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/xhttp.exe'
+$XhttpCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropXhttp.exe'
+$XhttpGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/xhttp.exe'
 $XhttpPort = 19096
-$TrusttunnelCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrusttunnel.exe'
-$TrusttunnelGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/trusttunnel.exe'
+$TrusttunnelCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTrusttunnel.exe'
+$TrusttunnelGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/trusttunnel.exe'
 $TrusttunnelPort = 19097
-$ShadowtlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropShadowtls.exe'
-$ShadowtlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/shadowtls.exe'
+$ShadowtlsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropShadowtls.exe'
+$ShadowtlsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/shadowtls.exe'
 $ShadowtlsPort = 19100
 $ShadowtlsTargetPort = 19101
-$TuicCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTuic.exe'
-$TuicGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/tuic.exe'
-$TuicGoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/tuic_server.exe'
+$TuicCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTuic.exe'
+$TuicGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/tuic.exe'
+$TuicGoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/tuic_server.exe'
 $TuicPort = 19087
 $TuicReferencePort = 19091
-$Hysteria2Cpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHysteria2.exe'
-$Hysteria2CppClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHysteria2Client.exe'
-$Hysteria2Go = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/hysteria2.exe'
-$Hysteria2GoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/hysteria2_server.exe'
+$Hysteria2Cpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropHysteria2.exe'
+$Hysteria2CppClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropHysteria2Client.exe'
+$Hysteria2Go = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/hysteria2.exe'
+$Hysteria2GoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/hysteria2_server.exe'
 $Hysteria2Port = 19088
 $Hysteria2ReferencePort = 19089
 $Hysteria2ReferenceUdpPort = 19090
@@ -1581,7 +1581,7 @@ foreach ($Protocol in $Protocols) {
     }
 
     if ($CodecVectorTools.ContainsKey($Protocol)) {
-        $VectorExecutable = Join-Path $RepoRoot ('build/tests/Prism/Integration/Go/' + $CodecVectorTools[$Protocol] + '.exe')
+        $VectorExecutable = Join-Path $RepoRoot ('build/Test/Prism/Integration/Go/' + $CodecVectorTools[$Protocol] + '.exe')
         $VectorResult = Invoke-InteropCase -Executable $VectorExecutable `
             -Protocol $Protocol -Direction 'reference-codec-vector' -Scenario 'codec-vector' `
             -Implementation 'go-reference-vector' -Commit $Commit -Platform $Platform `

@@ -1,6 +1,7 @@
 /** @file RootState.hpp @brief generic mux 根持真实 lease、子流与独立 frame/child scopes。 */
 #pragma once
 #include <Prism/Contract/Ingress/MuxSession.hpp>
+#include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 #include <Prism/Protocols/Mux/RootOptions.hpp>
 #include <Prism/Contract/Ingress/StreamCatalog.hpp>
 #include <Prism/Contract/Services/Stream.hpp>
@@ -9,6 +10,8 @@
 #include <Prism/Foundation/Fault/FailureState.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/cancellation_signal.hpp>
+#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/system/system_error.hpp>
 #include <atomic>
 #include <exception>
@@ -62,6 +65,9 @@ namespace Prism::Mux::Detail
     };
     struct ChildState final : std::enable_shared_from_this<ChildState>
     {
+        using StartSignal =
+            Net::experimental::concurrent_channel<void(boost::system::error_code)>;
+
         std::shared_ptr<RootState> Root;
         Prism::SharedTransmission Inbound, Outbound;
         Prism::Account::StreamLease Lease;
@@ -69,11 +75,15 @@ namespace Prism::Mux::Detail
         Prism::Lifecycle::TaskIdentity Identity;
         Prism::Network::Target Target;
         Net::cancellation_signal Cancellation;
-        std::atomic_bool NormalCloseCancellation{false};
+        /** @brief 区分显式 child 取消与根 owner 的正常 close，两者都仍需完成物理退休。 */
+        std::atomic_bool NormalCloseCancellation{false}, ExplicitCancellation{false};
+        std::atomic_bool CancelIssued{false};
         std::function<void()> Reject;
         std::function<std::expected<void, Prism::Fault::Failure>()> Reset;
         std::function<Net::awaitable<std::expected<void, Prism::Fault::Failure>>()> Finish;
         std::shared_ptr<Prism::Fault::FailureState> ControlFailure;
+        /** @brief H2 在 catalog 注册完成并提交 200 之前阻止 child 数据面启动。 */
+        std::shared_ptr<StartSignal> StartGate;
         bool Admitted{true};
         auto Cancel() noexcept -> void;
     };
@@ -102,6 +112,8 @@ namespace Prism::Mux::Detail
         /** @brief 仅在取消阶段设置或补齐终态；结果发布或退休后不覆盖。 */
         auto RequestCancel() noexcept -> void;
         [[nodiscard]] auto IsClosingNormally() const noexcept -> bool;
+        /** @brief 是否已请求根级显式取消；用于保留历史取消而不伪造正常 close。 */
+        [[nodiscard]] auto IsExplicitlyCanceled() const noexcept -> bool;
         [[nodiscard]] auto IsExpectedRetirementCancellation(
             const Prism::Fault::Failure &Failure, bool Retired) const noexcept -> bool;
         /** @brief 原子发布 Run 结果；返回 true 表示此前取消请求已胜出。 */
@@ -132,10 +144,15 @@ namespace Prism::Mux::Detail
         Prism::Account::StreamAdmission Admission;
         Prism::Contract::RequestMetadata Metadata;
         std::shared_ptr<Prism::Contract::Ingress::StreamCatalog> StreamCatalogOwner;
+        std::weak_ptr<Prism::Contract::MuxRootCreateOwner> CreateOwner;
         std::unordered_map<std::uint64_t,
             std::shared_ptr<Prism::Contract::Ingress::StreamResetOwner>> StreamResetOwners;
         Mode SelectedWire{Mode::Auto};
         std::atomic_bool Started{false}, Stopping{false};
+        /** @brief 串行化 Run 与 Activity::Drain 的最终资源回收，保证只释放一次。 */
+        std::shared_ptr<Net::experimental::concurrent_channel<void(boost::system::error_code)>>
+            DrainGate;
+        std::atomic_bool ReleaseInProgress{false};
         std::atomic<RunPhase> Phase{RunPhase::AcceptingCancellation};
         std::atomic_bool ResourcesRetired{false};
         std::atomic_bool ResourcesReadyForFinalization{false};

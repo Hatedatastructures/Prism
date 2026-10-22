@@ -58,7 +58,7 @@ if (!Manifest || Array.isArray(Manifest) || typeof Manifest !== 'object')
     throw new Error('Vite 清单形状不正确');
 const Entries = Object.values(Manifest);
 if (Entries.length === 0 || Entries.length > 512) throw new Error('Vite 清单容量不正确');
-const Resources = new Set(['index.html']);
+const Resources = new Set(['index.html', 'PrismMark.svg', 'PrismMarkV2.svg', 'ThemeBootstrap.js']);
 for (const Entry of Entries) {
     if (!Entry || typeof Entry !== 'object' || typeof Entry.file !== 'string')
         throw new Error('Vite 资源描述不正确');

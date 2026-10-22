@@ -1,6 +1,6 @@
 # Prism 文档
 
-本文档集描述当前唯一正式实现：公开头文件位于 `Include/Prism/`，实现和私有头文件位于 `Src/Prism/`。生产程序由 CMake target `Prism` 构建，功能测试位于 `tests/Prism/`。
+本文档集描述当前唯一正式实现：公开头文件位于 `Include/Prism/`，实现和私有头文件位于 `Src/Prism/`。生产程序由 CMake target `Prism` 构建，功能测试位于 `Test/Prism/`。
 
 ## 使用指南
 

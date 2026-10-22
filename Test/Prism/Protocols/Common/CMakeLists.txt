@@ -1,0 +1,15 @@
+# Prism Common Address/Framing/Read 契约测试
+AddPrismTest(Core/PrismProtocolTest.cpp)
+target_link_libraries(PrismProtocolTest PRIVATE PrismFoundation PrismProtocolsCommon PrismTestSupport)
+AddPrismTest(Codec/CommonAddressTest.cpp)
+target_link_libraries(CommonAddressTest PRIVATE PrismFoundation PrismProtocolsCommon PrismTestSupport)
+target_compile_options(CommonAddressTest PRIVATE -O0 -fno-inline)
+AddPrismTest(Connection/CommonReadTest.cpp)
+target_link_libraries(CommonReadTest PRIVATE
+    PrismFoundation PrismProtocolsCommon PrismIngressContract PrismTransport PrismTestSupport)
+target_compile_options(CommonReadTest PRIVATE -O0 -fno-inline)
+AddPrismTest(Admission/ProviderMuxRootStateTest.cpp)
+target_link_libraries(ProviderMuxRootStateTest PRIVATE PrismFoundation PrismProtocolsCommon PrismTestSupport)
+AddPrismTest(Datagram/DatagramRelayCloseTest.cpp)
+target_link_libraries(DatagramRelayCloseTest PRIVATE
+    PrismFoundation PrismNetworkModel PrismProtocolsCommon PrismTestSupport)

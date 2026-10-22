@@ -9,6 +9,7 @@ namespace Prism::Xhttp::Detail
 {
     auto CloseClientOwnerOnExecutor(const std::shared_ptr<ClientState> &State) noexcept
         -> Prism::Fault::Failure{
+        State->Closing.store(true, std::memory_order_release);
         Prism::Fault::Failure FirstFailure;
         const auto Record = [&FirstFailure](Prism::Transmission::ControlResult Result) noexcept
         {
@@ -49,7 +50,10 @@ namespace Prism::Xhttp::Detail
             if (FirstFailure.Failed())
                 State->Transport->NotifyError(Prism::Fault::ToNative(FirstFailure));
         }
-        return FirstFailure;
+        return Detail::IsLocalCloseCancellation(
+                   State->Closing.load(std::memory_order_acquire), FirstFailure)
+            ? Prism::Fault::Failure{}
+            : FirstFailure;
     }
 
     auto CloseClientOwner(const std::weak_ptr<ClientState> &WeakState) noexcept
@@ -234,13 +238,11 @@ namespace Prism::Xhttp::Detail
         }
     }
 
-    auto RunClientDriver(std::shared_ptr<ClientState> State)
-        -> Net::awaitable<void>{
-        std::array<std::byte, 16384> Buffer{};
-        bool Failed = false;
+    [[nodiscard]] auto DriveClientSession(
+        const std::shared_ptr<ClientState> &State,
+        std::span<std::byte> Buffer,
+        ClientDriverOutcome &Outcome) -> Net::awaitable<void>{
         bool CleanEof = false;
-        bool LocalCloseCompletion = false;
-        Prism::Fault::Failure Failure;
         while (true)
             {
                 const auto Part = co_await State->Encrypted->ReadSome(Buffer);
@@ -254,8 +256,8 @@ namespace Prism::Xhttp::Detail
                     (!ReadFailure.Failed() || ReadFailure.Code == Prism::Fault::Code::Eof);
                 if (Read > Buffer.size())
                 {
-                    Failed = true;
-                    Failure = {Prism::Fault::Code::InvalidArgument};
+                    Outcome.Failed = true;
+                    Outcome.Failure = {Prism::Fault::Code::InvalidArgument};
                     break;
                 }
                 if (ReadFailure.Failed() && !CleanEof)
@@ -264,15 +266,15 @@ namespace Prism::Xhttp::Detail
                         State->Closing.load(std::memory_order_acquire), ReadFailure);
                     if (LocalClose)
                     {
-                        LocalCloseCompletion = true;
-                        Failure = {};
+                        Outcome.LocalCloseCompletion = true;
+                        Outcome.Failure = {};
                         if (Step.ReadTerminal)
                             State->Transport->NotifyReadTerminal(
                                 {Prism::Fault::Code::Eof});
                         break;
                     }
-                    Failed = true;
-                    Failure = ReadFailure;
+                    Outcome.Failed = true;
+                    Outcome.Failure = ReadFailure;
                     if (Step.ReadTerminal)
                         State->Transport->NotifyReadTerminal(ReadFailure);
                     else
@@ -288,22 +290,22 @@ namespace Prism::Xhttp::Detail
                             ReadFailure);
                         if (LocalClose)
                         {
-                            LocalCloseCompletion = true;
+                            Outcome.LocalCloseCompletion = true;
                             State->Transport->NotifyReadTerminal(
                                 {Prism::Fault::Code::Eof});
                             break;
                         }
-                        Failure = ReadFailure.Failed()
+                        Outcome.Failure = ReadFailure.Failed()
                             ? ReadFailure
                             : Prism::Fault::Failure{Prism::Fault::Code::Eof};
-                        State->Transport->NotifyReadTerminal(Failure);
-                        CleanEof = Failure.Code == Prism::Fault::Code::Eof;
-                        Failed = !CleanEof;
+                        State->Transport->NotifyReadTerminal(Outcome.Failure);
+                        CleanEof = Outcome.Failure.Code == Prism::Fault::Code::Eof;
+                        Outcome.Failed = !CleanEof;
                     }
                     else
                     {
-                        Failure = {Prism::Fault::Code::WouldBlock};
-                        Failed = true;
+                        Outcome.Failure = {Prism::Fault::Code::WouldBlock};
+                        Outcome.Failed = true;
                     }
                     break;
                 }
@@ -313,8 +315,8 @@ namespace Prism::Xhttp::Detail
                     const auto Written = co_await State->Wire->Write(Output);
                     if (!Written)
                     {
-                        Failed = true;
-                        Failure = Written.error();
+                        Outcome.Failed = true;
+                        Outcome.Failure = Written.error();
                         NotifyHttp2OutputFailure(
                             *State->Transport, Step, Written.error());
                         break;
@@ -324,53 +326,65 @@ namespace Prism::Xhttp::Detail
                 {
                     if (Step.ReadTerminal)
                         State->Transport->NotifyReadTerminal(ReadFailure);
-                    Failure = ReadFailure;
+                    Outcome.Failure = ReadFailure;
                     break;
                 }
                 if (Step.ReadTerminal)
                 {
                     State->Transport->NotifyReadTerminal(ReadFailure);
-                    Failure = ReadFailure;
-                    CleanEof = Failure.Succeeded();
-                    Failed = !CleanEof;
+                    Outcome.Failure = ReadFailure;
+                    CleanEof = Outcome.Failure.Succeeded();
+                    Outcome.Failed = !CleanEof;
                     break;
                 }
                 if (State->HasCloseFailure())
                 {
-                    Failed = true;
-                    Failure = State->CloseFailureValue();
+                    Outcome.Failed = true;
+                    Outcome.Failure = State->CloseFailureValue();
                     break;
                 }
             }
-            if (State->Transport->DrainTerminalPending())
+    }
+
+    auto RunClientDriver(std::shared_ptr<ClientState> State)
+        -> Net::awaitable<void>{
+        std::array<std::byte, 16384> Buffer{};
+        ClientDriverOutcome Outcome;
+        co_await DriveClientSession(State, Buffer, Outcome);
+        if (State->Transport->DrainTerminalPending())
+        {
+            const auto CloseFailure =
+                CloseClientOwner(std::weak_ptr<ClientState>(State));
+            if (Outcome.Failure.Succeeded() && CloseFailure.Failed())
+                Outcome.Failure = CloseFailure;
+        }
+        if (Outcome.Failed || State->HasCloseFailure())
+        {
+            auto NotifyFailure = Outcome.Failure;
+            if (NotifyFailure.Succeeded())
             {
-                const auto CloseFailure =
-                    CloseClientOwner(std::weak_ptr<ClientState>(State));
-                if (Failure.Succeeded() && CloseFailure.Failed()) Failure = CloseFailure;
+                NotifyFailure = {Prism::Fault::Code::IoError};
             }
-            if (Failed || State->HasCloseFailure())
-            {
-                auto NotifyFailure = Failure;
-                if (NotifyFailure.Succeeded())
-                {
-                    NotifyFailure = {Prism::Fault::Code::IoError};
-                }
-                if (!State->Transport->DrainTerminalPending())
-                    State->Transport->NotifyError(Prism::Fault::ToNative(NotifyFailure));
-                const auto CloseFailure = CloseClientOwner(std::weak_ptr<ClientState>(State));
-                if (Failure.Succeeded() && CloseFailure.Failed()) Failure = CloseFailure;
-                if (Failure.Succeeded()) Failure = {Prism::Fault::Code::IoError};
-            }
-            else
-            {
-                if (!State->Transport->DrainTerminalPending())
-                    State->Transport->NotifyEof();
-                if (LocalCloseCompletion)
-                    Failure = {};
-                else if (Failure.Succeeded())
-                    Failure = {Prism::Fault::Code::Eof};
-            }
-        (void)State->Response->try_send(boost::system::error_code{}, Failure, false);
+            if (!State->Transport->DrainTerminalPending())
+                State->Transport->NotifyError(Prism::Fault::ToNative(NotifyFailure));
+            const auto CloseFailure =
+                CloseClientOwner(std::weak_ptr<ClientState>(State));
+            if (Outcome.Failure.Succeeded() && CloseFailure.Failed())
+                Outcome.Failure = CloseFailure;
+            if (Outcome.Failure.Succeeded())
+                Outcome.Failure = {Prism::Fault::Code::IoError};
+        }
+        else
+        {
+            if (!State->Transport->DrainTerminalPending())
+                State->Transport->NotifyEof();
+            if (Outcome.LocalCloseCompletion)
+                Outcome.Failure = {};
+            else if (Outcome.Failure.Succeeded())
+                Outcome.Failure = {Prism::Fault::Code::Eof};
+        }
+        (void)State->Response->try_send(
+            boost::system::error_code{}, Outcome.Failure, false);
     }
 
     [[nodiscard]] auto MakeClientState(
@@ -465,7 +479,8 @@ namespace Prism::Xhttp::Detail
 
     [[nodiscard]] auto WaitClientResponse(
         const std::shared_ptr<ClientState> &State,
-        FactoryRetirement<ClientState> &Retirement) -> Net::awaitable<FactoryResult>{
+        FactoryRetirement<ClientState> &Retirement) -> Net::awaitable<FactoryResult>
+    {
         boost::system::error_code ResponseEc;
         Net::steady_timer Deadline(State->Encrypted->Executor());
         Deadline.expires_after(std::chrono::seconds(30));

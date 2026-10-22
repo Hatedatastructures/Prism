@@ -18,7 +18,7 @@ function exists(rel) {
 }
 
 // 存在性必须**精确到大小写**：本仓库在 Windows（core.ignorecase=true）上开发，
-// fs.existsSync 对 `tests/prism/` 这种只错大小写的写法同样返回 true，
+// fs.existsSync 对 `Test/prism/` 这种只错大小写的写法同样返回 true，
 // 而 Linux CI 与 MinGW 之外的编译器会直接找不到文件。
 const exactCache = new Map();
 function existsExact(rel) {

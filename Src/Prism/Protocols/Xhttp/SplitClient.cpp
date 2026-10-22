@@ -49,6 +49,9 @@ namespace Prism::Xhttp::Detail
                         std::current_exception());
             }
         }
+        if (Detail::IsLocalCloseCancellation(
+                State->Closing.load(std::memory_order_acquire), FirstFailure))
+            FirstFailure = Prism::Fault::Failure{};
         if (State->CloseFailure.Succeeded() && FirstFailure.Failed())
             State->CloseFailure = FirstFailure;
         return State->CloseFailure;

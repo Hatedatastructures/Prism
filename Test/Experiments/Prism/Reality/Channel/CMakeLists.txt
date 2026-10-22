@@ -1,0 +1,10 @@
+# Reality SessionId 通道实验测试。
+AddExperimentTest(SessionIdErrorTest.cpp)
+target_include_directories(ExperimentSessionIdErrorTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ExperimentSessionIdErrorTest PRIVATE
+    PrismTransport PrismProtocolReality ExperimentalRealitySessionSupport)
+
+AddExperimentTest(SessionIdDecoratorTest.cpp)
+target_include_directories(ExperimentSessionIdDecoratorTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
+target_link_libraries(ExperimentSessionIdDecoratorTest PRIVATE
+    PrismTransport PrismProtocolReality ExperimentalRealitySessionSupport)

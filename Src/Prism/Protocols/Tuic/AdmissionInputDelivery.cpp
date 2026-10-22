@@ -48,7 +48,17 @@ namespace Prism::Tuic
     {
         if (State_.load(std::memory_order_acquire) != DeliveryState::Retryable) return {};
         if (!IsCurrentEvent())
-            return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+        {
+            RetireClosedInput();
+            return {};
+        }
+        if (Event_.Kind != InputKind::Close && Event_.Kind != InputKind::NativeClosed &&
+            (Owner_->Closed_ || Owner_->CloseQueued_.load(std::memory_order_acquire) ||
+                Owner_->NativeClosed_.load(std::memory_order_acquire)))
+        {
+            RetireClosedInput();
+            return {};
+        }
         const auto OwnerFailure = Owner_->Failure_.Load();
         if (OwnerFailure.Failed() && Event_.Kind != InputKind::Close &&
             Event_.Kind != InputKind::NativeClosed)
@@ -64,18 +74,22 @@ namespace Prism::Tuic
             return;
         if (!IsCurrentEvent())
         {
-            Fail({Prism::Fault::Code::Blocked});
+            RetireClosedInput();
             return;
         }
         if (Event_.Kind != InputKind::Close && Event_.Kind != InputKind::NativeClosed &&
             (Owner_->NativeClosed_.load(std::memory_order_acquire) ||
                 Owner_->CloseQueued_.load(std::memory_order_acquire)))
+        {
             Owner_->CloseOnExecutor();
+            RetireClosedInput();
+            return;
+        }
         const auto OwnerFailure = Owner_->Failure_.Load();
         if (OwnerFailure.Failed() && Event_.Kind != InputKind::Close &&
             Event_.Kind != InputKind::NativeClosed)
         {
-            Fail(OwnerFailure);
+            RetireClosedInput();
             return;
         }
         if (!Event_.Reservation)
@@ -112,6 +126,46 @@ namespace Prism::Tuic
         RetainFailure({Prism::Fault::Code::Blocked});
     }
 
+    auto ConnectionAdmission::InputDelivery::RetireClosedInput() noexcept -> void
+    {
+        [[maybe_unused]] const auto KeepAlive = shared_from_this();
+        State_.store(DeliveryState::Completed, std::memory_order_release);
+        Owner_->RemoveRetryableInputDelivery(*this);
+        auto Carrier = std::move(Event_.Carrier);
+        if (!Carrier && Event_.StreamProvider)
+        {
+            try
+            {
+                Carrier = std::make_shared<Prism::Quic::StreamAdapter>(
+                    Event_.StreamProvider->Executor(), Event_.StreamProvider);
+            }
+            catch (...)
+            {
+                Owner_->RecordFatal(std::current_exception());
+            }
+        }
+        else if (!Carrier && Event_.Provider)
+        {
+            try
+            {
+                Carrier = std::make_shared<Prism::Quic::DatagramAdapter>(Event_.Provider);
+            }
+            catch (...)
+            {
+                Owner_->RecordFatal(std::current_exception());
+            }
+        }
+        Event_.Carrier.reset();
+        Event_.StreamProvider.reset();
+        Event_.Provider.reset();
+        Event_.Exporter = {};
+        Event_.Reservation.reset();
+        if (Carrier)
+            Owner_->RetireCarrier(std::move(Carrier));
+        Owner_->MaybeFinishClose();
+        if (Storage_) Storage_->Collect();
+    }
+
     auto ConnectionAdmission::InputDelivery::RequestRetirement() -> void
     {
         (void)RetryRejected();
@@ -134,9 +188,8 @@ namespace Prism::Tuic
     {
         if (!IsCurrentEvent())
         {
-            if (ExpectedState == DeliveryState::Created)
-                Fail({Prism::Fault::Code::Blocked});
-            return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+            RetireClosedInput();
+            return {};
         }
         auto Expected = ExpectedState;
         if (!State_.compare_exchange_strong(
@@ -226,8 +279,14 @@ namespace Prism::Tuic
                     Event_.Provider, Event_.Carrier, std::move(*Event_.Reservation));
             break;
         case InputKind::Close:
-        case InputKind::NativeClosed:
             Owner_->CloseOnExecutor();
+            break;
+        case InputKind::NativeClosed:
+            // Native close is a terminal acknowledgement, not another local close edge.
+            if (!Owner_->Closed_)
+                Owner_->CloseOnExecutor();
+            else
+                Owner_->MaybeFinishClose();
             break;
         }
         return true;
@@ -244,8 +303,13 @@ namespace Prism::Tuic
     {
         if (Reason.Succeeded()) Reason = {Prism::Fault::Code::Blocked};
         Owner_->RecordFailure(Reason);
-        Owner_->Inputs_.Block();
-        if (Storage_) Storage_->Retain(shared_from_this());
+        const auto HasEvent = Event_.Carrier || Event_.StreamProvider || Event_.Provider ||
+            static_cast<bool>(Event_.Reservation);
+        if (HasEvent) Owner_->StoreFailedInput(std::move(Event_));
+        State_.store(DeliveryState::Completed, std::memory_order_release);
+        Owner_->RemoveRetryableInputDelivery(*this);
+        Owner_->MaybeFinishClose();
+        if (Storage_) Storage_->Collect();
     }
 
     auto ConnectionAdmission::InputDelivery::MarkRetryIndexMissing() noexcept -> void

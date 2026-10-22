@@ -49,6 +49,8 @@ namespace Prism::Mux::Detail
             std::atomic_uint64_t RegistrationGate{0};
             std::atomic<std::shared_ptr<RootRegistryNode>> Head;
             Prism::Fault::FailureState HistoricalFailure;
+            /** @brief 本轮 Drain 已观察到的显式取消；与不可重试的持久失败分开保存。 */
+            Prism::Fault::FailureState AttemptCancellation;
         };
 
         struct PendingRootOwner final
@@ -84,6 +86,7 @@ namespace Prism::Mux::Detail
         /** @brief 返回 root owner 已发布的持久终态首因，不包含可重试的本轮取消。 */
         [[nodiscard]] auto DrainFailure() const noexcept -> Prism::Fault::Failure;
 
+        /** @brief 显式 Close 后按真实物理退休完成，同时返回本轮 Canceled 历史结果。 */
         [[nodiscard]] auto Drain()
             -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>;
 

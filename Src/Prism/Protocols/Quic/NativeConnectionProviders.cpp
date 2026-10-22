@@ -235,7 +235,6 @@ namespace Prism::Quic::Detail
                 ErrorCode = ToStdError(Prism::Error::BrokenPipe);
                 co_return 0;
             }
-            State->Notify.reset();
             boost::system::error_code NotifyError;
             co_await State->Notify.async_receive(Net::redirect_error(Net::use_awaitable, NotifyError));
             if (NotifyError && State->Closed)
@@ -517,7 +516,6 @@ namespace Prism::Quic::Detail
                 co_return 0;
             }
 
-            State_->Notify.reset();
             boost::system::error_code NotifyError;
             co_await State_->Notify.async_receive(Net::redirect_error(Net::use_awaitable, NotifyError));
             if (NotifyError && State_->Closed)

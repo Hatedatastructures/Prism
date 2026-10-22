@@ -166,6 +166,10 @@ namespace Prism::Xhttp::Detail
             if (Driver.Failed())
                 RecordRetirementFailure(FirstFailure, Driver);
             if (Value.DriverStarted && !Value.DriverCompleted) Complete = false;
+            // 本函数只会在本地关闭意图（Closing）下取消在途 I/O；若全部层已物理退休，
+            // 该取消只是关闭唤醒的结果，不得覆盖此前真实 Native 失败。
+            if (Complete && IsLocalCloseCancellation(true, FirstFailure))
+                FirstFailure = Prism::Fault::Failure{};
             if (!Complete && FirstFailure.Succeeded())
                 FirstFailure = {Prism::Fault::Code::Blocked};
             co_return FactoryRetirementReceipt{Complete, FirstFailure};

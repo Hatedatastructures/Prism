@@ -6,7 +6,7 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 ## 当前主线：Prism（下一代实现）
 
-`Include/Prism/` 与 `Src/Prism/`、`tests/Prism/` 和 `Prism` 是当前唯一正式实现。公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`；`Src/Prism/Application/Startup/StartupTransaction.hpp` 是私有启动回滚实现。默认沿此启动路径和 `Include/Prism/Runtime/Session.hpp`、`Include/Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
+`Include/Prism/` 与 `Src/Prism/`、`Test/Prism/` 和 `Prism` 是当前唯一正式实现。公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`；`Src/Prism/Application/Startup/StartupTransaction.hpp` 是私有启动回滚实现。默认沿此启动路径和 `Include/Prism/Runtime/Session.hpp`、`Include/Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
 
 Prism 的当前文档入口见 [docs/index.md](docs/index.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/prism/README.md](docs/prism/README.md)。文档只描述当前实现与可复核的验收边界；不保留旧任务报告作为当前执行状态。
 
@@ -42,7 +42,7 @@ Prism 默认生产 target 是 `Prism`，配置源为 `Include/Prism/Application/
 
 `PrismWeb` 是独立 opt-in target，不属于默认 `all`，也不是 `Prism` 的依赖；默认 `cmake --build build` 和显式 `cmake --build build --target Prism` 都不会生成 Web 资源。需要管理 UI 时显式构建 `PrismWeb`，例如 `cmake --build build --config Release --target PrismWeb -j 16`；生成资源时需要 Node.js 与 npm，资源及 `catalog.json` 生成在 `${CMAKE_BINARY_DIR}/Web/`（使用 `build/` 时为 `build/Web/`）。运行时默认从该目录查找资源。配置中的 `Operations.WebDirectory` 可覆盖该目录；若选定目录没有 `catalog.json`，运行时跳过 Web catalog 加载。
 
-全量功能验收需先构建默认功能测试目标，再用 `ctest --test-dir build --output-on-failure -j 1 --timeout 30` 运行当前发现的用例；聚焦验收按当前 CTest 注册名筛选 `tests/Prism` 相关用例。报告须记录所用源码、配置和可执行文件版本，不引用旧版 CTest 数量。
+全量功能验收需先构建默认功能测试目标，再用 `ctest --test-dir build --output-on-failure -j 1 --timeout 30` 运行当前发现的用例；聚焦验收按当前 CTest 注册名筛选 `Test/Prism` 相关用例。报告须记录所用源码、配置和可执行文件版本，不引用旧版 CTest 数量。
 
 旧版测试程序路径、旧 CTest 数量和旧 benchmark/stress 可执行文件已退役，不在本节重复旧命令。当前 Prism 的构建入口为 `--target Prism`，运行路径按上文平台说明；功能测试按重新生成的当前 CTest 注册名验收。
 
@@ -86,8 +86,8 @@ ctest --test-dir build --output-on-failure -j 1
 - **Boost.Asio 1.89.0** (header-only，协程支持) / **BoringSSL** (OpenSSL API 兼容) / **spdlog 1.17.0** / **glaze 6.5.1** (JSON) / **BLAKE3 v1.8.1** / **nghttp2 1.69.0** / **Google Benchmark 1.9.5**
 - Windows 系统库依赖: `ws2_32`, `mswsock`, `crypt32`
 构建选项:
-- `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 OFF；`tests/Prism/Performance` 基准源码保留，按当前迁移范围暂不接入/构建)
-- `PRISM_ENABLE_STRESS=ON/OFF` (默认 OFF；`tests/Prism/Stress` 压力源码保留，按当前迁移范围暂不接入/构建)
+- `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 OFF；`Test/Prism/Performance` 基准源码保留，按当前迁移范围暂不接入/构建)
+- `PRISM_ENABLE_STRESS=ON/OFF` (默认 OFF；`Test/Prism/Stress` 压力源码保留，按当前迁移范围暂不接入/构建)
 
 ## 旧版 Prism 架构参考（已退役实现的历史说明）
 
@@ -241,7 +241,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 - **命名空间**: PascalCase，`Psm::` 前缀（迁移后）；存量 `psm::` 未迁移前继续使用
 - **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Net/Transport/Reliable.hpp`）；
-  工程根级目录（`src/`、`include/`、`tests/`、`docs/`、`scripts/`、`build/`）保持生态惯例不动
+  工程根级目录（`src/`、`include/`、`Test/`、`docs/`、`scripts/`、`build/`）保持生态惯例不动
 - **生产代码**: 类/结构体/枚举/枚举值/类型别名/模板参数 PascalCase
   （如 `PendingEntry`、`StreamType::Tcp`、`SharedTransmission`；模板参数已有先例 `typename Memory`）
 - **函数/方法**: PascalCase（`ActivateStream()`、`SendData()`）
@@ -262,7 +262,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 ### 迁移范围与顺序（每批独立 commit + 全量回归 + Linux CI 验证）
 
-1. 阶段 1：`tests/common/`（preview 库，下一代架构验证场，约 206 文件）——命名空间 `preview` → `Preview`，目录/文件/类型 PascalCase
+1. 阶段 1：`Test/common/`（preview 库，下一代架构验证场，约 206 文件）——命名空间 `preview` → `Preview`，目录/文件/类型 PascalCase
 2. 阶段 2：`include/prism/`（生产头文件，约 235 文件）——`psm::` → `Psm::`，目录/文件/类型 PascalCase
 3. 阶段 3：`src/prism/`（生产源文件，约 124 文件）+ 全部 CMakeLists/scripts 同步
 4. 阶段 4：函数/方法/变量/常量升级 PascalCase（项目所有者已确认，2026-08-22）——
@@ -284,32 +284,32 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 测试
 
-Prism 测试位于 `tests/Prism/`，按配置、Composition、协议 codec/session、Application/Boundary 真实装配、互操作、压力和性能分别报告。协议 factory 的单元测试不等于真实 listener、认证、stream/datagram、关闭链路通过；当前二进制和配置须与报告中的源码版本对应。
+Prism 测试位于 `Test/Prism/`，按配置、Composition、协议 codec/session、Application/Boundary 真实装配、互操作、压力和性能分别报告。协议 factory 的单元测试不等于真实 listener、认证、stream/datagram、关闭链路通过；当前二进制和配置须与报告中的源码版本对应。
 
 ### Prism 测试组织规则（2026-10-08 用户明确要求）
 
-- `tests/Prism/` 内项目自有目录、文件及标识符统一 PascalCase；工程惯例文件 `CMakeLists.txt`、第三方 API 和外部 wire/config 字段保留规定名称。文件名表达实际功能或场景，避免无意义编号、过长名称和同名 target 冲突。Windows 纯大小写改名使用可核查的中间名称，保留当前脏文件；受跟踪路径使用两步 `git mv`，不执行 checkout/reset/clean。
-- 测试模块按当前 `Include/Prism/` 与 `Src/Prism/` 的真实源码 owner 与 CMake 责任对齐，不保留 `Core/Coroutine`、`Stealth` 等历史分类作为独立模块或转发目录。TaskRegistry/cancellation/drain 覆盖归实际 `Lifecycle`，编译装配归 `Composition`，配置归 `Application/Configuration`；跨协议集成场景明确标注其集成责任，独立实验覆盖归 `tests/Experiments`。旧空目录、旧接口名称及已退役 target 都不能作为测试模块存在的依据。
+- `Test/Prism/` 内项目自有目录、文件及标识符统一 PascalCase；工程惯例文件 `CMakeLists.txt`、第三方 API 和外部 wire/config 字段保留规定名称。文件名表达实际功能或场景，避免无意义编号、过长名称和同名 target 冲突。Windows 纯大小写改名使用可核查的中间名称，保留当前脏文件；受跟踪路径使用两步 `git mv`，不执行 checkout/reset/clean。
+- 测试模块按当前 `Include/Prism/` 与 `Src/Prism/` 的真实源码 owner 与 CMake 责任对齐，不保留 `Core/Coroutine`、`Stealth` 等历史分类作为独立模块或转发目录。TaskRegistry/cancellation/drain 覆盖归实际 `Lifecycle`，编译装配归 `Composition`，配置归 `Application/Configuration`；跨协议集成场景明确标注其集成责任，独立实验覆盖归 `Test/Experiments`。旧空目录、旧接口名称及已退役 target 都不能作为测试模块存在的依据。
 - 模块映射必须逐用例核对实际被测生产接口和源码路径。独立协议 codec/session 用例归对应 `Protocols/<Name>`，`Protocols/Common` 只覆盖真实 Common 契约；只有单个场景实际跨越多个模块时才归 `Integration`，并按场景和协议拆分。不得将互不相关的用例集中到 `Common`、`Runtime` 或一个万能集成目录。
 - 测试实现和 GoogleTest 的 `TEST`/`TEST_F`/参数化用例放在 `.cpp`，每个测试 CPP 不超过 **800 行**。按真实功能、行为契约、fixture 生命周期和模块职责拆分，不以固定行数截断、不把测试正文放入 HPP、不用作用域 include 或文本片段拼装规避上限。
 - 测试同样遵循项目代码风格：项目自有标识符 PascalCase、中文 Doxygen、尾随返回类型、函数体不超过 120 行、lambda 不超过 10 行。通常最多 2 个参数，复杂边界最多 3 个；先按职责提取真实 owner 或操作，禁止万能参数包。官方接口、GoogleTest 宏和第三方回调 ABI 保留规定名称与签名，例外需精确到接口，不豁免整个测试文件。异步 fixture 使用 `co_spawn + io_context.run()`，完整等待自身任务、半关闭和最终资源释放。
 - 不建立一个测试的 `Foo.hpp` 声明与 `Foo.cpp` 实现配对。模块内部确有多个 CPP 共同消费的封装、数据构造器或拥有型 fixture，可以使用该模块内职责明确的共享 HPP；共享 HPP 同样不超过 800 行，不承载 `TEST` 宏或单个巨型 CPP 的搬运正文，不作为跨模块万能测试上下文。
 - 按生产模块组织测试目录和 CMake target，普通行为用 GoogleTest 明确断言输入、输出、错误与资源释放；互操作与 benchmark 保留适合它们的真实进程入口和测量边界，不把一段输出文本当成行为验收。拆分前后核对用例名称、多重计数、禁用状态、断言、fixture 和关闭顺序，禁止删测试、改小输入、扩大错误候选或延长 timeout 凑通过。
 - 模块代理只能编辑自己获分配的模块；共享根 CMake、脚本、文档、门禁与跨模块引用由主会话串行集成。并发代理数服从用户对当前任务的明确授权及当次工具槽位；不得虚报并发。构建、CTest discovery、真实进程及最终验收由主会话统一负责，源码冻结后再编译。
-- 本次用户已授权清理迁移后退役的旧构建产物。先保存当前证据并逐项核对旧 target/source 映射、进程与完整路径，再清理对应旧 EXE、对象和生成登记；保留仍有效的 `build/tests` 产物及依赖缓存，不删除整个 `build/`，不清理用户进程。仅重新配置、重编、实际通过并记录源码与 binary hash 后，才能签收新测试结构。
+- 本次用户已授权清理迁移后退役的旧构建产物。先保存当前证据并逐项核对旧 target/source 映射、进程与完整路径，再清理对应旧 EXE、对象和生成登记；保留仍有效的 `build/Test` 产物及依赖缓存，不删除整个 `build/`，不清理用户进程。仅重新配置、重编、实际通过并记录源码与 binary hash 后，才能签收新测试结构。
 
 以下测试规模、公共库和默认配置文件描述旧版 `Prism.exe`，不作为 Prism 的当前测试数量或配置路径：
 
 约 325 个 Google Test 独立可执行 target（每个 `.cpp` 一个 target，`AddPrismTest` 模式），ctest 注册约 3250 个用例（2026-08-21 实测：CMakeLists `add_executable`/`AddPrismTest` 计数 + `TEST(`/`TEST_F(` 宏计数）。共用基础设施：
 - Google Test 框架（`gtest` / `gtest_main`）
-- Mock 辅助: `tests/TestSupport/Production/ProductionMockTransport.hpp`、`tests/TestSupport/Tls/MockTlsServer.hpp`
-- 测试公共库分层: `tests/common/` 下 `core/`（协议公共实现）、`proxy/`（各代理协议连接）、`mux/`、`stealth/`、`stress/`
-- 并发测试: `tests/concurrency/server.cpp` + `client.cpp`（需两个终端同时运行）
-- Go 互操作测试: `tests/go/`（quic-go/sing-quic 客户端，需 Go 1.22+ 在 PATH），运行 `ctest --test-dir build -R "GoCompat|GoCmp"`
+- Mock 辅助: `Test/TestSupport/Production/ProductionMockTransport.hpp`、`Test/TestSupport/Tls/MockTlsServer.hpp`
+- 测试公共库分层: `Test/common/` 下 `core/`（协议公共实现）、`proxy/`（各代理协议连接）、`mux/`、`stealth/`、`stress/`
+- 并发测试: `Test/concurrency/server.cpp` + `client.cpp`（需两个终端同时运行）
+- Go 互操作测试: `Test/go/`（quic-go/sing-quic 客户端，需 Go 1.22+ 在 PATH），运行 `ctest --test-dir build -R "GoCompat|GoCmp"`
 
 ### 构建代价
 
-测试 target 强制 `-g1 -Os` 且每个静态链接完整协议栈 + BoringSSL，单个 exe 可达 200-300MB，tests 目录累计 10GB+。**不要删除或压缩 build/tests 以"节省空间"**——那是正常产物；历史残留（CMakeLists 中已移除的 target）才可清。
+测试 target 强制 `-g1 -Os` 且每个静态链接完整协议栈 + BoringSSL，单个 exe 可达 200-300MB，`build/Test` 目录累计 10GB+。**不要删除或压缩 `build/Test` 以"节省空间"**——那是正常产物；历史残留（CMakeLists 中已移除的 target）才可清。
 
 ### 测试命名规范
 
@@ -360,7 +360,7 @@ Prism 结构与风格门禁默认检查 `Include/Prism` 与 `Src/Prism`；可用
 
 ```bash
 node scripts/check_prism_style.mjs
-node scripts/check_prism_style.mjs --scope tests/Prism
+node scripts/check_prism_style.mjs --scope Test/Prism
 ```
 
 ## 行尾
@@ -375,7 +375,7 @@ node scripts/check_prism_style.mjs --scope tests/Prism
 
 ## 旧版任务记录
 
-旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Include/Prism/`、`Src/Prism/`、`tests/Prism/` 及 [docs/index.md](docs/index.md)。
+旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Include/Prism/`、`Src/Prism/`、`Test/Prism/` 及 [docs/index.md](docs/index.md)。
 
 ## 已知问题
 

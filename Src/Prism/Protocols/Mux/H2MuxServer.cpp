@@ -21,8 +21,12 @@
 namespace Prism::Mux::H2Mux
 {
 
-    Http2Server::Http2Server(Prism::SharedTransmission Inbound, const std::size_t MaxStreams)
-        : State_(std::make_shared<Http2State>(std::move(Inbound), MaxStreams))
+    Http2Server::Http2Server(
+        Prism::SharedTransmission Inbound,
+        const std::size_t MaxStreams,
+        const bool DeferAccept)
+        : State_(std::make_shared<Http2State>(
+              std::move(Inbound), MaxStreams, DeferAccept))
     {
         State_->Session = std::make_shared<Prism::Http2::Session>(State_->Strand, true);
         const auto WeakState = std::weak_ptr<Http2State>(State_);
@@ -227,21 +231,46 @@ namespace Prism::Mux::H2Mux
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
-    auto Http2Server::AcceptStream() -> Net::awaitable<std::shared_ptr<Http2Stream>>
+    auto Http2Server::AcceptStream()
+        -> Net::awaitable<std::shared_ptr<Http2Stream>>
     {
         co_await Net::dispatch(State_->Strand, Net::use_awaitable);
-        while (!State_->Closed)
+        // 终态可能早于 accept 到达；已完成的 CONNECT 及其 DATA 必须先交付给
+        // 协议 owner，不能因为连接已关闭而静默丢弃。
+        State_->AcceptWaiters.fetch_add(1, std::memory_order_acq_rel);
+        struct AcceptWaiterRelease final
+        {
+            std::shared_ptr<Http2State> State;
+            ~AcceptWaiterRelease() noexcept
+            {
+                State->AcceptWaiters.fetch_sub(1, std::memory_order_acq_rel);
+                State->NotifyAccept();
+            }
+        } Release{State_};
+        while (true)
         {
             if (!State_->Incoming.empty())
             {
                 auto Stream = std::move(State_->Incoming.front());
                 State_->Incoming.pop_front();
-                Stream->MarkIncomingPending(false);
+                // DeferAccept 时 pending 保持到 AcceptRequest 提交 200 后再解除。
+                if (!State_->DeferAccept.load(std::memory_order_acquire))
+                    Stream->MarkIncomingPending(false);
+                // 通知只是唤醒提示；消费后必须复位，避免后续 accept 永远跳过等待。
+                (void)State_->NotifyPending.exchange(false, std::memory_order_acq_rel);
                 co_return Stream;
             }
-            State_->Notify.reset();
-            co_await State_->Notify.async_receive(Net::use_awaitable);
+            // 单槽通知可能被并发流塞满；pending 保证至少再做一次非阻塞检查。
+            if (State_->NotifyPending.exchange(false, std::memory_order_acq_rel))
+                continue;
+            if (!State_->Incoming.empty()) continue;
+            // Close() 已终结所有已登记流，且没有排队流需要交付。
+            if (State_->Closed) co_return nullptr;
+            boost::system::error_code NotificationError;
+            co_await State_->Notify.async_receive(
+                Net::redirect_error(Net::use_awaitable, NotificationError));
             co_await Net::dispatch(State_->Strand, Net::use_awaitable);
+            if (NotificationError && !State_->Closed) co_return nullptr;
         }
         co_return nullptr;
     }

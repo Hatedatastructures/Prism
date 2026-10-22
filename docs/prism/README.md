@@ -1,6 +1,6 @@
 # Prism 开发入口
 
-`Include/Prism/` 保存当前生产公共头文件，`Src/Prism/` 保存 `.cpp` 与私有头文件；CMake 可执行 target 为 `Prism`，功能测试位于 `tests/Prism/`。
+`Include/Prism/` 保存当前生产公共头文件，`Src/Prism/` 保存 `.cpp` 与私有头文件；CMake 可执行 target 为 `Prism`，功能测试位于 `Test/Prism/`。
 
 ## 入口
 
@@ -27,4 +27,4 @@ TCP acceptor 当前仍位于 Runtime。目标职责和当前实现差异应如�
 - [所有权与异步生命周期](ownership-and-lifecycle.md)
 - [配置](../tutorial/configuration.md)
 
-本项目不维护逐协议专题页。具体 wire 与行为以 `Include/Prism/Protocols/`、`Src/Prism/Protocols/` 和对应的 `tests/Prism/Protocols/` 用例为准。
+本项目不维护逐协议专题页。具体 wire 与行为以 `Include/Prism/Protocols/`、`Src/Prism/Protocols/` 和对应的 `Test/Prism/Protocols/` 用例为准。

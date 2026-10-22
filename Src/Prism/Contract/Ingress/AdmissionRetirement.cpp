@@ -95,6 +95,11 @@ namespace Prism::Contract
         RequestRetirement();
     }
 
+    auto AdmissionRetirementState::OnMuxRootRetired() noexcept -> void
+    {
+        RootGenerationLease_ = {};
+    }
+
     auto AdmissionRetirementState::Track(const Prism::SharedTransmission& Transport)
         -> std::expected<void, Prism::Fault::Failure>
     {

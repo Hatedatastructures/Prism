@@ -59,16 +59,24 @@ namespace Prism::Mux::H2Mux
             }
         };
 
-        Http2State(Prism::SharedTransmission RawValue, const std::size_t MaxStreamsValue);
+        Http2State(Prism::SharedTransmission RawValue, std::size_t MaxStreamsValue,
+            bool DeferAcceptValue = false);
 
         Net::strand<Net::any_io_executor> Strand;
         Prism::SharedTransmission Raw;
         const std::size_t MaxStreams;
         std::shared_ptr<Prism::Http2::Session> Session;
+        /** @brief root 自有 accept loop 在 catalog 登记后才提交 :status 200。 */
+        std::atomic<bool> DeferAccept{false};
         Net::experimental::channel<void(boost::system::error_code)> Notify;
         Net::experimental::channel<void(boost::system::error_code)> RetirementNotify;
         StreamDrainChannel StreamDrainNotify;
         Net::experimental::channel<void(boost::system::error_code)> RunCompletionNotify;
+        std::atomic<bool> NotifyPending{false};
+        std::atomic<bool> RetirementPending{false};
+        std::atomic<bool> StreamDrainPending{false};
+        /** @brief 当前有 owner 正在等待 accept；终态到达时已排队流必须交付给它。 */
+        std::atomic<std::size_t> AcceptWaiters{0};
         std::shared_ptr<DrainChannel> DrainGate;
         std::shared_ptr<FlushChannel> FlushGate;
         std::deque<std::shared_ptr<Http2Stream>> Incoming;
@@ -94,6 +102,7 @@ namespace Prism::Mux::H2Mux
         auto ApplyRefusedStreams() -> void;
         auto RemoveIncoming(std::int32_t StreamId) -> void;
         [[nodiscard]] auto IsIncoming(std::int32_t StreamId) const -> bool;
+        auto NotifyAccept() noexcept -> void;
         auto StartRetirementPump() -> std::expected<void, Failure>;
         [[nodiscard]] auto RunRetirementPump() -> Net::awaitable<void>;
         auto QueueRetirement() -> void;

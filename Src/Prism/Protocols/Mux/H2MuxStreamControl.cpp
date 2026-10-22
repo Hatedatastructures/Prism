@@ -203,6 +203,17 @@ namespace Prism::Mux::H2Mux
             const auto Terminal = State_->ConnectionTerminal.Load();
             if (Terminal.Failed()) Failure = Terminal;
         }
+        if (Kind == ControlKind::Reset)
+        {
+            // RST 控制未能交付时，本端虚拟流已被 CloseBase 封止；连接本身仍归共享根，
+            // 因此把双向虚拟流收敛为终态，不能让远端 EOF 成为不可达的退休前提。
+            RemoteClosed_ = true;
+            LocalTerminal_ = true;
+            Closed_ = true;
+            Rx_.clear();
+            MarkIncomingPending(false);
+            TryQueueRetirement();
+        }
         if (Kind == ControlKind::Fin)
         {
             if (!LocalEndFailure_) LocalEndFailure_ = Failure;
@@ -228,7 +239,16 @@ namespace Prism::Mux::H2Mux
         if (!Outcome)
         {
             ResetPending_ = false;
-            if (Kind == ControlKind::Fin)
+            if (Kind == ControlKind::Reset)
+            {
+                // 控制帧失败仍须退休本虚拟流；失败已由 ControlFailure 保留给目录 owner。
+                RemoteClosed_ = true;
+                LocalTerminal_ = true;
+                Closed_ = true;
+                Rx_.clear();
+                MarkIncomingPending(false);
+            }
+            else
             {
                 if (!LocalEndFailure_) LocalEndFailure_ = Outcome.error();
                 CompletePendingWriteShutdowns(*LocalEndFailure_);

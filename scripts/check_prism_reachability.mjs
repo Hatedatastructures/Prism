@@ -8,7 +8,7 @@ const sourceRootPath = path.join(root, "Src");
 const normalizedPathKey = (filePath) => path.resolve(filePath).replace(/\\/g, "/").toLowerCase();
 const PROD_ROOTS = [path.join(root, "Include", "Prism"), path.join(root, "Src", "Prism")];
 const PROD_CMAKE = path.join(root, "Src", "Prism", "CMakeLists.txt");
-const TEST_CMAKE = path.join(root, "tests", "Prism", "CMakeLists.txt");
+const TEST_CMAKE = path.join(root, "Test", "Prism", "CMakeLists.txt");
 const FINAL_TARGETS = ["Prism"];
 const LIMITS = { productionHeaderLines: 600, testCppLines: 800 };
 
@@ -366,7 +366,7 @@ function collectCMake(entry, baseDir, acc, variables = new Map(), listDir = path
         acc.targets.add(tname);
         acc.targetTypes.set(tname, "EXECUTABLE");
         recordTargetPath(acc, tname, conditionTokens);
-        recordIncludeDirectory(acc, tname, path.join(root, "tests"), "PRIVATE");
+        recordIncludeDirectory(acc, tname, path.join(root, "Test"), "PRIVATE");
         recordIncludeDirectory(acc, tname, path.join(root, "Include"), "PRIVATE");
         const p = norm(source);
         if (p) recordSource(acc, p, tname);
@@ -580,9 +580,9 @@ const newAcc = () => ({ targets: new Set(), targetTypes: new Map(), sources: new
   tuRoots: new Set(), cmakeFiles: new Set(), declared: [],
   missingCMake: [], unresolvedCMakeSources: [], unresolvedCMakeDirectories: [] });
 const prod = collectCMake(PROD_CMAKE, path.join(root, "Src", "Prism"), newAcc());
-const test = collectCMake(TEST_CMAKE, path.join(root, "tests", "Prism"), newAcc());
-collectCMake(path.join(root, "tests", "TestSupport", "CMakeLists.txt"),
-  path.join(root, "tests", "TestSupport"), test);
+const test = collectCMake(TEST_CMAKE, path.join(root, "Test", "Prism"), newAcc());
+collectCMake(path.join(root, "Test", "TestSupport", "CMakeLists.txt"),
+  path.join(root, "Test", "TestSupport"), test);
 
 function walk(dir, filter, acc = []) {
   if (!fs.existsSync(dir)) return acc;
@@ -595,8 +595,8 @@ function walk(dir, filter, acc = []) {
 }
 
 const prodHeaders = PROD_ROOTS.flatMap((directory) => walk(directory, (n) => /\.(hpp|h|cpp|cxx|cc)$/i.test(n)));
-const testFiles = walk(path.join(root, "tests", "Prism"), (n) => /\.(hpp|cpp)$/i.test(n));
-const testSupportHeaders = walk(path.join(root, "tests", "TestSupport"), (n) => /\.(hpp|h)$/i.test(n));
+const testFiles = walk(path.join(root, "Test", "Prism"), (n) => /\.(hpp|cpp)$/i.test(n));
+const testSupportHeaders = walk(path.join(root, "Test", "TestSupport"), (n) => /\.(hpp|h)$/i.test(n));
 
 // 链接闭包：INTERFACE 库沿边传播。
 function closure(seeds, edges, aliases = new Map()) {
@@ -765,7 +765,7 @@ for (const [acc, includeDirectories] of [[prod, prodIncludeDirectories], [test, 
 }
 
 const requiredFiles = [PROD_CMAKE, TEST_CMAKE];
-const requiredDirectories = [...PROD_ROOTS, path.join(root, "tests", "Prism")];
+const requiredDirectories = [...PROD_ROOTS, path.join(root, "Test", "Prism")];
 for (const p of requiredFiles) {
   if (!fs.existsSync(p) || !fs.statSync(p).isFile()) problems.missingRequiredRoots.push(rel(p));
 }
@@ -826,7 +826,7 @@ for (const p of testFiles) {
     }
   }
   if (!registeredTests.has(r.toLowerCase()) &&
-      !/^tests\/Prism\/(?:Performance|Stress)\//i.test(r)) {
+      !/^Test\/Prism\/(?:Performance|Stress)\//i.test(r)) {
     problems.unregisteredTestSources.push(r);
   }
   const lines = countLines(fs.readFileSync(p, "utf8"));
@@ -898,7 +898,7 @@ function collectTestHeaderOwners(filePath, target, visited) {
     const spec = match[2];
     if (!isProjectInclude(kind, spec)) continue;
     const included = resolveProjectInclude(filePath, kind, spec, target, true);
-    if (included && /^tests\/(?:Prism|TestSupport)\//i.test(rel(included)) && /\.(?:h|hpp)$/i.test(included)) {
+    if (included && /^Test\/(?:Prism|TestSupport)\//i.test(rel(included)) && /\.(?:h|hpp)$/i.test(included)) {
       collectTestHeaderOwners(included, target, visited);
     }
   }
@@ -906,7 +906,7 @@ function collectTestHeaderOwners(filePath, target, visited) {
 
 for (const filePath of testFiles) {
   const relative = rel(filePath);
-  if (!/\.cpp$/i.test(relative) || /^tests\/Prism\/(?:Performance|Stress)\//i.test(relative)) continue;
+  if (!/\.cpp$/i.test(relative) || /^Test\/Prism\/(?:Performance|Stress)\//i.test(relative)) continue;
   const owners = test.sourceOwners.get(relative);
   if (!owners) continue;
   for (const target of owners) collectTestHeaderOwners(filePath, target, new Set());
@@ -991,7 +991,7 @@ function danglingOf(fileText, filePath, isTest) {
 
       const testFile = rel(filePath);
       const shouldCheckTestOwner = isTest &&
-        (/^tests\/Prism\//i.test(testFile) || unambiguousTestSupportOwnerChecks.has(`${normalizedPathKey(filePath)}|${target}`));
+        (/^Test\/Prism\//i.test(testFile) || unambiguousTestSupportOwnerChecks.has(`${normalizedPathKey(filePath)}|${target}`));
       if (shouldCheckTestOwner && found && includedPath &&
           /^Include\/Prism\//i.test(rel(includedPath))) {
         const headerOwners = prod.sourceOwners.get(rel(includedPath)) ?? new Set();
@@ -1049,7 +1049,7 @@ for (const p of prodHeaders) {
 }
 for (const p of testFiles) {
   const r = rel(p);
-  if (/^tests\/Prism\/(?:Performance|Stress)\//i.test(r)) continue;
+  if (/^Test\/Prism\/(?:Performance|Stress)\//i.test(r)) continue;
   const d = danglingOf(readIf(p), p, true);
   for (const spec of d) {
     const declared = registeredTests.get(r.toLowerCase());
@@ -1144,7 +1144,7 @@ function walkDeclared(dir) {
     if (!dead) walkDeclared(cur);
   }
 }
-walkDeclared("tests/Prism");
+walkDeclared("Test/Prism");
 walkDeclared("Src/Prism");
 problems.secondOrderCaseDivergence = [...secondOrder.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, n]) => `refs=${n}  ${k}`);
 

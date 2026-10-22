@@ -373,6 +373,11 @@ namespace Prism::Quic::Detail
         (void)State->Notify.try_send(boost::system::error_code{});
         (void)State->FinAcknowledgedNotify.try_send(boost::system::error_code{});
         (void)FlowNotify_.try_send(boost::system::error_code{});
+        if (State->FinSenderDrained && State->PeerFin)
+        {
+            State->StreamCloseFailure = {};
+            return;
+        }
         if (Conn_)
         {
             const auto Result = ngtcp2_conn_shutdown_stream(Conn_, 0, State->Id, 0);
@@ -540,7 +545,6 @@ namespace Prism::Quic::Detail
                     co_return std::unexpected(Prism::Fault::FromNative(
                         ToStdError(Prism::Error::BrokenPipe)));
                 }
-                State->FinAcknowledgedNotify.reset();
                 boost::system::error_code NotifyError;
                 co_await State->FinAcknowledgedNotify.async_receive(
                     Net::redirect_error(Net::use_awaitable, NotifyError));

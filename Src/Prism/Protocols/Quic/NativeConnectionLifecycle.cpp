@@ -362,12 +362,17 @@ namespace Prism::Quic::Detail
             if (State)
             {
                 State->Closed = true;
+                State->NativeTerminal.store(true, std::memory_order_release);
                 (void)State->FinAcknowledgedNotify.try_send(boost::system::error_code{});
                 if (SendFailure_.Failed() && !State->LocalWriteFailure.Failed())
                 {
                     State->LocalWriteFailure = SendFailure_;
                 }
                 State->Notify.cancel();
+                if (const auto Activity = State->Activity.lock())
+                {
+                    Activity->MarkNativeTerminal(State->StreamCloseFailure);
+                }
             }
         }
         if (Datagram_)

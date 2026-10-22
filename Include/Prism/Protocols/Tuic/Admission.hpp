@@ -312,6 +312,16 @@ struct StreamFailureReport final
         void ObserveStreamFailure(StreamFailureReport Report) noexcept;
         void CloseOnExecutor() noexcept;
         void MaybeFinishClose() noexcept;
+        /** @brief 一次性释放账户租约及连接级服务材料；只由最终退休路径调用。 */
+        void ReleaseRetirement() noexcept;
+        /** @brief 关闭并释放无法再交付的输入实物，使 Drain 不因历史拒收永久 Blocked。 */
+        [[nodiscard]] auto DrainStoredInputs()
+            -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>;
+        /** @brief 为关闭时仍待认证/待准入的 carrier 建立独立退休任务。 */
+        void RetirePendingCarriers() noexcept;
+        void RetireCarrier(Prism::SharedTransmission Carrier) noexcept;
+        void FinishRetiringCarrier(std::exception_ptr Error,
+            std::expected<void, Prism::Fault::Failure> Result) noexcept;
         void RecordFailure(Prism::Fault::Failure Failure) noexcept;
         void RecordFatal(std::exception_ptr Error) noexcept;
         void StoreFailedInput(InputEvent Event) noexcept;
@@ -366,6 +376,7 @@ struct StreamFailureReport final
         std::string Identity_{};
         std::unique_ptr<InputEvent[]> FailedInputs_{};
         std::atomic<std::size_t> FailedInputCount_{0};
+        std::atomic<std::size_t> FailedInputDrainIndex_{0};
         std::size_t FailedInputCapacity_{0};
         std::atomic<std::size_t> PendingInputCount_{0};
         /** @brief 拒收发生前为空，不给正常输入增加 per-event 分配或全表扫描。 */
@@ -385,6 +396,8 @@ struct StreamFailureReport final
         bool AuthenticationStarted_{false};
         bool Authenticated_{false};
         bool Closed_{false};
+        /** @brief 最后 owner 析构时允许无 native close 回执完成本地最终化。 */
+        bool Finalizing_{false};
         /** @brief 收到 Native close 回执；租约释放仍只在 admission executor 上执行。 */
         std::atomic<bool> NativeClosed_{false};
         bool CloseOwnerAccepted_{false};

@@ -129,6 +129,18 @@ namespace Prism::Xhttp::Detail
     auto RunServerDriver(std::shared_ptr<ServerState> State)
         -> Net::awaitable<void>;
 
+    struct ServerDriverOutcome final
+    {
+        Prism::Fault::Failure Failure;
+        bool Failed{false};
+        bool LocalCloseCompletion{false};
+    };
+
+    [[nodiscard]] auto DriveServerSession(
+        const std::shared_ptr<ServerState> &State,
+        std::span<std::byte> Buffer,
+        ServerDriverOutcome &Outcome) -> Net::awaitable<void>;
+
     auto CompleteServerDriver(
         const std::shared_ptr<ServerState> &State,
         std::exception_ptr Exception) -> void;

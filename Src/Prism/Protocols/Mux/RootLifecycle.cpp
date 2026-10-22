@@ -12,6 +12,7 @@
 #include "Detail/SingMux/SingMux.hpp"
 
 #include <boost/asio/dispatch.hpp>
+#include <boost/asio/redirect_error.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -30,8 +31,11 @@ namespace Prism::Mux::Detail
           Executor(Net::make_strand(Inbound->Executor())),
           Children(std::make_shared<Prism::Lifecycle::TaskRegistry>(Executor)),
           Loops(std::make_shared<Prism::Lifecycle::TaskRegistry>(Executor)),
-          Lifetime(Loops->Reclaimer())
+          Lifetime(Loops->Reclaimer()),
+          DrainGate(std::make_shared<Net::experimental::concurrent_channel<
+              void(boost::system::error_code)>>(Executor, 1))
     {
+        (void)DrainGate->try_send(boost::system::error_code{});
         for (std::size_t Index = 0; Index < ChildRetirementSlots.size(); ++Index)
         {
             if (Index + 1U < ChildRetirementSlots.size())
@@ -103,6 +107,12 @@ namespace Prism::Mux::Detail
             Current != RunPhase::ResourcesRetired;
     }
 
+    [[nodiscard]] auto RootState::IsExplicitlyCanceled() const noexcept -> bool
+    {
+        return Phase.load(std::memory_order_acquire) == RunPhase::CancellationRequested ||
+            ExitStatus.load(std::memory_order_acquire) == Prism::Fault::Code::Canceled;
+    }
+
     [[nodiscard]] auto RootState::IsExpectedRetirementCancellation(
         const Prism::Fault::Failure &Failure, bool Retired) const noexcept -> bool
     {
@@ -166,8 +176,17 @@ namespace Prism::Mux::Detail
     auto RootState::ReleaseResources() -> bool
     {
         if (ResourcesRetired.load()) return true;
+        // 唯一物理释放 owner：并发 Drain 或 Run 最终化只能有一个调用者真正清空资源。
+        bool Expected = false;
+        if (!ReleaseInProgress.compare_exchange_strong(
+                Expected, true, std::memory_order_acq_rel))
+            return ResourcesRetired.load(std::memory_order_acquire);
         if (Lifetime.Active() != 0U || Lifetime.IsBlocked() ||
-            HasOutstandingChildRetirement()) return false;
+            HasOutstandingChildRetirement())
+        {
+            ReleaseInProgress.store(false, std::memory_order_release);
+            return false;
+        }
         Phase.store(RunPhase::ResourcesRetired, std::memory_order_release);
         Admission = {};
         Lease.Release();
@@ -196,8 +215,11 @@ namespace Prism::Mux::Detail
         EngineControl.reset();
         Inbound.reset();
         GenerationLease = {};
+        if (const auto Owner = CreateOwner.lock()) Owner->OnMuxRootRetired();
+        CreateOwner.reset();
         ResourcesRetired.store(true, std::memory_order_release);
         ResourcesReadyForFinalization.store(false, std::memory_order_release);
+        ReleaseInProgress.store(false, std::memory_order_release);
         if (const auto Owner = RetirementOwner.lock())
             Owner->Retire(TerminalFailure.Load());
         return true;
@@ -306,9 +328,24 @@ namespace Prism::Mux::Detail
 
     auto ChildState::Cancel() noexcept -> void
     {
+        bool FirstCancel = false;
+        if (!CancelIssued.compare_exchange_strong(
+                FirstCancel, true, std::memory_order_acq_rel))
+            return;
+        ExplicitCancellation.store(true, std::memory_order_release);
         if (Root && Root->IsClosingNormally())
             NormalCloseCancellation.store(true, std::memory_order_release);
-        Cancellation.emit(Net::cancellation_type::all);
+        try { Cancellation.emit(Net::cancellation_type::all); }
+        catch (...)
+        {
+            RecordControlException(
+                ControlFailure, std::current_exception(), Root);
+        }
+        if (StartGate)
+        {
+            StartGate->close();
+            StartGate.reset();
+        }
         if (Root && Root->StreamCatalogOwner)
         {
             const Prism::Contract::Ingress::StreamIdentity StreamIdentity{
@@ -319,13 +356,26 @@ namespace Prism::Mux::Detail
             if (!Root->StreamCatalogOwner->MarkDraining(StreamIdentity))
                 Root->StreamCatalogOwner->Disable();
         }
-        if (Reset && ControlFailure)
+        if (Reset)
         {
-            try { RecordControlResult(ControlFailure, Reset(), Root); }
-            catch (...) { RecordControlException(ControlFailure, std::current_exception(), Root); }
+            try
+            {
+                const auto ResetResult = Reset();
+                if (ControlFailure)
+                    RecordControlResult(ControlFailure, ResetResult, Root);
+                else if (!ResetResult && Root)
+                    Root->RecordTerminalFailure(ResetResult.error());
+            }
+            catch (...)
+            {
+                RecordControlException(
+                    ControlFailure, std::current_exception(), Root);
+            }
         }
+        // Reset/Cancel 的失败只保留 first cause，最终关闭仍必须独立尝试。
         CancelAndClose(Inbound, ControlFailure, Root);
-        CancelAndClose(Outbound, ControlFailure, Root);
+        if (Outbound != Inbound)
+            CancelAndClose(Outbound, ControlFailure, Root);
     }
 
     auto PreserveRootDrainFailure(
@@ -413,6 +463,22 @@ namespace Prism::Mux::Detail
         {
             try
             {
+                boost::system::error_code GateError;
+                co_await State->DrainGate->async_receive(
+                    Net::redirect_error(Net::use_awaitable, GateError));
+                struct FinalizeRelease final
+                {
+                    std::shared_ptr<Net::experimental::concurrent_channel<
+                        void(boost::system::error_code)>> Gate;
+                    ~FinalizeRelease() noexcept
+                    {
+                        if (Gate) (void)Gate->try_send(boost::system::error_code{});
+                    }
+                } Release{State->DrainGate};
+                if (GateError)
+                {
+                    throw boost::system::system_error(GateError);
+                }
                 co_await Net::dispatch(State->Executor, Net::use_awaitable);
                 if (!State->ReleaseResources())
                 {
@@ -513,6 +579,7 @@ namespace Prism::Mux::Detail
         Request.AttachSession(Root);
         Root->State_->ParentStreamLease = Request.TakeParentStreamLease();
         Root->State_->GenerationLease = Request.TakeGenerationUseLease();
+        Root->State_->CreateOwner = Request.CreateOwner();
         Root->CreateCommitted_ = true;
         return Root;
     }
@@ -527,6 +594,12 @@ namespace Prism::Mux::Detail
 
     [[nodiscard]] auto RootSession::HistoricalFailure() const noexcept -> Prism::Fault::Failure
     { return State_->TerminalFailure.Load(); }
+
+    [[nodiscard]] auto RootSession::WasStarted() const noexcept -> bool
+    { return State_->Started.load(std::memory_order_acquire); }
+
+    [[nodiscard]] auto RootSession::IsStopping() const noexcept -> bool
+    { return State_->Stopping.load(std::memory_order_acquire); }
 
     [[nodiscard]] auto RootSession::IsRetired() const noexcept -> bool
     { return State_->ResourcesRetired.load(std::memory_order_acquire); }
@@ -543,6 +616,14 @@ namespace Prism::Mux::Detail
         if (!State->Lifetime.Enter())
         {
             State->Stop();
+            // 已注册但未真正进入 Run 的 root 仍持有 generation/parent lease；
+            // 失败路径必须走同一条资源最终化，不能只停 carrier 就返回。
+            const auto Drained = co_await DrainResources(State);
+            if (!Drained)
+            {
+                State->RecordTerminalFailure(Drained.error());
+                co_return std::unexpected(Drained.error());
+            }
             if (State->Stopping.load(std::memory_order_acquire) &&
                 State->Phase.load(std::memory_order_acquire) !=
                     RootState::RunPhase::CancellationRequested)
@@ -695,7 +776,8 @@ namespace Prism::Mux::Detail
     auto RootSession::ServeHttp2(std::shared_ptr<RootState> State)
         -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
     {
-        auto Server = std::make_shared<H2Mux::Http2Server>(State->Inbound, State->Options.MaxStreams);
+        auto Server = std::make_shared<H2Mux::Http2Server>(
+            State->Inbound, State->Options.MaxStreams, true);
         if (!State->EngineControl)
             State->EngineControl = std::make_shared<EngineCloseOwner<H2Mux::Http2Server>>(
                 Server, State);
@@ -735,11 +817,21 @@ namespace Prism::Mux::Detail
                     Prism::Fault::Failure{Prism::Fault::Code::Blocked});
             };
             Child->Finish = [Stream] { return Stream->DrainTerminations(); };
-            if (!StartChild(State, std::move(Child)))
+            if (!StartChild(State, Child, true))
             {
-                co_return std::unexpected(
-                    Prism::Fault::Failure{Prism::Fault::Code::Canceled});
+                // 单个 child 的准入/登记失败只拒绝该流，不能让兄弟流和根一起终止。
+                (void)Stream->Close();
+                continue;
             }
+            const auto Accepted = co_await Stream->AcceptRequest();
+            if (!Accepted)
+            {
+                State->RecordTerminalFailure(Accepted.error());
+                Child->Cancel();
+                (void)Stream->Close();
+                continue;
+            }
+            OpenChildStart(Child);
         }
         State->Stop();
         co_return std::expected<void, Prism::Fault::Failure>{};
@@ -782,27 +874,52 @@ namespace Prism::Mux::Detail
         }
     }
 
+    /** @brief 已退休 root 的重复 Drain 只复核最终化并返回持久首因。 */
+    [[nodiscard]] auto DrainRetiredRootResources(std::shared_ptr<RootState> State)
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
+    {
+        try
+        {
+            if (!State->ReleaseResources())
+            {
+                co_return std::unexpected(
+                    Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+            }
+        }
+        catch (...)
+        {
+            const auto Failure =
+                RootState::FailureFromException(std::current_exception());
+            State->RecordTerminalFailure(Failure);
+            co_return std::unexpected(Failure);
+        }
+        const auto Historical = State->TerminalFailure.Load();
+        if (Historical.Failed()) co_return std::unexpected(Historical);
+        co_return std::expected<void, Prism::Fault::Failure>{};
+    }
+
     [[nodiscard]] auto RootSession::DrainResources(std::shared_ptr<RootState> State)
         -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
     {
-        if (State->ResourcesRetired.load())
+        boost::system::error_code GateError;
+        co_await State->DrainGate->async_receive(
+            Net::redirect_error(Net::use_awaitable, GateError));
+        struct DrainRelease final
         {
-            try
+            std::shared_ptr<Net::experimental::concurrent_channel<
+                void(boost::system::error_code)>> Gate;
+            ~DrainRelease() noexcept
             {
-                if (!State->ReleaseResources())
-                    co_return std::unexpected(
-                        Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+                if (Gate) (void)Gate->try_send(boost::system::error_code{});
             }
-            catch (...)
-            {
-                const auto Failure = RootState::FailureFromException(std::current_exception());
-                State->RecordTerminalFailure(Failure);
-                co_return std::unexpected(Failure);
-            }
-            const auto Historical = State->TerminalFailure.Load();
-            if (Historical.Failed()) co_return std::unexpected(Historical);
-            co_return std::expected<void, Prism::Fault::Failure>{};
+        } Release{State->DrainGate};
+        if (GateError)
+        {
+            co_return std::unexpected(
+                Prism::Fault::FromNative(static_cast<std::error_code>(GateError)));
         }
+        if (State->ResourcesRetired.load())
+            co_return co_await DrainRetiredRootResources(std::move(State));
         State->ResourcesReadyForFinalization.store(false, std::memory_order_release);
         try
         {
@@ -1033,7 +1150,22 @@ namespace Prism::Mux::Detail
         State_->RegistrationGate.fetch_or(ClosedMask, std::memory_order_acq_rel);
         for (auto Node = State_->Head.load(std::memory_order_acquire); Node;
              Node = Node->Next.load(std::memory_order_acquire))
-            if (Node->Owner) Node->Owner->Close();
+        {
+            const auto Owner = Node->Owner;
+            if (!Owner) continue;
+            // Registry 封止代表运行中的 root 被显式取消；未启动 root 仍走正常关闭，
+            // 因而不会伪造从未开始的 Run 取消结果。
+            if (!Owner->IsRetired() && Owner->WasStarted() && !Owner->IsStopping())
+            {
+                (void)State_->AttemptCancellation.TrySet(
+                    Prism::Fault::Failure{Prism::Fault::Code::Canceled});
+                Owner->Cancel();
+            }
+            else if (!Owner->IsRetired())
+            {
+                Owner->Close();
+            }
+        }
     }
 
     [[nodiscard]] auto RootRegistry::IsClosed() const noexcept -> bool
@@ -1103,11 +1235,12 @@ namespace Prism::Mux::Detail
         if (Failure.Failed()) co_return std::unexpected(Failure);
         if (!IsRetired())
         {
-            if (AttemptCancellation)
-                co_return std::unexpected(*AttemptCancellation);
             co_return std::unexpected(
                 Prism::Fault::Failure{Prism::Fault::Code::Blocked});
         }
+        if (AttemptCancellation) co_return std::unexpected(*AttemptCancellation);
+        const auto Cancellation = State_->AttemptCancellation.Load();
+        if (Cancellation.Failed()) co_return std::unexpected(Cancellation);
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
@@ -1157,7 +1290,7 @@ namespace Prism::Mux
         }
         auto Created = Detail::RootSession::Create(Request, *Options);
         if (!Created) return std::unexpected(Created.error());
-        if (!Roots_.Register(*Created) || Roots_.IsClosed())
+        if (!Roots_.Register(*Created))
         {
             return std::unexpected(
                 Prism::Fault::Failure{Prism::Fault::Code::Canceled});

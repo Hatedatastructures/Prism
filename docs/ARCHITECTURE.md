@@ -2,7 +2,7 @@
 
 ## 范围
 
-`Include/Prism/` 保存当前公开生产接口，`Src/Prism/` 保存实现与私有头，`tests/Prism/` 保存对应功能测试。旧 `include/prism/`、`src/prism/` 和旧测试实现已退役；旧 API 不属于当前接口。
+`Include/Prism/` 保存当前公开生产接口，`Src/Prism/` 保存实现与私有头，`Test/Prism/` 保存对应功能测试。旧 `include/prism/`、`src/prism/` 和旧测试实现已退役；旧 API 不属于当前接口。
 
 每个生产模块由自己的 CMake target 清单管理公开头、私有头和 `.cpp`。含真实 `.cpp` 的模块使用编译库，纯契约和值类型/开放模板保留 `INTERFACE` target。CMake target 和源码 include 共同表达模块依赖；不能仅凭目录名或 target 名称推断边界。
 

@@ -133,6 +133,12 @@ namespace Prism::Trusttunnel::Detail
                 ReadTerminalFailure_->Code == Prism::Fault::Code::Eof;
         }
 
+        /** @brief 双向 END_STREAM 都已完成；此后对端 reset 只属于物理拆除。 */
+        [[nodiscard]] auto ExchangeComplete() const noexcept -> bool
+        {
+            return RemoteEnded_ && Finished_;
+        }
+
         /** @brief 非 EOF 读终态关闭 client Wire/TLS；EOF 保留写侧至最终 Close。 */
         auto CloseCarrierForReadTerminal() -> Prism::Fault::Failure;
 
@@ -282,6 +288,7 @@ namespace Prism::Trusttunnel::Detail
         bool WriterRunning_{false};
         bool Closed_{false};
         bool Finished_{false};
+        bool RemoteEnded_{false};
         bool Eof_{false};
         bool EofPending_{false};
         bool DrainTerminal_{false};

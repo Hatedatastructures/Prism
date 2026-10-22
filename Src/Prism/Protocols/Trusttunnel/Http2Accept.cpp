@@ -43,6 +43,12 @@ namespace Prism::Trusttunnel::Detail
 
     auto CarrierLifecycle::RecordFailure(const Prism::Fault::Failure Value) noexcept -> void
     {
+        if (const auto Exchange = Transport.lock();
+            Exchange && Exchange->ExchangeComplete() && IsTeardownFailure(Value))
+            return;
+        // Closing 后的 Canceled/operation_aborted 是本端关闭唤醒在途 I/O 的结果；
+        // 真实 Native 失败（包括非取消类别）仍按首因保存。
+        if (IsLocalCloseCancellation(Value)) return;
         if (Value.Failed())
         {
             // TrySet 的 bool 仅表示首因竞争胜者，不影响同一 lifecycle 的关闭回执。
@@ -136,6 +142,8 @@ namespace Prism::Trusttunnel::Detail
             RecordControlFailure(Closed);
             if (Result && !Closed) Result = std::unexpected(Closed.error());
         }
+        if (!Result && Lifecycle->IsLocalCloseCancellation(Result.error()))
+            return {};
         return Result;
     }
 
@@ -144,6 +152,7 @@ namespace Prism::Trusttunnel::Detail
         if (!Lifecycle)
             return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
         if (IsRetired()) return {};
+        Lifecycle->Closing.store(true, std::memory_order_release);
         Prism::Transmission::ControlResult Result{};
         if (Transport)
         {
@@ -157,6 +166,8 @@ namespace Prism::Trusttunnel::Detail
             RecordControlFailure(Canceled);
             if (Result && !Canceled) Result = std::unexpected(Canceled.error());
         }
+        if (!Result && Lifecycle->IsLocalCloseCancellation(Result.error()))
+            return {};
         return Result;
     }
 
@@ -201,9 +212,17 @@ namespace Prism::Trusttunnel::Detail
         if (Lifecycle->DriverStarted.load(std::memory_order_acquire) &&
             !Lifecycle->DriverCompleted.load(std::memory_order_acquire))
             Complete = false;
-        Complete = (co_await DrainTransport()) && Complete;
-        Complete = (co_await DrainWire()) && Complete;
-        Complete = (co_await DrainEncrypted()) && Complete;
+        // 三层退出互相依赖：driver 可能仍持有 TLS 读预约。必须先无条件推进每一层，
+        // 再用各自真实回执汇总；短路会留下未关闭的 Wire/TLS 并让根一直挂起。
+        const bool TransportDrained = co_await DrainTransport();
+        const bool WireDrained = co_await DrainWire();
+        const bool EncryptedDrained = co_await DrainEncrypted();
+        Lifecycle->TransportDrained.store(TransportDrained, std::memory_order_release);
+        Lifecycle->WireDrained.store(WireDrained, std::memory_order_release);
+        Lifecycle->EncryptedDrained.store(EncryptedDrained, std::memory_order_release);
+        Complete = TransportDrained && WireDrained && EncryptedDrained && Complete;
+        const bool ExchangeCompleted =
+            Transport && Transport->ExchangeComplete();
         Lifecycle->LayersDrained.store(Complete, std::memory_order_release);
         if (Complete) Retire();
         if (!Complete)
@@ -213,6 +232,10 @@ namespace Prism::Trusttunnel::Detail
             RequestRetirement();
         }
         const auto First = Lifecycle->Failure();
+        if (Lifecycle->IsLocalCloseCancellation(First))
+            co_return std::expected<void, Prism::Fault::Failure>{};
+        if (ExchangeCompleted && CarrierLifecycle::IsTeardownFailure(First))
+            co_return std::expected<void, Prism::Fault::Failure>{};
         if (First.Failed()) co_return std::unexpected(First);
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
@@ -248,7 +271,10 @@ namespace Prism::Trusttunnel::Detail
     auto CarrierOwner::RecordControlFailure(
         const Prism::Transmission::ControlResult &Result) noexcept -> void
     {
-        if (Lifecycle && !Result) Lifecycle->RecordFailure(Result.error());
+        // 本地 Close/Cancel 或被封止控制命令返回的 Canceled 只表示命令被接管/已取消，
+        // 不是数据面失败；真实 Native 失败仍保留。
+        if (Lifecycle && !Result && !Lifecycle->IsLocalCloseCancellation(Result.error()))
+            Lifecycle->RecordFailure(Result.error());
     }
 
     auto CarrierOwner::DrainTransport() -> Net::awaitable<bool>
@@ -263,6 +289,9 @@ namespace Prism::Trusttunnel::Detail
         }
         const auto Drained = co_await Activity->Drain();
         if (!Drained) Lifecycle->RecordFailure(Drained.error());
+        Lifecycle->TransportActivityRetired.store(
+            Activity->IsRetired(), std::memory_order_release);
+        Lifecycle->TransportOpen.store(Transport->IsOpen(), std::memory_order_release);
         const bool Complete = Activity->IsRetired() && !Transport->IsOpen();
         if (!Complete)
             Lifecycle->RecordFailure(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
@@ -292,6 +321,9 @@ namespace Prism::Trusttunnel::Detail
         }
         const auto Drained = co_await Activity->Drain();
         if (!Drained) Lifecycle->RecordFailure(Drained.error());
+        Lifecycle->EncryptedActivityRetired.store(
+            Activity->IsRetired(), std::memory_order_release);
+        Lifecycle->EncryptedOpen.store(Encrypted->IsOpen(), std::memory_order_release);
         const bool Complete = Activity->IsRetired() && !Encrypted->IsOpen();
         if (!Complete)
             Lifecycle->RecordFailure(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
@@ -578,6 +610,7 @@ namespace Prism::Trusttunnel::Detail
         auto Lifecycle = std::make_shared<CarrierLifecycle>(Encrypted->Executor());
         auto Owner = std::make_shared<CarrierOwner>(CarrierOwnerLayers{
             Transport, Wire, Encrypted, Lifecycle, Binding});
+        Lifecycle->Transport = Transport;
         auto Driver = std::make_shared<Http2DriverParameters>(Http2DriverParameters{
             Session, Wire, Transport, Encrypted, Ready, Target, std::move(Binding),
             Lifecycle, Owner});
@@ -676,7 +709,7 @@ namespace Prism::Trusttunnel::Detail
                 Failure = HeaderResult.error();
                 Parameters.Lifecycle->RecordFailure(Failure);
             }
-            PublishReady(Parameters, std::unexpected(Failure));
+            Parameters.PendingReady = std::unexpected(Failure);
             return;
         }
         *Parameters.Target = std::string(Authority);
@@ -688,15 +721,17 @@ namespace Prism::Trusttunnel::Detail
         {
             const auto Failure = HeaderResult.error();
             Parameters.Lifecycle->RecordFailure(Failure);
-            PublishReady(Parameters, std::unexpected(Failure));
+            Parameters.PendingReady = std::unexpected(Failure);
             return;
         }
-        PublishReady(Parameters, Http2ServerResult{});
+        Parameters.PendingReady = Http2ServerResult{};
     }
 
     auto Http2Accept::PublishReady(Http2DriverParameters &Parameters, Http2ServerResult Result)
         -> void
     {
+        if (Parameters.ReadyPublished) return;
+        Parameters.ReadyPublished = true;
         const auto Sent = Parameters.Ready->try_send(
             boost::system::error_code{}, std::move(Result));
         if (!Sent)
@@ -704,6 +739,14 @@ namespace Prism::Trusttunnel::Detail
             Parameters.Lifecycle->RecordFailure(
                 Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
         }
+    }
+
+    auto Http2Accept::PublishPendingReady(Http2DriverParameters &Parameters) -> void
+    {
+        if (!Parameters.PendingReady || Parameters.ReadyPublished) return;
+        auto Result = std::move(*Parameters.PendingReady);
+        Parameters.PendingReady.reset();
+        PublishReady(Parameters, std::move(Result));
     }
 
     auto Http2Accept::HandleData(Http2DriverParameters &Parameters, std::int32_t StreamId,
@@ -749,7 +792,11 @@ namespace Prism::Trusttunnel::Detail
         }
         const bool LocalClose =
             Driver->Lifecycle && Driver->Lifecycle->IsLocalCloseCancellation(FailureValue);
-        const auto Failure = LocalClose ? Prism::Fault::Failure{} : FailureValue;
+        const bool CleanTeardown = Driver->Transport &&
+            Driver->Transport->ExchangeComplete() &&
+            CarrierLifecycle::IsTeardownFailure(FailureValue);
+        const auto Failure = (LocalClose || CleanTeardown)
+            ? Prism::Fault::Failure{} : FailureValue;
         const bool KeepWriteSide = Failure.Code == Prism::Fault::Code::Eof &&
             Driver->Transport &&
             Driver->Transport->ReadHalfClosed();
@@ -786,7 +833,8 @@ namespace Prism::Trusttunnel::Detail
             if (!Closed && Driver->Lifecycle)
                 Driver->Lifecycle->RecordFailure(Closed.error());
         }
-        if (Driver->Ready)
+        PublishPendingReady(*Driver);
+        if (Driver->Ready && !Driver->ReadyPublished)
         {
             auto ReadyFailure = Failure;
             if (ReadyFailure.Succeeded())
@@ -855,16 +903,22 @@ namespace Prism::Trusttunnel::Detail
             const auto Step = co_await ProcessHttp2ReadCompletion(
                 Http2ReadCompletion{std::span<const std::byte>(Buffer), Part},
                 Driver->Session, Driver->Wire);
+            PublishPendingReady(*Driver);
             if (Step.Terminal)
             {
                 const bool LocalClose =
                     Driver->Lifecycle &&
                     Driver->Lifecycle->IsLocalCloseCancellation(Step.Failure);
-                Failure = LocalClose ? Prism::Fault::Failure{} : Step.Failure;
+                const bool CleanTeardown = Driver->Transport &&
+                    Driver->Transport->ExchangeComplete() &&
+                    CarrierLifecycle::IsTeardownFailure(Step.Failure);
+                Failure = (LocalClose || CleanTeardown)
+                    ? Prism::Fault::Failure{} : Step.Failure;
                 if (Step.ReadTerminal)
                 {
                     Driver->Transport->NotifyReadTerminal(
-                        LocalClose ? Prism::Fault::Failure{Prism::Fault::Code::Eof} : Failure);
+                        (LocalClose || CleanTeardown)
+                            ? Prism::Fault::Failure{Prism::Fault::Code::Eof} : Failure);
                 }
                 break;
             }

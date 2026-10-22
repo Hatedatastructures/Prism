@@ -138,6 +138,10 @@ namespace Prism::Mux::Detail
         ~RootSession() override;
         auto SetRetirementOwner(const std::shared_ptr<RootRetirementOwner> &Owner) noexcept -> void;
         [[nodiscard]] auto HistoricalFailure() const noexcept -> Prism::Fault::Failure;
+        /** @brief 是否已有正式 Run owner 启动；用于区分已运行 root 与仅注册未运行的 root。 */
+        [[nodiscard]] auto WasStarted() const noexcept -> bool;
+        /** @brief 是否已由 root owner 正常请求停止，避免 registry 再伪造取消。 */
+        [[nodiscard]] auto IsStopping() const noexcept -> bool;
         [[nodiscard]] auto IsRetired() const noexcept -> bool override;
         /** @brief 正式 Run 一次消费根 lease；始终完成两个 scope 的真实 drain 后才决定结果。 */
         auto Run(Prism::Contract::MuxRootRequest Request)

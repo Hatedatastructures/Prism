@@ -24,7 +24,7 @@ foreach ($ProductionFile in $ProductionFiles) {
 }
 $Consumers = [Collections.Generic.List[IO.FileInfo]]::new()
 foreach ($ProductionFile in $ProductionFiles) { $Consumers.Add($ProductionFile) }
-foreach ($TestRoot in @('tests/Prism', 'tests/Experiments/Prism')) {
+foreach ($TestRoot in @('Test/Prism', 'Test/Experiments/Prism')) {
     $TestPath = Join-Path $RepoRoot $TestRoot
     if (Test-Path -LiteralPath $TestPath -PathType Container) {
         Get-ChildItem -LiteralPath $TestPath -Recurse -File |
@@ -79,14 +79,14 @@ foreach ($Header in $Consumers) {
         $Include = $Matches[1]
         $Position = "$Relative`:$($Index + 1)"
         $ResolvedTestInclude = $null
-        if ($Relative.StartsWith('tests/')) {
-            $TestIncludePath = Join-Path $RepoRoot ("tests/" + $Include)
+        if ($Relative.StartsWith('Test/')) {
+            $TestIncludePath = Join-Path $RepoRoot ("Test/" + $Include)
             if (Test-Path -LiteralPath $TestIncludePath -PathType Leaf) {
                 $ResolvedTestInclude = [IO.Path]::GetRelativePath($RepoRoot, $TestIncludePath).Replace('\', '/')
             }
         }
         if ($ResolvedTestInclude) {
-            $ResolvedTestRelative = $ResolvedTestInclude.Substring('tests/'.Length)
+            $ResolvedTestRelative = $ResolvedTestInclude.Substring('Test/'.Length)
             if ($ResolvedTestRelative -cne $Include) {
                 $Problems.Add("$Position include大小写与测试文件路径不一致: $Include -> $ResolvedTestRelative")
             }
@@ -126,7 +126,7 @@ foreach ($Header in $Consumers) {
 }
 
 # 用户规定的测试布局与生产 Include/Src 边界一起检查，不编译或改写文件。
-$TestLayoutRoot = Join-Path $RepoRoot 'tests/Prism'
+$TestLayoutRoot = Join-Path $RepoRoot 'Test/Prism'
 $TestLayoutFiles = @(Get-ChildItem -LiteralPath $TestLayoutRoot -Recurse -File)
 foreach ($TestFile in $TestLayoutFiles) {
     $TestRelative = [IO.Path]::GetRelativePath($TestLayoutRoot, $TestFile.FullName).Replace('\', '/')
@@ -137,26 +137,26 @@ foreach ($TestFile in $TestLayoutFiles) {
         $Parts = $TestRelative.Split('/')
         for ($PartIndex = 0; $PartIndex -lt $Parts.Length - 1; ++$PartIndex) {
             if ($Parts[$PartIndex] -cnotmatch '^[A-Z][A-Za-z0-9]*$') {
-                $Problems.Add("tests/Prism/$TestRelative 目录未使用 PascalCase: $($Parts[$PartIndex])")
+                $Problems.Add("Test/Prism/$TestRelative 目录未使用 PascalCase: $($Parts[$PartIndex])")
             }
         }
         if ($TestFile.Name -cne 'CMakeLists.txt' -and
             [IO.Path]::GetFileNameWithoutExtension($TestFile.Name) -cnotmatch '^[A-Z][A-Za-z0-9]*$') {
-            $Problems.Add("tests/Prism/$TestRelative 文件名未使用 PascalCase")
+            $Problems.Add("Test/Prism/$TestRelative 文件名未使用 PascalCase")
         }
     }
     if ($TestFile.Extension -in '.cpp', '.hpp', '.h', '.cc', '.cxx') {
         $TestLines = [IO.File]::ReadAllLines($TestFile.FullName)
         if ($TestLines.Length -gt 800) {
-            $Problems.Add("tests/Prism/$TestRelative`: $($TestLines.Length) 行超过测试文件 800 行上限")
+            $Problems.Add("Test/Prism/$TestRelative`: $($TestLines.Length) 行超过测试文件 800 行上限")
         }
         if ($TestFile.Extension -in '.h', '.cc', '.cxx') {
-            $Problems.Add("tests/Prism/$TestRelative 测试实现只使用 CPP，共享封装只使用 HPP")
+            $Problems.Add("Test/Prism/$TestRelative 测试实现只使用 CPP，共享封装只使用 HPP")
         }
         if ($TestFile.Extension -eq '.hpp') {
             $TestText = [IO.File]::ReadAllText($TestFile.FullName)
             if ($TestText -match '(?m)^\s*(?:TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P)\s*\(') {
-                $Problems.Add("tests/Prism/$TestRelative 将 GoogleTest 用例正文放入共享 HPP")
+                $Problems.Add("Test/Prism/$TestRelative 将 GoogleTest 用例正文放入共享 HPP")
             }
         }
     }

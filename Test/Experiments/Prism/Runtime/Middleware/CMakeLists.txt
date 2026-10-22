@@ -1,0 +1,5 @@
+add_library(ExperimentalAuthentication INTERFACE)
+target_sources(ExperimentalAuthentication INTERFACE
+    Auth/Authentication.hpp)
+target_link_libraries(ExperimentalAuthentication INTERFACE PrismRuntime PrismAccount)
+add_subdirectory(Auth)

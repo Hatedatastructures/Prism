@@ -30,7 +30,7 @@ description: 新增或修改 Prism 配置字段、Glaze 映射、默认值、校
 
 ## 验证
 
-优先运行 `tests/Prism/Application/Configuration/` 中的配置测试，再运行受影响协议的集成测试。若变更涉及资源上限或池策略，补充 `audit-memory` 或 `pool-audit` 审计。
+优先运行 `Test/Prism/Application/Configuration/` 中的配置测试，再运行受影响协议的集成测试。若变更涉及资源上限或池策略，补充 `audit-memory` 或 `pool-audit` 审计。
 
 ## 相关 Skill
 

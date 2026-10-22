@@ -10,7 +10,8 @@ namespace Prism::Mux::H2Mux
     class Http2Server final : public std::enable_shared_from_this<Http2Server>
     {
     public:
-        Http2Server(Prism::SharedTransmission Inbound, std::size_t MaxStreams);
+        Http2Server(Prism::SharedTransmission Inbound, std::size_t MaxStreams,
+            bool DeferAccept = false);
 
         /** @brief 外部 frame scope await root；退出前关闭连接并等待所有实际 retirement。 */
         [[nodiscard]] auto Run()

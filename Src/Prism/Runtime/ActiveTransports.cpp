@@ -180,7 +180,7 @@ namespace Prism::Runtime
         if (!Owner) return;
         Owner->Retiring.store(false);
         if (!Invoked) Owner->Fail({Prism::Fault::Code::Blocked}, true);
-        else if (Owner->ContentsReleased.load()) Owner->FinishRetirement();
+        else Owner->FinishRetirement();
     }
 
     auto ActiveTransports::Resource::RetirementCompletion::operator()(
@@ -310,6 +310,15 @@ namespace Prism::Runtime
         // 装饰器仍持旧 inner view 时不能 Seal 公共底层；先等这些真正借用退出。
         Self->Activity->Seal();
         auto Operations = co_await Self->Activity->Drain();
+        if (!Operations && Self->Closing.load() &&
+            Operations.error().Code == Prism::Fault::Code::IoError)
+        {
+            // 关闭已交付后，取消失败只保留为控制回执，不再阻断 carrier 物理退休。
+            Self->Value = {};
+            Self->Activity.reset();
+            Self->ContentsReleased.store(true);
+            co_return;
+        }
         // 仅在独立退休回执已成立时接受取消；其余失败继续保留实物。
         if (!Operations &&
             (Operations.error().Code != Prism::Fault::Code::Canceled ||

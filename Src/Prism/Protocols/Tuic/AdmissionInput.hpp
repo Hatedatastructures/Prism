@@ -54,6 +54,9 @@ namespace Prism::Tuic
         /** @brief 已接受动作被隔离后标为未知终态；绝不把它当作可复投拒收。 */
         auto OnQuarantine() noexcept -> void;
 
+        /** @brief 关闭已在进行时，释放未交付输入且不制造新的 typed 失败。 */
+        auto RetireClosedInput() noexcept -> void;
+
         auto RequestRetirement() -> void override;
         [[nodiscard]] auto IsRetired() const noexcept -> bool override;
         [[nodiscard]] auto IsDispatchUnavailable() const noexcept -> bool override;

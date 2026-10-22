@@ -385,7 +385,6 @@ namespace Prism::Quic::Detail
     {
         while (!Closed_ && (Sending_ || !Outbound_.empty()))
         {
-            SendNotify_.reset();
             boost::system::error_code NotifyError;
             co_await SendNotify_.async_receive(Net::redirect_error(Net::use_awaitable, NotifyError));
             if (NotifyError && Closed_)

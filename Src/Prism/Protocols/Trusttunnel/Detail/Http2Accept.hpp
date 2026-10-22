@@ -83,6 +83,8 @@ namespace Prism::Trusttunnel::Detail
         SharedWireAuthBinding Binding;
         std::shared_ptr<CarrierLifecycle> Lifecycle;
         std::shared_ptr<CarrierOwner> Carrier;
+        std::optional<Http2ServerResult> PendingReady;
+        bool ReadyPublished{false};
     };
 
     /** @brief 等待 CONNECT wire proof，并保留超时、channel 和认证拒绝的正式失败。 */
@@ -134,6 +136,8 @@ namespace Prism::Trusttunnel::Detail
 
         static auto PublishReady(Http2DriverParameters &Parameters, Http2ServerResult Result)
             -> void;
+
+        static auto PublishPendingReady(Http2DriverParameters &Parameters) -> void;
 
         static auto HandleData(Http2DriverParameters &Parameters, std::int32_t StreamId,
                                std::span<const std::byte> Data) -> void;

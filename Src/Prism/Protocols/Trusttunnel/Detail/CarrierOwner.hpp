@@ -62,26 +62,75 @@ namespace Prism::Trusttunnel::Detail
         std::shared_ptr<CarrierClosedChannel> Closed;
         std::shared_ptr<CarrierDrainGate> DrainGate;
         std::weak_ptr<const Http2DriverParameters> DriverState;
+        /** @brief 双方 END_STREAM 完成后的物理拆除窗口。 */
+        std::weak_ptr<Http2Transport> Transport;
         Prism::Fault::FailureState FirstFailure;
         std::atomic<bool> DriverStarted{false};
         std::atomic<bool> DriverCompleted{false};
         /** @brief 本端已发起 clean Close；只用于抑制由该动作取消挂起读取产生的 Canceled。 */
         std::atomic<bool> Closing{false};
         std::atomic<bool> LayersDrained{false};
+        std::atomic<bool> TransportDrained{false};
+        std::atomic<bool> WireDrained{false};
+        std::atomic<bool> EncryptedDrained{false};
+        std::atomic<bool> TransportActivityRetired{false};
+        std::atomic<bool> TransportOpen{true};
+        std::atomic<bool> EncryptedActivityRetired{false};
+        std::atomic<bool> EncryptedOpen{true};
         std::atomic<bool> Retired{false};
 
         auto RecordFailure(const Prism::Fault::Failure Value) noexcept -> void;
+
+        /** @brief 判断失败是否属于连接拆除阶段的取消/中止，而非对端业务失败。 */
+        [[nodiscard]] static auto IsTeardownFailure(
+            const Prism::Fault::Failure Value) noexcept -> bool
+        {
+            if (Value.Code != Prism::Fault::Code::Eof &&
+                Value.Code != Prism::Fault::Code::Canceled &&
+                Value.Code != Prism::Fault::Code::ConnectionAborted &&
+                Value.Code != Prism::Fault::Code::ConnectionReset &&
+                Value.Code != Prism::Fault::Code::IoError)
+                return false;
+            if (!Value.Native)
+                return Value.Code != Prism::Fault::Code::IoError;
+#ifdef _WIN32
+            // Windows 的 native socket 关闭竞态可能落在 system category：
+            // 995=ERROR_OPERATION_ABORTED, 1236=ERROR_CONNECTION_ABORTED,
+            // 10054=WSAECONNRESET, 10053=WSAECONNABORTED。
+            switch (Value.Native.value())
+            {
+            case 995:
+            case 1236:
+            case 10053:
+            case 10054:
+                return true;
+            default:
+                break;
+            }
+#endif
+            return Value.Native ==
+                       static_cast<std::error_code>(
+                           Net::error::make_error_code(Net::error::operation_aborted)) ||
+                Value.Native ==
+                       static_cast<std::error_code>(
+                           Net::error::make_error_code(Net::error::connection_aborted)) ||
+                Value.Native ==
+                       static_cast<std::error_code>(
+                           Net::error::make_error_code(Net::error::connection_reset)) ||
+                Value.Native ==
+                       static_cast<std::error_code>(
+                           Net::error::make_error_code(Net::error::eof)) ||
+                Value.Native == std::make_error_code(std::errc::operation_canceled) ||
+                Value.Native == std::make_error_code(std::errc::connection_aborted) ||
+                Value.Native == std::make_error_code(std::errc::connection_reset);
+        }
 
         /** @brief 判断失败是否仅由本端 clean Close 唤醒挂起读取而产生。 */
         [[nodiscard]] auto IsLocalCloseCancellation(
             const Prism::Fault::Failure Value) const noexcept -> bool
         {
-            return Closing.load(std::memory_order_acquire) &&
-                Value.Code == Prism::Fault::Code::Canceled &&
-                (!Value.Native ||
-                 Value.Native == std::make_error_code(std::errc::operation_canceled) ||
-                 Value.Native == static_cast<std::error_code>(
-                     Net::error::make_error_code(Net::error::operation_aborted)));
+            if (!Closing.load(std::memory_order_acquire)) return false;
+            return IsTeardownFailure(Value);
         }
 
         [[nodiscard]] auto Failure() const noexcept -> Prism::Fault::Failure

@@ -27,7 +27,7 @@ description: 审查 Prism 代码变更的测试覆盖、边界、异步生命周
 
 ## 验证
 
-使用当前 `tests/CMakeLists.txt` 的 test helper 和 `ctest` pattern。除非项目已有明确基线，不新增 80%/60% 等武断覆盖率门槛。
+使用当前 `Test/CMakeLists.txt` 的 test helper 和 `ctest` pattern。除非项目已有明确基线，不新增 80%/60% 等武断覆盖率门槛。
 
 ## 相关 Skill
 

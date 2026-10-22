@@ -116,7 +116,7 @@ LinkPrismTargets(PrismProtocolTuic PUBLIC
 LinkPrismTargets(PrismProtocolTuic PRIVATE
     PrismProtocolQuicNative PrismIoContracts PrismNetworkModel OpenSSL::SSL)
 
-LinkPrismTargets(PrismProtocolEch INTERFACE PrismFoundation OpenSSL::SSL)
+LinkPrismTargets(PrismProtocolEch PUBLIC PrismFoundation OpenSSL::SSL)
 LinkPrismTargets(PrismProtocolGun PUBLIC PrismFoundation PrismTransport PrismProtocolHttp2)
 LinkPrismTargets(PrismProtocolGun PRIVATE PrismIoContracts PrismIngressContract PrismLifecycle)
 LinkPrismTargets(PrismProtocolNative PUBLIC PrismFoundation PrismTransport OpenSSL::SSL)

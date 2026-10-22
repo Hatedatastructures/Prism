@@ -89,6 +89,18 @@ namespace Prism::Xhttp::Detail
     auto RunClientDriver(std::shared_ptr<ClientState> State)
         -> Net::awaitable<void>;
 
+    struct ClientDriverOutcome final
+    {
+        Prism::Fault::Failure Failure;
+        bool Failed{false};
+        bool LocalCloseCompletion{false};
+    };
+
+    [[nodiscard]] auto DriveClientSession(
+        const std::shared_ptr<ClientState> &State,
+        std::span<std::byte> Buffer,
+        ClientDriverOutcome &Outcome) -> Net::awaitable<void>;
+
     [[nodiscard]] auto MakeClientState(
         Prism::Transport::Encrypted::SharedStream Stream,
         std::shared_ptr<Prism::Memory::BytePool> Bytes) -> std::shared_ptr<ClientState>;

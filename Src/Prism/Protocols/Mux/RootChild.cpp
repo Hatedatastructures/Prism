@@ -14,6 +14,8 @@
 #include <Prism/Protocols/Mux/SingMux/Stream.hpp>
 #include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <array>
 #include <cstddef>
@@ -184,6 +186,31 @@ namespace Prism::Mux::Detail
     /** @brief 唯一实际 child completion 报告；异常观察不改业务 fault，根不重复累计这些 bytes。 */
     inline auto RunChild(std::shared_ptr<ChildState> Child) -> Net::awaitable<void>
     {
+        const auto StartGate = Child->StartGate;
+        if (StartGate)
+        {
+            boost::system::error_code GateError;
+            co_await StartGate->async_receive(
+                Net::redirect_error(Net::use_awaitable, GateError));
+            // 关闭 gate 表示该 child 未完成 catalog 登记，只能结束，不能进入数据面。
+            if (GateError)
+            {
+                ChildCompletion Completion{Child, Prism::Foundation::TrafficObservation{
+                    Child->Root->Options.Services.Traffic,
+                    Prism::Foundation::TrafficEvent{
+                        .Generation = Child->Root->Metadata.TaskIdentity.Generation,
+                        .Worker = Child->Root->Metadata.TaskIdentity.WorkerId,
+                        .Session = Child->Root->Metadata.TaskIdentity.SessionId,
+                        .Stream = Child->Identity.StreamId,
+                        .Task = Child->Identity.TaskId,
+                        .Account = Child->Root->Admission.Binding()
+                            ? Child->Root->Admission.Binding()->AccountId()
+                            : Prism::AccountId{}}}};
+                Completion.Result.Failure = {Prism::Fault::Code::Canceled};
+                co_await CompleteChild(std::move(Completion));
+                co_return;
+            }
+        }
         const auto Binding = Child->Root->Admission.Binding();
         Prism::Foundation::TrafficObservation Observation{
             Child->Root->Options.Services.Traffic,
@@ -327,6 +354,68 @@ namespace Prism::Mux::Detail
         }
     }
 
+    enum class ChildRetirementKind : std::uint8_t
+    {
+        None,
+        Normal,
+        Canceled
+    };
+
+    /** @brief 历史取消与物理退休分开判断；只有活动、终止和两端都已真实退栈才算退休。 */
+    inline auto ClassifyChildRetirement(
+        const ChildCompletion &Completion,
+        const ChildActivityDrainReceipt &ActivityDrain) -> ChildRetirementKind
+    {
+        const auto &Root = Completion.Child->Root;
+        const auto &Result = Completion.Result;
+        const auto IsClearOrCanceled = [](Prism::Fault::Failure Value)
+        {
+            return !Value.Failed() || Value.Code == Prism::Fault::Code::Canceled;
+        };
+        const auto ExceptionFailure = Completion.Failure
+            ? ControlFailureFromException(Completion.Failure) : Prism::Fault::Failure{};
+        Prism::Fault::Failure ControlFailure;
+        if (Completion.Child->ControlFailure)
+            ControlFailure = Completion.Child->ControlFailure->Load();
+        const bool Terminated = Completion.FinishDrained ||
+            Completion.FinishFailure.Code == Prism::Fault::Code::Canceled;
+        const bool Retired = ActivityDrain.Retired && Terminated &&
+            IsClearOrCanceled(Completion.FinishFailure) &&
+            IsClearOrCanceled(Result.Failure) &&
+            IsClearOrCanceled(Result.DirectionFailure[0]) &&
+            IsClearOrCanceled(Result.DirectionFailure[1]) &&
+            IsClearOrCanceled(ControlFailure) && IsClearOrCanceled(ExceptionFailure) &&
+            IsClearOrCanceled(ActivityDrain.Failure);
+        if (!Retired) return ChildRetirementKind::None;
+        if (Completion.Child->NormalCloseCancellation.load(std::memory_order_acquire) &&
+            Root->IsClosingNormally())
+            return ChildRetirementKind::Normal;
+        if (Completion.Child->ExplicitCancellation.load(std::memory_order_acquire) ||
+            Root->IsExplicitlyCanceled())
+            return ChildRetirementKind::Canceled;
+        return ChildRetirementKind::None;
+    }
+
+    inline auto RecordChildRetirementFailure(
+        const std::shared_ptr<RootState> &Root,
+        const ChildCompletion &Completion,
+        const ChildActivityDrainReceipt &ActivityDrain) -> void
+    {
+        if (Completion.FinishFailure.Failed())
+            Root->RecordTerminalFailure(Completion.FinishFailure);
+        if (ActivityDrain.Failure.Failed())
+            Root->RecordTerminalFailure(ActivityDrain.Failure);
+        if (Completion.Failure)
+            Root->RecordTerminalFailure(
+                ControlFailureFromException(Completion.Failure));
+        if (Completion.Child->ControlFailure)
+        {
+            const auto ControlFailure = Completion.Child->ControlFailure->Load();
+            if (ControlFailure.Failed())
+                Root->RecordTerminalFailure(ControlFailure);
+        }
+    }
+
     inline auto CompleteChild(ChildCompletion Completion) -> Net::awaitable<void>
     {
         const auto Child = Completion.Child;
@@ -365,22 +454,11 @@ namespace Prism::Mux::Detail
         }
         if (Failure && !Result.Failure.Failed())
             Result.Failure = ControlFailureFromException(Failure);
-        const auto IsClearOrCanceled = [](const Prism::Fault::Failure Value)
-        {
-            return !Value.Failed() || Value.Code == Prism::Fault::Code::Canceled;
-        };
         const auto ExceptionFailure = Failure
             ? ControlFailureFromException(Failure) : Prism::Fault::Failure{};
-        const bool NormalCloseRetired =
-            Child->NormalCloseCancellation.load(std::memory_order_acquire) &&
-            Root->IsClosingNormally() && (FinishDrained ||
-                Completion.FinishFailure.Code == Prism::Fault::Code::Canceled) &&
-            ActivitiesRetired && IsClearOrCanceled(Completion.FinishFailure) &&
-            IsClearOrCanceled(Result.Failure) &&
-            IsClearOrCanceled(Result.DirectionFailure[0]) &&
-            IsClearOrCanceled(Result.DirectionFailure[1]) &&
-            IsClearOrCanceled(ControlFailure) && IsClearOrCanceled(ExceptionFailure) &&
-            IsClearOrCanceled(ActivityDrain.Failure);
+        const auto Retirement = ClassifyChildRetirement(Completion, ActivityDrain);
+        const bool NormalCloseRetired = Retirement == ChildRetirementKind::Normal;
+        const bool CancellationRetired = Retirement == ChildRetirementKind::Canceled;
         if (NormalCloseRetired)
         {
             Result = {};
@@ -389,15 +467,16 @@ namespace Prism::Mux::Detail
         }
         else
         {
-            if (Completion.FinishFailure.Failed())
-                Root->RecordTerminalFailure(Completion.FinishFailure);
-            if (ActivityDrain.Failure.Failed())
-                Root->RecordTerminalFailure(ActivityDrain.Failure);
-            if (Failure) Root->RecordTerminalFailure(ExceptionFailure);
-            if (ControlFailure.Failed()) Root->RecordTerminalFailure(ControlFailure);
+            // 取消引起的异常不是任务失败；保留 Result 中的 Canceled 事实后让任务正常退休。
+            if (CancellationRetired &&
+                ExceptionFailure.Code == Prism::Fault::Code::Canceled)
+                Failure = nullptr;
+            RecordChildRetirementFailure(Root, Completion, ActivityDrain);
         }
-        const bool ChildRetired = (FinishDrained || NormalCloseRetired) && ActivitiesRetired &&
-            (NormalCloseRetired ||
+        const bool ChildRetired =
+            (FinishDrained || NormalCloseRetired || CancellationRetired) &&
+            ActivitiesRetired &&
+            (NormalCloseRetired || CancellationRetired ||
                 (!Result.DirectionFailure[0].Failed() && !Result.DirectionFailure[1].Failed()));
         UpdateChildStreamCatalog(Child, ChildRetired);
         Observation.Complete();
@@ -557,9 +636,17 @@ namespace Prism::Mux::Detail
     }
 
     /** @brief 每个真正 wire child 申请 StreamLease、派生父身份，取消 hook 弱持 child。 */
-    auto StartChild(std::shared_ptr<RootState> Root, std::shared_ptr<ChildState> Child) -> bool
+    auto StartChild(
+        std::shared_ptr<RootState> Root,
+        std::shared_ptr<ChildState> Child,
+        const bool DeferStart) -> bool
     {
         Child->Root = Root;
+        if (DeferStart)
+        {
+            Child->StartGate = std::make_shared<ChildState::StartSignal>(
+                Root->Executor, 1);
+        }
         const auto RetirementSlot = Root->ReserveChildRetirementSlot();
         if (RetirementSlot) Child->RetirementSlot = *RetirementSlot;
         else Child->Admitted = false;
@@ -632,8 +719,20 @@ namespace Prism::Mux::Detail
             const auto Registered = Root->StreamCatalogOwner->Register(
                 Descriptor,
                 Prism::Contract::Ingress::StreamResetBinding{ResetOwner});
-            if (!Registered) Root->StreamCatalogOwner->Disable();
+            if (!Registered)
+            {
+                Root->StreamCatalogOwner->Disable();
+                if (Child->StartGate) Child->StartGate->close();
+                Child->Cancel();
+                return false;
+            }
         }
         return true;
+    }
+
+    auto OpenChildStart(const std::shared_ptr<ChildState> &Child) noexcept -> void
+    {
+        if (!Child || !Child->StartGate) return;
+        (void)Child->StartGate->try_send(boost::system::error_code{});
     }
 }

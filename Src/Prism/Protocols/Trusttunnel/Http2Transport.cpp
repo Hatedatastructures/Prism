@@ -86,6 +86,7 @@ namespace Prism::Trusttunnel::Detail
 
     void Http2Transport::NotifyEof()
     {
+        RemoteEnded_ = true;
         if (!Closed_ && !TerminalError_ && !DrainTerminal_ && !Eof_)
         {
             if (!Notify_.try_send(boost::system::error_code{}, std::vector<std::byte>{}))

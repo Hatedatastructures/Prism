@@ -10,8 +10,8 @@ if (-not $RepoRoot) {
 
 $IncludeRoot = Join-Path $RepoRoot "Include/Prism"
 $SourceRoot = Join-Path $RepoRoot "Src/Prism"
-$TestSupportDir = Join-Path $RepoRoot "tests/TestSupport"
-$ExperimentDir = Join-Path $RepoRoot "tests/Experiments/Prism"
+$TestSupportDir = Join-Path $RepoRoot "Test/TestSupport"
+$ExperimentDir = Join-Path $RepoRoot "Test/Experiments/Prism"
 $ProductionCmakeRoot = Join-Path $RepoRoot "Src/Prism"
 $TestSupportCmake = Join-Path $TestSupportDir "CMakeLists.txt"
 $RequiredPaths = @($IncludeRoot, $SourceRoot, $TestSupportDir, $ProductionCmakeRoot, $TestSupportCmake)
@@ -122,7 +122,7 @@ $DiskFiles = $DiskFiles | Sort-Object -Unique
 $Registrations = @()
 Get-ChildItem -LiteralPath $ProductionCmakeRoot -Recurse -Filter CMakeLists.txt -File |
     ForEach-Object { $Registrations += Get-ProductionHeaderRegistrations $_.FullName }
-$Registrations += Get-LegacyTargetSources $TestSupportCmake 'tests/TestSupport'
+$Registrations += Get-LegacyTargetSources $TestSupportCmake 'Test/TestSupport'
 if (Test-Path -LiteralPath $ExperimentDir -PathType Container) {
     Get-ChildItem -LiteralPath $ExperimentDir -Recurse -Filter CMakeLists.txt -File | ForEach-Object {
         $Directory = Split-Path -Parent $_.FullName

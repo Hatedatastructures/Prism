@@ -7,7 +7,7 @@ description: 用户要求分析、记录或重构 Prism 模块时，从当前源
 
 ## 适用范围
 
-用于分析、记录或重构当前 Prism 模块。生产公共头位于 `Include/Prism/`；实现、私有头和模块 CMake 位于 `Src/Prism/`；对应功能测试位于 `tests/Prism/`。先按 `AGENTS.md` 的模块所有权确定 owner，并同时核对源码 include 方向与 CMake target 依赖。默认输出到用户指定位置；未指定时优先更新仓库 `docs/` 中已有的相关文档，不写入外部盘符或私人 wiki。
+用于分析、记录或重构当前 Prism 模块。生产公共头位于 `Include/Prism/`；实现、私有头和模块 CMake 位于 `Src/Prism/`；对应功能测试位于 `Test/Prism/`。先按 `AGENTS.md` 的模块所有权确定 owner，并同时核对源码 include 方向与 CMake target 依赖。默认输出到用户指定位置；未指定时优先更新仓库 `docs/` 中已有的相关文档，不写入外部盘符或私人 wiki。
 
 ## 分析流程
 
