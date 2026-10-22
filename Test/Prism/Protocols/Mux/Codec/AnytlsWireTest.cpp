@@ -51,8 +51,10 @@ TEST(AnytlsWire, ParsesSingMuxBootstrapVariants)
     ASSERT_TRUE(Padded.has_value());
     EXPECT_EQ(Padded->Consumed, 7U);
 
-    EXPECT_EQ(Prism::Mux::Detail::SingMux::ParseBootstrap(Bytes({0x01, 0x00, 0x01})),
-              Prism::Error::NeedMore);
+    const auto Truncated = Prism::Mux::Detail::SingMux::ParseBootstrap(
+        Bytes({0x01, 0x00, 0x01}));
+    ASSERT_FALSE(Truncated.has_value());
+    EXPECT_EQ(Truncated.error(), Prism::Error::NeedMore);
 }
 TEST(AnytlsWire, ParsesStreamRequestAndPreservesTrailingPayload)
 {
