@@ -168,7 +168,11 @@ namespace
         std::shared_ptr<RelayCompletionState> State;
     };
 
-    /** @brief 拥有本用例的 io_context，并以真实 run 循环驱动命名场景协程。 */
+    /**
+     * @brief 拥有本用例的 io_context，并以真实 run 循环驱动命名场景协程。
+     * @details Memory relay fixture 由测试栈持有并按引用传入；Run 同步驱动协程至完成，
+     *          保证对象存活，并避免 GCC 13 在协程帧析构按值 fixture 时触发内部错误。
+     */
     class TimeoutRelayFixture final
     {
     public:
@@ -201,7 +205,7 @@ namespace
         }
 
         /** @brief 验证空闲到期后 relay 以 Timeout 结束。 */
-        auto IdleTimeoutClosesTunnel(MemoryRelayFixture Relay) -> Net::awaitable<void>
+        auto IdleTimeoutClosesTunnel(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
             StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
                         std::chrono::milliseconds(50), {}});
@@ -213,7 +217,7 @@ namespace
         }
 
         /** @brief 验证超过空闲阈值的持续双向活动保持 relay，并在双方关闭后排空。 */
-        auto NoTimeoutWhenActive(MemoryRelayFixture Relay) -> Net::awaitable<void>
+        auto NoTimeoutWhenActive(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
             StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
                         std::chrono::milliseconds(100), {}});
@@ -258,7 +262,7 @@ namespace
         }
 
         /** @brief 验证零空闲阈值禁用超时并由显式双向关闭结束。 */
-        auto ZeroDisablesTimeout(MemoryRelayFixture Relay) -> Net::awaitable<void>
+        auto ZeroDisablesTimeout(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
             StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
                         std::chrono::milliseconds(0), {}});
@@ -276,7 +280,7 @@ namespace
         }
 
         /** @brief 验证 Context timeout 优先于更长的 relay idle timeout。 */
-        auto ContextTimeoutTakesPriority(MemoryRelayFixture Relay) -> Net::awaitable<void>
+        auto ContextTimeoutTakesPriority(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
             StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
                         std::chrono::seconds(300), std::chrono::milliseconds(40)});
@@ -288,7 +292,7 @@ namespace
         }
 
         /** @brief 验证 outbound 对端关闭后的写失败立即结束 relay。 */
-        auto WriteFailureTerminatesTunnel(MemoryRelayFixture Relay) -> Net::awaitable<void>
+        auto WriteFailureTerminatesTunnel(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
             StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
                         std::chrono::milliseconds(0), {}});
@@ -380,7 +384,7 @@ namespace
         }
 
         /** @brief 验证同时上传和下载均完整传输后再关闭并排空 relay。 */
-        auto ConcurrentBidirectionalTransfer(MemoryRelayFixture Relay) -> Net::awaitable<void>
+        auto ConcurrentBidirectionalTransfer(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
             StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
                         std::chrono::milliseconds(0), {}});
@@ -428,7 +432,7 @@ namespace
         }
 
         /** @brief 验证请求方向半关闭后，反向响应仍可传输且最终收到 EOF。 */
-        auto HalfCloseKeepsReverseDirection(MemoryRelayFixture Relay) -> Net::awaitable<void>
+        auto HalfCloseKeepsReverseDirection(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
             StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
                         std::chrono::milliseconds(0), {}});
@@ -499,31 +503,36 @@ namespace
     TEST(TimeoutRelay, IdleTimeoutClosesTunnel)
     {
         TimeoutRelayFixture Fixture;
-        Fixture.Run(Fixture.IdleTimeoutClosesTunnel(Fixture.MakeMemoryRelayFixture()));
+        auto Relay = Fixture.MakeMemoryRelayFixture();
+        Fixture.Run(Fixture.IdleTimeoutClosesTunnel(Relay));
     }
 
     TEST(TimeoutRelay, NoTimeoutWhenActive)
     {
         TimeoutRelayFixture Fixture;
-        Fixture.Run(Fixture.NoTimeoutWhenActive(Fixture.MakeMemoryRelayFixture()));
+        auto Relay = Fixture.MakeMemoryRelayFixture();
+        Fixture.Run(Fixture.NoTimeoutWhenActive(Relay));
     }
 
     TEST(TimeoutRelay, ZeroDisablesTimeout)
     {
         TimeoutRelayFixture Fixture;
-        Fixture.Run(Fixture.ZeroDisablesTimeout(Fixture.MakeMemoryRelayFixture()));
+        auto Relay = Fixture.MakeMemoryRelayFixture();
+        Fixture.Run(Fixture.ZeroDisablesTimeout(Relay));
     }
 
     TEST(TimeoutRelay, ContextTimeoutTakesPriority)
     {
         TimeoutRelayFixture Fixture;
-        Fixture.Run(Fixture.ContextTimeoutTakesPriority(Fixture.MakeMemoryRelayFixture()));
+        auto Relay = Fixture.MakeMemoryRelayFixture();
+        Fixture.Run(Fixture.ContextTimeoutTakesPriority(Relay));
     }
 
     TEST(TimeoutRelay, WriteFailureTerminatesTunnel)
     {
         TimeoutRelayFixture Fixture;
-        Fixture.Run(Fixture.WriteFailureTerminatesTunnel(Fixture.MakeMemoryRelayFixture()));
+        auto Relay = Fixture.MakeMemoryRelayFixture();
+        Fixture.Run(Fixture.WriteFailureTerminatesTunnel(Relay));
     }
 
     TEST(TimeoutRelay, WriteFailureReturnsIoError)
@@ -559,13 +568,15 @@ namespace
     TEST(TimeoutRelay, ConcurrentBidirectionalTransfer)
     {
         TimeoutRelayFixture Fixture;
-        Fixture.Run(Fixture.ConcurrentBidirectionalTransfer(Fixture.MakeMemoryRelayFixture()));
+        auto Relay = Fixture.MakeMemoryRelayFixture();
+        Fixture.Run(Fixture.ConcurrentBidirectionalTransfer(Relay));
     }
 
     TEST(TimeoutRelay, HalfCloseKeepsReverseDirection)
     {
         TimeoutRelayFixture Fixture;
-        Fixture.Run(Fixture.HalfCloseKeepsReverseDirection(Fixture.MakeMemoryRelayFixture()));
+        auto Relay = Fixture.MakeMemoryRelayFixture();
+        Fixture.Run(Fixture.HalfCloseKeepsReverseDirection(Relay));
     }
 
 } // namespace
