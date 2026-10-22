@@ -97,7 +97,12 @@ namespace
         Net::co_spawn(Executor, RunRelay(std::move(Request)), std::move(Completion));
     }
 
-    auto WaitForRelay(RelayWaitRequest Request) -> Net::awaitable<bool>
+    /**
+     * @brief 等待 relay 完成，并在超时后请求关闭关联 transport。
+     * @details 调用协程在自身帧中持有具名请求对象；本协程通过引用访问它，避免把含 vector
+     *          的临时聚合直接传入 awaitable 而触发 GCC 13 内部编译器错误。
+     */
+    auto WaitForRelay(const RelayWaitRequest &Request) -> Net::awaitable<bool>
     {
         using Net::experimental::awaitable_operators::operator||;
         const auto Executor = co_await Net::this_coro::executor;
@@ -207,10 +212,12 @@ namespace
         /** @brief 验证空闲到期后 relay 以 Timeout 结束。 */
         auto IdleTimeoutClosesTunnel(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
-            StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
-                        std::chrono::milliseconds(50), {}});
-            const auto Completed = co_await WaitForRelay(
-                {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
+            RelayStartRequest StartRequest{
+                Relay.State, Relay.Inbound, Relay.Outbound, std::chrono::milliseconds(50), {}};
+            StartRelay(std::move(StartRequest));
+            const RelayWaitRequest WaitRequest{
+                Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}};
+            const auto Completed = co_await WaitForRelay(WaitRequest);
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
             EXPECT_EQ(Relay.State->Result.Code, Prism::Fault::Code::Timeout);
@@ -219,8 +226,9 @@ namespace
         /** @brief 验证超过空闲阈值的持续双向活动保持 relay，并在双方关闭后排空。 */
         auto NoTimeoutWhenActive(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
-            StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
-                        std::chrono::milliseconds(100), {}});
+            RelayStartRequest StartRequest{
+                Relay.State, Relay.Inbound, Relay.Outbound, std::chrono::milliseconds(100), {}};
+            StartRelay(std::move(StartRequest));
 
             // 立即首包（Relay 启动后马上有活动，避免初始超时窗口）
             const std::string FirstMessage = "FirstMessage";
@@ -254,8 +262,9 @@ namespace
             }
             (void)Relay.Client->Close();
             (void)Relay.Server->Close();
-            const auto Completed = co_await WaitForRelay(
-                {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
+            const RelayWaitRequest WaitRequest{
+                Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}};
+            const auto Completed = co_await WaitForRelay(WaitRequest);
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
             EXPECT_TRUE(Relay.State->Result.Succeeded());
@@ -264,8 +273,9 @@ namespace
         /** @brief 验证零空闲阈值禁用超时并由显式双向关闭结束。 */
         auto ZeroDisablesTimeout(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
-            StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
-                        std::chrono::milliseconds(0), {}});
+            RelayStartRequest StartRequest{
+                Relay.State, Relay.Inbound, Relay.Outbound, std::chrono::milliseconds(0), {}};
+            StartRelay(std::move(StartRequest));
             // 等 200ms（若超时未禁用，已关闭）
             Net::steady_timer Timer(IoContext_);
             Timer.expires_after(std::chrono::milliseconds(200));
@@ -273,8 +283,9 @@ namespace
             EXPECT_TRUE(Relay.Inbound->IsOpen());
             (void)Relay.Client->Close(); // 显式关闭入站发送方向
             (void)Relay.Server->Close(); // 显式关闭出站发送方向
-            const auto Completed = co_await WaitForRelay(
-                {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
+            const RelayWaitRequest WaitRequest{
+                Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}};
+            const auto Completed = co_await WaitForRelay(WaitRequest);
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
         }
@@ -282,10 +293,13 @@ namespace
         /** @brief 验证 Context timeout 优先于更长的 relay idle timeout。 */
         auto ContextTimeoutTakesPriority(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
-            StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
-                        std::chrono::seconds(300), std::chrono::milliseconds(40)});
-            const auto Completed = co_await WaitForRelay(
-                {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
+            RelayStartRequest StartRequest{
+                Relay.State, Relay.Inbound, Relay.Outbound,
+                std::chrono::seconds(300), std::chrono::milliseconds(40)};
+            StartRelay(std::move(StartRequest));
+            const RelayWaitRequest WaitRequest{
+                Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}};
+            const auto Completed = co_await WaitForRelay(WaitRequest);
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
             EXPECT_EQ(Relay.State->Result.Code, Prism::Fault::Code::Timeout);
@@ -294,8 +308,9 @@ namespace
         /** @brief 验证 outbound 对端关闭后的写失败立即结束 relay。 */
         auto WriteFailureTerminatesTunnel(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
-            StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
-                        std::chrono::milliseconds(0), {}});
+            RelayStartRequest StartRequest{
+                Relay.State, Relay.Inbound, Relay.Outbound, std::chrono::milliseconds(0), {}};
+            StartRelay(std::move(StartRequest));
 
             // 关闭 Outbound 对端（OutputPeer）→ Relay 写 RelayOutput 失败 → 隧道终止
             (void)Relay.Server->Close();
@@ -305,8 +320,9 @@ namespace
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Message.data()),
                                            Message.size()));
             WriteError = Prism::Fault::ToNative(Write.Failure);
-            const auto Completed = co_await WaitForRelay(
-                {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
+            const RelayWaitRequest WaitRequest{
+                Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}};
+            const auto Completed = co_await WaitForRelay(WaitRequest);
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
             EXPECT_EQ(Relay.State->Result.Code, Prism::Fault::Code::ConnectionAborted);
@@ -386,8 +402,9 @@ namespace
         /** @brief 验证同时上传和下载均完整传输后再关闭并排空 relay。 */
         auto ConcurrentBidirectionalTransfer(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
-            StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
-                        std::chrono::milliseconds(0), {}});
+            RelayStartRequest StartRequest{
+                Relay.State, Relay.Inbound, Relay.Outbound, std::chrono::milliseconds(0), {}};
+            StartRelay(std::move(StartRequest));
 
             const std::string Uplink = "Uplink payload with Input different length";
             const std::string Downlink = "Downlink";
@@ -425,8 +442,9 @@ namespace
 
             (void)Relay.Client->Close();
             (void)Relay.Server->Close();
-            const auto Completed = co_await WaitForRelay(
-                {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
+            const RelayWaitRequest WaitRequest{
+                Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}};
+            const auto Completed = co_await WaitForRelay(WaitRequest);
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
         }
@@ -434,8 +452,9 @@ namespace
         /** @brief 验证请求方向半关闭后，反向响应仍可传输且最终收到 EOF。 */
         auto HalfCloseKeepsReverseDirection(MemoryRelayFixture &Relay) -> Net::awaitable<void>
         {
-            StartRelay({Relay.State, Relay.Inbound, Relay.Outbound,
-                        std::chrono::milliseconds(0), {}});
+            RelayStartRequest StartRequest{
+                Relay.State, Relay.Inbound, Relay.Outbound, std::chrono::milliseconds(0), {}};
+            StartRelay(std::move(StartRequest));
 
             const std::string Request = "Request before half Close";
             const std::string Response = "response after half Close";
@@ -488,8 +507,9 @@ namespace
             EXPECT_FALSE(ErrorCode);
             EXPECT_EQ(EofCount, 0U);
 
-            const auto Completed = co_await WaitForRelay(
-                {Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}});
+            const RelayWaitRequest WaitRequest{
+                Relay.State, {Relay.Client, Relay.Server, Relay.Inbound, Relay.Outbound}};
+            const auto Completed = co_await WaitForRelay(WaitRequest);
             EXPECT_TRUE(Completed);
             EXPECT_FALSE(Relay.State->Failure);
             EXPECT_FALSE(Relay.State->DirectionFailure[0].Failed() ||
