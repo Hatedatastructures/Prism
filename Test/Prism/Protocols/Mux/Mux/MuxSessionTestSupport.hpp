@@ -23,7 +23,7 @@ namespace Prism::Testing::MuxSession
 {
     namespace Net = boost::asio;
 
-    [[nodiscard]] inline auto ExpectIoSuccess(
+    inline auto ExpectIoSuccess(
         const Prism::IoResult &Result,
         const std::size_t ExpectedBytes) -> void
     {
@@ -72,13 +72,13 @@ namespace Prism::Testing::MuxSession
     }
     template <typename SessionType>
     auto CloseSessionOwner(
-        const std::shared_ptr<SessionType> &Owner,
+        std::shared_ptr<SessionType> Owner,
         std::exception_ptr &Failure) -> Net::awaitable<void>;
 
     template <typename SessionType>
     auto CloseAndDrainStream(
         Prism::SharedTransmission Stream,
-        const std::shared_ptr<SessionType> &Session)
+        std::shared_ptr<SessionType> Session)
         -> Net::awaitable<Prism::Transmission::ControlResult>
     {
         using ControlResult = Prism::Transmission::ControlResult;
@@ -193,7 +193,7 @@ namespace Prism::Testing::MuxSession
 
     template <typename SessionType>
     auto CloseSessionOwner(
-        const std::shared_ptr<SessionType> &Owner,
+        std::shared_ptr<SessionType> Owner,
         std::exception_ptr &Failure) -> Net::awaitable<void>
     {
         if (!Owner) co_return;
@@ -251,8 +251,8 @@ namespace Prism::Testing::MuxSession
 
     template <typename SessionType>
     auto CloseSessionAndPeer(
-        const std::shared_ptr<SessionType> &Session,
-        const Prism::SharedTransmission &Peer) -> Net::awaitable<void>
+        std::shared_ptr<SessionType> Session,
+        Prism::SharedTransmission Peer) -> Net::awaitable<void>
     {
         std::exception_ptr Failure;
         co_await CloseSessionOwner(Session, Failure);

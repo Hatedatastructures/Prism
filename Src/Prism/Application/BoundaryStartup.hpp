@@ -288,11 +288,15 @@ namespace Prism::Application::BoundaryStartup
         Net::ip::tcp::acceptor Probe(ProbeIo);
         boost::system::error_code Error;
         Probe.open(Endpoint.protocol(), Error);
+#if defined(_WIN32)
+        // Windows 上 reuse_address 可能允许探测 socket 与已占用 listener 共享端口。
+#else
+        // Linux 需要复用 recently-closed/TIME_WAIT 端口，且与真实 listener 保持一致。
         if (!Error)
         {
-            // 与真实 listener 保持相同选项；预检不能替代后续 listener 的实际 bind。
             Probe.set_option(Net::ip::tcp::acceptor::reuse_address(true), Error);
         }
+#endif
         if (!Error)
         {
             Probe.bind(Endpoint, Error);

@@ -185,7 +185,8 @@ namespace
         const std::array<std::uint8_t, 4> ExpectedPayload{0x41, 0x00, 0xFE, 0x7F};
         auto Carrier = std::make_shared<ScriptedCarrier>(
             IoContext.get_executor(), MakeFrame(ExpectedPayload), Scenario.CarrierTerminal);
-        Udp::socket Sink(IoContext, Udp::endpoint(Udp::v4(), 0));
+        Udp::socket Sink(IoContext,
+            Udp::endpoint(Net::ip::address_v4::loopback(), 0));
         const auto SinkEndpoint = Sink.local_endpoint();
         Net::steady_timer ReceiveDeadline(IoContext);
         ReceiveDeadline.expires_after(std::chrono::milliseconds(250));

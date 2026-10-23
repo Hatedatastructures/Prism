@@ -31,6 +31,12 @@ namespace
         bool DirectFactoryDrained{false};
         bool DirectFactoryRetired{false};
         std::uint64_t GenerationUsesAfterDrain{0};
+        std::size_t AccountBindingOwnersAfterCleanup{0};
+        std::size_t GenerationOwnersAfterCleanup{0};
+        Prism::Fault::Failure CatalogDrainFailure{};
+        Prism::Fault::Failure DirectFactoryDrainFailure{};
+        std::exception_ptr CatalogDrainException;
+        std::exception_ptr DirectFactoryDrainException;
         std::string SetupError;
         std::exception_ptr Failure;
     };
@@ -338,15 +344,26 @@ namespace
         std::vector<std::byte> Wire;
     };
 
-    auto DrainVlessCatalog(Net::io_context &Io,
-        const std::shared_ptr<Provider::BoundCatalog> &Catalog) -> bool
+    struct VlessCatalogDrainResult final
     {
-        bool Drained = false;
-        Net::co_spawn(Io, Catalog->Drain(), [&Drained](std::exception_ptr Failure,
-            std::expected<void, Prism::Fault::Failure> Result)
-        { Drained = !Failure && static_cast<bool>(Result); });
+        bool Drained{false};
+        Prism::Fault::Failure Failure{};
+        std::exception_ptr Exception;
+    };
+
+    auto DrainVlessCatalog(Net::io_context &Io,
+        const std::shared_ptr<Provider::BoundCatalog> &Catalog) -> VlessCatalogDrainResult
+    {
+        VlessCatalogDrainResult Result;
+        Net::co_spawn(Io, Catalog->Drain(), [&Result](std::exception_ptr Exception,
+            std::expected<void, Prism::Fault::Failure> Drain)
+        {
+            Result.Exception = std::move(Exception);
+            Result.Drained = !Result.Exception && static_cast<bool>(Drain);
+            if (!Drain) Result.Failure = Drain.error();
+        });
         Io.run();
-        return Drained;
+        return Result;
     }
 
     /** @brief 分开记录协议 factory Drain 返回与独立物理退休回执。 */
@@ -354,6 +371,8 @@ namespace
     {
         bool Drained{false};
         bool Retired{false};
+        Prism::Fault::Failure Failure{};
+        std::exception_ptr Exception;
     };
 
     /** @brief 在 factory 使用的同一 executor 上完整等待 VLESS Binding 退休。 */
@@ -363,10 +382,12 @@ namespace
     {
         VlessFactoryDrainResult Result;
         Net::co_spawn(Io, Factory->Drain(),
-            [&Result, Factory](std::exception_ptr Failure,
+            [&Result, Factory](std::exception_ptr Exception,
                 std::expected<void, Prism::Fault::Failure> Drained)
             {
-                Result.Drained = !Failure && static_cast<bool>(Drained);
+                Result.Exception = std::move(Exception);
+                Result.Drained = !Result.Exception && static_cast<bool>(Drained);
+                if (!Drained) Result.Failure = Drained.error();
                 Result.Retired = Factory->IsRetired();
             });
         Io.run();
@@ -574,13 +595,20 @@ namespace
         const auto DirectDrain = DrainVlessFactory(*Setup->ProviderIo, Setup->DirectFactory);
         Result.DirectFactoryDrained = DirectDrain.Drained;
         Result.DirectFactoryRetired = DirectDrain.Retired;
+        Result.DirectFactoryDrainFailure = DirectDrain.Failure;
+        Result.DirectFactoryDrainException = DirectDrain.Exception;
         Setup->DirectFactory.reset();
-        Result.CatalogDrained = DrainVlessCatalog(*Setup->ProviderIo, Setup->Catalog);
+        const auto CatalogDrain = DrainVlessCatalog(*Setup->ProviderIo, Setup->Catalog);
+        Result.CatalogDrained = CatalogDrain.Drained;
+        Result.CatalogDrainFailure = CatalogDrain.Failure;
+        Result.CatalogDrainException = CatalogDrain.Exception;
         Result.GenerationUsesAfterDrain = Setup->UseState->Outstanding();
         Setup->Catalog.reset();
         Setup->UseState.reset();
         Setup->ProviderIo.reset();
         Setup->Record.reset();
+        // 测试副本仍持有 GenerationPin 与账户快照；先释放它们再检查其余 owner 是否退栈。
+        Setup->Authentication = {};
         Phase->Accounts.Protocols.clear();
         Phase->Accounts.Store.reset();
         Phase->Accounts.Identities.reset();
@@ -588,6 +616,10 @@ namespace
         Phase->Generation.reset();
         Result.LeaseReleased = Setup->WeakRecord.expired();
         Result.GenerationReleased = Setup->WeakGeneration.expired();
+        Result.AccountBindingOwnersAfterCleanup =
+            static_cast<std::size_t>(Setup->WeakRecord.use_count());
+        Result.GenerationOwnersAfterCleanup =
+            static_cast<std::size_t>(Setup->WeakGeneration.use_count());
         return Result;
     }
 } // namespace
@@ -608,11 +640,16 @@ TEST(ConfiguredMuxSession, VlessUdpBindingCapabilityIsIndependentOfBindingOrder)
         EXPECT_TRUE(Result.EnabledResponseRead);
         EXPECT_FALSE(Result.TimedOut);
         EXPECT_TRUE(Result.ActiveConnectionsZero);
-        EXPECT_TRUE(Result.DirectFactoryDrained);
+        EXPECT_TRUE(Result.DirectFactoryDrained)
+            << DescribeMuxFailure(Result.DirectFactoryDrainFailure);
         EXPECT_TRUE(Result.DirectFactoryRetired);
-        EXPECT_TRUE(Result.CatalogDrained);
+        EXPECT_FALSE(Result.DirectFactoryDrainException);
+        EXPECT_TRUE(Result.CatalogDrained) << DescribeMuxFailure(Result.CatalogDrainFailure);
+        EXPECT_FALSE(Result.CatalogDrainException);
         EXPECT_EQ(Result.GenerationUsesAfterDrain, 0U);
-        EXPECT_TRUE(Result.LeaseReleased);
-        EXPECT_TRUE(Result.GenerationReleased);
+        EXPECT_TRUE(Result.LeaseReleased)
+            << "remaining account-binding owners=" << Result.AccountBindingOwnersAfterCleanup;
+        EXPECT_TRUE(Result.GenerationReleased)
+            << "remaining generation owners=" << Result.GenerationOwnersAfterCleanup;
     }
 }

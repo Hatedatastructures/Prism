@@ -434,6 +434,9 @@ TEST(AnytlsSessionShutdown, ExternalCancelWithoutOwnerStopRemainsFailure)
     EXPECT_TRUE(Result.RootRetired);
     EXPECT_FALSE(Result.RootActivityDrained);
     EXPECT_EQ(Result.RootActivityFailure.Code, Prism::Fault::Code::Canceled);
-    EXPECT_FALSE(Result.ActiveTransportsFinalized);
-    EXPECT_EQ(Result.ActiveTransportsFailure.Code, Prism::Fault::Code::Canceled);
+    EXPECT_TRUE(Result.ActiveTransportsFinalized);
+    EXPECT_TRUE(Result.ActiveTransportsFailure.Succeeded());
+    EXPECT_TRUE(Result.ServerCloseForwarded);
+    EXPECT_TRUE(Result.ServerActivityRetired);
+    EXPECT_TRUE(Result.ChildActivityRetired);
 }

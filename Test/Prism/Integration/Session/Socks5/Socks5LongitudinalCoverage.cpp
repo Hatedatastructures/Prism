@@ -15,6 +15,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/system_executor.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
@@ -23,6 +24,7 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -32,8 +34,11 @@
 #include <Prism/Protocols/Vless/IngressFactory.hpp>
 #include <Prism/Protocols/Trojan/IngressFactory.hpp>
 #include <Prism/Protocols/Vmess/IngressFactory.hpp>
+#include <Prism/Account/Account.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
+#include <Prism/Protocols/Socks5/Binding.hpp>
 #include <Prism/Protocols/Socks5/Socks5.hpp>
 #include <Prism/Runtime/Listener.hpp>
 #include <Prism/Runtime/Session.hpp>
@@ -52,6 +57,9 @@ namespace
         bool RequireAuth{false};
         std::shared_ptr<Prism::Testing::TrafficRecorder> Recorder{};
         std::chrono::milliseconds IdleTimeout{std::chrono::seconds(2)};
+        std::shared_ptr<Prism::Memory::BytePool> Bytes{
+            std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{64U * 1024U, 64U})};
     };
 
     struct Socks5LongitudinalEchoFixture final
@@ -133,19 +141,50 @@ namespace
         }
     };
 
-    auto BuildSession(const ListenerFixture &Fixture, std::string_view SourceIp)
+    auto BuildSession(const ListenerFixture &Fixture,
+        Prism::Runtime::SessionAdmission Admission)
         -> std::shared_ptr<Prism::Runtime::Session>
     {
         Prism::Runtime::SessionOptions Options;
-        Options.SourceIp.assign(SourceIp);
+        Options.SourceIp = Admission.SourceIp;
+        const auto Generation = Admission.Generation;
+        if (!Generation)
+        {
+            throw std::runtime_error("SOCKS5 listener admission has no generation pin");
+        }
+        Options.Services->Generation = Generation;
+        Options.Services->Bytes = Fixture.Bytes;
         Options.Services->RelayIdleTimeout = Fixture.IdleTimeout;
+
+        // 复用 listener admission pin，避免 binding 与账户认证各自生成不同代次。
+        auto Accounts = Prism::Testing::ProviderAccount(
+            Prism::Testing::ProviderAccountInput{
+                Prism::AccountId{1U},
+                Prism::Account::Credential::Password("secret"),
+                "alice",
+                "alice",
+                {}},
+            Generation);
         Prism::Socks5::ServerConfig Config;
         Config.EnableTcp = true;
         Config.EnableUdp = false;
         Config.EnableAuth = Fixture.RequireAuth;
-        Config.Authenticator = Prism::Testing::ProviderAccount(Prism::Testing::ProviderAccountInput{Prism::AccountId{1U}, Prism::Account::Credential::Password("secret"), "alice", "alice", {}})->Authenticator;
-        Options.Services->AcceptProtocol =
-            Prism::Testing::MakeSocks5Binding(std::move(Config));
+        Config.Authenticator = Accounts->Authenticator;
+        auto Prepared = Prism::Socks5::Prepare(
+            Prism::Socks5::Preparation{"socks5-longitudinal", Generation,
+                std::move(Config)},
+            Prism::Socks5::BindingServices{boost::asio::system_executor(),
+                {Generation, Accounts->Credentials, Accounts->Authenticator}, {}});
+        if (!Prepared)
+        {
+            throw std::runtime_error("SOCKS5 longitudinal binding prepare failed");
+        }
+        auto Binding = Prism::Socks5::Bind(std::move(*Prepared), {});
+        if (!Binding)
+        {
+            throw std::runtime_error("SOCKS5 longitudinal binding creation failed");
+        }
+        Options.Services->AcceptProtocol = std::move(*Binding);
         Options.Services->Dial = Socks5LongitudinalDial{Fixture};
         Options.Services->Traffic = Fixture.Recorder;
         return std::make_shared<Prism::Runtime::Session>(std::move(Options));
@@ -159,7 +198,7 @@ namespace
             .Factory = [Fixture](Prism::Runtime::SessionAdmission Admission)
                 -> std::shared_ptr<Prism::Runtime::Session>
             {
-                return BuildSession(Fixture, Admission.SourceIp);
+                return BuildSession(Fixture, std::move(Admission));
             },
             .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
                 Prism::GenerationId{1})});

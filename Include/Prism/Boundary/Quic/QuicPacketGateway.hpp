@@ -49,6 +49,7 @@ namespace Prism::Boundary
 
     struct QuicPacketGatewayOptions final
     {
+        /** @brief 必填；由入口 owner 创建，并复用于对应的 connection registry。 */
         std::shared_ptr<QuicAdmissionBudget> AdmissionBudget;
         std::function<void(const BoundaryPacket &)> OnPacket;
         std::function<bool(const BoundaryPacket &)> Dispatch;

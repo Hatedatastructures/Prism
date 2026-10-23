@@ -172,7 +172,6 @@ namespace Prism::Protocols
                 Owner->RunTaskReturned_ = true;
                 Owner->Pump_->Report();
                 Owner->RequestRetirementOnStrand(false);
-                co_await Owner->WaitForRetirement();
                 const auto Cause = Owner->Failure_.Load();
                 if (Cause.Failed()) co_return std::unexpected(Cause);
                 if (Owner->Cancelled_)
@@ -188,7 +187,6 @@ namespace Prism::Protocols
                 Owner->Pump_->Report();
                 Owner->BeginShutdown(false);
                 Owner->RequestRetirementOnStrand(false);
-                co_await Owner->WaitForRetirement();
                 const auto Cause = Owner->Failure_.Load();
                 if (Cause.Failed()) co_return std::unexpected(Cause);
                 co_return std::unexpected(Admission.error());
@@ -199,14 +197,12 @@ namespace Prism::Protocols
             if (Prism::Fault::Failed(Validation))
             {
                 const Failure Cause{Validation};
-                Owner->Record(Cause);
                 Owner->RunDone_ = true;
                 Owner->RunTaskReturned_ = true;
                 Owner->Pump_->Report();
                 Owner->BeginShutdown(false);
                 Owner->RequestRetirementOnStrand(false);
-                co_await Owner->WaitForRetirement();
-                co_return std::unexpected(Owner->Failure_.Load());
+                co_return std::unexpected(Cause);
             }
 
             CompletionResult Result;
@@ -228,7 +224,6 @@ namespace Prism::Protocols
             Owner->Pump_->Report();
             Owner->BeginShutdown(false);
             Owner->RequestRetirementOnStrand(false);
-            co_await Owner->WaitForRetirement();
             const auto First = Owner->Failure_.Load();
             if (First.Failed()) co_return std::unexpected(First);
             if (Owner->Cancelled_)
@@ -246,7 +241,6 @@ namespace Prism::Protocols
                 const auto Result = co_await Pump_->Run();
                 if (!Result)
                 {
-                    Record(Result.error());
                     co_return std::unexpected(Result.error());
                 }
                 co_return CompletionResult{};
@@ -254,24 +248,7 @@ namespace Prism::Protocols
             catch (...)
             {
                 const auto Error = DatagramFailure::FromException(std::current_exception());
-                Record(Error);
                 co_return std::unexpected(Error);
-            }
-        }
-
-        /** @brief Drain 等待当前串行退休及在途合并重试完成。 */
-        auto WaitForRetirement() -> Net::awaitable<void>
-        {
-            while (RetirementRunning_)
-            {
-                boost::system::error_code Error;
-                co_await Changed_.async_receive(
-                    Net::redirect_error(Net::use_awaitable, Error));
-                if (Error)
-                {
-                    Record(Prism::Fault::FromNative(static_cast<std::error_code>(Error)));
-                    co_return;
-                }
             }
         }
 
@@ -410,7 +387,9 @@ namespace Prism::Protocols
                 ControlsAccepted_ = RequestControls(Cancelled_);
             }
             if (!ControlsAccepted_)
+            {
                 co_return std::unexpected(FirstFailure());
+            }
 
             std::optional<Failure> First;
             if (Pump_->CarrierActivities().empty())
@@ -441,7 +420,10 @@ namespace Prism::Protocols
                     Record(Error);
                 }
             }
-            if (First) co_return std::unexpected(*First);
+            if (First)
+            {
+                co_return std::unexpected(*First);
+            }
             co_return CompletionResult{};
         }
 

@@ -1,3 +1,5 @@
+#include <boost/asio/error.hpp>
+
 #include "NativeQuicLoopbackSupport.hpp"
 
 namespace
@@ -95,7 +97,8 @@ namespace
         std::error_code FinError;
         const auto FinRead = co_await ServerStream->Read(FinProbe, FinError);
         EXPECT_EQ(FinRead, 0U);
-        EXPECT_FALSE(FinError);
+        EXPECT_EQ(FinError, static_cast<std::error_code>(
+            boost::asio::error::make_error_code(boost::asio::error::eof)));
         EXPECT_FALSE(Request.Client->Health().Closed);
         EXPECT_FALSE(Request.Server->Health().Closed);
 

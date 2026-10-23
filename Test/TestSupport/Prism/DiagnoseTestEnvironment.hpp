@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 
 namespace Prism::TestSupport
@@ -62,6 +63,28 @@ namespace Prism::TestSupport
         auto Install() -> std::expected<void, Prism::Application::DiagnoseRuntimeError>
         {
             return Runtime_.Install(Configuration_);
+        }
+
+        /** @brief 重试 worker 短暂持有的 epoch registry gate，不吞掉其他准备错误。 */
+        [[nodiscard]] auto PrepareEpochAfterRegistryContention(
+            const Prism::Application::DiagnoseRuntimeConfiguration &Configuration)
+            -> std::expected<Prism::Diagnose::RenderEpochPin,
+                Prism::Application::DiagnoseRuntimeError>
+        {
+            constexpr auto MaxBusyRetries = 64U;
+            for (auto Attempt = 0U; Attempt < MaxBusyRetries; ++Attempt)
+            {
+                auto Prepared = Runtime_.PrepareEpoch(Configuration);
+                if (Prepared ||
+                    Prepared.error().Code !=
+                        Prism::Application::DiagnoseRuntimeErrorCode::ResourceUnavailable ||
+                    Prepared.error().Message != "Diagnose epoch registry is busy")
+                {
+                    return Prepared;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds{1});
+            }
+            return Runtime_.PrepareEpoch(Configuration);
         }
 
     private:

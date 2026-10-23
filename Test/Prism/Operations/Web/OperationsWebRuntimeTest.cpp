@@ -182,11 +182,11 @@ namespace
         if (Start == std::string_view::npos) return std::nullopt;
         const auto ValueStart = Start + Key.size();
         const auto End = Headers.find("\r\n", ValueStart);
-        if (End == std::string_view::npos) return std::nullopt;
+        const auto ValueEnd = End == std::string_view::npos ? Headers.size() : End;
         std::size_t Length{};
         const auto [Position, Error] = std::from_chars(
-            Headers.data() + ValueStart, Headers.data() + End, Length);
-        if (Error != std::errc{} || Position != Headers.data() + End) return std::nullopt;
+            Headers.data() + ValueStart, Headers.data() + ValueEnd, Length);
+        if (Error != std::errc{} || Position != Headers.data() + ValueEnd) return std::nullopt;
         return Length;
     }
 
@@ -248,8 +248,9 @@ namespace
         co_return ParseWireResponse(std::move(Wire), Closed, TerminalError);
     }
 
-    [[nodiscard]] auto Exchange(const Controller::Endpoint &Endpoint,
-                                const HttpRequestSpec &Spec) -> Net::awaitable<WireResponse>
+    /** @brief 按值接管可由临时值构造的请求，保证跨协程挂起后仍有效。 */
+    [[nodiscard]] auto Exchange(Controller::Endpoint Endpoint,
+                                HttpRequestSpec Spec) -> Net::awaitable<WireResponse>
     {
         Tcp::socket Socket(co_await Net::this_coro::executor);
         boost::system::error_code Error;

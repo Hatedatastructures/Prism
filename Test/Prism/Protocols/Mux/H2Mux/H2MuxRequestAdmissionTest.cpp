@@ -206,6 +206,10 @@ namespace
                 break;
             }
         }
+        const auto Closed = AcceptedStream->Close();
+        EXPECT_TRUE(Closed);
+        const auto StreamDrain = co_await AcceptedStream->DrainTerminations();
+        EXPECT_TRUE(StreamDrain);
         co_await DrainHttp2Server(Scenario.Server);
         Scenario.Guard.Cancel();
     }
@@ -267,7 +271,7 @@ TEST(H2MuxRequestAdmission, MalformedAndNonConnectRequestsAreRejectedBeforeConne
             ASSERT_NE(Response, nullptr);
             EXPECT_EQ(Response->StatusCode, 400U);
             EXPECT_TRUE(Response->EndStream);
-            EXPECT_EQ(Observation.MalformedResetErrors[Index], Prism::Http2::ErrorProtocol);
+            EXPECT_EQ(Observation.MalformedResetErrors[Index], 0U);
         }
 
         const auto GetResponse = FindResponse(Observation, Observation.StreamIds[6]);

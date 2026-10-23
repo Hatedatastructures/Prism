@@ -41,14 +41,14 @@ namespace Prism::Restls::Detail
         return Prism::Error::IoError;
     }
 
-    /** @brief 将唯一 I/O Failure 映射到 Restls 分类，并保留原生 category/value。 */
+    /** @brief 映射 Restls 分类，并仅保留输入携带的原生 I/O cause。 */
     [[nodiscard]] inline auto WireFailure(
         const Prism::Fault::Failure &Value,
         const std::size_t Bytes = 0) noexcept
         -> Failure
     {
-        const auto Native = Prism::Fault::ToNative(Value);
-        return {MapWireError(Native), Native, Bytes};
+        const auto Classification = Prism::Fault::ToNative(Value);
+        return {MapWireError(Classification), Value.Native, Bytes};
     }
 
     /** @brief 将零进度或越界 wire 行为归类为 I/O 失败。 */
@@ -74,7 +74,9 @@ namespace Prism::Restls::Detail
         }
         if (PendingTerminal)
         {
-            co_return std::unexpected(*PendingTerminal);
+            auto FailureValue = *PendingTerminal;
+            FailureValue.Bytes = 0;
+            co_return std::unexpected(std::move(FailureValue));
         }
         const auto Read = co_await Prism::Protocol::Common::ReadExactIo(Transport, Buffer);
         if (Read.Failure.Failed())
@@ -89,6 +91,10 @@ namespace Prism::Restls::Detail
                 FailureValue = WireFailure(Read.Failure, Read.Bytes);
             }
             PendingTerminal = FailureValue;
+            if (Read.Bytes == Buffer.size())
+            {
+                co_return Result<void>{};
+            }
             co_return std::unexpected(std::move(FailureValue));
         }
         co_return Result<void>{};
@@ -128,7 +134,7 @@ namespace Prism::Restls::Detail
         }
         std::array<std::uint8_t, TlsHdrlen> Header{};
         const auto HeaderResult = co_await ReadExactWire(Transport, Header, PendingTerminal);
-        if (!HeaderResult && HeaderResult.error().Bytes != Header.size())
+        if (!HeaderResult)
             co_return std::unexpected(HeaderResult.error());
         if (Header[0] == 0x15)
             co_return std::unexpected(
@@ -140,11 +146,6 @@ namespace Prism::Restls::Detail
         if (HasApplicationAuthenticationHeader || PayloadLength > MaxRecordPayload)
             co_return std::unexpected(Failure{Prism::Error::BadLength, {}, Header.size()});
 
-        if (!HeaderResult && PayloadLength != 0U)
-        {
-            co_return std::unexpected(HeaderResult.error());
-        }
-
         std::vector<std::uint8_t> Wire(TlsHdrlen + PayloadLength);
         std::copy(Header.begin(), Header.end(), Wire.begin());
         const auto PayloadResult = co_await ReadExactWire(
@@ -152,14 +153,13 @@ namespace Prism::Restls::Detail
         if (!PayloadResult)
         {
             auto Failure = PayloadResult.error();
-            const bool CompletePayload = Failure.Bytes == PayloadLength;
             Failure.Bytes += Header.size();
             PendingTerminal = Failure;
-            if (CompletePayload)
-            {
-                co_return Wire;
-            }
             co_return std::unexpected(std::move(Failure));
+        }
+        if (PendingTerminal)
+        {
+            PendingTerminal->Bytes = 0;
         }
         co_return Wire;
     }

@@ -432,6 +432,9 @@ TEST(NativeQuicLoopback, DatagramCancelPinsConnectionUntilQueuedOwnerUnwinds)
     Datagram->Cancel();
     Native.reset();
     Datagram.reset();
+    Options.Socket.reset();
+    Options.Executor = {};
+    Socket.reset();
     Context.reset();
     auto RetainedContext = WeakContext.lock();
     ASSERT_TRUE(RetainedContext);
@@ -456,6 +459,9 @@ TEST(NativeQuicLoopback, ShutdownAwaitablePinsProviderBeforeFirstSchedule)
     Native.reset();
     Provider.reset();
     State.reset();
+    Options.Socket.reset();
+    Options.Executor = {};
+    Socket.reset();
     Context.reset();
     auto RetainedContext = WeakContext.lock();
     ASSERT_TRUE(RetainedContext);

@@ -49,12 +49,15 @@ namespace
         std::expected<void, Prism::Fault::Failure> RootStatus;
         bool DialStarted{false}, DialCompleted{false}, DialCanceled{false};
         bool DialCompletionTimedOut{false};
+        bool WatchdogTimedOut{false};
         std::size_t Dials{0}, ActiveFirst{0}, ActiveAfterRejected{0}, Reports{0}, ByteReports{0},
             CompletedReports{0}, ObservationFailures{0}, CloseAttempts{0}, CloseFailures{0}, Up{0}, Down{0};
         std::size_t StoragePendingBeforeRetry{0}, StoragePendingAfterRetry{0}, RetryPasses{0};
         std::size_t ActiveStreamsBeforeRetry{0};
         std::size_t UsesWithNestedRoot{0}, UsesAtRootReturn{0};
-        bool OutboundActivityFailureObserved{false}, OutboundRetainedBeforeRetry{false};
+        bool OutboundCloseFailureObserved{false}, OutboundActivityFailureObserved{false};
+        bool OutboundActivityRetiredBeforeRetry{false};
+        bool OutboundRetainedBeforeRetry{false};
         std::exception_ptr Failure;
         std::weak_ptr<Prism::Contract::MuxSession> WeakRoot;
         std::weak_ptr<Prism::Transmission> WeakOutbound;
@@ -134,6 +137,7 @@ namespace
                 if (State->CloseFailure && CloseCalls_ == 1U)
                 {
                     ++State->CloseFailures;
+                    State->OutboundCloseFailureObserved = true;
                     return std::unexpected(
                         Prism::Fault::Failure{Prism::Fault::Code::IoError});
                 }
@@ -336,6 +340,7 @@ namespace
                 const auto Drained = co_await Outbound->Activity()->Drain();
                 State->OutboundActivityFailureObserved = !Drained &&
                     Drained.error().Code == Prism::Fault::Code::IoError;
+                State->OutboundActivityRetiredBeforeRetry = Outbound->Activity()->IsRetired();
             }
         if (State->CloseTwice && State->Owner)
         {
@@ -537,11 +542,20 @@ namespace
         else { co_await Push(State,5); State->AfterFin=co_await EchoResponse(State,5); }
         (void)State->Client->Close();
     }
-    auto Watchdog(std::shared_ptr<Fixture> State) -> Net::awaitable<void>
+    auto Watchdog(std::shared_ptr<Fixture> State, Net::io_context& Io) -> Net::awaitable<void>
     {
         State->Deadline.expires_after(std::chrono::seconds(3)); boost::system::error_code Error;
         co_await State->Deadline.async_wait(Net::redirect_error(Net::use_awaitable,Error));
-        if(!Error){ADD_FAILURE()<<"AnyTLS账户路径未实际drain";State->Stop();}
+        if (!Error)
+        {
+            State->WatchdogTimedOut = true;
+            ADD_FAILURE() << "AnyTLS账户路径未实际drain; root=" << State->RootDone
+                << " authenticated=" << State->Authenticated
+                << " first=" << State->First << " rejected=" << State->Rejected
+                << " reports=" << State->Reports;
+            State->Stop();
+            Io.stop();
+        }
     }
     auto Scenario(ScenarioOptions Options = {}) -> Result
     {
@@ -550,11 +564,21 @@ namespace
         auto Context = Options.CloseFailure ? Prism::Executor::ContextOwner::Create(Storage) : nullptr;
         auto &DrivenIo = Context ? Context->Io : Io;
         auto State=std::make_shared<Fixture>(DrivenIo.get_executor());State->Siblings=Options.Siblings;State->Nested=Options.Nested;State->ThrowTraffic=Options.ThrowTraffic;State->CloseTwice=Options.CloseTwice;State->CloseFailure=Options.CloseFailure;
-        const auto Done=[State](std::exception_ptr Error){if(Error){State->Failure=Error;State->Stop();}};
-        Net::co_spawn(DrivenIo,Root(State),Done);Net::co_spawn(DrivenIo,Accept(State),Done);
-        Net::co_spawn(DrivenIo,Client(State),Done);Net::co_spawn(DrivenIo,Watchdog(State),Done);
+        const auto Done=[State](std::exception_ptr Error)
+        {
+            if (Error) { State->Failure=Error; State->Stop(); }
+        };
+        const auto RootDone = [State, &DrivenIo](std::exception_ptr Error)
+        {
+            if (Error) { State->Failure = Error; State->Stop(); }
+            if (State->CloseFailure) DrivenIo.stop();
+        };
+        Net::co_spawn(DrivenIo, Root(State), RootDone);
+        Net::co_spawn(DrivenIo, Accept(State), Done);
+        Net::co_spawn(DrivenIo,Client(State),Done);
+        Net::co_spawn(DrivenIo,Watchdog(State, DrivenIo),Done);
         DrivenIo.run();
-        if (Storage)
+        if (Storage && !State->WatchdogTimedOut)
         {
             State->StoragePendingBeforeRetry = Storage->Pending();
             State->OutboundRetainedBeforeRetry = !State->WeakOutbound.expired();
@@ -562,8 +586,8 @@ namespace
             for (std::size_t Attempt = 0; Attempt < 4 && Storage->Pending() != 0; ++Attempt)
             {
                 ++State->RetryPasses;
-                Storage->Retry();
                 DrivenIo.restart();
+                Storage->Retry();
                 DrivenIo.run();
             }
             State->StoragePendingAfterRetry = Storage->Pending();
@@ -705,7 +729,7 @@ TEST(AnytlsAdmissionOwner, ObserverThrowPreservesPayloadAndBusinessCompletion)
 
 TEST(AnytlsAdmissionOwner, RealOutboundCloseFailureDrainsAndReportsTypedFailure)
 {
-    const auto Actual=Scenario({.CloseFailure=true});
+    const auto Actual=Scenario({.Siblings=true,.CloseFailure=true});
     ASSERT_FALSE(Actual.Failure);
     ASSERT_TRUE(Actual.Authenticated);
     ASSERT_TRUE(Actual.First);
@@ -720,10 +744,12 @@ TEST(AnytlsAdmissionOwner, RealOutboundCloseFailureDrainsAndReportsTypedFailure)
     EXPECT_EQ(Actual.Up, Literal.size() * 2);
     EXPECT_EQ(Actual.Down, Literal.size() * 2);
     EXPECT_EQ(Actual.Record->Runtime()->ActiveConnections(), 0U);
-    EXPECT_EQ(Actual.UsesAtRootReturn, 0U);
+    EXPECT_EQ(Actual.UsesAtRootReturn, 1U);
     EXPECT_FALSE(Actual.RetiredAtRootReturn);
-    EXPECT_EQ(Actual.ActiveStreamsBeforeRetry, 1U);
+    EXPECT_EQ(Actual.ActiveStreamsBeforeRetry, 2U);
+    EXPECT_TRUE(Actual.OutboundCloseFailureObserved);
     EXPECT_TRUE(Actual.OutboundActivityFailureObserved);
+    EXPECT_FALSE(Actual.OutboundActivityRetiredBeforeRetry);
     EXPECT_GT(Actual.StoragePendingBeforeRetry, 0U);
     EXPECT_TRUE(Actual.OutboundRetainedBeforeRetry);
     EXPECT_GT(Actual.RetryPasses, 0U);

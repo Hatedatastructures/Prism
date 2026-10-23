@@ -48,6 +48,7 @@
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <thread>
@@ -96,23 +97,59 @@ namespace Prism::Application
     /** @brief 持有 Prism 进程级资源、listener、worker 和停机状态。 */
     struct Application::RuntimeState final : std::enable_shared_from_this<Application::RuntimeState>
     {
-        /**
-         * @brief 保留失败运行时的显式进程终态 owner；只由 ProcessStorage 持有至进程退出。
-         * @details Pending 可见地计入整个 RuntimeState，因而同时保留 Process、Worker、
-         *          ContextOwner 和尚未完成的 listener/协议 owner。它永不报告 IsRetired。
-         */
+        /** @brief 保留失败关闭所需的执行域；在真实资源退休后释放可安全分离的运行时。 */
         struct FailedShutdownOwner final : Prism::Executor::ClosingResource
         {
+            explicit FailedShutdownOwner(const std::size_t WorkerCount)
+            {
+                WorkerContexts.reserve(WorkerCount);
+            }
+
             auto Bind(std::shared_ptr<RuntimeState> Value) noexcept -> void
             {
+                std::lock_guard Lock(Mutex);
                 State = std::move(Value);
             }
 
-            auto RequestRetirement() -> void override {}
+            auto Detach(std::shared_ptr<RuntimeState> Value, const bool CanRetire)
+                noexcept -> void
+            {
+                std::shared_ptr<RuntimeState> ReleasedState;
+                std::unique_ptr<Prism::Runtime::Process> ReleasedProcess;
+                {
+                    std::lock_guard Lock(Mutex);
+                    if (State != Value) return;
+                    if (Value->Process)
+                    {
+                        auto& Workers = Value->Process->Workers();
+                        for (std::size_t Index = 0; Index < Workers.Size(); ++Index)
+                        {
+                            auto* Worker = Workers.Find(
+                                Prism::WorkerId{static_cast<std::uint64_t>(Index + 1U)});
+                            if (Worker && Worker->Resources().Execution)
+                                WorkerContexts.push_back(Worker->Resources().Execution);
+                        }
+                    }
+                    ReleasedProcess = std::move(Value->Process);
+                    Control = Value->ControlContext;
+                    Storage = Value->ClosingResources;
+                    RetireWhenClear = CanRetire;
+                    Detached = true;
+                    ReleasedState = std::move(State);
+                }
+                ReleasedProcess.reset();
+            }
+
+            auto RequestRetirement() -> void override
+            {
+                ReleaseIfClear();
+            }
 
             [[nodiscard]] auto IsRetired() const noexcept -> bool override
             {
-                return false;
+                const_cast<FailedShutdownOwner*>(this)->ReleaseIfClear();
+                std::lock_guard Lock(Mutex);
+                return Retired;
             }
 
             [[nodiscard]] auto IsDispatchUnavailable() const noexcept -> bool override
@@ -120,12 +157,41 @@ namespace Prism::Application
                 return true;
             }
 
+            [[nodiscard]] auto IsRetirementSupport() const noexcept -> bool override
+            {
+                return true;
+            }
+
+        private:
+            auto ReleaseIfClear() noexcept -> void
+            {
+                std::shared_ptr<Prism::Executor::ContextOwner> ReleasedControl;
+                std::shared_ptr<Prism::Executor::ClosingStorage> ReleasedStorage;
+                std::vector<std::shared_ptr<Prism::Executor::ContextOwner>> ReleasedWorkers;
+                {
+                    std::lock_guard Lock(Mutex);
+                    if (!Detached || !RetireWhenClear || Retired || !Storage ||
+                        Storage->HasPendingExcept(this)) return;
+                    Retired = true;
+                    ReleasedControl = std::move(Control);
+                    ReleasedStorage = std::move(Storage);
+                    ReleasedWorkers = std::move(WorkerContexts);
+                }
+            }
+
+            mutable std::mutex Mutex;
             std::shared_ptr<RuntimeState> State;
+            std::vector<std::shared_ptr<Prism::Executor::ContextOwner>> WorkerContexts;
+            std::shared_ptr<Prism::Executor::ContextOwner> Control;
+            std::shared_ptr<Prism::Executor::ClosingStorage> Storage;
+            bool Detached{false};
+            bool RetireWhenClear{false};
+            bool Retired{false};
         };
 
         explicit RuntimeState(const std::size_t WorkerCount, const Prism::GenerationId GenerationValue,
             Prism::Network::Dns::Config DnsConfig)
-            : FailedOwner(std::make_shared<FailedShutdownOwner>()),
+            : FailedOwner(std::make_shared<FailedShutdownOwner>(WorkerCount)),
               Signals(Io), DiagnoseFlushTimer(Io), StatisticsFlushTimer(Io),
               GenerationReaperSignal(Io),
               ShutdownCoordinator(Net::make_strand(Io.get_executor())),
@@ -190,9 +256,8 @@ namespace Prism::Application
             Phase.store(RuntimePhase::Failed, std::memory_order_release);
             ShutdownDrainFailed.store(true, std::memory_order_release);
             StopRequested.store(true, std::memory_order_release);
-            RetainFailedShutdown();
             Io.stop();
-            StopWorkers();
+            FinalizeFailedShutdown();
         }
 
         /** @brief 物理已回收的旧代次仍保留其最早历史 Drain cause。 */
@@ -207,18 +272,50 @@ namespace Prism::Application
         }
 
         /** @brief 将失败运行时交给有 Pending 事实的进程终态存储。 */
-        auto RetainFailedShutdown() noexcept -> void
+        auto RetainFailedShutdown() noexcept -> std::shared_ptr<FailedShutdownOwner>
         {
             bool Expected = false;
-            if (!FailedOwnerRetained.compare_exchange_strong(Expected, true, std::memory_order_acq_rel)) return;
-            auto Owner = std::exchange(FailedOwner, std::shared_ptr<FailedShutdownOwner>{});
+            if (!FailedOwnerRetained.compare_exchange_strong(Expected, true,
+                    std::memory_order_acq_rel)) return FailedOwner;
+            auto Owner = FailedOwner;
             if (!Owner)
             {
                 FailedOwnerRetained.store(false, std::memory_order_release);
-                return;
+                return {};
             }
             Owner->Bind(shared_from_this());
             ClosingResources->Retain(std::move(Owner));
+            return FailedOwner;
+        }
+
+        /** @brief 停止 driver 后仅分离无活动任务和未完成子系统的失败运行时。 */
+        auto FinalizeFailedShutdown() noexcept -> void
+        {
+            const auto Owner = RetainFailedShutdown();
+            StopWorkers();
+            if (!Owner || !CanDetachFailedShutdown()) return;
+            Owner->Detach(shared_from_this(), true);
+        }
+
+        [[nodiscard]] auto CanDetachFailedShutdown() const noexcept -> bool
+        {
+            if (ManagementController || StorageOwner || Generation || DnsResolver || Traffic ||
+                Services || DatagramClassifier || QuicPacketGateway || QuicConnectionRegistry ||
+                BoundaryDispatcher || Diagnose || Listener || DatagramListener || ProviderBindings ||
+                !RetiredGenerationSnapshots.empty() || !WorkerContexts.empty()) return false;
+            if (Tasks)
+            {
+                const auto TaskState = Tasks->Stats();
+                if (TaskState.Active != 0U || TaskState.DrainBlocked) return false;
+            }
+            if (Process)
+            {
+                for (const auto& Worker : Process->Workers().Snapshot())
+                {
+                    if (Worker.ActiveTasks != 0U) return false;
+                }
+            }
+            return true;
         }
 
         /** @brief 保留应用关闭的首个 typed cause 并登记完整失败运行时。 */

@@ -70,6 +70,8 @@ namespace Prism::Runtime
             };
         private:
             friend class ActiveTransports;
+            /** @brief 在 owner strand 上只取消活动操作，不关闭或释放 carrier。 */
+            [[nodiscard]] auto CancelValue() -> std::expected<void, Failure>;
             /** @brief 在读取 carrier 字段前即成立 view 预约，避免 Seal/clear 并发空窗。 */
             template<class Carrier>
             [[nodiscard]] auto View(Kind Type)
@@ -77,13 +79,13 @@ namespace Prism::Runtime
         public:
             /** @brief 验证候选是否指向同一物理 Identity 与真实执行域。 */
             [[nodiscard]] auto Matches(const Resource& Other) const -> bool;
-            /** @brief 拒绝已关闭、已退休或已有终态失败的 owner view。 */
+            /** @brief 拒绝已取消、关闭、退休或已有终态失败的 owner view。 */
             [[nodiscard]] auto CanAcceptView() const noexcept -> bool;
             auto RequestRetirement() -> void override;
             auto Fail(Failure Error, const bool DispatchUnavailable = false) noexcept -> void;
             [[nodiscard]] auto Error() const noexcept -> Failure;
             auto Close() -> void;
-            /** @brief 保存由调用方明确提出的取消意图，最终控制仍在原 executor 执行。 */
+            /** @brief 封止新 view 并在 owner executor 发送 cancel-only；保留实物与退休预约。 */
             auto MarkCancelRequested() noexcept -> void;
             /** @brief 新输入被拒绝时必须取消既有操作；与仍供 outer 使用的旧 inner 释放不同。 */
             auto Reject() -> void;
@@ -94,9 +96,7 @@ namespace Prism::Runtime
             /** @brief 实际退休协程与完成通知都退出后，才归还唯一退休预约。 */
             auto FinishRetirement() noexcept -> void;
             auto CloseValue() -> std::expected<void, Failure>;
-            auto CloseStream(
-                const Prism::SharedTransmission& Stream,
-                const bool CancelInFlight)
+            auto CloseStream(const Prism::SharedTransmission& Stream)
                 -> std::expected<void, Failure>;
             [[nodiscard]] auto IsRetired() const noexcept -> bool override;
             [[nodiscard]] auto IsDispatchUnavailable() const noexcept -> bool override;
@@ -113,6 +113,9 @@ namespace Prism::Runtime
             std::atomic<bool> Queued{false}, Closing{false}, Releasing{false}, Retiring{false}, Retired{false};
             std::atomic<bool> Rejecting{false};
             std::atomic<bool> CancelRequested{false};
+            /** @brief 以下投递状态只由 Reclaimer 的 owner strand 访问。 */
+            bool CancelDelivered{false};
+            bool InboundCancelDelivered{false}, OutboundCancelDelivered{false};
             std::atomic<bool> ExecutionProhibited{false}, ContentsReleased{false};
             std::atomic<bool> DispatchUnavailable{false};
             Prism::Fault::FailureState FailureState;
@@ -144,7 +147,7 @@ namespace Prism::Runtime
         [[nodiscard]] auto Load() const -> ActiveTransportSnapshot;
         /** @brief 封止新 view，按 mux、datagram、stream 的 owner 依赖顺序请求关闭。 */
         [[nodiscard]] auto RequestClose() -> std::expected<void, Failure>;
-        /** @brief 封止新 owner 并保留显式取消意图，随后仍由预建 close action 投递关闭。 */
+        /** @brief 封止新 owner、在各 owner executor 取消活动操作；不执行 Close 或释放退休预约。 */
         auto MarkCancelRequested() noexcept -> void;
         /** @brief 按根 owner 到 stream owner 顺序逐层关闭并排空。
          * @details 调用方须先停止 Store producer 和 carrier 操作；真实 I/O 完成只从 Activity::Drain 得到。

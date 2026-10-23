@@ -75,9 +75,6 @@ namespace Prism::Runtime
         /** @brief 数据面 Run 结束后释放所有借用传输 view，交由 ActiveTransports 独占最终排空。 */
         auto ReleaseCarrierViews() noexcept -> void;
 
-        /** @brief root view 已释放后退休 provider 接入期间持有的 replay/connection 等资源。 */
-        [[nodiscard]] auto DrainAdmissionOwner()
-            -> Net::awaitable<Prism::Fault::Failure>;
     };
 
 } // namespace Prism::Runtime

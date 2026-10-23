@@ -56,6 +56,27 @@ namespace Prism::Operations
         std::atomic<bool> IoReturned{false};
         Prism::Fault::FailureState IoFailure;
         std::atomic<std::shared_ptr<DrainSignal>> IoExitWaiter;
+
+        struct DrainWaiterReset final
+        {
+            std::shared_ptr<State> Owner;
+            std::shared_ptr<DrainSignal> Receipt;
+
+            ~DrainWaiterReset() noexcept
+            {
+                if (!Owner || !Receipt) return;
+                try
+                {
+                    (void)Receipt->close();
+                }
+                catch (...)
+                {
+                }
+                auto Expected = Receipt;
+                (void)Owner->IoExitWaiter.compare_exchange_strong(
+                    Expected, std::shared_ptr<DrainSignal>{}, std::memory_order_acq_rel);
+            }
+        };
     };
 
     Controller::Controller(Options OptionsValue)
@@ -139,6 +160,7 @@ namespace Prism::Operations
         {
             const auto Receipt = std::make_shared<State::DrainSignal>(CallerExecutor, 1U);
             StateValue->IoExitWaiter.store(Receipt, std::memory_order_release);
+            const State::DrainWaiterReset ResetWaiter{StateValue, Receipt};
             auto Result = co_await Net::co_spawn(StateValue->Io.get_executor(),
                 DrainOnManagementIo(StateValue, Limit), Net::use_awaitable);
             if (Result.Failure.Failed()) co_return Result;

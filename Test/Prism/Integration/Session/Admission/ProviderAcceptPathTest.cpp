@@ -279,11 +279,11 @@ namespace
                     Destination = std::move(*Second);
                     EXPECT_FALSE(Second->HasTransport());
                     co_await Net::post(co_await Net::this_coro::executor, Net::use_awaitable);
-                    EXPECT_FALSE(Servers[0]->IsOpen());
+                    EXPECT_TRUE(Servers[0]->IsOpen());
                     EXPECT_TRUE(Servers[1]->IsOpen());
                     Destination = Prism::Contract::ProtocolDataPlane{};
                     co_await Net::post(co_await Net::this_coro::executor, Net::use_awaitable);
-                    EXPECT_FALSE(Servers[1]->IsOpen());
+                    EXPECT_TRUE(Servers[1]->IsOpen());
                 }
             }
             catch (...) { Failure = std::current_exception(); }
@@ -291,6 +291,12 @@ namespace
             Owner->Close();
             try
             {
+                for (const auto& Server : Servers)
+                {
+                    const auto ActivityDrain = co_await Server->Activity()->Drain();
+                    EXPECT_TRUE(ActivityDrain);
+                    EXPECT_FALSE(Server->IsOpen());
+                }
                 const auto DrainResult = co_await Owner->Drain();
                 EXPECT_TRUE(DrainResult);
             }
@@ -711,7 +717,7 @@ namespace
             [](std::exception_ptr Error) { EXPECT_FALSE(Error); });
         Io.run();
     }
-    TEST(ProviderAcceptPath, MoveAssignmentClosesOldOwnerAndMovedFromDoesNotCloseNewOwner)
+    TEST(ProviderAcceptPath, MoveAssignmentPreservesPlaneUntilBindingClose)
     {
         Net::io_context Io;
         Prism::Socks5::ServerConfig Config;

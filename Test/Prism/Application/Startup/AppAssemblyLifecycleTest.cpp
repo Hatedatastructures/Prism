@@ -316,6 +316,9 @@ TEST(PrismApplicationStatistics, ConfiguredIntervalFlushesTheSameOperationsCount
     const auto AdmissionAuthority = Phase->Accounts.Identities->RuntimeRegistry()->AttachAdmissionAuthority(
         Runtime->GenerationPublisher);
     ASSERT_TRUE(AdmissionAuthority);
+    const auto PolicySource = Phase->Accounts.Identities->RuntimeRegistry()->AttachPolicySource(
+        std::make_shared<ReloadPolicySource>());
+    ASSERT_TRUE(PolicySource);
     Prism::Application::ObserveClosingFailures(Runtime);
     Prism::Application::Startup::StartupTransaction Transaction(Runtime);
     Runtime->Generation = Phase->Generation;
@@ -366,6 +369,9 @@ TEST(PrismApplicationStatistics, ShutdownConsumesPendingBytesBeforeReleasingGene
     const auto AdmissionAuthority = Phase->Accounts.Identities->RuntimeRegistry()->AttachAdmissionAuthority(
         Runtime->GenerationPublisher);
     ASSERT_TRUE(AdmissionAuthority);
+    const auto PolicySource = Phase->Accounts.Identities->RuntimeRegistry()->AttachPolicySource(
+        std::make_shared<ReloadPolicySource>());
+    ASSERT_TRUE(PolicySource);
     Prism::Application::ObserveClosingFailures(Runtime);
     Prism::Application::Startup::StartupTransaction Transaction(Runtime);
     Runtime->Generation = Phase->Generation;

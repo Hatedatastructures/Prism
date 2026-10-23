@@ -54,9 +54,26 @@ namespace Prism::Lifecycle::Detail
         ClosingStorage->Retain(shared_from_this());
     }
 
+    auto TaskRegistryState::RetainUnavailableRetirement() noexcept -> void
+    {
+        RetirementUnavailable.store(
+            !Reclaimer->IsQuarantined() && !Reclaimer->CanDispatch(),
+            std::memory_order_release);
+        if (Reclaimer->IsQuarantined() || Reclaimer->CanDispatch())
+        {
+            Blocked.store(true, std::memory_order_release);
+            Barrier.Block();
+            MarkAggregateBlocked(shared_from_this());
+        }
+        RetirementPending.store(false, std::memory_order_release);
+        ClosingRetained.store(true, std::memory_order_release);
+        ClosingStorage->Retain(shared_from_this());
+    }
+
     auto TaskRegistryState::IsRetired() const noexcept -> bool
     {
         return !RetirementPending.load(std::memory_order_acquire) &&
+               !RetirementUnavailable.load(std::memory_order_acquire) &&
                !Blocked.load(std::memory_order_acquire) && !Barrier.IsBlocked() &&
                Barrier.Active() == 0 && Descendants.Active.load(std::memory_order_acquire) == 0;
     }
@@ -214,6 +231,7 @@ namespace Prism::Lifecycle::Detail
     auto TaskRegistryRetirementCommand::operator()() noexcept -> void
     {
         QuarantineTaskSlots(State);
+        State->RetirementUnavailable.store(false, std::memory_order_release);
         State->RetirementPending.store(false, std::memory_order_release);
         if (State->ClosingRetained.load(std::memory_order_acquire))
             State->ClosingStorage->Collect();
@@ -238,15 +256,13 @@ namespace Prism::Lifecycle::Detail
         bool Expected = false;
         if (!RetirementPending.compare_exchange_strong(
                 Expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) return;
+        RetirementUnavailable.store(false, std::memory_order_release);
         auto Self = shared_from_this();
         ClosingRetained.store(true, std::memory_order_release);
         ClosingStorage->Retain(Self);
         if (!Reclaimer->Post(TaskRegistryRetirementCommand(Self)))
         {
-            Blocked.store(true, std::memory_order_release);
-            Barrier.Block();
-            MarkAggregateBlocked(Self);
-            ClosingStorage->Retain(Self);
+            RetainUnavailableRetirement();
         }
     }
 }

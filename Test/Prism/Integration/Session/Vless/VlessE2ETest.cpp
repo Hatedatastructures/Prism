@@ -404,18 +404,20 @@ namespace
 
     TEST(TcpListener, VlessTcpConnectIpv6)
     {
-        // Prism 对 IPv6 的 host 采用 16 字节原始二进制约定（同 Dgram）
+        // VLESS wire 与 Network::Host 使用 16 字节；链路结果 Host 是 ToText 的显示文本。
         const std::array<std::uint8_t, 16> Bytes = {
             0x26, 0x06, 0x28, 0x00, 0x02, 0x20, 0x00, 0x01,
             0x02, 0x48, 0x18, 0x93, 0x25, 0xc8, 0x19, 0x46};
         const std::string V6Host(reinterpret_cast<const char *>(Bytes.data()),
                                  Bytes.size());
+        const auto ExpectedHost = Prism::Network::ToText(
+            Prism::Network::Host(Prism::Network::Ipv6Bytes{Bytes}));
         const auto Result = RunVlessConnect(
             Vless::Address{Vless::AddressType::Ipv6, V6Host, 443});
         EXPECT_TRUE(Result.Failure.Succeeded());
         EXPECT_EQ(Result.Failure.Code, Fault::Code::Success);
         EXPECT_EQ(Result.Echo, "chain payload");
-        EXPECT_EQ(Result.Host, V6Host);
+        EXPECT_EQ(Result.Host, ExpectedHost.View());
         EXPECT_EQ(Result.Port, "443");
     }
 
@@ -709,8 +711,8 @@ namespace
         EXPECT_EQ(Traffic.Calls, 1);
         EXPECT_GE(Traffic.Up, std::string("traffic payload").size());
         EXPECT_GE(Traffic.Down, std::string("traffic payload").size());
-        // 静态 UUID 配置没有 typed 账户身份，事件保留匿名数值账户。
-        EXPECT_FALSE(static_cast<bool>(Traffic.LastEvent.Account));
+        // 此 ingress fixture 将该 UUID 明确注册为 AccountId{1}。
+        EXPECT_EQ(Traffic.LastEvent.Account, Prism::AccountId{1});
         EXPECT_FALSE(*Echo.Failure);
     }
 

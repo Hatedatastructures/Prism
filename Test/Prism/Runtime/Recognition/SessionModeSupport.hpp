@@ -228,8 +228,8 @@ namespace
             co_return std::pair{true, std::get<0>(Completion)};
         }
 
-        Request.Client->Close();
-        Request.Inbound->Close();
+        (void)Request.Client->Close();
+        (void)Request.Inbound->Close();
         Watchdog.expires_after(std::chrono::seconds(1));
         auto Grace = co_await (
             Request.Done->async_receive(Net::redirect_error(Net::use_awaitable, DoneError)) ||
@@ -279,9 +279,9 @@ namespace
         /** @brief 两个端点分别尝试关闭；一次关闭异常不跳过另一个端点。 */
         auto ClosePeers() noexcept -> void
         {
-            try { Client->Close(); }
+            try { (void)Client->Close(); }
             catch (...) { if (!*Failure) *Failure = std::current_exception(); }
-            try { Inbound->Close(); }
+            try { (void)Inbound->Close(); }
             catch (...) { if (!*Failure) *Failure = std::current_exception(); }
         }
 
@@ -311,7 +311,7 @@ namespace
                 }
             }
             catch (...) { FirstFailure = std::current_exception(); }
-            try { Client->Close(); }
+            try { (void)Client->Close(); }
             catch (...) { if (!FirstFailure) FirstFailure = std::current_exception(); }
             if (FirstFailure) ClosePeers();
             try { Result.SessionCode = co_await Join(); }
@@ -375,6 +375,19 @@ namespace
         if (Failure) std::rethrow_exception(Failure);
     }
 
+    auto MakeClosedPeerUpstream(Net::any_io_executor Executor)
+        -> Net::awaitable<std::expected<Prism::SharedTransmission, Prism::Fault::Failure>>
+    {
+        auto [UpstreamValue, PeerValue] = Prism::MakeMemoryPair(std::move(Executor));
+        auto Upstream = std::make_shared<Prism::MemoryStream>(std::move(UpstreamValue));
+        auto Peer = std::make_shared<Prism::MemoryStream>(std::move(PeerValue));
+        const auto Closed = Peer->Close();
+        if (!Closed) co_return std::unexpected(Closed.error());
+        const auto Retired = co_await Peer->Activity()->Drain();
+        if (!Retired) co_return std::unexpected(Retired.error());
+        co_return std::static_pointer_cast<Prism::Transmission>(std::move(Upstream));
+    }
+
     auto RunProfileFlow(Prism::Runtime::SessionOptions Options, ClientFlow Flow)
         -> ProfileFlowResult
     {
@@ -394,12 +407,7 @@ namespace
         };
         const auto Executor = Io.get_executor();
         Options.Services->Dial = [Executor](const Prism::Network::Target &)
-            -> Net::awaitable<std::expected<Prism::SharedTransmission, Prism::Fault::Failure>>
-        {
-            auto [Upstream, Peer] = Prism::MakeMemoryPair(Executor);
-            Peer.Close();
-            co_return std::make_shared<Prism::MemoryStream>(std::move(Upstream));
-        };
+        { return MakeClosedPeerUpstream(Executor); };
 
         ProfileFlowResult Result;
         auto Operation = [Owner, &Result, Options = std::move(Options), Flow = std::move(Flow)]() mutable

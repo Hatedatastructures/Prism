@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -146,7 +147,8 @@ namespace Prism::Protocols
          */
         [[nodiscard]] auto RequestControls(const bool CancelRun) noexcept -> Result
         {
-            std::optional<Failure> First = ControlFailure_;
+            // 本次结果只看本轮控制动作；ControlFailure_ 仅保留历史首因。
+            std::optional<Failure> First;
             if (CancelRun)
             {
                 try
@@ -233,7 +235,20 @@ namespace Prism::Protocols
             while (!Closed_)
             {
                 DatagramPacket Packet;
-                const auto Received = co_await Deadline_.Await(Wire_.Receive(Packet));
+                const auto Received = co_await Deadline_.AwaitWithCancel(
+                    Wire_.Receive(Packet), [this]() noexcept
+                    {
+                        try
+                        {
+                            const auto Control = Wire_.Cancel();
+                            if (!Control) Preserve(ControlFailure_, Control.error());
+                        }
+                        catch (...)
+                        {
+                            Preserve(ControlFailure_,
+                                DatagramFailure::FromException(std::current_exception()));
+                        }
+                    });
                 if (!Received)
                 {
                     const auto Cause = Received.error();
@@ -245,7 +260,7 @@ namespace Prism::Protocols
                     if (Cause.Code == Prism::Fault::Code::Eof ||
                         Cause.Code == Prism::Fault::Code::Timeout)
                     {
-                        FinishInput();
+                        Stop(false);
                         co_return Result{};
                     }
                     Abort(Cause);

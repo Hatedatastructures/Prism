@@ -42,6 +42,7 @@
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Vmess/Dgram.hpp>
 #include <Prism/Protocols/Vmess/Vmess.hpp>
+#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
@@ -215,6 +216,7 @@ namespace
     {
         Net::any_io_executor Executor;
         std::uint16_t echo_port{0};
+        std::array<std::uint8_t, 16> Uuid{};
         /// 服务端数据面退出次数（TCP 关闭/空闲超时终止的证据）
         std::shared_ptr<std::atomic<int>> relay_exits{std::make_shared<std::atomic<int>>(0)};
     };
@@ -259,7 +261,7 @@ namespace
             auto UseState = Prism::Testing::MakeProtocolIngressUseState();
             Options.Services->GenerationUseState = UseState;
             Options.Services->AcceptProtocol = Prism::Testing::MakeVmessIngress(
-                Vmess::ServerConfig{test_uuid()}, Prism::Testing::VmessIngressResources{
+                Vmess::ServerConfig{State->Uuid}, Prism::Testing::VmessIngressResources{
                     {}, {}, std::move(Datagrams), UseState, Admission.Inbound->Executor()},
                 Prism::Vmess::IngressRoute{});
             return Runtime::SessionAdmissionResult{
@@ -272,6 +274,7 @@ namespace
         Net::io_context &Ioc;
         Runtime::TcpListener &Listener;
         VmessUdpEchoOwner &Echo;
+        std::array<std::uint8_t, 16> Uuid;
         bool &Ok;
     };
 
@@ -288,7 +291,7 @@ namespace
                 if (Raw && *Raw)
                 {
                     auto ConnectResult = co_await Vmess::ConnectPacket(
-                        std::move(*Raw), Vmess::ClientConfig{test_uuid()},
+                        std::move(*Raw), Vmess::ClientConfig{Flow.Uuid},
                         Vmess::Address{Vmess::AddressType::Domain, "example.com", 443});
                     if (ConnectResult) EXPECT_TRUE(*ConnectResult);
                     if (ConnectResult)
@@ -350,6 +353,7 @@ namespace
         Net::io_context &Ioc;
         Runtime::TcpListener &Listener;
         VmessUdpEchoOwner &Echo;
+        std::array<std::uint8_t, 16> Uuid;
         bool &Closed;
     };
 
@@ -366,7 +370,7 @@ namespace
                 if (Raw && *Raw)
                 {
                     auto ConnectResult = co_await Vmess::ConnectPacket(
-                        std::move(*Raw), Vmess::ClientConfig{test_uuid()},
+                        std::move(*Raw), Vmess::ClientConfig{Flow.Uuid},
                         Vmess::Address{Vmess::AddressType::Domain, "example.com", 443});
                     if (ConnectResult) EXPECT_TRUE(*ConnectResult);
                     if (ConnectResult)
@@ -427,7 +431,7 @@ namespace
                 if (Raw && *Raw)
                 {
                     auto ConnectResult = co_await Vmess::ConnectPacket(
-                        std::move(*Raw), Vmess::ClientConfig{test_uuid()},
+                        std::move(*Raw), Vmess::ClientConfig{Flow.State->Uuid},
                         Vmess::Address{Vmess::AddressType::Domain, "example.com", 443});
                     if (ConnectResult) EXPECT_TRUE(*ConnectResult);
                     if (ConnectResult)
@@ -497,18 +501,21 @@ namespace
         ASSERT_FALSE(Echo.OpenError);
         const auto echo_port = Echo.Socket->local_endpoint().port();
         auto echo_ep_ptr = Echo.Failure;
+        const auto Uuid = test_uuid();
 
         auto State = std::make_shared<vmess_udp_state>(
-            vmess_udp_state{ioc.get_executor(), echo_port});
+            vmess_udp_state{ioc.get_executor(), echo_port, Uuid});
 
         Runtime::TcpListener listener(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Factory = VmessUdpSessionFactory{State, std::chrono::seconds(5)}});
+            .Factory = VmessUdpSessionFactory{State, std::chrono::seconds(5)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{11})});
 
         bool Ok = false;
         RunCoro(ioc, RunVmessUdpEchoFlow(
-            VmessUdpEchoFlow{ioc, listener, Echo, Ok}));
+            VmessUdpEchoFlow{ioc, listener, Echo, Uuid, Ok}));
         EXPECT_TRUE(Ok);
         EXPECT_FALSE(*echo_ep_ptr);
     }
@@ -519,18 +526,21 @@ namespace
         auto Echo = StartVmessUdpEcho(ioc);
         ASSERT_FALSE(Echo.OpenError);
         const auto echo_port = Echo.Socket->local_endpoint().port();
+        const auto Uuid = test_uuid();
 
         auto State = std::make_shared<vmess_udp_state>(
-            vmess_udp_state{ioc.get_executor(), echo_port});
+            vmess_udp_state{ioc.get_executor(), echo_port, Uuid});
 
         Runtime::TcpListener listener(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Factory = VmessUdpSessionFactory{State, std::chrono::milliseconds(150)}});
+            .Factory = VmessUdpSessionFactory{State, std::chrono::milliseconds(150)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{12})});
 
         bool closed = false;
         RunCoro(ioc, RunVmessUdpIdleFlow(
-            VmessUdpIdleFlow{ioc, listener, Echo, closed}));
+            VmessUdpIdleFlow{ioc, listener, Echo, Uuid, closed}));
         EXPECT_TRUE(closed);
         EXPECT_FALSE(*Echo.Failure);
     }
@@ -541,14 +551,17 @@ namespace
         auto Echo = StartVmessUdpEcho(ioc);
         ASSERT_FALSE(Echo.OpenError);
         const auto echo_port = Echo.Socket->local_endpoint().port();
+        const auto Uuid = test_uuid();
 
         auto State = std::make_shared<vmess_udp_state>(
-            vmess_udp_state{ioc.get_executor(), echo_port});
+            vmess_udp_state{ioc.get_executor(), echo_port, Uuid});
 
         Runtime::TcpListener listener(
             Runtime::TcpListener::Options{
             .Executor = ioc.get_executor(),
-            .Factory = VmessUdpSessionFactory{State, std::chrono::seconds(30)}});
+            .Factory = VmessUdpSessionFactory{State, std::chrono::seconds(30)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{13})});
 
         bool closed = false;
         RunCoro(ioc, RunVmessUdpTcpCloseFlow(

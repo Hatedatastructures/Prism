@@ -25,6 +25,11 @@ target_link_libraries(TuicConnSession PRIVATE
     PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismProtocolTuic PrismTestSupport)
 
 AddPrismTest(Connection/TuicTerminalReadTest.cpp)
+target_sources(TuicTerminalReadTest PRIVATE
+    Connection/TuicConnTerminalReadTest.cpp
+    Connection/TuicDgramFragmentReadTest.cpp
+    Connection/TuicAuthTerminalReadTest.cpp
+    Connection/TuicTerminalReadSupport.hpp)
 target_link_libraries(TuicTerminalReadTest PRIVATE
     PrismAccount
     PrismFoundation

@@ -208,7 +208,8 @@ namespace
         auto CompactConfiguration = Environment.Configuration();
         CompactConfiguration.Mode = RenderMode::CompactHuman;
         CompactConfiguration.TraceSelection = {};
-        auto CompactPrepared = Environment.Runtime().PrepareEpoch(CompactConfiguration);
+        auto CompactPrepared =
+            Environment.PrepareEpochAfterRegistryContention(CompactConfiguration);
         ASSERT_TRUE(CompactPrepared.has_value()) << CompactPrepared.error().Message;
         auto CompactEpoch = *CompactPrepared;
         CompactPrepared->reset();

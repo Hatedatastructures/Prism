@@ -27,6 +27,7 @@
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Memory/Pointer.hpp>
+#include <Prism/Transport/ActivityGroupFactory.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Shadowsocks2022/ConnDatagram.hpp>
 #include <Prism/Protocols/Shadowsocks2022/ConnHandshake.hpp>
@@ -66,6 +67,14 @@ namespace Prism::Shadowsocks2022
             return Session_.Executor();
         }
 
+        /** @brief 同时等待本层 completion 与握手后拥有的下层载体关闭退休。 */
+        [[nodiscard]] auto Activity() const noexcept
+            -> std::shared_ptr<Prism::Contract::CarrierActivity> override
+        {
+            return CloseActivity_ ? CloseActivity_->Activity()
+                                  : Prism::Transmission::Activity();
+        }
+
         /** @brief 部分读取；结果与借用沿正式前门交付一次。 */
         auto StartRead(std::span<std::byte> Buffer, Completion Handler) -> void override
         {
@@ -87,7 +96,12 @@ namespace Prism::Shadowsocks2022
         /** @brief 封止并交付底层关闭；实际退出由 Activity()->Drain() 另行等待。 */
         [[nodiscard]] auto OnClose() -> ControlResult override
         {
-            return Session_.Close();
+            auto Result = Session_.Close();
+            if (Result && CloseActivity_)
+            {
+                CloseActivity_->RequireChildDrain();
+            }
+            return Result;
         }
 
         /** @brief 可重复取消底层挂起操作；成功只表示命令已接管。 */
@@ -132,6 +146,7 @@ namespace Prism::Shadowsocks2022
             const ss::Address &Target)
             -> Net::awaitable<Prism::Fault::Failure>
         {
+            BindCloseActivity(Upstream);
             co_return co_await Handshake_.WriteHandshake(std::move(Upstream), Target);
         }
 
@@ -152,6 +167,7 @@ namespace Prism::Shadowsocks2022
         [[nodiscard]] auto ReadHandshake(Prism::SharedTransmission Upstream)
             -> Net::awaitable<std::expected<ss::Message, Prism::Fault::Failure>>
         {
+            BindCloseActivity(Upstream);
             co_return co_await Handshake_.ReadHandshake(std::move(Upstream));
         }
 
@@ -181,10 +197,21 @@ namespace Prism::Shadowsocks2022
         using Handshake = detail::ConnHandshake<Memory>;
         using Datagram = detail::ConnDatagram<Memory>;
 
+        auto BindCloseActivity(const Prism::SharedTransmission &Upstream) -> void
+        {
+            if (!Upstream)
+            {
+                return;
+            }
+            CloseActivity_ = std::make_shared<Prism::Transport::ForwardActivityOwner>(
+                Prism::Transmission::Activity(), Upstream->Activity());
+        }
+
         Session Session_;
         Record Record_;
         Handshake Handshake_;
         Datagram Datagram_;
+        std::shared_ptr<Prism::Transport::ForwardActivityOwner> CloseActivity_;
     };
 
     /// 流连接共享指针。

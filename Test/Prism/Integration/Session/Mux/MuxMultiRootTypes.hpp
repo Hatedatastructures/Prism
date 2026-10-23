@@ -176,6 +176,8 @@ namespace
         std::array<bool, 2> RootReturned{};
         std::array<bool, 2> ClientDone{};
         std::array<bool, 2> ClientReadReturned{};
+        bool CatalogDrained{false};
+        Prism::Fault::Failure CatalogDrainFailure{};
         std::array<bool, 2> DrainSucceeded{};
         std::array<bool, 2> DrainFailed{};
         std::array<Prism::Fault::Failure, 2> DrainFailure{};

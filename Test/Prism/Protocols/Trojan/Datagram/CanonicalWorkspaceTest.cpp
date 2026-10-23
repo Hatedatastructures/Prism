@@ -78,6 +78,7 @@ namespace
             AllocationObservation::LargeBuffers.store(0, std::memory_order_relaxed);
             AllocationObservation::Enabled.store(true, std::memory_order_relaxed);
             const auto Status = co_await Session->Run();
+            const auto Retired = co_await Session->Activity()->Drain();
             AllocationObservation::Enabled.store(false, std::memory_order_relaxed);
             const auto Allocations = AllocationObservation::LargeBuffers.load(std::memory_order_relaxed);
             const auto PayloadBytes = ConcurrentReplies_ ? 8U : 9U;
@@ -86,6 +87,7 @@ namespace
                       << " Replies=" << (ConcurrentReplies_ ? 3U : 3U)
                       << " LargeWorkspaceAllocations=" << Allocations << '\n';
             EXPECT_TRUE(Status.has_value());
+            EXPECT_TRUE(Retired);
             // 双地址族 receiver 使用固定 std::array 工作区，不再申请 65535 字节堆缓冲。
             EXPECT_EQ(Allocations, 0U);
             EXPECT_EQ(Carrier->Written, Expected);

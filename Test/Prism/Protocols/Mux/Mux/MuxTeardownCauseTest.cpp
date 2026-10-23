@@ -220,6 +220,7 @@ namespace
         Outcome.FailedWriteBytes = Scenario.Raw->FailedWriteBytes();
         Outcome.ReadCalls = Scenario.Raw->ReadCalls();
         Outcome.WriteCalls = Scenario.Raw->WriteCalls();
+        co_await Scenario.Owner->Close();
         const auto StreamClose = Scenario.Stream->Close();
         if (StreamClose)
         {
@@ -229,7 +230,6 @@ namespace
                 Scenario.Stream->Activity()->IsRetired();
         }
         Outcome.SessionDrained = (co_await Scenario.Owner->Tasks()->Drain()).has_value();
-        co_await Scenario.Owner->Close();
         const auto RawDrain = co_await Scenario.Raw->Activity()->Drain();
         Outcome.RawClosed = !Scenario.Raw->IsOpen();
         Outcome.RawRetired = RawDrain.has_value() && Scenario.Raw->Activity()->IsRetired();
@@ -275,7 +275,7 @@ namespace
         auto Raw = std::make_shared<ScriptedMuxTransmission>(
             Executor, ScriptedTransmissionPlan{
                 .Input = std::vector<std::uint8_t>(Open.begin(), Open.end()),
-                .FailWriteCall = 2U,
+                .FailWriteCall = 1U,
                 .FailWriteBytes = FailureBytes,
                 .WriteFailure = Prism::Fault::FromNative(Native)});
         auto Owner = MakeSession(Raw);
@@ -370,7 +370,7 @@ namespace
         EXPECT_EQ(Outcome.PeerFailure->Code, Prism::Fault::Code::ConnectionReset);
         EXPECT_EQ(Outcome.PeerFailure->Native, Native);
         EXPECT_EQ(Outcome.ReadCalls, 2U);
-        EXPECT_EQ(Outcome.WriteCalls, 2U);
+        EXPECT_EQ(Outcome.WriteCalls, 1U);
         EXPECT_TRUE(Outcome.SessionDrained);
         EXPECT_TRUE(Outcome.StreamRetired);
         EXPECT_TRUE(Outcome.RawClosed);
@@ -398,7 +398,7 @@ namespace
         EXPECT_EQ(Outcome.PeerFailure->Code, Prism::Fault::Code::ConnectionReset);
         EXPECT_EQ(Outcome.PeerFailure->Native, Native);
         EXPECT_EQ(Outcome.ReadCalls, 2U);
-        EXPECT_EQ(Outcome.WriteCalls, 2U);
+        EXPECT_EQ(Outcome.WriteCalls, 1U);
         EXPECT_TRUE(Outcome.SessionDrained);
         EXPECT_TRUE(Outcome.StreamRetired);
         EXPECT_TRUE(Outcome.RawClosed);

@@ -62,6 +62,7 @@ namespace
         bool PayloadRead{false};
         bool PayloadEqual{false};
         bool PeerWriteShutdown{false};
+        bool ClientTlsCloseNotify{false};
         bool ServerDriverCompleted{false};
         bool ServerDriverReleased{false};
         bool ServerResponseWriteAllowedAfterReadEof{false};
@@ -457,6 +458,10 @@ namespace
             const auto EndStream = co_await State->Transport->ReadSome(EndStreamBuffer);
             Observation.ClientResponseEndStream =
                 EndStream.Bytes == 0U && EndStream.Failure.Succeeded();
+            const auto TlsCloseNotify = co_await ClientEncrypted->WriteShutdown();
+            Observation.ClientTlsCloseNotify = static_cast<bool>(TlsCloseNotify);
+            if (!TlsCloseNotify && Observation.ClientFailure.Succeeded())
+                Observation.ClientFailure = TlsCloseNotify.error();
             SignalClientEndStream(Observation.ClientResponseEndStream);
             co_await RetireClient(State);
             co_return;
@@ -550,6 +555,7 @@ TEST(TrusttunnelHttp2RawHalfClose, ServerWritesResponseBeforeFinalClose)
     EXPECT_TRUE(Fixture.Observation.ServerResponseWriteAllowedAfterReadEof);
     EXPECT_TRUE(Fixture.Observation.ServerWriteShutdown);
     EXPECT_TRUE(Fixture.Observation.ClientResponseEndStream);
+    EXPECT_TRUE(Fixture.Observation.ClientTlsCloseNotify);
     EXPECT_TRUE(Fixture.Observation.ClientEndStreamObserved);
     EXPECT_TRUE(Fixture.Observation.ServerCloseFailure.Succeeded());
     EXPECT_TRUE(Fixture.Observation.ServerRetired);

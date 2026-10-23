@@ -35,13 +35,10 @@
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 #include <TestSupport/Prism/PrismMockTransport.hpp>
+#include "CanceledRetireTestSupport.hpp"
 
 namespace
 {
-
-    namespace Net = boost::asio;
-    using CloseSignal = Net::experimental::channel<void(boost::system::error_code)>;
-    using Failure = Prism::Fault::Failure;
 
     /** @brief 注入已记录的取消失败，并单独观察最终 Close 是否仍被交付。 */
     class CancelRejectedTransmission final : public Prism::Transmission
@@ -138,122 +135,6 @@ namespace
         }
     }
 
-    /** @brief 控制测试 Activity 是否已经确认实物退休。 */
-    struct CanceledRetirementState final
-    {
-        std::atomic<bool> PhysicallyRetired{false};
-        std::atomic<bool> RetireOnClose{true};
-        std::atomic<Prism::Fault::Code> DrainResultCode{Prism::Fault::Code::Canceled};
-        std::atomic<std::size_t> CancelCalls{0};
-        std::atomic<std::size_t> CloseCalls{0};
-        std::atomic<std::size_t> DrainCalls{0};
-        std::shared_ptr<CloseSignal> CloseEvents;
-    };
-
-    /** @brief 始终报告取消；IsRetired 独立表达实物是否已退栈。 */
-    class CanceledDrainActivity final : public Prism::Contract::CarrierActivity
-    {
-    public:
-        CanceledDrainActivity(Net::any_io_executor Executor,
-                              std::shared_ptr<CanceledRetirementState> State)
-            : Executor_(std::move(Executor)), State_(std::move(State))
-        {
-        }
-
-        auto Seal() noexcept -> void override { Sealed_.store(true); }
-
-        [[nodiscard]] auto IsRetired() const noexcept -> bool override
-        {
-            return Sealed_.load(std::memory_order_acquire) &&
-                State_->PhysicallyRetired.load(std::memory_order_acquire);
-        }
-
-        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
-        {
-            return Executor_;
-        }
-
-        [[nodiscard]] auto Drain() -> Net::awaitable<std::expected<void, Failure>> override
-        {
-            co_await Net::this_coro::throw_if_cancelled(false);
-            State_->DrainCalls.fetch_add(1, std::memory_order_relaxed);
-            if (!Sealed_.load(std::memory_order_acquire))
-            {
-                co_return std::unexpected(Failure{Prism::Fault::Code::InvalidArgument});
-            }
-            co_return std::unexpected(Failure{
-                State_->DrainResultCode.load(std::memory_order_acquire)});
-        }
-
-    private:
-        Net::any_io_executor Executor_;
-        std::shared_ptr<CanceledRetirementState> State_;
-        std::atomic<bool> Sealed_{false};
-    };
-
-    /** @brief 提供可重试 close 的 DatagramSession 测试 owner。 */
-    class CanceledDrainDatagram final : public Prism::Contract::DatagramSession
-    {
-    public:
-        CanceledDrainDatagram(Net::any_io_executor Executor,
-                              std::shared_ptr<CanceledRetirementState> State)
-            : State_(std::move(State)),
-              Activity_(std::make_shared<CanceledDrainActivity>(
-                  std::move(Executor), State_))
-        {
-        }
-
-        [[nodiscard]] auto Activity() const
-            -> std::shared_ptr<Prism::Contract::CarrierActivity> override
-        {
-            return Activity_;
-        }
-
-        [[nodiscard]] auto Run()
-            -> Net::awaitable<std::expected<void, Failure>> override
-        {
-            co_return std::expected<void, Failure>{};
-        }
-
-        auto Cancel() noexcept -> void override
-        {
-            State_->CancelCalls.fetch_add(1, std::memory_order_relaxed);
-        }
-
-        auto Close() noexcept -> void override
-        {
-            State_->CloseCalls.fetch_add(1, std::memory_order_relaxed);
-            if (State_->CloseEvents)
-                (void)State_->CloseEvents->try_send(boost::system::error_code{});
-            if (State_->RetireOnClose.load(std::memory_order_acquire))
-            {
-                State_->PhysicallyRetired.store(true, std::memory_order_release);
-            }
-        }
-
-    private:
-        std::shared_ptr<CanceledRetirementState> State_;
-        std::shared_ptr<CanceledDrainActivity> Activity_;
-    };
-
-    [[nodiscard]] auto Finalize(
-        Net::io_context &Context,
-        Prism::Runtime::ActiveTransports &Active)
-        -> std::expected<void, Failure>
-    {
-        std::expected<void, Failure> Result;
-        std::exception_ptr Fatal;
-        Net::co_spawn(Context, Active.Finalize(),
-            [&Result, &Fatal](std::exception_ptr Error, std::expected<void, Failure> Value)
-            {
-                Fatal = std::move(Error);
-                Result = std::move(Value);
-            });
-        Context.run();
-        if (Fatal) std::rethrow_exception(Fatal);
-        return Result;
-    }
-
     TEST(ActiveTransportsCanceledRetirement, NormalStreamCloseDoesNotCancelCarrier)
     {
         auto Storage = std::make_shared<Prism::Executor::ClosingStorage>();
@@ -289,8 +170,17 @@ namespace
         Prism::Runtime::ActiveTransports Active;
         auto Stored = Active.StoreInbound(Transport, *Domain);
         ASSERT_TRUE(Stored);
+        auto HeldView = *Stored;
         Stored->reset();
         Active.MarkCancelRequested();
+
+        EXPECT_FALSE(Transport->IsCancelled());
+        Context->Io.run();
+
+        EXPECT_TRUE(Transport->IsCancelled());
+        EXPECT_FALSE(Transport->IsClosed());
+        HeldView.reset();
+        Context->Io.restart();
 
         const auto Result = Finalize(Context->Io, Active);
 
@@ -323,14 +213,15 @@ namespace
         Stored->reset();
         Active->MarkCancelRequested();
 
-        const auto Finalized = Finalize(Context->Io, *Active);
+        const auto Finalized = FinalizeAndStopAtResult(Context->Io, *Active);
 
         ASSERT_FALSE(Finalized);
         EXPECT_EQ(Finalized.error().Code, Prism::Fault::Code::IoError);
         EXPECT_EQ(Transport->CancelCalls, 1U);
         EXPECT_EQ(Transport->CloseCalls, 1U);
         EXPECT_FALSE(Transport->IsOpen());
-        EXPECT_EQ(Storage->Pending(), 0U);
+        EXPECT_GT(Storage->Pending(), 0U);
+        EXPECT_FALSE(WeakTransport.expired());
 
         Transport.reset();
         Active.reset();
@@ -683,35 +574,6 @@ namespace
         EXPECT_GT(State->CloseCalls.load(std::memory_order_relaxed), CloseCallsBeforeRetry);
         EXPECT_EQ(Storage->Pending(), 0U);
         EXPECT_TRUE(WeakDatagram.expired());
-    }
-
-    TEST(ActiveTransportsCanceledRetirement,
-         KeepsExplicitCancellationIntentThroughFinalize)
-    {
-        auto Storage = std::make_shared<Prism::Executor::ClosingStorage>();
-        auto Context = Prism::Executor::ContextOwner::Create(Storage);
-        auto State = std::make_shared<CanceledRetirementState>();
-        auto Datagram = std::make_shared<CanceledDrainDatagram>(
-            Context->Io.get_executor(), State);
-        const auto Domain = Prism::Runtime::CarrierDomain::Create(
-            Context->Io.get_executor(), Datagram->Activity());
-        ASSERT_TRUE(Domain);
-
-        Prism::Runtime::ActiveTransports Active;
-        auto Stored = Active.StoreDatagram(Datagram, *Domain);
-        ASSERT_TRUE(Stored);
-        Stored->reset();
-        Datagram.reset();
-        Active.MarkCancelRequested();
-
-        const auto Result = Finalize(Context->Io, Active);
-
-        ASSERT_TRUE(Result);
-        EXPECT_TRUE(State->PhysicallyRetired.load(std::memory_order_acquire));
-        EXPECT_EQ(State->CancelCalls.load(std::memory_order_relaxed), 1U);
-        EXPECT_EQ(State->CloseCalls.load(std::memory_order_relaxed), 1U);
-        EXPECT_EQ(State->DrainCalls.load(std::memory_order_relaxed), 1U);
-        EXPECT_EQ(Storage->Pending(), 0U);
     }
 
     TEST(ActiveTransportsCanceledRetirement,

@@ -172,6 +172,27 @@ namespace Prism::Xhttp::Detail
         co_return std::expected<void, Prism::Fault::Failure>{};
     }
 
+    auto FinishServerStream(
+        const std::weak_ptr<ServerState> &WeakState,
+        const std::int32_t StreamId)
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>{
+        const auto State = WeakState.lock();
+        if (!State)
+        {
+            co_return std::unexpected(Prism::Fault::FromNative(
+                std::make_error_code(std::errc::broken_pipe)));
+        }
+        const auto Status = State->Session->SubmitData(StreamId, {}, true);
+        if (Status != h2::SubmitDataStatus::Accepted)
+        {
+            const auto Code = Status == h2::SubmitDataStatus::Closed
+                ? Prism::Fault::Code::ConnectionAborted
+                : Prism::Fault::Code::InvalidArgument;
+            co_return std::unexpected(Prism::Fault::Failure{Code});
+        }
+        co_return co_await FlushServerFrames(State->Session, State->Wire);
+    }
+
     auto HandleServerHeaders(
         const std::weak_ptr<ServerState> &WeakState,
         const ServerHeadersEvent &Event) -> void{
@@ -285,7 +306,6 @@ namespace Prism::Xhttp::Detail
                         State->Closing.load(std::memory_order_acquire), ReadFailure);
                     if (LocalClose)
                     {
-                        Outcome.LocalCloseCompletion = true;
                         Outcome.Failure = {};
                         if (Step.ReadTerminal)
                             State->Transport->NotifyReadTerminal(
@@ -309,7 +329,6 @@ namespace Prism::Xhttp::Detail
                             ReadFailure);
                         if (LocalClose)
                         {
-                            Outcome.LocalCloseCompletion = true;
                             State->Transport->NotifyReadTerminal(
                                 {Prism::Fault::Code::Eof});
                             break;
@@ -391,9 +410,8 @@ namespace Prism::Xhttp::Detail
         }
         else
         {
-            if (Outcome.LocalCloseCompletion)
-                Outcome.Failure = {};
-            State->DriverFailure = Outcome.Failure;
+            // 干净 EOF 会保留终止码，但不构成失败；此处只发布成功回执。
+            State->DriverFailure = {};
             if (!State->Transport->DrainTerminalPending())
                 State->Transport->NotifyEof();
         }
@@ -525,6 +543,8 @@ namespace Prism::Xhttp::Detail
                     .Executor = State->Encrypted->Executor(),
                     .Write = [WeakState](std::int32_t StreamId, std::span<const std::byte> Data)
                     { return SubmitServerData(WeakState, StreamId, Data); },
+                    .Finish = [WeakState](std::int32_t StreamId)
+                    { return FinishServerStream(WeakState, StreamId); },
                      .CloseOwner = [WeakState]() -> Prism::Fault::Failure
                     { return CloseServerOwner(WeakState); }});
             State->Session->OnHeaders = [WeakState](

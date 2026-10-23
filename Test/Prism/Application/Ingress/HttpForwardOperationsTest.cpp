@@ -425,7 +425,8 @@ TEST(HttpForwardOperations, WorkerDrainReturnsOperationIdAndTrueTerminalReceipt)
         Application.OperationsPort(),
         "POST /Operations/Drain?worker=1&force=false&correlation=701", *Token);
     ASSERT_TRUE(Accepted.Closed) << Accepted.Description();
-    ASSERT_NE(Accepted.Bytes.find("HTTP/1.1 202"), std::string::npos);
+    ASSERT_NE(Accepted.Bytes.find("HTTP/1.1 202"), std::string::npos)
+        << Accepted.Description();
     ASSERT_NE(Accepted.Bytes.find("\"status\":\"accepted\""), std::string::npos);
     EXPECT_NE(Accepted.Bytes.find("\"worker\":\"1\""), std::string::npos);
     const auto Operation = ReadOperationId(Accepted.Bytes);
@@ -497,7 +498,9 @@ TEST(HttpForwardOperations, HotReloadPublishesNewDiagnoseRenderEpoch)
         TcpPort, OperationsPort,
         TemporaryConfigurationOptions{
             .LogDirectory = LogDirectory,
-            .LogFileName = "prism.log"});
+            .LogFileName = "prism.log",
+            .HotReloadEnabled = true,
+            .IncludeTestAccount = false});
     RunningApplication Application(Configuration.Path());
     ASSERT_TRUE(Application.Start()) << Application.Error();
 
@@ -523,20 +526,23 @@ TEST(HttpForwardOperations, HotReloadPublishesNewDiagnoseRenderEpoch)
         "{\"mode\":\"apply\",\"base_generation\":\"1\",\"configuration\":") +
         CandidateConfiguration + "}";
     const auto Accepted = ReadOperationsResponse(OperationsRequest{
-        Application.OperationsPort(), "POST /Operations/Reload?correlation=811", *Token, Body});
+        Application.OperationsPort(), "POST /Operations/Reload", *Token, Body});
     ASSERT_TRUE(Accepted.Closed) << Accepted.Description();
-    ASSERT_NE(Accepted.Bytes.find("HTTP/1.1 202"), std::string::npos);
+    ASSERT_NE(Accepted.Bytes.find("HTTP/1.1 202"), std::string::npos)
+        << Accepted.Description() << " response=" << Accepted.Bytes;
     ASSERT_NE(Accepted.Bytes.find("\"status\":\"accepted\""), std::string::npos);
     const auto Operation = ReadOperationId(Accepted.Bytes);
     ASSERT_TRUE(Operation);
 
     bool Completed = false;
+    std::string LastStatusBytes;
     const auto Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
     while (std::chrono::steady_clock::now() < Deadline && !Completed)
     {
         const auto Status = ReadOperationsResponse(
             Application.OperationsPort(),
             "GET /Operations/Operations/" + std::to_string(*Operation) + "?correlation=812");
+        LastStatusBytes = Status.Bytes;
         const auto StatusOperation = ReadOperationId(Status.Bytes);
         Completed = Status.Closed && StatusOperation && *StatusOperation == *Operation &&
             Status.Bytes.find("\"status\":\"completed\"") != std::string::npos;
@@ -545,7 +551,7 @@ TEST(HttpForwardOperations, HotReloadPublishesNewDiagnoseRenderEpoch)
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
     }
-    ASSERT_TRUE(Completed);
+    ASSERT_TRUE(Completed) << "response=" << LastStatusBytes;
 
     const auto Retained = Prism::Diagnose::Error(OldContext, "A5ReloadRetainedHumanMarker");
     ASSERT_EQ(Retained.Status, Prism::Diagnose::SubmissionStatus::Accepted);

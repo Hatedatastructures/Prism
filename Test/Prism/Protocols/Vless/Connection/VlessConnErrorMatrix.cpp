@@ -129,8 +129,8 @@ namespace
         Raw->EofOnDrain = true;
         std::array<std::uint8_t, 1> Buffer{};
 
-        const auto Failed = co_await Connection->ReadExact(Buffer);
-        EXPECT_TRUE(Failed);
+        const auto ReadFailed = co_await Connection->ReadExact(Buffer);
+        EXPECT_FALSE(ReadFailed);
         EXPECT_EQ(Buffer[0], 0xA5U);
         EXPECT_EQ(Raw->ReadsDone, 1U);
         std::array<std::byte, 1> TerminalBuffer{};

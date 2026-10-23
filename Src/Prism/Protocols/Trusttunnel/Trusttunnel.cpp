@@ -95,6 +95,23 @@ namespace Prism::Trusttunnel::Detail
 
 namespace Prism::Trusttunnel
 {
+    Binding::Binding(PreparedBinding Prepared)
+        : Instance(std::move(Prepared.Instance)),
+          NativeTls(std::move(Prepared.NativeTls)),
+          Wire(std::move(Prepared.Wire))
+    {
+    }
+
+    auto Binding::Close() const noexcept -> void
+    {
+        Closed_.store(true, std::memory_order_release);
+    }
+
+    auto Binding::IsRetired() const noexcept -> bool
+    {
+        return Closed_.load(std::memory_order_acquire);
+    }
+
     [[nodiscard]] auto PrepareAccountCredential(std::string_view Value)
         -> Prism::Account::Credential
     {
@@ -104,8 +121,7 @@ namespace Prism::Trusttunnel
     [[nodiscard]] auto BindProvider(PreparedBinding Prepared)
         -> std::shared_ptr<const Binding>
     {
-        return std::make_shared<const Binding>(Binding{
-            std::move(Prepared.Instance), std::move(Prepared.NativeTls), std::move(Prepared.Wire)});
+        return std::make_shared<const Binding>(std::move(Prepared));
     }
 
     auto ParseServerCredential(std::string_view Credential)

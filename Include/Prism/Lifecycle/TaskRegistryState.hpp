@@ -90,6 +90,8 @@ namespace Prism::Lifecycle
             std::shared_ptr<Prism::Foundation::TrafficSink> Traffic;
             /** @brief 退役 scope 只在析构时保留实物/context；恢复投递由显式 storage Retry 发起。 */
             auto RetainClosing() noexcept -> void;
+            /** @brief 保留未投递的退役请求；executor 恢复后允许显式 Retry 重投。 */
+            auto RetainUnavailableRetirement() noexcept -> void;
             auto RequestRetirement() -> void override;
             [[nodiscard]] auto IsRetired() const noexcept -> bool override;
             [[nodiscard]] auto IsDispatchUnavailable() const noexcept -> bool override;
@@ -98,6 +100,8 @@ namespace Prism::Lifecycle
             std::atomic<bool> ClosingRetained{false};
             /** @brief 原 executor 退休命令尚未完成时为 true；失败事实由 Blocked 单独保留。 */
             std::atomic<bool> RetirementPending{false};
+            /** @brief 尚未交付、等待 ClosingStorage 在 executor 恢复后重试的退休请求。 */
+            std::atomic<bool> RetirementUnavailable{false};
             std::shared_ptr<TaskSlotPool> Pool;
             DescendantStats Descendants;
 

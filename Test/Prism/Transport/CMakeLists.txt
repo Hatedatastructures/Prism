@@ -61,6 +61,17 @@ target_compile_options(ReliableTransportTest PRIVATE -O0 -fno-inline)
 target_compile_options(UnreliableTransportTest PRIVATE -O0 -fno-inline)
 target_compile_options(ReliableCallbackTest PRIVATE -O0 -fno-inline)
 
+# _FORTIFY_SOURCE 决定 Boost.Asio endpoint 存储布局，UDP 测试 TU 必须与生产库一致。
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    foreach(TransportFortifyTarget IN ITEMS TestPsmTransport UnreliableTransportTest)
+        target_compile_options(${TransportFortifyTarget} PRIVATE
+            "$<$<CONFIG:Debug>:-U_FORTIFY_SOURCE>"
+            "$<$<CONFIG:Release>:-O1>"
+            "$<$<CONFIG:RelWithDebInfo>:-O1>"
+            "$<$<CONFIG:MinSizeRel>:-O1>")
+    endforeach()
+endif()
+
 
 
 

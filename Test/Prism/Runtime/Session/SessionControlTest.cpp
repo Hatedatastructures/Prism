@@ -6,6 +6,8 @@
 #include "SessionLifecycleSupport.hpp"
 #include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
 
+#include <boost/asio/bind_cancellation_slot.hpp>
+
 #include <array>
 #include <expected>
 
@@ -207,6 +209,8 @@ namespace
         std::shared_ptr<Prism::Runtime::SessionControl> SecondControl;
         std::shared_ptr<Net::experimental::channel<void(boost::system::error_code)>> FirstRelease;
         std::shared_ptr<Net::experimental::channel<void(boost::system::error_code)>> SecondRelease;
+        std::shared_ptr<Net::experimental::channel<void(boost::system::error_code)>> FirstStarted;
+        std::shared_ptr<Net::experimental::channel<void(boost::system::error_code)>> SecondStarted;
         std::shared_ptr<std::size_t> FirstCancels;
         std::shared_ptr<std::size_t> SecondCancels;
         std::shared_ptr<bool> ShutdownCompleted;
@@ -221,16 +225,35 @@ namespace
         *ShutdownCompleted = static_cast<bool>(Shutdown);
     }
 
+    auto WaitForReleaseIgnoringCancellation(
+        std::shared_ptr<ByteChannel> Release,
+        std::shared_ptr<ByteChannel> Started) -> Net::awaitable<void>
+    {
+        co_await Net::this_coro::throw_if_cancelled(false);
+        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+        (void)Started->try_send(boost::system::error_code{});
+        boost::system::error_code Error;
+        co_await Release->async_receive(Net::bind_cancellation_slot(
+            Net::cancellation_slot{}, Net::redirect_error(Net::use_awaitable, Error)));
+    }
+
     auto RunRegistryShutdown(RegistryShutdownRequest Request) -> Net::awaitable<void>
     {
         EXPECT_TRUE(Request.FirstControl->Start(
             Prism::Lifecycle::TaskRequest{
                 .Cancel = IncrementCounter{Request.FirstCancels}},
-            WaitForRelease(Request.FirstRelease)));
+            WaitForReleaseIgnoringCancellation(Request.FirstRelease, Request.FirstStarted)));
         EXPECT_TRUE(Request.SecondControl->Start(
             Prism::Lifecycle::TaskRequest{
                 .Cancel = IncrementCounter{Request.SecondCancels}},
-            WaitForRelease(Request.SecondRelease)));
+            WaitForReleaseIgnoringCancellation(Request.SecondRelease, Request.SecondStarted)));
+        boost::system::error_code StartError;
+        co_await Request.FirstStarted->async_receive(
+            Net::redirect_error(Net::use_awaitable, StartError));
+        EXPECT_FALSE(StartError);
+        co_await Request.SecondStarted->async_receive(
+            Net::redirect_error(Net::use_awaitable, StartError));
+        EXPECT_FALSE(StartError);
         Net::co_spawn(
             Request.Executor,
             MarkRegistryShutdown(Request.Registry, Request.ShutdownCompleted),
@@ -401,6 +424,8 @@ TEST(SessionRegistryLifecycle, ShutdownCancelsAndDrainsAllRegisteredSessions)
         auto SecondControl = std::make_shared<Prism::Runtime::SessionControl>(Ioc.get_executor());
         auto FirstRelease = MakeReleaseChannel(Ioc.get_executor());
         auto SecondRelease = MakeReleaseChannel(Ioc.get_executor());
+        auto FirstStarted = MakeReleaseChannel(Ioc.get_executor());
+        auto SecondStarted = MakeReleaseChannel(Ioc.get_executor());
         auto FirstCancels = std::make_shared<std::size_t>(0);
         auto SecondCancels = std::make_shared<std::size_t>(0);
         auto FirstRegistration = Registry->Register(MakeInfo(1), FirstControl);
@@ -411,7 +436,8 @@ TEST(SessionRegistryLifecycle, ShutdownCancelsAndDrainsAllRegisteredSessions)
         auto ShutdownCompleted = std::make_shared<bool>(false);
         RunCoro(Ioc, RunRegistryShutdown(RegistryShutdownRequest{
                             Ioc.get_executor(), Registry, FirstControl, SecondControl,
-                            FirstRelease, SecondRelease, FirstCancels, SecondCancels,
+                            FirstRelease, SecondRelease, FirstStarted, SecondStarted,
+                            FirstCancels, SecondCancels,
                             ShutdownCompleted}));
 
         EXPECT_EQ(*FirstCancels, 1U);

@@ -46,7 +46,8 @@ namespace
                         std::string_view(reinterpret_cast<const char*>(Bytes.data()),Bytes.size()))});
                 auto Owned=std::make_shared<const Prism::Account::AccountMaterials>(
                     Prism::Account::AccountMaterials::CreateRequest{
-                        Prism::AccountId{static_cast<std::uint64_t>(Id)},{},std::move(Materials)});
+                        Prism::AccountId{static_cast<std::uint64_t>(Id)},
+                        "ss2022-gateway-account",std::move(Materials)});
                 auto Prepared=Accounts->PrepareUpsert(Prism::Account::AccountDefinition{
                     std::move(Owned),{.Quota={.MaxConnections=1}}});
                 EXPECT_TRUE(Prepared);

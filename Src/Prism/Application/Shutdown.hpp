@@ -219,8 +219,7 @@ namespace Prism::Application::Shutdown
             if (!ManagementJoined)
             {
                 MarkShutdownDrainFailed(State, ManagementJoined.error());
-                State->RetainFailedShutdown();
-                State->StopWorkers();
+                State->FinalizeFailedShutdown();
                 return;
             }
         }
@@ -234,8 +233,7 @@ namespace Prism::Application::Shutdown
             State->ClosingResources->IsSealed() || State->ClosingResources->Pending() != 0)
         {
             MarkShutdownDrainFailed(State);
-            State->RetainFailedShutdown();
-            State->StopWorkers();
+            State->FinalizeFailedShutdown();
             return;
         }
         State->ManagementController.reset();
@@ -260,8 +258,7 @@ namespace Prism::Application::Shutdown
         {
             MarkShutdownDrainFailed(State,
                 ShutdownOperation::FailureFromException(std::current_exception()));
-            State->RetainFailedShutdown();
-            State->StopWorkers();
+            State->FinalizeFailedShutdown();
             return;
         }
         State->StorageOwner.reset();
@@ -280,8 +277,7 @@ namespace Prism::Application::Shutdown
         if (State->ClosingResources->IsSealed() || State->ClosingResources->Pending() != 0)
         {
             MarkShutdownDrainFailed(State);
-            State->RetainFailedShutdown();
-            State->StopWorkers();
+            State->FinalizeFailedShutdown();
             return;
         }
         State->Process.reset();
@@ -289,7 +285,7 @@ namespace Prism::Application::Shutdown
         if (State->ClosingResources->IsSealed() || State->ClosingResources->Pending() != 0)
         {
             MarkShutdownDrainFailed(State);
-            State->RetainFailedShutdown();
+            State->FinalizeFailedShutdown();
             return;
         }
         State->ResourcesFinalized.store(true, std::memory_order_release);

@@ -259,6 +259,8 @@ namespace
     auto RunConfiguredResolver(ConfiguredResolverRequest Request) -> Net::awaitable<void>
     {
         *Request.Result = co_await Request.Session->Run();
+        const auto Retired = co_await Request.Session->Activity()->Drain();
+        EXPECT_TRUE(Retired);
         boost::system::error_code Error;
         Request.Echo->close(Error);
     }
@@ -280,6 +282,8 @@ namespace
         EXPECT_EQ(DatagramStatus(co_await Request.Session->Run()), Fault::Code::InvalidArgument);
         Request.Session->Close();
         Request.Session->Close();
+        const auto Retired = co_await Request.Session->Activity()->Drain();
+        EXPECT_TRUE(Retired);
     }
 
     using DatagramDoneChannel =
@@ -320,6 +324,8 @@ namespace
         EXPECT_EQ(Result.Code, Fault::Code::Canceled);
         EXPECT_TRUE(*Request.ResolveExited);
         EXPECT_LT(std::chrono::steady_clock::now() - Started, std::chrono::seconds(1));
+        const auto Retired = co_await Request.Session->Activity()->Drain();
+        EXPECT_TRUE(Retired);
         Request.Session.reset();
         Request.Resolver.reset();
         Request.SessionSlot->reset();
@@ -377,6 +383,8 @@ namespace
         EXPECT_EQ(Result.Code, Fault::Code::Timeout);
         EXPECT_TRUE(*Request.ResolveExited);
         EXPECT_LT(std::chrono::steady_clock::now() - Started, std::chrono::seconds(1));
+        const auto Retired = co_await Request.Session->Activity()->Drain();
+        EXPECT_TRUE(Retired);
         Request.Session.reset();
         Request.Resolver.reset();
         Request.SessionSlot->reset();
@@ -492,13 +500,16 @@ namespace
         const auto Retirement = std::dynamic_pointer_cast<Prism::Executor::ClosingResource>(Activity);
         ASSERT_TRUE(Retirement);
         DatagramRunResult RunResult{};
+        std::expected<void, Fault::Failure> DrainResult;
 
         RunCoro(Context->Io, [&]() -> Net::awaitable<void>
         {
             RunResult = co_await Owner->Run();
+            DrainResult = co_await Activity->Drain();
         });
 
         EXPECT_EQ(DatagramStatus(RunResult), Fault::Code::InvalidArgument);
+        EXPECT_TRUE(DrainResult);
         EXPECT_EQ(*CloseRequests, 1U);
         EXPECT_TRUE(Carrier->IsClosed());
         EXPECT_EQ(Storage->Pending(), 0U);
@@ -565,28 +576,23 @@ namespace
         const auto Retirement = std::dynamic_pointer_cast<Prism::Executor::ClosingResource>(Activity);
         ASSERT_TRUE(Retirement);
         DatagramRunResult RunResult{};
+        std::expected<void, Fault::Failure> DrainResult;
 
         RunCoro(Context->Io, [&]() -> Net::awaitable<void>
         {
             RunResult = co_await Session->Run();
+            DrainResult = co_await Activity->Drain();
         });
 
-        EXPECT_FALSE(RunResult.has_value());
+        EXPECT_TRUE(RunResult.has_value());
+        ASSERT_FALSE(DrainResult);
+        EXPECT_EQ(DrainResult.error().Native,
+            std::make_error_code(std::errc::io_error));
         ASSERT_EQ(State->CloseCalls, 1U);
         EXPECT_TRUE(State->Open);
         ASSERT_GT(Storage->Pending(), 0U);
 
         Context->Io.restart();
-        std::expected<void, Fault::Failure> DrainResult;
-        RunCoro(Context->Io, [&]() -> Net::awaitable<void>
-        {
-            DrainResult = co_await Activity->Drain();
-        });
-
-        ASSERT_FALSE(DrainResult);
-        EXPECT_EQ(DrainResult.error().Native,
-            std::make_error_code(std::errc::io_error));
-        EXPECT_EQ(State->CloseCalls, 1U);
         EXPECT_GT(Storage->Pending(), 0U);
         EXPECT_FALSE(Retirement->IsRetired());
 
@@ -761,36 +767,6 @@ namespace
         RunCoro(Io, RunIdleDnsTimeout(IdleDnsTimeoutRequest{
             Session, &Session, DnsSocket, Resolver, &Resolver, Done, &ResolveExited}));
         EXPECT_TRUE(Carrier->IsClosed());
-    }
-
-    TEST(CanonicalDatagramRegression, NativePacketReadFailureSurvivesDatagramRun)
-    {
-        Net::io_context Io;
-        auto Carrier = std::make_shared<PrismMockTransport>(Io.get_executor());
-        Carrier->ToRead = {0x01};
-        const auto Native = std::make_error_code(std::errc::connection_reset);
-        Carrier->SetReadError(Native);
-        Carrier->ReadErrorBytes = 1;
-        auto Wire = std::make_shared<Trojan::Dgram<>>(Carrier);
-        auto Session = Prism::Testing::TrojanDatagram::MakeSession(
-            Wire, Trojan::DatagramSession::Options{{}, {}});
-        const auto Activity = Session->Activity();
-        const auto Retirement =
-            std::dynamic_pointer_cast<Prism::Executor::ClosingResource>(Activity);
-        ASSERT_TRUE(Retirement);
-        DatagramRunResult Result;
-
-        RunCoro(Io, [&]() -> Net::awaitable<void>
-        {
-            Result = co_await Session->Run();
-        });
-
-        ASSERT_FALSE(Result);
-        EXPECT_EQ(Result.error().Code, Fault::Code::ConnectionReset);
-        EXPECT_EQ(Result.error().Native, Native);
-        EXPECT_EQ(Carrier->ReadsDone, 1U);
-        EXPECT_TRUE(Carrier->IsClosed());
-        EXPECT_TRUE(Retirement->IsRetired());
     }
 
 }

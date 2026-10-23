@@ -39,7 +39,7 @@ namespace Prism::Boundary
         struct Options final
         {
             QuicConnectionRegistryEventHandler OnEvent;
-            /** @brief 与 packet gateway 共享的活动 QUIC owner 预算。 */
+            /** @brief 必填；必须与 packet gateway 共享同一个活动 QUIC owner 预算。 */
             std::shared_ptr<QuicAdmissionBudget> AdmissionBudget;
         };
 

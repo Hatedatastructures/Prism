@@ -9,9 +9,8 @@
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/post.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
@@ -56,49 +55,69 @@ namespace
 
     auto RunConcurrentStreamReceiver(Smux::Server<> &Server) -> Net::awaitable<void>
     {
-        for (std::uint32_t Index = 0; Index < 3; ++Index)
+        for (std::uint32_t Index = 1; Index <= 3; ++Index)
         {
             auto Stream = co_await Server.AcceptStream();
             if (!Stream)
             {
                 co_return;
             }
+            const auto Expected = "Stream-" + std::to_string(Index) + "-payload";
             std::array<std::byte, 128> Buffer{};
-            std::error_code ErrorCode;
-            const auto Read = co_await Stream->ReadSome(std::span<std::byte>(Buffer));
-            ErrorCode = Prism::Fault::ToNative(Read.Failure);
-            const auto Count = Read.Bytes;
-            EXPECT_GT(Count, 0U);
+            std::string Received;
+            while (Received.size() < Expected.size())
+            {
+                const auto Read = co_await Stream->ReadSome(std::span<std::byte>(Buffer));
+                EXPECT_FALSE(Read.Failure.Failed());
+                if (Read.Failure.Failed() || Read.Bytes == 0)
+                {
+                    break;
+                }
+                Received.append(reinterpret_cast<const char *>(Buffer.data()), Read.Bytes);
+            }
+            EXPECT_EQ(Received, Expected);
             (void)Stream->Close();
         }
     }
 
-    /// 运行三条并发 Smux 流并核对每条流的收到字节数。
-    auto RunConcurrentStreams(Net::io_context &Ioc, Smux::Client<> &Client,
-                              Smux::Server<> &Server) -> Net::awaitable<void>
+    auto RunConcurrentStreamSender(Smux::Client<> &Client) -> Net::awaitable<void>
     {
-        Net::co_spawn(Ioc.get_executor(), RunConcurrentStreamReceiver(Server), Net::detached);
-
         for (std::uint32_t Index = 1; Index <= 3; ++Index)
         {
             auto Stream = co_await Client.OpenStream();
             if (!Stream)
             {
                 EXPECT_TRUE(false) << "OpenStream Failed";
+                co_await Client.Session()->Close();
                 co_return;
             }
             const std::string Payload = "Stream-" + std::to_string(Index) + "-payload";
-            std::error_code ErrorCode;
-            const auto Write = co_await Stream->WriteSome(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Payload.data()),
-                                           Payload.size()));
-            ErrorCode = Prism::Fault::ToNative(Write.Failure);
-            const auto Written = Write.Bytes;
-            EXPECT_EQ(Written, Payload.size());
+            const auto PayloadBytes = std::span<const std::byte>(
+                reinterpret_cast<const std::byte *>(Payload.data()), Payload.size());
+            std::size_t Written = 0;
+            while (Written < PayloadBytes.size())
+            {
+                const auto Write = co_await Stream->WriteSome(PayloadBytes.subspan(Written));
+                EXPECT_FALSE(Write.Failure.Failed());
+                if (Write.Failure.Failed() || Write.Bytes == 0)
+                {
+                    co_await Client.Session()->Close();
+                    co_return;
+                }
+                Written += Write.Bytes;
+            }
             (void)Stream->Close();
         }
-        Server.Close();
-        Client.Close();
+    }
+
+    /// 运行三条并发 Smux 流并等待收发双方真实退出。
+    auto RunConcurrentStreams(Smux::Client<> &Client,
+                              Smux::Server<> &Server) -> Net::awaitable<void>
+    {
+        using Net::experimental::awaitable_operators::operator&&;
+        co_await (RunConcurrentStreamReceiver(Server) && RunConcurrentStreamSender(Client));
+        co_await Client.Session()->Close();
+        co_await Server.Session()->Close();
     }
 
     auto RunClosedSession(Smux::Client<> &Client) -> Net::awaitable<void>
@@ -113,17 +132,27 @@ namespace
         MemoryStream Local,
         MemoryStream Peer) -> Net::awaitable<void>
     {
-        (void)Peer.Close();
+        auto PeerOwner = std::make_shared<MemoryStream>(std::move(Peer));
+        const auto PeerClose = PeerOwner->Close();
+        EXPECT_TRUE(PeerClose);
         if (!Client.Connect(std::make_shared<MemoryStream>(std::move(Local))))
         {
             EXPECT_TRUE(false) << "Connect Failed";
             co_return;
         }
-        while (Client.IsOpen())
+        const auto PeerActivity = PeerOwner->Activity();
+        EXPECT_TRUE(PeerActivity);
+        if (!PeerActivity)
         {
-            co_await Net::post(Client.Session()->Executor(), Net::use_awaitable);
+            co_await Client.Session()->Close();
+            co_return;
         }
+        const auto PeerDrained = co_await PeerActivity->Drain();
+        EXPECT_TRUE(PeerDrained);
+        const auto Drained = co_await Client.Session()->Tasks()->Drain();
+        EXPECT_TRUE(Drained);
         EXPECT_FALSE(Client.IsOpen());
+        co_await Client.Session()->Close();
     }
 
     // ── 1. 多流并发数据完整性 ──
@@ -137,7 +166,7 @@ namespace
         ASSERT_TRUE(cl.Connect(std::make_shared<MemoryStream>(std::move(a))));
         ASSERT_TRUE(sv.Accept(std::make_shared<MemoryStream>(std::move(b))));
 
-        RunCoro(ioc, RunConcurrentStreams(ioc, cl, sv));
+        RunCoro(ioc, RunConcurrentStreams(cl, sv));
     }
 
     // ── 2. 会话关闭后操作 ──

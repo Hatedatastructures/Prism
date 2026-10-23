@@ -653,7 +653,9 @@ namespace
                         State->Record->Runtime()->ActiveConnections() == 1U &&
                         State->Record->Runtime()->ActiveStreams() == 1U;
                     State->Bound->Close();
-                    State->CatalogDrained = static_cast<bool>(co_await State->Bound->Drain());
+                    const auto CatalogDrain = co_await State->Bound->Drain();
+                    State->CatalogDrained = static_cast<bool>(CatalogDrain);
+                    if (!CatalogDrain) State->CatalogDrainFailure = CatalogDrain.error();
                     if (State->CatalogDrained) State->Bound.reset();
                 }
             }
@@ -665,7 +667,9 @@ namespace
         if (State->Bound && (State->Kind != ScenarioKind::CancelPending || State->StopRequested))
         {
             State->Bound->Close();
-            State->CatalogDrained = static_cast<bool>(co_await State->Bound->Drain());
+            const auto CatalogDrain = co_await State->Bound->Drain();
+            State->CatalogDrained = static_cast<bool>(CatalogDrain);
+            if (!CatalogDrain) State->CatalogDrainFailure = CatalogDrain.error();
             if(State->CatalogDrained)State->Bound.reset();
         }
         if (State->CatalogDrained) State->AdmissionPublication.reset();

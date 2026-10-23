@@ -140,6 +140,12 @@ namespace Prism
         [[nodiscard]] auto Close() -> ControlResult;
         /** @brief 可重复取消；每次命令保持载体至原executor执行，拒绝/丢弃保留实物。 */
         [[nodiscard]] auto Cancel() -> ControlResult;
+        /**
+         * @brief 等待本层关闭命令在载体 executor 上完成派发。
+         * @details Close() 成功只表示命令已被接管；本方法返回派发错误，不表示物理关闭或 Activity 排空。
+         *          取消只结束当前等待，不改变共享关闭状态；最终关闭仍由载体 owner 执行。
+         */
+        [[nodiscard]] auto AwaitCloseDispatch() const -> Net::awaitable<ControlResult>;
         virtual auto SetTimeout(std::chrono::milliseconds Timeout) -> void;
         [[nodiscard]] virtual auto IsOpen() const -> bool;
         [[nodiscard]] virtual auto NextLayer() noexcept -> Transmission*;

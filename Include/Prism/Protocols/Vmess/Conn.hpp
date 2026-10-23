@@ -19,10 +19,13 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/cancellation_state.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/deferred.hpp>
+#include <boost/asio/this_coro.hpp>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -38,6 +41,96 @@ namespace Prism::Vmess
 {
 
     namespace Net = boost::asio;
+
+    namespace detail
+    {
+        /** @brief VMess wrapper 自身及已接管 carrier 的真实关闭/排空回执。 */
+        class ConnActivity final : public Prism::Contract::CarrierActivity,
+                                   public std::enable_shared_from_this<ConnActivity>
+        {
+        public:
+            explicit ConnActivity(std::shared_ptr<Prism::Contract::CarrierActivity> Parent)
+                : Parent_(std::move(Parent))
+            {
+            }
+
+            auto AttachChild(std::shared_ptr<Prism::Contract::CarrierActivity> Child) noexcept
+                -> void
+            {
+                Child_.store(std::move(Child), std::memory_order_release);
+            }
+
+            auto ClearChild() noexcept -> void
+            {
+                ChildDrainRequired_.store(false, std::memory_order_release);
+                Child_.store({}, std::memory_order_release);
+            }
+
+            auto RequireChildDrain() noexcept -> void
+            {
+                ChildDrainRequired_.store(true, std::memory_order_release);
+            }
+
+            auto Seal() noexcept -> void override
+            {
+                Parent_->Seal();
+            }
+
+            [[nodiscard]] auto Executor() const -> Net::any_io_executor override
+            {
+                return Parent_->Executor();
+            }
+
+            [[nodiscard]] auto IsRetired() const noexcept -> bool override
+            {
+                if (!Parent_->IsRetired()) return false;
+                if (!ChildDrainRequired_.load(std::memory_order_acquire)) return true;
+                const auto Child = Child_.load(std::memory_order_acquire);
+                return Child && Child->IsRetired();
+            }
+
+            [[nodiscard]] auto Drain()
+                -> Net::awaitable<std::expected<void, Prism::Fault::Failure>> override
+            {
+                return DrainOwned(shared_from_this());
+            }
+
+        private:
+            [[nodiscard]] static auto DrainOwned(std::shared_ptr<ConnActivity> Owner)
+                -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
+            {
+                co_await Net::this_coro::throw_if_cancelled(false);
+                co_await Net::this_coro::reset_cancellation_state(
+                    Net::disable_cancellation());
+                auto Result = co_await Owner->Parent_->Drain();
+                if (Owner->ChildDrainRequired_.load(std::memory_order_acquire))
+                {
+                    const auto Child = Owner->Child_.load(std::memory_order_acquire);
+                    if (!Child)
+                    {
+                        if (Result)
+                        {
+                            Result = std::unexpected(
+                                Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+                        }
+                    }
+                    else
+                    {
+                        const auto ChildResult = co_await Child->Drain();
+                        if (!ChildResult && Result)
+                        {
+                            Result = std::unexpected(ChildResult.error());
+                        }
+                    }
+                }
+                co_return Result;
+            }
+
+            std::shared_ptr<Prism::Contract::CarrierActivity> Parent_;
+            std::atomic<std::shared_ptr<Prism::Contract::CarrierActivity>> Child_{};
+            std::atomic_bool ChildDrainRequired_{false};
+        };
+    }
 
     template <Prism::Memory::Restrict Memory>
     class Dgram;
@@ -70,13 +163,20 @@ namespace Prism::Vmess
             : Prism::Transmission(std::move(Options.Executor)),
               Session_(Options.Uuid, std::move(Options.Source), std::move(Options.AuthenticatorOwner)),
               Io_(Session_, Prism::Transmission::Executor()),
-              Chunk_(Session_, Io_), Handshake_(Session_, Io_, Chunk_)
+              Chunk_(Session_, Io_), Handshake_(Session_, Io_, Chunk_),
+              Activity_(std::make_shared<detail::ConnActivity>(Prism::Transmission::Activity()))
         {
         }
 
         [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
             return Prism::Transmission::Executor();
+        }
+
+        [[nodiscard]] auto Activity() const noexcept
+            -> std::shared_ptr<Prism::Contract::CarrierActivity> override
+        {
+            return Activity_;
         }
 
         /** @brief 一次真实部分读；结果与借用沿正式前门交付一次，本连接 owner 全程保活。 */
@@ -100,6 +200,7 @@ namespace Prism::Vmess
         /** @brief 封止并交付底层关闭；实际退出由 Activity()->Drain() 另行等待。 */
         [[nodiscard]] auto OnClose() -> ControlResult override
         {
+            if (Io_.Underlying()) Activity_->RequireChildDrain();
             return Io_.Close();
         }
 
@@ -121,7 +222,9 @@ namespace Prism::Vmess
 
         [[nodiscard]] auto Release() -> Prism::SharedTransmission override
         {
-            return Io_.Release();
+            auto Released = Io_.Release();
+            if (Released) Activity_->ClearChild();
+            return Released;
         }
 
         [[nodiscard]] auto IsValid() const noexcept -> bool
@@ -151,6 +254,7 @@ namespace Prism::Vmess
             Command CommandValue = Command::Tcp)
             -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
         {
+            Activity_->AttachChild(Upstream ? Upstream->Activity() : nullptr);
             auto Owner = std::static_pointer_cast<Conn>(
                 Prism::Transmission::weak_from_this().lock());
             return WriteHandshakeOwned(HandshakeWriteRequest{
@@ -168,6 +272,7 @@ namespace Prism::Vmess
             bool EnableMux = true)
             -> Net::awaitable<std::expected<Message, Prism::Fault::Failure>>
         {
+            Activity_->AttachChild(Upstream ? Upstream->Activity() : nullptr);
             auto Owner = std::static_pointer_cast<Conn>(
                 Prism::Transmission::weak_from_this().lock());
             return ReadHandshakeOwned(HandshakeReadRequest{
@@ -311,6 +416,7 @@ namespace Prism::Vmess
         Io Io_;
         Chunk Chunk_;
         Handshake Handshake_;
+        std::shared_ptr<detail::ConnActivity> Activity_;
     };
 
     /// 流连接共享指针。

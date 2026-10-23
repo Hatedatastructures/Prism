@@ -28,6 +28,10 @@ namespace Prism::Shadowsocks2022
 
     auto Ss2022Gateway::Process(std::shared_ptr<Operation> Work) -> Net::awaitable<void>
     {
+        if (State_->Closed.load(std::memory_order_acquire))
+        {
+            co_return;
+        }
         const auto Value = State_->Value.load();
         const auto& Packet = Work->Admission.Packet();
         auto Decoded = Parse(Packet.Payload);
@@ -256,7 +260,7 @@ namespace Prism::Shadowsocks2022
         Close();
         if (State_->Context && !State_->Context->CanDispatch())
         {
-            State_->BlockDispatch();
+            State_->DeferDispatch();
             co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Blocked});
         }
         co_return co_await Net::co_spawn(State_->Strand, DrainOnStrand(shared_from_this()), Net::use_awaitable);
@@ -535,7 +539,7 @@ namespace Prism::Shadowsocks2022
         if (IsRetired())
             return;
         if (Context && !Context->CanDispatch())
-            BlockDispatch();
+            DeferDispatch();
         if (auto Owner = Storage.lock())
             Owner->Retain(shared_from_this());
     }
@@ -544,18 +548,26 @@ namespace Prism::Shadowsocks2022
     {
         if (Finalized_.load() || Scheduled_.exchange(true))
             return;
+        if (Context && !Context->CanDispatch())
+        {
+            Scheduled_.store(false);
+            DeferDispatch();
+            return;
+        }
         try
         {
             const auto Self = shared_from_this();
-            if ((!Context || Context->CanDispatch()) &&
-                Reclaimer->Post([Self] { Self->CloseOnStrand(); }))
+            if (Reclaimer->Post([Self] { Self->CloseOnStrand(); }))
                 return;
         }
         catch (...)
         {
         }
         Scheduled_.store(false);
-        BlockDispatch();
+        if (Context && !Context->CanDispatch())
+            DeferDispatch();
+        else
+            BlockDispatch();
     }
 
     [[nodiscard]] auto GatewayState::IsRetired() const noexcept -> bool
@@ -674,6 +686,13 @@ namespace Prism::Shadowsocks2022
     auto GatewayState::BlockDispatch() noexcept -> void
     {
         Barrier.Block();
+        DispatchFailed_.store(true);
+        if (auto Owner = Storage.lock())
+            Owner->Retain(shared_from_this());
+    }
+
+    auto GatewayState::DeferDispatch() noexcept -> void
+    {
         DispatchFailed_.store(true);
         if (auto Owner = Storage.lock())
             Owner->Retain(shared_from_this());

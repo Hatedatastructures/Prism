@@ -191,18 +191,23 @@ namespace Prism::Protocols
     {
         DrainResult Result;
         if (!RootValue) co_return Result;
-        if (RootValue->Datagram)
+        /** @brief 在首次挂起前固定 session，避免 root 退休回调清空 owner 槽位。 */
+        const auto Datagram = RootValue->Datagram;
+        const auto Mux = RootValue->Mux;
+        if (Datagram)
         {
-            const auto Drained = co_await DrainActivity(RootValue->Datagram->Activity());
+            const auto Activity = Datagram->Activity();
+            const auto Drained = co_await DrainActivity(Activity);
             Result.Complete = Drained.Complete;
             Result.Error = Drained.Error;
         }
-        if (RootValue->Mux)
+        if (Mux)
         {
-            const auto Drained = co_await DrainActivity(RootValue->Mux->Activity());
-            Result.Complete = Result.Complete && Drained.Complete && RootValue->Mux->IsRetired();
+            const auto Activity = Mux->Activity();
+            const auto Drained = co_await DrainActivity(Activity);
+            Result.Complete = Result.Complete && Drained.Complete && Mux->IsRetired();
             PreserveFailure(Result.Error, Drained.Error);
-            if (!RootValue->Mux->IsRetired())
+            if (!Mux->IsRetired())
             {
                 PreserveFailure(Result.Error,
                     Prism::Fault::Failure{Prism::Fault::Code::Blocked});

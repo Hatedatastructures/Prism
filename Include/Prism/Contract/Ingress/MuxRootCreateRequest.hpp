@@ -106,6 +106,9 @@ namespace Prism::Contract
 
         auto Transfer() noexcept -> void;
 
+        /** @brief 已创建 RootSession 接管了 owner 时，解除请求析构的独立失败退休。 */
+        [[nodiscard]] auto AdoptByRootRetirement() noexcept -> bool;
+
     private:
         MuxRootCreateRequest(
             std::shared_ptr<MuxRootCreateOwner> Owner,

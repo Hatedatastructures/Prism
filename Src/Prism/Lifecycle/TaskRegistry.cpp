@@ -191,9 +191,7 @@ namespace Prism::Lifecycle
         const auto Self = State_;
         if (!State_->Reclaimer->Post(Detail::TaskRegistryRetirementCommand(Self)))
         {
-            State_->Blocked.store(true, std::memory_order_release);
-            State_->Barrier.Block();
-            State_->ClosingStorage->Retain(Self);
+            State_->RetainUnavailableRetirement();
         }
     }
 
@@ -232,7 +230,11 @@ namespace Prism::Lifecycle
         if (State_->CancelRequested.exchange(true)) return false;
         Seal();
         State_->Domain->RequestCancellation();
-        (void)Detail::PostTaskRegistryCommand(State_, CancelCommand{State_});
+        if (!State_->Reclaimer->Post(CancelCommand{State_}))
+        {
+            State_->RetainClosing();
+            State_->RetainUnavailableRetirement();
+        }
         return true;
     }
 

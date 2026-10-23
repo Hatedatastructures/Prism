@@ -28,6 +28,11 @@ namespace Prism::Executor
     class ClosingResource;
 }
 
+namespace Prism::Contract::Ingress
+{
+    class SessionRetirementOwner;
+}
+
 namespace Prism::Runtime
 {
     namespace Net = boost::asio;
@@ -102,6 +107,7 @@ namespace Prism::Runtime
         [[nodiscard]] auto RunCore(Prism::SharedTransmission Inbound,
             const std::shared_ptr<SessionSupport::SessionLogState>& LogState)
             -> Net::awaitable<Prism::Fault::Failure>;
+        [[nodiscard]] auto DrainAdmissionOwner() -> Net::awaitable<Prism::Fault::Failure>;
         auto RecordClosed(const Prism::Fault::Failure& Failure) noexcept -> void;
 
         SessionOptions Opts_;
@@ -111,6 +117,7 @@ namespace Prism::Runtime
         std::shared_ptr<SessionControl> Control_;
         std::shared_ptr<SessionTraceWriter> TraceWriter_;
         std::shared_ptr<ActiveTransports> Active_;
+        std::shared_ptr<Prism::Contract::Ingress::SessionRetirementOwner> AdmissionOwner_;
         std::atomic<bool> Drained_{false};
         std::shared_ptr<Prism::Executor::ClosingResource> DeferredCleanup_;
     };

@@ -21,6 +21,7 @@
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/redirect_error.hpp>
+#include <boost/asio/ssl/error.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/strand.hpp>
@@ -93,6 +94,11 @@ namespace Prism::Trusttunnel::Detail
                 return false;
             if (!Value.Native)
                 return Value.Code != Prism::Fault::Code::IoError;
+            // 调用方已确认双向 END_STREAM，TLS 缺失 close_notify 不再截断 HTTP/2 业务数据。
+            if (Value.Native == static_cast<std::error_code>(
+                    Net::ssl::error::make_error_code(
+                        Net::ssl::error::stream_truncated)))
+                return true;
 #ifdef _WIN32
             // Windows 的 native socket 关闭竞态可能落在 system category：
             // 995=ERROR_OPERATION_ABORTED, 1236=ERROR_CONNECTION_ABORTED,

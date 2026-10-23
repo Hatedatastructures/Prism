@@ -1,7 +1,7 @@
 /**
  * @file TuicConnErrorMatrix.cpp
  * @brief TUIC Conn 错误矩阵测试
- * @details 覆盖认证输入提前关闭时的截断错误和完整握手成功路径。
+ * @details 覆盖 Connect 头截断和完整握手成功路径。
  */
 
 #include <gtest/gtest.h>
@@ -20,6 +20,7 @@
 #include <string_view>
 #include <utility>
 
+#include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Protocols/Tuic/Tuic.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 
@@ -90,6 +91,22 @@ namespace
         return true;
     }
 
+    auto CloseAndDrain(Prism::Transmission &Carrier) -> Net::awaitable<bool>
+    {
+        const auto Closed = Carrier.Close();
+        if (!Closed)
+        {
+            co_return false;
+        }
+        const auto Activity = Carrier.Activity();
+        if (!Activity)
+        {
+            co_return false;
+        }
+        const auto Drained = co_await Activity->Drain();
+        co_return Drained.has_value() && Activity->IsRetired();
+    }
+
     auto RunTruncatedServer(
         SharedTransmission Data,
         Tuic::ServerConfig Config) -> Net::awaitable<void>
@@ -133,12 +150,58 @@ namespace
         Net::io_context &IoContext,
         HandshakeStreams Streams) -> Net::awaitable<void>
     {
+        auto Client = std::make_shared<MemoryStream>(std::move(Streams.Client));
+        auto AuthClient = std::make_shared<MemoryStream>(
+            std::move(Streams.AuthClient));
         Tuic::ServerConfig Config;
         Config.uuid = MakeUuid();
         Config.password = "pw";
         Config.AuthStream = std::make_shared<MemoryStream>(
             std::move(Streams.AuthServer));
         Config.Exporter = TestExporter;
+
+        std::array<std::uint8_t, Tuic::TokenLen> Token{};
+        const auto Exported = TestExporter(
+            std::span<std::uint8_t>(Token),
+            std::span<const std::uint8_t>(Config.uuid),
+            Config.password);
+        EXPECT_TRUE(Exported);
+        if (!Exported)
+        {
+            co_return;
+        }
+        const auto AuthWire = Tuic::BuildAuthenticate(Config.uuid, Token);
+        const auto AuthWrite = co_await AuthClient->WriteExact(
+            std::as_bytes(std::span<const std::uint8_t>(AuthWire)));
+        EXPECT_EQ(AuthWrite.Bytes, AuthWire.size());
+        EXPECT_FALSE(AuthWrite.Failure.Failed());
+        if (AuthWrite.Failure.Failed() || AuthWrite.Bytes != AuthWire.size())
+        {
+            co_return;
+        }
+        const auto AuthShutdown = co_await AuthClient->WriteShutdown();
+        EXPECT_TRUE(AuthShutdown);
+        if (!AuthShutdown)
+        {
+            co_return;
+        }
+
+        const std::array<std::uint8_t, 1> PartialHeader{Tuic::ProtocolVersion};
+        const auto HeaderWrite = co_await Client->WriteExact(
+            std::as_bytes(std::span<const std::uint8_t>(PartialHeader)));
+        EXPECT_EQ(HeaderWrite.Bytes, PartialHeader.size());
+        EXPECT_FALSE(HeaderWrite.Failure.Failed());
+        if (HeaderWrite.Failure.Failed() ||
+            HeaderWrite.Bytes != PartialHeader.size())
+        {
+            co_return;
+        }
+        const auto ClientShutdown = co_await Client->WriteShutdown();
+        EXPECT_TRUE(ClientShutdown);
+        if (!ClientShutdown)
+        {
+            co_return;
+        }
 
         const auto Done = std::make_shared<CompletionChannel>(
             IoContext.get_executor(),
@@ -157,16 +220,10 @@ namespace
             std::move(ServerOperation),
             std::move(ServerCompletion));
 
-        const auto ClientClosed = Streams.Client.Close();
-        EXPECT_TRUE(ClientClosed);
-        const auto AuthClosed = Streams.AuthClient.Close();
-        EXPECT_TRUE(AuthClosed);
-        if (!ClientClosed || !AuthClosed)
-        {
-            co_return;
-        }
         (void)co_await Done->async_receive(Net::use_awaitable);
         EXPECT_FALSE(*Failure);
+        EXPECT_TRUE(co_await CloseAndDrain(*Client));
+        EXPECT_TRUE(co_await CloseAndDrain(*AuthClient));
     }
 
     auto RunSuccessfulHandshakeScenario(

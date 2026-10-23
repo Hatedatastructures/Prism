@@ -6,6 +6,8 @@
 #include "TaskLifecycleTestSupport.hpp"
 
 #include <boost/asio/this_coro.hpp>
+#include <Prism/Foundation/Executor/ClosingStorage.hpp>
+#include <Prism/Foundation/Executor/ContextOwner.hpp>
 
 #include <cstddef>
 #include <functional>
@@ -312,6 +314,25 @@ TEST(TaskLifecycle, ReclaimerFailureBlocksDrainInsteadOfHanging)
         EXPECT_TRUE(Registry.IsDrainBlocked());
         EXPECT_FALSE(Completed->load(std::memory_order_acquire));
     }
+
+TEST(TaskLifecycle, UnavailableRetirementRemainsStoredUntilExecutorRecovers)
+{
+    auto Storage = std::make_shared<Prism::Executor::ClosingStorage>();
+    auto Context = Prism::Executor::ContextOwner::Create(Storage);
+    {
+        Prism::Lifecycle::TaskRegistry Registry(Context->Io.get_executor());
+        Context->Io.stop();
+    }
+
+    EXPECT_EQ(Storage->Pending(), 1U);
+    Storage->Collect();
+    EXPECT_EQ(Storage->Pending(), 1U);
+
+    Context->Io.restart();
+    Storage->Retry();
+    Context->Io.run();
+    EXPECT_EQ(Storage->Pending(), 0U);
+}
 
 TEST(TaskLifecycle, QuarantinedParentCancellationBlocksChildTaskAdmission)
     {

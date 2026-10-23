@@ -435,7 +435,6 @@ namespace
         if (Accepted)
         {
             Flow.Context.SetDataPlane(std::move(*Accepted));
-            Flow.Inbound = Flow.Context.Inbound();
         }
         EXPECT_EQ(Code, Fault::Code::Success);
         EXPECT_TRUE(Flow.Context.PostDial())
@@ -469,7 +468,6 @@ namespace
             if (Accepted)
             {
                 Flow.Context.SetDataPlane(std::move(*Accepted));
-                Flow.Inbound = Flow.Context.Inbound();
             }
         }
         catch (...)
@@ -586,7 +584,10 @@ namespace
                     co_await AbortHandshake(Scenario.Watchdog);
                     co_return;
                 }
-                const auto PostDialFailure = co_await Scenario.Context.PostDial()(Fault::Failure{});
+                auto PostDial = std::move(Scenario.Context.DataPlane.PostDial);
+                Scenario.Context.DataPlane.PostDial = {};
+                EXPECT_FALSE(Scenario.Context.PostDial());
+                const auto PostDialFailure = co_await PostDial(Fault::Failure{});
                 EXPECT_TRUE(PostDialFailure.Succeeded());
 
                 std::array<std::byte, 10> Reply{};
@@ -666,14 +667,15 @@ namespace
         ASSERT_TRUE(static_cast<bool>(Context.DataPlane.AccountLease));
         EXPECT_TRUE(static_cast<bool>(Context.DataPlane.AccountLease));
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 1U);
-        const auto Transport = Context.DataPlane.Transport();
+        auto Transport = Context.DataPlane.Transport();
         ASSERT_TRUE(Transport);
         EXPECT_TRUE(Transport->IsOpen());
 
         Context.AccountLease().Release();
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
+        Transport.reset();
         Cleanup.Finalize();
-        EXPECT_FALSE(Transport->IsOpen());
+        EXPECT_FALSE(Server->IsOpen());
     }
 
     struct Socks5InvalidUserPassFlow final

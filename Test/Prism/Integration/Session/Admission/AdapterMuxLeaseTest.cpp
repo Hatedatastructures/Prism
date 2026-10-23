@@ -353,6 +353,7 @@ namespace
 
         EXPECT_EQ(Drive(Handler, WireBytes(Wire), Handler->GenerationUseState()),
             Fault::Code::Success);
+        // 保持 binding 存活至 ingress Drain 完成，覆盖 root 退休时清空 provider Mux 槽的路径。
         ExpectLeaseLifecycle(Handler, RootBinding);
     }
 
@@ -437,6 +438,7 @@ namespace
 
         EXPECT_EQ(Drive(Handler, Wire, Handler->GenerationUseState()),
             Fault::Code::Success);
+        // 保持 binding 存活至 ingress Drain 完成，覆盖 root 退休时清空 provider Mux 槽的路径。
         ExpectLeaseLifecycle(Handler, RootBinding);
     }
 

@@ -4,6 +4,8 @@
  */
 #include <Prism/Protocols/Restls/Types.hpp>
 
+#include <Prism/Foundation/Fault/Handling.hpp>
+
 namespace Prism::Restls
 {
     auto Failure::Succeeded() const noexcept -> bool
@@ -18,11 +20,8 @@ namespace Prism::Restls
 
     auto ToFaultFailure(const Failure &Value) noexcept -> Prism::Fault::Failure
     {
-        if (Value.Native)
-        {
-            return Prism::Fault::FromNative(Value.Native);
-        }
-        return Prism::Fault::FromNative(Prism::make_error_code(Value.Code));
+        const auto ErrorCode = Prism::make_error_code(Value.Code);
+        return {Prism::Fault::ToCode(ErrorCode), Value.Native};
     }
 
     auto ProtocolFailure(const Prism::Error Code) noexcept -> Failure

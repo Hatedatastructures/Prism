@@ -56,6 +56,17 @@ target_link_libraries(CanonicalDatagramTest PRIVATE
     PrismIngressContract
     PrismProtocolTrojan)
 target_sources(CanonicalDatagramTest PRIVATE Datagram/TrojanDatagramTestSupport.hpp)
+AddPrismTest(Datagram/NativeReadFailureTest.cpp)
+target_link_libraries(NativeReadFailureTest PRIVATE
+    PrismFoundation
+    PrismNet
+    PrismNetworkModel
+    PrismTransport
+    PrismIoContracts
+    PrismDatagramContract
+    PrismIngressContract
+    PrismProtocolTrojan)
+target_sources(NativeReadFailureTest PRIVATE Datagram/TrojanDatagramTestSupport.hpp)
 AddPrismTest(Datagram/CanonicalWorkspaceTest.cpp)
 target_link_libraries(CanonicalWorkspaceTest PRIVATE
     PrismFoundation

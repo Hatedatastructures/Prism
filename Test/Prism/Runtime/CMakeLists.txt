@@ -79,9 +79,18 @@ target_link_libraries(RejectedDatagramDrainTest PRIVATE
     PrismFoundation PrismIngressContract PrismProtocolsCommon PrismRuntime PrismTestSupport
     PrismTransport)
 AddPrismTest(ActiveTransports/CanceledRetireTest.cpp)
+target_sources(CanceledRetireTest PRIVATE
+    ActiveTransports/CanceledRetireTestSupport.hpp)
 target_link_libraries(CanceledRetireTest PRIVATE
     PrismFoundation PrismIngressContract PrismRuntime PrismTestSupport PrismTransport)
 target_include_directories(CanceledRetireTest PRIVATE
+    ${PROJECT_SOURCE_DIR}/Src)
+AddPrismTest(ActiveTransports/CancelOnlyTest.cpp)
+target_sources(CancelOnlyTest PRIVATE
+    ActiveTransports/CanceledRetireTestSupport.hpp)
+target_link_libraries(CancelOnlyTest PRIVATE
+    PrismFoundation PrismIngressContract PrismRuntime PrismTestSupport PrismTransport)
+target_include_directories(CancelOnlyTest PRIVATE
     ${PROJECT_SOURCE_DIR}/Src)
 AddPrismTest(ActiveTransports/ActiveMuxCloseTest.cpp)
 target_link_libraries(ActiveMuxCloseTest PRIVATE

@@ -23,6 +23,7 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/redirect_error.hpp>
+#include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <algorithm>
@@ -60,10 +61,12 @@ namespace Prism::Application::Shutdown
         co_return co_await Owner->Shutdown();
     }
 
-    /** @brief 按值保留 provider catalog 并返回所有 binding 的 typed drain result。 */
+    /** @brief 按值保留 provider catalog 并屏蔽 shutdown timeout 取消，直至真实 drain 完成。 */
     [[nodiscard]] inline auto DrainProviderBindings(
         Prism::Composition::Provider::BoundCatalog Owner) -> Net::awaitable<ShutdownOutcome>
     {
+        co_await Net::this_coro::throw_if_cancelled(false);
+        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
         co_return co_await Owner.Drain();
     }
 
@@ -137,7 +140,7 @@ namespace Prism::Application::Shutdown
         {
             ActiveProviders->Close();
         }
-        else if (State->ProviderBindings)
+        if (State->ProviderBindings && State->ProviderBindings != ActiveProviders)
         {
             State->ProviderBindings->Close();
         }
@@ -189,6 +192,19 @@ namespace Prism::Application::Shutdown
             (void)State->Tasks->Cancel();
             auto DrainOwner = std::move(State->Tasks);
             auto Operation = DrainTasks(std::move(DrainOwner));
+            const auto Result = co_await ShutdownOperation::Await(
+                ShutdownOperation::Request{State, Deadline, std::move(Operation)});
+            if (!Result.Completed || !Result.Outcome)
+            {
+                const auto Cause = BoundedDrainFailure(Result);
+                if (!FirstFailure) FirstFailure = Cause;
+            }
+        }
+        /** @brief 无活动 generation 时移交唯一 provider slot；超时后子协程继续保留目录直至真实 drain 完成。 */
+        if (State->ProviderBindings && State->ProviderBindings != ActiveProviders)
+        {
+            auto ProviderSlot = std::move(State->ProviderBindings);
+            auto Operation = DrainProviderBindings(std::move(*ProviderSlot));
             const auto Result = co_await ShutdownOperation::Await(
                 ShutdownOperation::Request{State, Deadline, std::move(Operation)});
             if (!Result.Completed || !Result.Outcome)

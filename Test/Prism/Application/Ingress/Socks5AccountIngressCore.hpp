@@ -135,6 +135,7 @@ namespace Prism::Testing::Socks5AccountIngress
         [[nodiscard]] auto RejectedPort() const noexcept -> std::uint16_t;
         [[nodiscard]] auto WaitForOperations(bool Active) -> OperationsWaitResult;
         [[nodiscard]] auto CommandOperations(std::string_view Target) -> std::string;
+        [[nodiscard]] auto QueryCommandOperation(std::uint64_t Operation) -> std::string;
         [[nodiscard]] auto ExitCode() const noexcept -> int;
         [[nodiscard]] auto IsStopped() const noexcept -> bool;
 

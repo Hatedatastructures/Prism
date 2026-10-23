@@ -228,12 +228,13 @@ namespace
             Udp::endpoint(Net::ip::address_v4::loopback(), 20001), 41, 1};
         auto Association = std::make_shared<Prism::Boundary::DatagramAssociation>(
             Key, Prism::Boundary::DatagramAssociationOptions{
-                Io.get_executor(), [Session] { Session->Cancel(); }});
+                Io.get_executor(), [Session] { (void)Session->Close(); }});
         Table Owners;
         ASSERT_TRUE(Owners.Register(Key, Association));
         EXPECT_FALSE(Owners.Register(Key, Association));
         EXPECT_EQ(Owners.Size(), 1U);
         EXPECT_TRUE(Owners.Remove(Key));
+        Io.run();
         EXPECT_TRUE(Raw->IsClosed());
         EXPECT_EQ(Owners.Size(), 0U);
         EXPECT_FALSE(Owners.Remove(Key));
@@ -328,12 +329,15 @@ namespace
         auto Socket = std::make_shared<Udp::socket>(Io, Udp::v4());
         auto Server = MakeNativeServer(Io, Socket);
         auto Lease = Prism::Testing::Quic::MakeLease(Server);
-        Registry Owners(Registry::Options{});
+        Prism::Boundary::QuicPacketGateway Gateway(MakeGatewayOptions());
+        Registry Owners(Registry::Options{
+            .AdmissionBudget = Gateway.AdmissionBudget()});
         const Registry::Cid Cid{std::byte{7}, std::byte{8}};
         ASSERT_TRUE(Owners.Register({Cid, Lease, Peer}));
         ASSERT_TRUE(Owners.Drain());
         EXPECT_FALSE(Owners.Register({{std::byte{9}}, Lease, Peer}));
-        EXPECT_TRUE(Owners.Remove(Cid));
+        EXPECT_EQ(Owners.Size(), 0U);
+        EXPECT_FALSE(Owners.Remove(Cid));
         ASSERT_TRUE(Owners.Close());
         Io.run();
         EXPECT_TRUE(Server->Health().Closed);

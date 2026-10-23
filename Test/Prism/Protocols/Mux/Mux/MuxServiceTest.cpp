@@ -663,6 +663,10 @@ namespace
         ASSERT_TRUE(*Scenario.PreparedAnchor);
         ASSERT_TRUE(Scenario.AnchorCreated && *Scenario.AnchorCreated);
 
+        // 准备阶段已排空这两个外部 io_context；保持其可投递，才能让被关闭 registry 拒绝的
+        // admission owner 将关闭/退休请求排入原 executor，随后由 DrainConcurrentRoots 驱动。
+        Scenario.IoA.restart();
+        Scenario.IoB.restart();
         F::RegisterConcurrentRootsAndClose(Scenario);
         ASSERT_FALSE(Scenario.CreateFailureA);
         ASSERT_FALSE(Scenario.CreateFailureB);

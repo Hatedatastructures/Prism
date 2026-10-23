@@ -44,12 +44,12 @@ auto VerifyConfiguredMuxScenario(const std::shared_ptr<ScenarioState> &State) ->
     EXPECT_TRUE(State->ServerReturned);
     EXPECT_TRUE(State->RunReturned);
     EXPECT_TRUE(State->CountersDrained);
-    EXPECT_TRUE(State->CatalogDrained);
+    EXPECT_TRUE(State->CatalogDrained) << DescribeMuxFailure(State->CatalogDrainFailure);
     EXPECT_TRUE(State->WeakRootExpired);
     if (State->Kind == ScenarioKind::Echo)
     {
         EXPECT_TRUE(State->BackendEchoed);
-        EXPECT_TRUE(State->RunStatus);
+        EXPECT_TRUE(State->RunStatus) << DescribeMuxResult(State->RunStatus);
         EXPECT_TRUE(State->CountersAtEcho);
     }
     else if (State->Kind == ScenarioKind::CancelPending)
@@ -60,7 +60,7 @@ auto VerifyConfiguredMuxScenario(const std::shared_ptr<ScenarioState> &State) ->
         EXPECT_EQ(State->ClientReadCount, 0U);
         EXPECT_FALSE(State->ClientReadError.empty());
         EXPECT_TRUE(State->PreCancelCounters);
-        EXPECT_TRUE(State->RunStatus);
+        EXPECT_TRUE(State->RunStatus) << DescribeMuxResult(State->RunStatus);
     }
     else if (State->Kind == ScenarioKind::Replacement)
     {
@@ -79,7 +79,7 @@ auto VerifyConfiguredMuxScenario(const std::shared_ptr<ScenarioState> &State) ->
         EXPECT_EQ(State->ReplacementTailBytes, 0U);
         EXPECT_TRUE(State->CountersAtReplacementEcho);
         EXPECT_EQ(State->Dials, 2U);
-        EXPECT_TRUE(State->RunStatus);
+        EXPECT_TRUE(State->RunStatus) << DescribeMuxResult(State->RunStatus);
         EXPECT_TRUE(State->CountersAtEcho);
     }
     else
@@ -96,7 +96,7 @@ auto VerifyConfiguredMuxScenario(const std::shared_ptr<ScenarioState> &State) ->
         EXPECT_TRUE(State->ContinuationEchoed);
         EXPECT_TRUE(State->BackendOpenAtContinuation);
         EXPECT_EQ(State->Dials, 1U);
-        EXPECT_TRUE(State->RunStatus);
+        EXPECT_TRUE(State->RunStatus) << DescribeMuxResult(State->RunStatus);
         EXPECT_TRUE(State->CountersAtEcho);
     }
     if (State->Failure)

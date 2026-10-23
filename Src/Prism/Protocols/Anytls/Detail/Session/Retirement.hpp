@@ -428,8 +428,7 @@ namespace Prism::Anytls::Detail
                 try
                 {
                     const auto Close = Transport_->Close();
-                    CloseAccepted_ = static_cast<bool>(Close);
-                    CloseAttempted_ = CloseAccepted_;
+                    CloseAttempted_ = static_cast<bool>(Close);
                     if (!Close) KeepFirstRetirementFailure(FirstFailure, Close.error());
                 }
                 catch (...)
@@ -541,9 +540,8 @@ namespace Prism::Anytls::Detail
         std::shared_ptr<Prism::Executor::ClosingStorage> Storage_;
         std::shared_ptr<Prism::Executor::ExecutorReclaimer> Reclaimer_;
         Prism::Fault::FailureState Failure_;
-        /** @brief 仅记录同步提交接收；原生 handler 回执由全部 Activity Drain 证明。 */
+        /** @brief 只在关闭提交被接受后停止重复提交；最终物理回执仍由 Activity Drain 证明。 */
         bool CancelAccepted_{false};
-        bool CloseAccepted_{false};
         bool CancelAttempted_{false};
         bool CloseAttempted_{false};
         bool MuxCancelAttempted_{false};

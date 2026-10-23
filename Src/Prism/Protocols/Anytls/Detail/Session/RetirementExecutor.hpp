@@ -163,7 +163,6 @@ namespace Prism::Anytls::Detail
                 Prism::Fault::Failure{Prism::Fault::Code::Blocked});
             co_return;
         }
-
         std::expected<void, Prism::Fault::Failure> Drained;
         try { Drained = co_await Activity->Drain(); }
         catch (...)

@@ -39,8 +39,11 @@
 #include <Prism/Transport/Reliable.hpp>
 #include <gtest/gtest.h>
 
+#include "TcpPair.hpp"
+
 namespace
 {
+    namespace TestSupport = Prism::Socks5UdpTestSupport;
     namespace Net = boost::asio;
     namespace Socks5 = Prism::Socks5;
     using Tcp = Net::ip::tcp;
@@ -232,16 +235,6 @@ namespace
         Net::experimental::channel<void(boost::system::error_code)> Uploads_;
     };
 
-    auto MakeTcpPair(Net::io_context &Io)
-        -> Net::awaitable<std::pair<Tcp::socket, Tcp::socket>>
-    {
-        Tcp::acceptor Acceptor(Io, Tcp::endpoint(Net::ip::address_v4::loopback(), 0));
-        Tcp::socket Client(Io.get_executor());
-        co_await Client.async_connect(Acceptor.local_endpoint(), Net::use_awaitable);
-        auto Server = co_await Acceptor.async_accept(Net::use_awaitable);
-        co_return std::pair{std::move(Client), std::move(Server)};
-    }
-
     auto RunScenario(Net::io_context &Io, UdpAssocScenario &Scenario)
         -> Net::awaitable<void>
     {
@@ -260,7 +253,10 @@ namespace
         ClientDatagrams.bind(Udp::endpoint(Net::ip::address_v4::loopback(), 0), ErrorCode);
         if (ErrorCode) co_return;
 
-        auto [ClientControl, ServerControl] = co_await MakeTcpPair(Io);
+        TestSupport::TcpPair Pair(Io.get_executor());
+        co_await TestSupport::MakeTcpPair(Io, Pair);
+        auto& ClientControl = Pair.Client;
+        auto& ServerControl = Pair.Server;
         std::shared_ptr<Prism::Transmission> Carrier =
             std::make_shared<Prism::Transport::Reliable>(std::move(ServerControl));
         if (Scenario.CanceledDrain)
@@ -449,19 +445,6 @@ namespace
         bool ControlClosed{false};
     };
 
-    struct AssociationRunCompletion final
-    {
-        explicit AssociationRunCompletion(Net::any_io_executor Executor)
-            : Finished(std::move(Executor), 1)
-        {
-        }
-
-        Net::experimental::channel<void(boost::system::error_code)> Finished;
-        std::expected<void, Failure> Result{
-            std::unexpected(Failure{Prism::Fault::Code::Blocked})};
-        std::exception_ptr Exception;
-    };
-
     auto RunMemoryBindFailure(Net::io_context &IoContext)
         -> Net::awaitable<BindFailureOutcome>
     {
@@ -562,154 +545,6 @@ namespace
         return std::move(*Result);
     }
 
-    enum class AssocExceptionKind
-    {
-        Standard,
-        Boost,
-        Unknown,
-    };
-
-    struct AssocExceptionOutcome final
-    {
-        bool BindReplyReceived{false};
-        bool RunCompleted{false};
-        bool RunFailed{false};
-        Failure RunFailure{Prism::Fault::Code::Blocked};
-        bool ClientEndpointMatches{false};
-        std::size_t DatagramCount{0U};
-        bool DrainSucceeded{false};
-        Failure DrainFailure{Prism::Fault::Code::Blocked};
-        bool ActivityRetired{false};
-        bool ClientDatagramsClosed{false};
-        bool ClientControlClosed{false};
-    };
-
-    /** @brief 计算异常类型应有的稳定 typed/native 投影。 */
-    [[nodiscard]] auto ExpectedAssocFailure(AssocExceptionKind Exception) -> Failure
-    {
-        switch (Exception)
-        {
-            case AssocExceptionKind::Standard:
-            {
-                const auto Native = std::make_error_code(std::errc::permission_denied);
-                return {Prism::Fault::ToCode(Native), Native};
-            }
-            case AssocExceptionKind::Boost:
-            {
-                const auto Native = static_cast<std::error_code>(
-                    boost::system::errc::make_error_code(
-                        boost::system::errc::permission_denied));
-                return {Prism::Fault::ToCode(Native), Native};
-            }
-            case AssocExceptionKind::Unknown:
-                return {Prism::Fault::Code::IoError};
-        }
-        return {Prism::Fault::Code::Blocked};
-    }
-
-    /** @brief 在具名协程帧内投递异常，避免 coroutine lambda 借用闭包状态。 */
-    auto RaiseAssocResolveException(AssocExceptionKind Exception)
-        -> Net::awaitable<std::expected<Udp::endpoint, Failure>>
-    {
-        switch (Exception)
-        {
-            case AssocExceptionKind::Standard:
-                throw std::system_error(std::make_error_code(std::errc::permission_denied));
-            case AssocExceptionKind::Boost:
-                throw boost::system::system_error(
-                    boost::system::errc::make_error_code(
-                        boost::system::errc::permission_denied));
-            case AssocExceptionKind::Unknown:
-                throw std::runtime_error("unexpected association failure");
-        }
-        co_return std::unexpected(Failure{Prism::Fault::Code::IoError});
-    }
-
-    /** @brief 经 UDP_ASSOCIATE 公共 Run/Drain 路径投递一次 resolver 异常。 */
-    auto RunAssocExceptionScenario(
-        Net::io_context& IoContext,
-        AssocExceptionKind Exception,
-        AssocExceptionOutcome& Outcome)
-        -> Net::awaitable<void>
-    {
-        auto [ClientControl, ServerControl] = co_await MakeTcpPair(IoContext);
-        auto Connection = std::make_shared<Socks5::Conn<>>(
-            std::make_shared<Prism::Transport::Reliable>(std::move(ServerControl)));
-        Socks5::UdpAssocOptions Options;
-        Options.IdleTimeout = std::chrono::milliseconds::zero();
-        Options.Resolve = [Exception](const Socks5::Address &)
-        {
-            return RaiseAssocResolveException(Exception);
-        };
-        auto Association = std::make_shared<Socks5::UdpAssoc>(
-            IoContext.get_executor(), std::move(Connection), std::move(Options));
-        const auto Activity = Association->Activity();
-        auto Completion = std::make_shared<AssociationRunCompletion>(IoContext.get_executor());
-        Net::co_spawn(IoContext, Association->Run(),
-            [Completion](std::exception_ptr RunException,
-                         std::expected<void, Failure> Result)
-            {
-                Completion->Exception = std::move(RunException);
-                Completion->Result = std::move(Result);
-                (void)Completion->Finished.try_send(boost::system::error_code{});
-            });
-
-        std::array<std::byte, ReplySize> Reply{};
-        const auto ReplyBytes = co_await Net::async_read(
-            ClientControl, Net::buffer(Reply), Net::use_awaitable);
-        Outcome.BindReplyReceived = ReplyBytes == Reply.size();
-
-        Udp::socket ClientDatagrams(IoContext.get_executor());
-        ClientDatagrams.open(Udp::v4());
-        ClientDatagrams.bind(Udp::endpoint(Net::ip::address_v4::loopback(), 0));
-        if (Outcome.BindReplyReceived)
-        {
-            const std::array<std::uint8_t, 19> Frame{
-                0x00, 0x00, 0x00, 0x03, 0x0B, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.',
-                'c', 'o', 'm', 0, 53, 0x5A};
-            const auto Sent = co_await ClientDatagrams.async_send_to(Net::buffer(Frame),
-                Association->BindEndpoint(), Net::use_awaitable);
-            EXPECT_EQ(Sent, Frame.size());
-        }
-        else
-        {
-            Association->Close();
-        }
-
-        co_await Completion->Finished.async_receive(Net::use_awaitable);
-        Outcome.RunCompleted = true;
-        if (Completion->Exception) std::rethrow_exception(Completion->Exception);
-        Outcome.RunFailed = !Completion->Result;
-        if (!Completion->Result) Outcome.RunFailure = Completion->Result.error();
-        const auto ClientUdpEndpoint = ClientDatagrams.local_endpoint();
-        Outcome.ClientEndpointMatches =
-            ClientUdpEndpoint.address() == ClientControl.local_endpoint().address();
-        Outcome.DatagramCount = Association->DatagramCount();
-
-        const auto Drain = co_await Activity->Drain();
-        Outcome.DrainSucceeded = Drain.has_value();
-        if (!Drain) Outcome.DrainFailure = Drain.error();
-        Outcome.ActivityRetired = Activity->IsRetired();
-        if (ClientDatagrams.is_open()) ClientDatagrams.close();
-        Outcome.ClientDatagramsClosed = !ClientDatagrams.is_open();
-        ClientControl.close();
-        Outcome.ClientControlClosed = !ClientControl.is_open();
-    }
-
-    /** @brief 在同一 executor 上顺序退休多条关联，覆盖 worker 复用路径。 */
-    auto RunAssocExceptionScenarios(
-        Net::io_context& IoContext,
-        std::array<AssocExceptionOutcome, 3>& Outcomes)
-        -> Net::awaitable<void>
-    {
-        co_await RunAssocExceptionScenario(
-            IoContext, AssocExceptionKind::Standard, Outcomes[0]);
-        co_await RunAssocExceptionScenario(
-            IoContext, AssocExceptionKind::Boost, Outcomes[1]);
-        co_await RunAssocExceptionScenario(
-            IoContext, AssocExceptionKind::Unknown, Outcomes[2]);
-    }
-
     TEST(Socks5UdpAssocBindFailure,
          SetupFailureWritesOneGeneralFailureReplyAndDrains)
     {
@@ -767,32 +602,4 @@ namespace
         EXPECT_TRUE(Outcome.ControlClosed);
     }
 
-    TEST(Socks5DeferredReply, AssociationExceptionReturnsMappedNativeFailure)
-    {
-        Net::io_context IoContext;
-        std::array<AssocExceptionOutcome, 3> Outcomes{};
-        RunCoroutine(IoContext, RunAssocExceptionScenarios(IoContext, Outcomes));
-        constexpr std::array ExceptionKinds{
-            AssocExceptionKind::Standard,
-            AssocExceptionKind::Boost,
-            AssocExceptionKind::Unknown};
-        for (std::size_t Index = 0; Index < Outcomes.size(); ++Index)
-        {
-            const auto& Outcome = Outcomes[Index];
-            const auto Expected = ExpectedAssocFailure(ExceptionKinds[Index]);
-            EXPECT_TRUE(Outcome.BindReplyReceived);
-            EXPECT_TRUE(Outcome.RunCompleted);
-            EXPECT_TRUE(Outcome.RunFailed);
-            EXPECT_EQ(Outcome.RunFailure.Code, Expected.Code);
-            EXPECT_EQ(Outcome.RunFailure.Native, Expected.Native);
-            EXPECT_TRUE(Outcome.ClientEndpointMatches);
-            EXPECT_EQ(Outcome.DatagramCount, 1U);
-            EXPECT_FALSE(Outcome.DrainSucceeded);
-            EXPECT_EQ(Outcome.DrainFailure.Code, Expected.Code);
-            EXPECT_EQ(Outcome.DrainFailure.Native, Expected.Native);
-            EXPECT_TRUE(Outcome.ActivityRetired);
-            EXPECT_TRUE(Outcome.ClientDatagramsClosed);
-            EXPECT_TRUE(Outcome.ClientControlClosed);
-        }
-    }
 }

@@ -302,6 +302,8 @@ TEST(RestlsRecordTerminal, CompleteRecordPrecedesEof)
     EXPECT_TRUE(Outcome.First.Failure.Succeeded());
     ExpectTerminal(Outcome.Second, Eof);
     ExpectTerminal(Outcome.Third, Eof);
+    EXPECT_FALSE(Outcome.Second.Failure.Native);
+    EXPECT_FALSE(Outcome.Third.Failure.Native);
     EXPECT_EQ(Inner->ReadCount(), 2U);
     EXPECT_EQ(Inner->CloseCount(), 1U);
     EXPECT_TRUE(Outcome.CloseSucceeded);

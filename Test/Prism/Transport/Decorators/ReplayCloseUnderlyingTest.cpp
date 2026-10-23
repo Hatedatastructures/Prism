@@ -143,7 +143,12 @@ TEST(Snapshot, AcceptedInnerCloseFailurePreservesNativeCauseWithoutChildDrain)
 
     std::exception_ptr Exception;
     Net::co_spawn(Context->Io, RunAcceptedInnerCloseFailure(Scenario),
-        [&Exception](std::exception_ptr Error) { Exception = std::move(Error); });
+        [&Exception, Context](std::exception_ptr Error)
+        {
+            Exception = std::move(Error);
+            Context->Io.stop();
+        });
+    // 子载体关闭失败后会保留到显式重试，完成回调处停止本轮调度。
     Context->Io.run();
 
     ASSERT_EQ(Exception, nullptr);

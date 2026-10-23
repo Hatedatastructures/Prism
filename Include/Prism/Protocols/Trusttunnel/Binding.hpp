@@ -9,6 +9,7 @@
 #include <Prism/Contract/Services/Authentication.hpp>
 #include <Prism/Contract/Ingress/ProviderFailure.hpp>
 
+#include <atomic>
 #include <expected>
 #include <memory>
 #include <string>
@@ -28,9 +29,20 @@ namespace Prism::Trusttunnel
 
     struct Binding final
     {
+        explicit Binding(PreparedBinding Prepared);
+
+        /** @brief 关闭该无独立异步活动的协议配置 owner。 */
+        auto Close() const noexcept -> void;
+
+        /** @brief 返回配置 owner 的真实关闭回执。 */
+        [[nodiscard]] auto IsRetired() const noexcept -> bool;
+
         std::string Instance;
         std::shared_ptr<boost::asio::ssl::context> NativeTls;
         SharedWireAuthBinding Wire;
+
+    private:
+        mutable std::atomic<bool> Closed_{false};
     };
 
     [[nodiscard]] auto ParseServerCredential(std::string_view Credential)

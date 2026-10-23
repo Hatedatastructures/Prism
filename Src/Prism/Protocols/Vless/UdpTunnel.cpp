@@ -52,7 +52,7 @@ namespace Prism::Vless
     UdpTunnel::UdpTunnel(std::shared_ptr<Conn<>> Stream, UdpTunnelOptions Options)
         : Stream_(std::move(Stream)), Options_(std::move(Options)),
           Executor_(Net::make_strand(RequireStreamExecutor(Stream_))),
-          Frames_(Stream_, Options_.Services.IdleTimeout), Egress_(Executor_),
+          Frames_(Stream_, Options_.Services.IdleTimeout, Executor_), Egress_(Executor_),
           Activity_(std::make_shared<Prism::Protocols::ProtocolActivity>(Executor_))
     {
         Observation_.Sink = Options_.Services.Traffic;
@@ -91,8 +91,10 @@ namespace Prism::Vless
             Activity_->IsRetired() && Carrier && Carrier->IsRetired();
     }
 
-    UdpTunnelFrames::UdpTunnelFrames(std::shared_ptr<Conn<>> Stream, std::chrono::milliseconds Timeout)
-        : Stream_(std::move(Stream)), Timeout_(Timeout), Timer_(Stream_->Executor())
+    UdpTunnelFrames::UdpTunnelFrames(std::shared_ptr<Conn<>> Stream,
+        std::chrono::milliseconds Timeout, Net::any_io_executor Executor)
+        : Stream_(std::move(Stream)), Timeout_(Timeout), Timer_(std::move(Executor)),
+          TimeoutExpired_(std::make_shared<std::atomic<bool>>(false))
     {
     }
     [[nodiscard]] auto UdpTunnelFrames::Read()
@@ -158,16 +160,24 @@ namespace Prism::Vless
             co_return Project(Result, Buffer.size());
         }
 
-        using Net::experimental::awaitable_operators::operator||;
         Timer_.expires_after(Timeout_);
-        boost::system::error_code TimerError;
-        auto Read = ReadCarrierExact(Buffer);
-        auto Timeout = Timer_.async_wait(Net::redirect_error(Net::use_awaitable, TimerError));
-        const auto Result = co_await (std::move(Read) || std::move(Timeout));
-        if (Result.index() == 1U)
-            co_return std::unexpected(UdpFailure{{Prism::Fault::Code::Timeout}, 0U});
+        const auto TimeoutExpired = TimeoutExpired_;
+        const auto Stream = Stream_;
+        TimeoutExpired->store(false, std::memory_order_release);
+        // 超时需取消底层传输的实际读操作，而非只取消并行 awaitable 分支。
+        Timer_.async_wait([TimeoutExpired, Stream](const boost::system::error_code &Error) {
+            if (Error) return;
+            TimeoutExpired->store(true, std::memory_order_release);
+            const auto Canceled = Stream->Cancel();
+            if (!Canceled) (void)Stream->Close();
+        });
+        const auto ReadResult = co_await ReadCarrierExact(Buffer);
         Timer_.cancel();
-        const auto ReadResult = std::get<0>(std::move(Result));
+        if (TimeoutExpired->load(std::memory_order_acquire))
+        {
+            co_return std::unexpected(UdpFailure{
+                {Prism::Fault::Code::Timeout}, ReadResult.Bytes});
+        }
         if (ReadResult.Failure.Failed()) PendingTerminal_ = ReadResult.Failure;
         co_return Project(ReadResult, Buffer.size());
     }

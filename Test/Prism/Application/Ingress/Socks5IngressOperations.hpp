@@ -349,5 +349,17 @@ namespace Prism::Testing::Socks5AccountIngress
         return SendOperations(State_->OperationsPort(), OperationsRequest{"POST", Target},
                               Clock::now() + OperationsWaitTimeout);
     }
+
+    inline auto Socks5AccountIngressFixture::QueryCommandOperation(
+        const std::uint64_t Operation) -> std::string
+    {
+        if (State_ == nullptr || Operation == 0U)
+        {
+            return {};
+        }
+        const auto Target = "/Operations/Operations/" + std::to_string(Operation);
+        return QueryOperations(State_->OperationsPort(), Target,
+                               Clock::now() + OperationsWaitTimeout);
+    }
 } // namespace Prism::Testing::Socks5AccountIngress
 

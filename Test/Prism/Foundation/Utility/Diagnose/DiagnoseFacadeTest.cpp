@@ -146,7 +146,8 @@ namespace
         auto UpdatedConfiguration = Environment.Configuration();
         UpdatedConfiguration.Logging.Level = Prism::Diagnose::LogLevel::Debug;
         UpdatedConfiguration.Mode = Prism::Diagnose::RenderMode::Structured;
-        const auto Prepared = Environment.Runtime().PrepareEpoch(UpdatedConfiguration);
+        const auto Prepared =
+            Environment.PrepareEpochAfterRegistryContention(UpdatedConfiguration);
         ASSERT_TRUE(Prepared.has_value());
         const auto UpdatedEpoch = *Prepared;
         ASSERT_TRUE(Environment.Runtime().PublishEpoch(UpdatedEpoch));

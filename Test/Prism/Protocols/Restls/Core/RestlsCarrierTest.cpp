@@ -287,10 +287,10 @@ namespace
         ErrorCode = Prism::Fault::ToNative(ThirdWrite.Failure);
         EXPECT_FALSE(ErrorCode);
         const auto ReplayReadResult = co_await Request.Server->ReadSome(Buffer);
-        ErrorCode = Prism::Fault::ToNative(ReplayReadResult.Failure);
         const auto ReplayRead = ReplayReadResult.Bytes;
         EXPECT_EQ(ReplayRead, 0U);
-        EXPECT_EQ(ErrorCode.value(), static_cast<int>(Error::BadAuth));
+        EXPECT_EQ(ReplayReadResult.Failure.Code, Prism::Fault::Code::AuthFailed);
+        EXPECT_FALSE(ReplayReadResult.Failure.Native);
         co_await RetireAndVerify(Request.Server);
         co_await RetireAndVerify(Request.ClientTransport);
     }

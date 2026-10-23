@@ -146,6 +146,9 @@ namespace Prism
             /** @brief 成功的最终 close 退休已经完成的可重试 cancel 命令。 */
             auto ReleaseKnownCancelFailuresAfterClose() noexcept -> void;
 
+            /** @brief 最终 close 抢占已投递但尚未执行的 cancel 重试。 */
+            auto MarkInFlightCancelRetriesClosePending() noexcept -> void;
+
             auto Execute(std::size_t Index, bool& HandlerInvoked, bool IsRetry) -> bool;
 
             auto RecordKnownFailure(

@@ -167,6 +167,8 @@ namespace Prism::Shadowsocks2022
         [[nodiscard]] auto PeerRouteSnapshotUnavailable() const noexcept -> bool;
         /** @brief 不可投递的正式失败边界，无新分配、无线程外释放或提前 Leave。 */
         auto BlockDispatch() noexcept -> void;
+        /** @brief executor 暂停时保留同一 owner，等待 L1 在 executor 恢复后重试。 */
+        auto DeferDispatch() noexcept -> void;
         std::shared_ptr<Prism::Executor::ContextOwner> Context;
         std::weak_ptr<Prism::Executor::ClosingStorage> Storage;
         std::atomic<std::shared_ptr<const Prepared>> Value;

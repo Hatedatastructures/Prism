@@ -238,8 +238,6 @@ namespace
         ASSERT_EQ(BlockingBarrier, 1U);
         ASSERT_EQ(Prism::Diagnose::Detail::BackendLifecycleTestAccess::QueueSize(*State), 1U);
         ASSERT_EQ(State->QueueHighWatermark(), 1U);
-        Pause.unlock();
-
         std::vector<std::uint64_t> Sequences;
         Sequences.reserve(129U);
         for (std::size_t Index = 0U; Index < 129U; ++Index)
@@ -256,6 +254,7 @@ namespace
             ASSERT_EQ(Submitted.Status, Prism::Diagnose::SubmissionStatus::Accepted);
             Sequences.push_back(Submitted.Sequence);
         }
+        Pause.unlock();
         EXPECT_EQ(State->QueueHighWatermark(), 129U);
 
         const auto Flushed = Environment.Runtime().DrainOnControlThread(std::chrono::seconds{5});

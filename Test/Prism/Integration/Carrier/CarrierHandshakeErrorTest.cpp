@@ -39,6 +39,28 @@ auto RunRestlsWriteBadLength(SharedTransmission ClientEndpoint, SharedTransmissi
     co_return;
 }
 
+/** @brief 验证 Restls 未握手数据面映射为 typed IoError 并完成关闭。 */
+auto CheckRestlsNotOpenReadWrite(
+    const std::shared_ptr<Restls::Detail::Conn<>> &Connection) -> Net::awaitable<void>
+{
+    std::array<std::byte, 64> Buffer{};
+    const auto Read = co_await Connection->ReadSome(Buffer);
+    EXPECT_EQ(Read.Bytes, 0U);
+    EXPECT_EQ(Read.Failure.Code, PrismApi::Fault::Code::IoError);
+    EXPECT_FALSE(Read.Failure.Native);
+    EXPECT_EQ(PrismApi::Fault::ToNative(Read.Failure),
+              PrismApi::Fault::make_error_code(PrismApi::Fault::Code::IoError));
+
+    const auto Write = co_await Connection->WriteSome(
+        std::span<const std::byte>(Buffer.data(), 4));
+    EXPECT_EQ(Write.Bytes, 0U);
+    EXPECT_EQ(Write.Failure.Code, PrismApi::Fault::Code::IoError);
+    EXPECT_FALSE(Write.Failure.Native);
+    EXPECT_EQ(PrismApi::Fault::ToNative(Write.Failure),
+              PrismApi::Fault::make_error_code(PrismApi::Fault::Code::IoError));
+    co_await ExpectCloseTransmission(Connection);
+}
+
 
 /** @brief 完整执行 ReadHandshakeEof 场景并排空协议连接。 */
 auto RunAnyTlsReadEof(SharedTransmission ClientEndpoint, SharedTransmission ServerEndpoint)
@@ -304,7 +326,7 @@ TEST(StealthAnyTlsConnError, ReadHandshakeEof)
         auto Pair = MakeOwnedMemoryPair(Context.get_executor());
         auto& [ClientEndpoint, ServerEndpoint] = Pair;
         auto Conn = std::make_shared<Restls::Detail::Conn<>>(ClientEndpoint, "pw");
-        RunMemoryCase(Context, Pair, CheckNotOpenReadWrite(Conn));
+        RunMemoryCase(Context, Pair, CheckRestlsNotOpenReadWrite(Conn));
     }
 
     // =========================================================================

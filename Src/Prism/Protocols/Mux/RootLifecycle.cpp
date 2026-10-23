@@ -1116,10 +1116,13 @@ namespace Prism::Mux::Detail
         return std::optional<Registration>{std::move(InFlight)};
     }
 
-    [[nodiscard]] auto RootRegistry::Register(const std::shared_ptr<RootSession> &Root)
+    [[nodiscard]] auto RootRegistry::Register(
+        const Registration &Ticket,
+        const std::shared_ptr<RootSession> &Root)
         -> bool
     {
-        if (!Root) return false;
+        if (!Ticket.Active || &Ticket.Gate != &State_->RegistrationGate || !Root)
+            return false;
         const auto Node = Root->RegistrationNode_;
         if (!Node) return false;
         bool Unregistered = false;
@@ -1152,19 +1155,28 @@ namespace Prism::Mux::Detail
              Node = Node->Next.load(std::memory_order_acquire))
         {
             const auto Owner = Node->Owner;
-            if (!Owner) continue;
-            // Registry 封止代表运行中的 root 被显式取消；未启动 root 仍走正常关闭，
-            // 因而不会伪造从未开始的 Run 取消结果。
-            if (!Owner->IsRetired() && Owner->WasStarted() && !Owner->IsStopping())
+            if (!Owner || Owner->IsRetired()) continue;
+            if (Owner->WasStarted() && !Owner->IsStopping())
             {
                 (void)State_->AttemptCancellation.TrySet(
                     Prism::Fault::Failure{Prism::Fault::Code::Canceled});
                 Owner->Cancel();
             }
-            else if (!Owner->IsRetired())
+            else
             {
                 Owner->Close();
             }
+        }
+    }
+
+    auto RootRegistry::CloseForDrain() noexcept -> void
+    {
+        State_->RegistrationGate.fetch_or(ClosedMask, std::memory_order_acq_rel);
+        for (auto Node = State_->Head.load(std::memory_order_acquire); Node;
+             Node = Node->Next.load(std::memory_order_acquire))
+        {
+            const auto Owner = Node->Owner;
+            if (Owner && !Owner->IsRetired()) Owner->Close();
         }
     }
 
@@ -1188,7 +1200,7 @@ namespace Prism::Mux::Detail
     [[nodiscard]] auto RootRegistry::Drain()
         -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
     {
-        Close();
+        CloseForDrain();
         auto AttemptCancellation = std::optional<Prism::Fault::Failure>{};
         const auto Gate = State_->RegistrationGate.load(std::memory_order_acquire);
         if ((Gate & RegistrationMask) != 0U)
@@ -1269,8 +1281,17 @@ namespace Prism::Mux
     [[nodiscard]] auto RootBinding::Create(Prism::Contract::MuxRootCreateRequest Request)
         -> std::expected<RootCreateResult, Prism::Fault::Failure>
     {
+        // 仅持有本 registry 的活动登记票据时才能创建并发布 root；否则由 Request 原 owner 退休。
+        auto Registration = Roots_.BeginRegistration();
+        if (!Registration)
+        {
+            // 不向已封止目录迟到发布 root；Request 析构将资源交还既有退休 owner。
+            return std::unexpected(
+                Prism::Fault::Failure{Prism::Fault::Code::Canceled});
+        }
+
         const auto Options = Options_.load(std::memory_order_acquire);
-        if (Roots_.IsClosed() || !Options || !Options->Services.Egress ||
+        if (!Options || !Options->Services.Egress ||
             !Options->GenerationUseState)
         {
             return std::unexpected(
@@ -1282,15 +1303,9 @@ namespace Prism::Mux
                 Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
         }
 
-        auto Registration = Roots_.BeginRegistration();
-        if (!Registration)
-        {
-            return std::unexpected(
-                Prism::Fault::Failure{Prism::Fault::Code::Canceled});
-        }
         auto Created = Detail::RootSession::Create(Request, *Options);
         if (!Created) return std::unexpected(Created.error());
-        if (!Roots_.Register(*Created))
+        if (!Roots_.Register(*Registration, *Created))
         {
             return std::unexpected(
                 Prism::Fault::Failure{Prism::Fault::Code::Canceled});

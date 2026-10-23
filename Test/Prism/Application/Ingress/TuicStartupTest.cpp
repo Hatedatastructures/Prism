@@ -37,7 +37,9 @@ namespace
             Tcp::acceptor Acceptor(Io, Tcp::endpoint(Tcp::v4(), 0));
             const auto TcpPort = Acceptor.local_endpoint().port();
             Acceptor.close();
-            const auto QuicPort = static_cast<std::uint16_t>(TcpPort + 1U);
+            Net::ip::udp::socket QuicProbe(Io, Net::ip::udp::endpoint(Net::ip::udp::v4(), 0));
+            const auto QuicPort = QuicProbe.local_endpoint().port();
+            QuicProbe.close();
             const auto Repository = std::filesystem::path{PRISM_TEST_REPO_ROOT};
             const auto Certificate = (Repository / "cert.pem").generic_string();
             const auto PrivateKey = (Repository / "key.pem").generic_string();

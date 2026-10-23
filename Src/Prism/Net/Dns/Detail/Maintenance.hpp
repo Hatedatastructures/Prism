@@ -30,6 +30,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <expected>
 #include <memory>
@@ -202,6 +203,7 @@ namespace Prism::Network::Dns::Detail
                               std::enable_shared_from_this<Control>
         {
             using Signal = Net::experimental::channel<void(boost::system::error_code)>;
+            enum class StopRequestState : std::uint8_t { Idle, Posting, Posted, Unavailable };
 
             Control(Net::any_io_executor ExecutorValue, std::shared_ptr<State> StateValue)
                 : ContextPin(Prism::Executor::ContextOwner::Find(ExecutorValue)),
@@ -219,18 +221,25 @@ namespace Prism::Network::Dns::Detail
                 {
                     return {};
                 }
-                if (DispatchUnavailable.load(std::memory_order_acquire))
+                auto Current = StopStatus.load(std::memory_order_acquire);
+                for (;;)
                 {
-                    return std::unexpected(
-                        Prism::Fault::Failure{Prism::Fault::Code::Blocked});
-                }
-                bool Expected = false;
-                if (!StopRequested.compare_exchange_strong(
-                        Expected, true, std::memory_order_acq_rel, std::memory_order_acquire))
-                {
-                    return {};
+                    if (Current == StopRequestState::Posted ||
+                        Current == StopRequestState::Posting)
+                    {
+                        return {};
+                    }
+                    if (Current == StopRequestState::Unavailable &&
+                        !Reclaimer->CanDispatch())
+                    {
+                        return std::unexpected(
+                            Prism::Fault::Failure{Prism::Fault::Code::Blocked});
+                    }
+                    if (StopStatus.compare_exchange_weak(Current, StopRequestState::Posting,
+                            std::memory_order_acq_rel, std::memory_order_acquire)) break;
                 }
                 Storage->Retain(this->shared_from_this());
+                StopStatus.store(StopRequestState::Posted, std::memory_order_release);
                 const auto Posted = Reclaimer->Post(StopDelivery<Control>(this->shared_from_this()));
                 if (!Posted)
                 {
@@ -242,7 +251,8 @@ namespace Prism::Network::Dns::Detail
 
             auto MarkUnavailable() noexcept -> void
             {
-                DispatchUnavailable.store(true, std::memory_order_release);
+                if (Retired.load(std::memory_order_acquire)) return;
+                StopStatus.store(StopRequestState::Unavailable, std::memory_order_release);
                 Storage->Retain(this->shared_from_this());
             }
 
@@ -334,7 +344,8 @@ namespace Prism::Network::Dns::Detail
 
             [[nodiscard]] auto IsDispatchUnavailable() const noexcept -> bool override
             {
-                return DispatchUnavailable.load(std::memory_order_acquire);
+                return StopStatus.load(std::memory_order_acquire) ==
+                    StopRequestState::Unavailable;
             }
 
             /** @brief context 在 Shutdown/Storage 收尾前必须由此强 owner 保活。 */
@@ -345,10 +356,9 @@ namespace Prism::Network::Dns::Detail
             Net::any_io_executor Executor;
             std::shared_ptr<State> StateObject;
             Signal Completion;
-            std::atomic<bool> StopRequested{false};
+            std::atomic<StopRequestState> StopStatus{StopRequestState::Idle};
             std::atomic<bool> Finished{false};
             std::atomic<bool> Retired{false};
-            std::atomic<bool> DispatchUnavailable{false};
             Prism::Fault::Failure FailureValue;
             std::exception_ptr Exception;
         };

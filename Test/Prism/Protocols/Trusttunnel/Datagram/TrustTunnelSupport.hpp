@@ -294,6 +294,7 @@ namespace
         bool ClientResponseEqual{false};
         bool ClientResponseEndStream{false};
         bool ClientHalfClose{false};
+        bool ClientTlsCloseNotify{false};
         bool ServerHalfClose{false};
         bool DriverClosed{false};
         bool DriverStateExpired{false};
@@ -687,6 +688,10 @@ namespace
             const auto EndStream = co_await Connection.Transport->ReadSome(EndStreamBuffer);
             Observation.ClientResponseEndStream =
                 EndStream.Bytes == 0U && EndStream.Failure.Succeeded();
+            const auto TlsCloseNotify = co_await Connection.State->Encrypted->WriteShutdown();
+            Observation.ClientTlsCloseNotify = static_cast<bool>(TlsCloseNotify);
+            if (!TlsCloseNotify && Observation.ClientDataFailure.Succeeded())
+                Observation.ClientDataFailure = TlsCloseNotify.error();
             co_await CloseClient(Connection);
             Observation.ClientSame = Connection.Failure;
         }

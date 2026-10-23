@@ -129,6 +129,16 @@ namespace Prism::Contract
         GenerationUseState_.reset();
     }
 
+    auto MuxRootCreateRequest::AdoptByRootRetirement() noexcept -> bool
+    {
+        if (!Owner_ || Transferred_ || !SessionAttached_ || !ParentStreamLeaseTaken_)
+            return false;
+        Transferred_ = true;
+        Owner_.reset();
+        GenerationUseState_.reset();
+        return true;
+    }
+
     MuxRootCreateRequest::MuxRootCreateRequest(
         std::shared_ptr<MuxRootCreateOwner> Owner,
         std::shared_ptr<Prism::Foundation::GenerationUseState> GenerationUseState) noexcept

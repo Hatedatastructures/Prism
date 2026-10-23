@@ -253,6 +253,13 @@ namespace Prism::Operations::RouteDispatch
         const TargetParts &Parts, const Prism::RequestId Correlation)
         -> std::expected<RouteValue, RouteFailure>
     {
+        if (FindParameter(Parts, "generation") || FindParameter(Parts, "worker") ||
+            FindParameter(Parts, "stream") || FindParameter(Parts, "parent_task") ||
+            FindParameter(Parts, "task"))
+        {
+            return std::unexpected(RouteFailure{400, "target_unsupported"});
+        }
+
         CancelCommand Value;
         Value.Correlation = Correlation;
         std::uint64_t Process{};

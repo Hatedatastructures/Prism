@@ -82,6 +82,7 @@ TEST(TrusttunnelIngressFactory, RejectsRawTransportWithoutWireProof)
         EXPECT_TRUE(Observation.ClientResponseEndStream);
         EXPECT_FALSE(Observation.ClientDataFailure.Failed());
         EXPECT_TRUE(Observation.ClientHalfClose);
+        EXPECT_TRUE(Observation.ClientTlsCloseNotify);
         EXPECT_TRUE(Observation.ServerHalfClose)
             << "Code=" << static_cast<unsigned>(Observation.ServerDataFailure.Code)
             << " Native=" << Observation.ServerDataFailure.Native.category().name()

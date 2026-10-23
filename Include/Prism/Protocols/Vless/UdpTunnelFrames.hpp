@@ -6,9 +6,11 @@
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Transport/Transmission.hpp>
 
+#include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/steady_timer.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -26,7 +28,10 @@ namespace Prism::Vless
     class UdpTunnelFrames final
     {
     public:
-        UdpTunnelFrames(std::shared_ptr<Conn<>> Stream, std::chrono::milliseconds Timeout);
+        /** @brief 在 owner executor 上串行驱动帧 I/O 和读取期限。 */
+        UdpTunnelFrames(std::shared_ptr<Conn<>> Stream,
+                        std::chrono::milliseconds Timeout,
+                        Net::any_io_executor Executor);
 
         /** @brief 读取且校验完整帧；返回值拥有帧字节，空载荷合法。 */
         [[nodiscard]] auto Read() -> Net::awaitable<std::expected<std::vector<std::uint8_t>, UdpFailure>>;
@@ -50,6 +55,7 @@ namespace Prism::Vless
         std::shared_ptr<Conn<>> Stream_;
         std::chrono::milliseconds Timeout_;
         Net::steady_timer Timer_;
+        std::shared_ptr<std::atomic<bool>> TimeoutExpired_;
         std::optional<Prism::Fault::Failure> PendingTerminal_; ///< 当前完整字段交付后的 sticky 终态。
     };
 } // namespace Prism::Vless

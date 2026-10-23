@@ -75,7 +75,7 @@ namespace
                 }
                 co_await Net::post(
                     co_await Net::this_coro::executor, Net::use_awaitable);
-                if (Accepted) EXPECT_FALSE(Server->IsOpen());
+                if (Accepted) EXPECT_TRUE(Server->IsOpen());
             }
             catch (...)
             {
@@ -87,6 +87,12 @@ namespace
             {
                 const auto Drain = co_await Owner->Drain();
                 EXPECT_TRUE(Drain);
+                if (Accepted)
+                {
+                    const auto ActivityDrain = co_await Server->Activity()->Drain();
+                    EXPECT_TRUE(ActivityDrain);
+                    EXPECT_FALSE(Server->IsOpen());
+                }
             }
             catch (...)
             {
@@ -107,7 +113,7 @@ namespace
     };
 }
 
-TEST(ProviderAcceptPath, DroppingAcceptedPlaneClosesActualInboundBeforeDrain)
+TEST(ProviderAcceptPath, DroppingAcceptedPlaneRequiresOwnerCloseBeforeDrain)
 {
     Net::io_context Io;
     Prism::Socks5::ServerConfig Config;

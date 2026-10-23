@@ -45,6 +45,23 @@ namespace
         co_return co_await Exchange.Handler->Accept(std::move(Exchange.Input));
     }
 
+    auto RetireVlessAcceptedPlane(
+        const std::shared_ptr<Prism::Vless::IngressFactory>& Handler,
+        Prism::Contract::AcceptOutcome& Outcome,
+        Prism::Fault::Failure& Retirement) -> Net::awaitable<void>
+    {
+        auto RootTransport = Outcome->Transport();
+        const auto RootClose = RootTransport->Close();
+        if (!RootClose) Retirement = RootClose.error();
+        const auto RootRetirement = co_await RootTransport->Activity()->Drain();
+        if (!RootRetirement && !Retirement.Failed())
+            Retirement = RootRetirement.error();
+        Outcome->Root = Prism::Contract::StreamDataPlane{};
+        Handler->Close();
+        const auto Drained = co_await Handler->Drain();
+        if (!Drained && !Retirement.Failed()) Retirement = Drained.error();
+    }
+
     /**
      * @brief 无 profile 时记录 direct acceptor 调用并返回原始 NotSupported。
      */
@@ -328,12 +345,8 @@ TEST(SessionRecognitionMode, ProtocolHandlerTransfersAccountLease)
         Result->AccountLease.Release();
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 0U);
         Prism::Fault::Failure Retirement;
-        Prism::Testing::RunCoro(Io, [Handler, &Retirement]() -> Net::awaitable<void>
-        {
-            Handler->Close();
-            auto Drained = co_await Handler->Drain();
-            if (!Drained) Retirement = Drained.error();
-        });
+        Io.restart();
+        Prism::Testing::RunCoro(Io, RetireVlessAcceptedPlane(Handler, Result, Retirement));
         EXPECT_FALSE(Retirement.Failed());
         EXPECT_TRUE(Handler->IsRetired());
     }

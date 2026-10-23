@@ -61,8 +61,11 @@ namespace Prism::Mux
         [[nodiscard]] auto Create(Prism::Contract::MuxRootCreateRequest Request)
             -> std::expected<RootCreateResult, Prism::Fault::Failure>;
 
-        /** @brief 请求 registry 中已发布 roots 取消，不清除 owner 或 options。 */
+        /** @brief 关闭 registry；活动 root 保留取消结果，不清除 owner 或 options。 */
         auto Close() noexcept -> void { Roots_.Close(); }
+
+        /** @brief 正常关闭并封止注册；供 catalog shutdown 在 Drain 前请求。 */
+        auto CloseForDrain() noexcept -> void { Roots_.CloseForDrain(); }
 
         /** @brief 等待 roots 的真实关闭与退休；完成后释放 options snapshot。 */
         [[nodiscard]] auto Drain()

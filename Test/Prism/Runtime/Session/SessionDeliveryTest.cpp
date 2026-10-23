@@ -734,6 +734,7 @@ TEST(TcpListenerLifecycle, DestructorRequestsCancellationWithoutWaitingForDrain)
         ASSERT_NE(*ActiveControl, nullptr);
         ASSERT_FALSE(SessionOwner->expired());
         auto Control = *ActiveControl;
+        Ioc.restart();
         Listener.reset();
         EXPECT_TRUE(Control->IsCancelled());
         EXPECT_EQ(Control->CancellationReason(),
@@ -741,7 +742,6 @@ TEST(TcpListenerLifecycle, DestructorRequestsCancellationWithoutWaitingForDrain)
         EXPECT_FALSE(Control->IsClosed());
         EXPECT_FALSE(SessionOwner->expired());
 
-        Ioc.restart();
         Release->try_send(boost::system::error_code{});
         if (*Client)
         {

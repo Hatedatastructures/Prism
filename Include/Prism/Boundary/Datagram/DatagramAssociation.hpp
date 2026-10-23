@@ -28,14 +28,14 @@ namespace Prism::Boundary
         std::uint64_t AssociationId{0};
         std::uint64_t WorkerId{0};
 
-        [[nodiscard]] auto operator==(const DatagramAssociationKey &Other) const noexcept -> bool;
+        [[nodiscard]] auto operator==(const DatagramAssociationKey& Other) const noexcept -> bool;
 
         [[nodiscard]] auto Valid() const noexcept -> bool;
     };
 
     struct DatagramAssociationKeyHash final
     {
-        [[nodiscard]] auto operator()(const DatagramAssociationKey &Key) const noexcept -> std::size_t;
+        [[nodiscard]] auto operator()(const DatagramAssociationKey& Key) const noexcept -> std::size_t;
 
     private:
         [[nodiscard]] static auto Combine(const std::size_t Seed, const std::uint64_t Value) noexcept
@@ -55,10 +55,10 @@ namespace Prism::Boundary
 
         ~DatagramAssociation() noexcept;
 
-        DatagramAssociation(const DatagramAssociation &) = delete;
-        auto operator=(const DatagramAssociation &) -> DatagramAssociation & = delete;
+        DatagramAssociation(const DatagramAssociation&) = delete;
+        auto operator=(const DatagramAssociation&) -> DatagramAssociation& = delete;
 
-        [[nodiscard]] auto Key() const noexcept -> const DatagramAssociationKey &;
+        [[nodiscard]] auto Key() const noexcept -> const DatagramAssociationKey&;
 
         [[nodiscard]] auto Executor() const -> Net::any_io_executor;
 
@@ -84,26 +84,23 @@ namespace Prism::Boundary
     class DatagramAssociationTable final
     {
     public:
-        using AssociationMap = std::unordered_map<
-            DatagramAssociationKey,
-            SharedDatagramAssociation,
-            DatagramAssociationKeyHash>;
+        using AssociationMap =
+            std::unordered_map<DatagramAssociationKey, SharedDatagramAssociation, DatagramAssociationKeyHash>;
 
         DatagramAssociationTable() = default;
 
         ~DatagramAssociationTable() noexcept;
 
-        DatagramAssociationTable(const DatagramAssociationTable &) = delete;
-        auto operator=(const DatagramAssociationTable &) -> DatagramAssociationTable & = delete;
+        DatagramAssociationTable(const DatagramAssociationTable&) = delete;
+        auto operator=(const DatagramAssociationTable&) -> DatagramAssociationTable& = delete;
 
-        [[nodiscard]] auto Register(
-            const DatagramAssociationKey &Key,
-            SharedDatagramAssociation Association) -> bool;
+        [[nodiscard]] auto Register(const DatagramAssociationKey& Key, SharedDatagramAssociation Association)
+            -> bool;
 
-        [[nodiscard]] auto Find(const DatagramAssociationKey &Key) const noexcept
+        [[nodiscard]] auto Find(const DatagramAssociationKey& Key) const noexcept
             -> SharedDatagramAssociation;
 
-        [[nodiscard]] auto Remove(const DatagramAssociationKey &Key) noexcept -> bool;
+        [[nodiscard]] auto Remove(const DatagramAssociationKey& Key) noexcept -> bool;
 
         auto Drain() noexcept -> void;
 

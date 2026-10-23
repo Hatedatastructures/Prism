@@ -113,6 +113,11 @@ namespace Prism::Xhttp::Detail
         std::span<const std::byte> Data)
         -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>;
 
+    auto FinishServerStream(
+        const std::weak_ptr<ServerState> &WeakState,
+        std::int32_t StreamId)
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>;
+
     auto HandleServerHeaders(
         const std::weak_ptr<ServerState> &WeakState,
         const ServerHeadersEvent &Event) -> void;
@@ -133,7 +138,6 @@ namespace Prism::Xhttp::Detail
     {
         Prism::Fault::Failure Failure;
         bool Failed{false};
-        bool LocalCloseCompletion{false};
     };
 
     [[nodiscard]] auto DriveServerSession(

@@ -42,6 +42,14 @@ target_link_libraries(Socks5UdpRetireTest PRIVATE
     PrismIoContracts
     PrismTransport
     PrismProtocolSocks5)
+target_sources(Socks5UdpRetireTest PRIVATE Datagram/TcpPair.hpp)
+AddPrismTest(Datagram/Socks5UdpExceptionTest.cpp)
+target_link_libraries(Socks5UdpExceptionTest PRIVATE
+    PrismFoundation
+    PrismIoContracts
+    PrismTransport
+    PrismProtocolSocks5)
+target_sources(Socks5UdpExceptionTest PRIVATE Datagram/TcpPair.hpp)
 AddPrismTest(Datagram/UdpRetireDispatchTest.cpp)
 target_link_libraries(UdpRetireDispatchTest PRIVATE
     PrismFoundation

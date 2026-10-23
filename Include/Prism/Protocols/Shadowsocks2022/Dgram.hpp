@@ -198,6 +198,10 @@ namespace Prism::Shadowsocks2022
             {
                 co_return Error::NotOpen;
             }
+            if (!IsOpen())
+            {
+                co_return Error::UnexpectedEof;
+            }
             constexpr std::size_t MaxAddressWireSize = 1 + 1 + 0xFF + 2;
             constexpr std::size_t MaxWireSize =
                 SeparateHdrLen + 1 + UdpTsLen + MaxAddressWireSize + 2 + MaxUdpPayload + AeadTagLen;

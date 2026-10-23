@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <expected>
+#include <Prism/Foundation/Fault/Failure.hpp>
 
 /** @file ConfiguredMuxSessionTest.cpp @brief configured SOCKS5 Smux 的正式根运行与真实 TCP 回显。 */
 #include <Prism/Application/ProtocolAcceptors.hpp>
@@ -65,6 +66,22 @@ namespace
         QuotaSecond,
         Replacement,
     };
+
+    /** @brief 格式化失败的领域码与原生错误身份，避免只报告状态 bool。 */
+    auto DescribeMuxFailure(const Prism::Fault::Failure &FailureValue) -> std::string
+    {
+        const auto &Native = FailureValue.Native;
+        return "fault-code=" + std::to_string(static_cast<int>(FailureValue.Code)) +
+            " native=" + Native.category().name() + ":" +
+            std::to_string(Native.value()) + " (" + Native.message() + ")";
+    }
+
+    /** @brief 格式化 Root Run 一类 expected 结果的实际失败值。 */
+    auto DescribeMuxResult(
+        const std::expected<void, Prism::Fault::Failure> &Result) -> std::string
+    {
+        return Result ? "success" : DescribeMuxFailure(Result.error());
+    }
 
     auto ProtocolName(const ProtocolFamily Family) -> std::string_view
     {
@@ -201,6 +218,7 @@ namespace
         bool ServerReturned{false};
         bool RunReturned{false};
         bool CatalogDrained{false};
+        Prism::Fault::Failure CatalogDrainFailure{};
         std::size_t GenerationUsesAfterDrain{0};
         bool WeakRootExpired{false};
         bool TimedOut{false};

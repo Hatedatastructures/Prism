@@ -9,10 +9,10 @@
 
 #include <gtest/gtest.h>
 #include <Prism/Contract/Services/Datagram.hpp>
+#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
 #include <TestSupport/Prism/ProtocolIngressBindings.hpp>
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -60,7 +60,6 @@ namespace
     using Prism::Error;
     using Prism::SharedTransmission;
     using Prism::Middleware::Context;
-    using boost::asio::experimental::awaitable_operators::operator||;
     using Tcp = Net::ip::tcp;
     using Udp = Net::ip::udp;
 
@@ -343,15 +342,17 @@ namespace
         std::array<std::byte, 64> Buffer{};
         Net::steady_timer Watchdog(Proxy->Executor());
         Watchdog.expires_after(std::chrono::seconds(2));
-        auto Result = co_await (Proxy->ReadSome(std::span(Buffer)) ||
-                                Watchdog.async_wait(Net::use_awaitable));
-        if (Result.index() == 1)
+        bool TimedOut = false;
+        Watchdog.async_wait([&Proxy, &TimedOut](const boost::system::error_code &Error)
         {
-            Proxy->Close();
-            co_return false;
-        }
-        const auto Read = std::get<0>(std::move(Result));
-        co_return Read.Bytes == 0U || Read.Failure.Failed();
+            if (Error) return;
+            TimedOut = true;
+            const auto Closed = Proxy->Close();
+            (void)Closed;
+        });
+        const auto Read = co_await Proxy->ReadSome(std::span(Buffer));
+        Watchdog.cancel();
+        co_return !TimedOut && (Read.Bytes == 0U || Read.Failure.Failed());
     }
 
 
@@ -533,10 +534,17 @@ namespace
                 std::vector<std::uint8_t> Payload;
                 Net::steady_timer Watchdog(Proxy->Executor());
                 Watchdog.expires_after(std::chrono::seconds(2));
-                using Net::experimental::awaitable_operators::operator||;
-                const auto Race = co_await (Proxy->AsyncReceiveDatagram(Payload) ||
-                    Watchdog.async_wait(Net::use_awaitable));
-                if (Race.index() != 0U || !std::get<0>(Race).Succeeded())
+                bool TimedOut = false;
+                Watchdog.async_wait([&Proxy, &TimedOut](const boost::system::error_code &Error)
+                {
+                    if (Error) return;
+                    TimedOut = true;
+                    const auto Closed = Proxy->Close();
+                    (void)Closed;
+                });
+                const auto ReceivedResult = co_await Proxy->AsyncReceiveDatagram(Payload);
+                Watchdog.cancel();
+                if (TimedOut || !ReceivedResult.Succeeded())
                 {
                     Flow.Completed = false;
                     break;
@@ -552,9 +560,17 @@ namespace
             std::vector<std::uint8_t> Unexpected;
             Net::steady_timer ExtraReplyWatchdog(Proxy->Executor());
             ExtraReplyWatchdog.expires_after(std::chrono::milliseconds(100));
-            const auto Extra = co_await (Proxy->AsyncReceiveDatagram(Unexpected) ||
-                ExtraReplyWatchdog.async_wait(Net::use_awaitable));
-            Flow.Completed = Extra.index() == 1U;
+            bool TimedOut = false;
+            ExtraReplyWatchdog.async_wait([&Proxy, &TimedOut](const boost::system::error_code &Error)
+            {
+                if (Error) return;
+                TimedOut = true;
+                const auto Closed = Proxy->Close();
+                (void)Closed;
+            });
+            const auto Extra = co_await Proxy->AsyncReceiveDatagram(Unexpected);
+            ExtraReplyWatchdog.cancel();
+            Flow.Completed = TimedOut && !Extra.Succeeded();
         }
 
         CloseVlessUdpConnection(Proxy, Flow.FirstFailure);
@@ -634,7 +650,9 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::seconds(5), Recorder}});
+            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::seconds(5), Recorder},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{7})});
 
         bool HandshakeOk = false;
         VlessUdpEchoScenario Scenario{
@@ -659,7 +677,9 @@ namespace
         auto Recorder = std::make_shared<Prism::Testing::TrafficRecorder>();
         Runtime::TcpListener Listener(Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::seconds(2), Recorder}});
+            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::seconds(2), Recorder},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{8})});
         bool Completed = false;
         std::exception_ptr FirstFailure;
         RunCoro(Io, RunVlessUdpBurstFlow(
@@ -682,7 +702,9 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::milliseconds(120), {}}});
+            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::milliseconds(120), {}},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{9})});
 
         bool Closed = false;
         RunCoro(Io, RunVlessUdpStreamCloseFlow(
@@ -703,7 +725,9 @@ namespace
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = Io.get_executor(),
-            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::seconds(5), {}}});
+            .Factory = VlessUdpSessionFactory{EchoPort, std::chrono::seconds(5), {}},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{10})});
 
         bool StreamClosed = false;
         RunCoro(Io, RunVlessUdpStreamCloseFlow(

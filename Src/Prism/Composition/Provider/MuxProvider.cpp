@@ -13,7 +13,7 @@ namespace Prism::Composition::Provider
     {
         if (Owner)
         {
-            Owner->Close();
+            Owner->CloseForDrain();
         }
     }
 

@@ -463,7 +463,8 @@ namespace
         (void)State->DrainEntered.try_send(boost::system::error_code{});
         try
         {
-            const auto Result=co_await State->Bound->Drain();
+            // 两个 waiter 分别排空独立 RootBinding；BoundCatalog 的并发访问不在其契约内。
+            const auto Result = co_await State->RootBinding[Index]->Drain();
             State->DrainSucceeded[Index]=static_cast<bool>(Result);
             State->DrainFailed[Index]=!Result;
             if(!Result)State->DrainFailure[Index]=Result.error();
@@ -606,6 +607,14 @@ namespace
         if (co_await ExitForMultiStop(State)) co_return;
         co_await State->ClientFinished.async_receive(Net::use_awaitable);
         if (co_await ExitForMultiStop(State)) co_return;
+        const auto CatalogDrain = co_await State->Bound->Drain();
+        State->CatalogDrained = static_cast<bool>(CatalogDrain);
+        if (!CatalogDrain)
+        {
+            State->CatalogDrainFailure = CatalogDrain.error();
+            State->FailureMessage = "multi-root catalog drain failed: " +
+                DescribeMuxFailure(CatalogDrain.error());
+        }
         State->ConnectionsAfterDrain = State->Record->Runtime()->ActiveConnections();
         State->StreamsAfterDrain = State->Record->Runtime()->ActiveStreams();
         State->CoordinatorStage = "done";
@@ -705,16 +714,18 @@ namespace
         EXPECT_EQ(State->BackendBytes[0], MultiRootPayload(0).size());
         EXPECT_EQ(State->BackendBytes[1], MultiRootPayload(1).size());
         EXPECT_TRUE(State->FirstRootClosedSiblingActive);
-        EXPECT_TRUE(State->DrainSucceeded[0]);
-        EXPECT_TRUE(State->DrainSucceeded[1]);
+        EXPECT_TRUE(State->DrainSucceeded[0]) << DescribeMuxFailure(State->DrainFailure[0]);
+        EXPECT_TRUE(State->DrainSucceeded[1]) << DescribeMuxFailure(State->DrainFailure[1]);
+        EXPECT_TRUE(State->CatalogDrained)
+            << State->FailureMessage << " " << DescribeMuxFailure(State->CatalogDrainFailure);
         ASSERT_TRUE(State->UseState);
         EXPECT_EQ(State->UseState->Outstanding(), 0U);
         EXPECT_FALSE(State->DrainFailed[0]);
         EXPECT_FALSE(State->DrainFailed[1]);
         EXPECT_TRUE(State->RootReturned[0]);
         EXPECT_TRUE(State->RootReturned[1]);
-        EXPECT_TRUE(State->RunStatus[0]);
-        EXPECT_TRUE(State->RunStatus[1]);
+        EXPECT_TRUE(State->RunStatus[0]) << DescribeMuxResult(State->RunStatus[0]);
+        EXPECT_TRUE(State->RunStatus[1]) << DescribeMuxResult(State->RunStatus[1]);
         EXPECT_TRUE(State->ClientReadReturned[1]);
         EXPECT_TRUE(State->BackendClosed[0]);
         EXPECT_TRUE(State->BackendClosed[1]);

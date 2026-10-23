@@ -19,7 +19,6 @@
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -37,11 +36,13 @@
 #include <Prism/Protocols/Trojan/IngressFactory.hpp>
 #include <Prism/Protocols/Vmess/IngressFactory.hpp>
 #include <Prism/Runtime/Listener.hpp>
+#include <Prism/Runtime/SessionRegistry.hpp>
 #include <Prism/Runtime/Session.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Trojan/Dgram.hpp>
 #include <Prism/Protocols/Trojan/Trojan.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
+#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
 
 namespace
 {
@@ -165,22 +166,7 @@ namespace
     /// Trojan 纵向测试共享状态
     struct trojan_udp_state
     {
-        Net::any_io_executor Executor;
         std::uint16_t EchoPort{0};
-        /// 服务端数据面退出次数（TCP 关闭/空闲超时终止的证据）
-        std::shared_ptr<std::atomic<int>> RelayExits{std::make_shared<std::atomic<int>>(0)};
-    };
-
-    class ExitObserver final : public Prism::Foundation::TrafficSink
-    {
-    public:
-        explicit ExitObserver(std::shared_ptr<std::atomic<int>> Exits) : Exits_(std::move(Exits)) {}
-        auto Report(Prism::Foundation::TrafficEvent) noexcept -> void override { ++*Exits_; }
-        auto Retire(Prism::Foundation::TrafficRetirement Owner)
-            -> boost::asio::awaitable<std::expected<void, Prism::Fault::Failure>> override
-        { (void)Owner; co_return std::expected<void, Prism::Fault::Failure>{}; }
-    private:
-        std::shared_ptr<std::atomic<int>> Exits_;
     };
 
     auto MakeDatagramServices(const std::shared_ptr<trojan_udp_state>& State,
@@ -189,11 +175,73 @@ namespace
     {
         Prism::Contract::DatagramServices Services;
         Services.IdleTimeout = IdleTimeout;
-        Services.Traffic = std::make_shared<ExitObserver>(State->RelayExits);
         Services.Resolve = [Port = State->EchoPort](Prism::Network::Target)
             -> Net::awaitable<std::expected<Udp::endpoint, Prism::Fault::Failure>>
         { co_return Udp::endpoint(Net::ip::address_v4::loopback(), Port); };
         return Services;
+    }
+
+    struct SessionCountWait final
+    {
+        Net::io_context &Ioc;
+        Runtime::TcpListener &Listener;
+        std::size_t Expected;
+    };
+
+    /** @brief 等待 listener registry 发布指定数量的真实活动 Session。 */
+    auto WaitForSessionCount(SessionCountWait Wait) -> Net::awaitable<bool>
+    {
+        const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        Net::steady_timer Timer(Wait.Ioc.get_executor());
+        while (std::chrono::steady_clock::now() < Deadline)
+        {
+            if (Wait.Listener.Registry().Size() == Wait.Expected)
+            {
+                co_return true;
+            }
+            Timer.expires_after(std::chrono::milliseconds(5));
+            co_await Timer.async_wait(Net::use_awaitable);
+        }
+        co_return Wait.Listener.Registry().Size() == Wait.Expected;
+    }
+
+    /** @brief 发送并验证真实 Trojan UDP echo，确保后续生命周期检查针对已运行会话。 */
+    auto ExchangeTrojanUdpProbe(Prism::Trojan::SharedDgram Dgram, std::string Probe)
+        -> Net::awaitable<bool>
+    {
+        const auto SendResult = co_await Dgram->AsyncSendTo(
+            Prism::Trojan::Address{Prism::Trojan::AddressType::Domain, "example.com", 443},
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t *>(Probe.data()), Probe.size()));
+        if (SendResult.Failure.Failed())
+        {
+            ADD_FAILURE() << "Trojan UDP probe send failed: "
+                          << static_cast<int>(SendResult.Failure.Code);
+            co_return false;
+        }
+
+        Prism::Trojan::Address Source;
+        std::vector<std::uint8_t> Received;
+        Net::steady_timer Watchdog(Dgram->Executor());
+        Watchdog.expires_after(std::chrono::seconds(2));
+        using Net::experimental::awaitable_operators::operator||;
+        auto Outcome = co_await (Dgram->AsyncReceiveFrom(Source, Received) ||
+                                 Watchdog.async_wait(Net::use_awaitable));
+        if (Outcome.index() == 1U)
+        {
+            ADD_FAILURE() << "Trojan UDP probe echo timed out";
+            co_return false;
+        }
+        const auto ReceiveResult = std::get<0>(std::move(Outcome));
+        if (ReceiveResult.Failure.Failed())
+        {
+            ADD_FAILURE() << "Trojan UDP probe receive failed: "
+                          << static_cast<int>(ReceiveResult.Failure.Code);
+            co_return false;
+        }
+        const auto ReceivedText = std::string(Received.begin(), Received.end());
+        EXPECT_EQ(ReceivedText, Probe);
+        co_return ReceivedText == Probe;
     }
 
     struct TrojanUdpSessionFactory final
@@ -374,13 +422,19 @@ namespace
                     }
                     if (Dgram)
                     {
-                        Net::steady_timer Timer(
-                            Flow.Ioc.get_executor(), std::chrono::milliseconds(400));
-                        co_await Timer.async_wait(Net::use_awaitable);
-                        Prism::Trojan::Address Source;
-                        std::vector<std::uint8_t> Received;
-                        const auto ReceiveError = co_await Dgram->AsyncReceiveFrom(Source, Received);
-                        Flow.Closed = ReceiveError.Failure.Failed();
+                        const auto ProbeSucceeded = co_await ExchangeTrojanUdpProbe(
+                            Dgram, "Trojan idle timeout probe");
+                        if (ProbeSucceeded)
+                        {
+                            const auto ActiveSessions = Flow.Listener.Registry().Size();
+                            EXPECT_EQ(ActiveSessions, 1U)
+                                << "echo completed without an active listener session";
+                            if (ActiveSessions == 1U)
+                            {
+                                Flow.Closed = co_await WaitForSessionCount(
+                                    SessionCountWait{Flow.Ioc, Flow.Listener, 0U});
+                            }
+                        }
                     }
                 }
             }
@@ -411,7 +465,6 @@ namespace
         Net::io_context &Ioc;
         Runtime::TcpListener &Listener;
         TrojanUdpEchoOwner &Echo;
-        const std::shared_ptr<trojan_udp_state> &State;
         bool &Closed;
     };
 
@@ -456,39 +509,19 @@ namespace
                     }
                     if (Dgram)
                     {
-                        const std::string Probe = "Tcp-Close Probe";
-                        const auto SendResult = co_await Dgram->AsyncSendTo(
-                            Prism::Trojan::Address{Prism::Trojan::AddressType::Domain,
-                                                     "example.com", 443},
-                            std::span<const std::uint8_t>(
-                                reinterpret_cast<const std::uint8_t *>(Probe.data()),
-                                Probe.size()));
-                        EXPECT_TRUE(SendResult.Failure.Succeeded());
-                        Prism::Trojan::Address Source;
-                        std::vector<std::uint8_t> Received;
-                        const auto ProbeError = co_await Dgram->AsyncReceiveFrom(Source, Received);
-                        if (ProbeError.Failure.Failed())
+                        const auto ProbeSucceeded = co_await ExchangeTrojanUdpProbe(
+                            Dgram, "Tcp-Close Probe");
+                        if (ProbeSucceeded)
                         {
-                            ADD_FAILURE() << "Probe roundtrip Failed: "
-                                          << static_cast<int>(ProbeError.Failure.Code);
-                        }
-                        else
-                        {
-                            Dgram->Close();
-                            Net::steady_timer Watchdog(Flow.Ioc.get_executor());
-                            const auto Deadline = std::chrono::steady_clock::now() +
-                                                  std::chrono::seconds(2);
-                            while (Flow.State->RelayExits->load(std::memory_order_acquire) == 0)
+                            const auto ActiveSessions = Flow.Listener.Registry().Size();
+                            EXPECT_EQ(ActiveSessions, 1U)
+                                << "echo completed without an active listener session";
+                            if (ActiveSessions == 1U)
                             {
-                                if (std::chrono::steady_clock::now() > Deadline)
-                                {
-                                    throw std::runtime_error(
-                                        "udp Data plane not terminated after Tcp Close");
-                                }
-                                Watchdog.expires_after(std::chrono::milliseconds(5));
-                                co_await Watchdog.async_wait(Net::use_awaitable);
+                                Dgram->Close();
+                                Flow.Closed = co_await WaitForSessionCount(
+                                    SessionCountWait{Flow.Ioc, Flow.Listener, 0U});
                             }
-                            Flow.Closed = true;
                         }
                     }
                 }
@@ -524,12 +557,14 @@ namespace
         auto EchoEndpointPointer = EchoOwner.Failure;
 
         auto State = std::make_shared<trojan_udp_state>(
-            trojan_udp_state{IoContext.get_executor(), EchoPort});
+            trojan_udp_state{EchoPort});
 
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
-            .Factory = TrojanUdpSessionFactory{State, std::chrono::seconds(5)}});
+            .Factory = TrojanUdpSessionFactory{State, std::chrono::seconds(5)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{1})});
 
         bool Ok = false;
         std::string EchoPayload;
@@ -548,12 +583,14 @@ namespace
         const auto EchoPort = Echo.Socket->local_endpoint().port();
 
         auto State = std::make_shared<trojan_udp_state>(
-            trojan_udp_state{IoContext.get_executor(), EchoPort});
+            trojan_udp_state{EchoPort});
 
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
-            .Factory = TrojanUdpSessionFactory{State, std::chrono::milliseconds(150)}});
+            .Factory = TrojanUdpSessionFactory{State, std::chrono::milliseconds(150)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{2})});
 
         bool Closed = false;
         RunCoro(IoContext, RunTrojanUdpIdleFlow(
@@ -570,16 +607,18 @@ namespace
         const auto EchoPort = Echo.Socket->local_endpoint().port();
 
         auto State = std::make_shared<trojan_udp_state>(
-            trojan_udp_state{IoContext.get_executor(), EchoPort});
+            trojan_udp_state{EchoPort});
 
         Runtime::TcpListener Listener(
             Runtime::TcpListener::Options{
             .Executor = IoContext.get_executor(),
-            .Factory = TrojanUdpSessionFactory{State, std::chrono::seconds(30)}});
+            .Factory = TrojanUdpSessionFactory{State, std::chrono::seconds(30)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{3})});
 
         bool Closed = false;
         RunCoro(IoContext, RunTrojanUdpTcpCloseFlow(
-            TrojanUdpTcpCloseFlow{IoContext, Listener, Echo, State, Closed}));
+            TrojanUdpTcpCloseFlow{IoContext, Listener, Echo, Closed}));
         EXPECT_TRUE(Closed);
         EXPECT_FALSE(*Echo.Failure);
     }

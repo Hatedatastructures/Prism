@@ -32,6 +32,7 @@
 #include <Prism/Transport/Transmission.hpp>
 
 #include <boost/asio/dispatch.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/ssl/error.hpp>
 #include <boost/asio/this_coro.hpp>
@@ -80,25 +81,6 @@ namespace Prism::Runtime
         std::visit([](auto& Root) { Root.Transport.reset(); }, Context.DataPlane.Root);
         if (auto* Datagram = Context.DataPlane.Datagram()) Datagram->Session.reset();
         if (auto* Mux = Context.DataPlane.Mux()) Mux->Session.reset();
-    }
-
-    auto SessionRunContext::DrainAdmissionOwner() -> Net::awaitable<Prism::Fault::Failure>
-    {
-        auto Owner = std::move(Context.DataPlane.AdmissionOwner);
-        if (!Owner) co_return Prism::Fault::Failure{};
-        co_await Net::this_coro::throw_if_cancelled(false);
-        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
-        try
-        {
-            const auto Drained = co_await Owner->Drain();
-            if (!Drained) co_return Drained.error();
-        }
-        catch (...)
-        {
-            co_return Prism::Contract::InboundAdmission::ExceptionFailure(
-                std::current_exception());
-        }
-        co_return Prism::Fault::Failure{};
     }
 
     Session::Session(SessionOptions Options)
@@ -199,7 +181,9 @@ namespace Prism::Runtime
         const auto Closed = SessionClosePolicy::CloseAndLog({Control_, Active_, LogState});
         co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
         const auto Delivered = co_await Control_->AwaitDelivery();
-        const auto Retired = co_await Active_->Finalize();
+        using Net::experimental::awaitable_operators::operator&&;
+        const auto [Retired, AdmissionRetirement] = co_await (
+            Active_->Finalize() && DrainAdmissionOwner());
         if (!Closed)
         {
             RecordClosed(Closed.error());
@@ -214,6 +198,11 @@ namespace Prism::Runtime
         {
             RecordClosed(Retired.error());
             co_return Retired.error();
+        }
+        if (AdmissionRetirement.Failed() && !Result.Failed())
+        {
+            RecordClosed(AdmissionRetirement);
+            co_return AdmissionRetirement;
         }
         const auto ChildTasksDrained = co_await Control_->Drain();
         if (!ChildTasksDrained)
@@ -230,6 +219,25 @@ namespace Prism::Runtime
                 : Result;
         RecordClosed(FinalResult);
         co_return FinalResult;
+    }
+
+    auto Session::DrainAdmissionOwner() -> Net::awaitable<Prism::Fault::Failure>
+    {
+        auto Owner = std::move(AdmissionOwner_);
+        if (!Owner) co_return Prism::Fault::Failure{};
+        co_await Net::this_coro::throw_if_cancelled(false);
+        co_await Net::this_coro::reset_cancellation_state(Net::disable_cancellation());
+        try
+        {
+            const auto Drained = co_await Owner->Drain();
+            if (!Drained) co_return Drained.error();
+        }
+        catch (...)
+        {
+            co_return Prism::Contract::InboundAdmission::ExceptionFailure(
+                std::current_exception());
+        }
+        co_return Prism::Fault::Failure{};
     }
 
     auto Session::IsDrained() const noexcept -> bool
@@ -313,16 +321,14 @@ namespace Prism::Runtime
                     .Session = Identity.SessionId});
             AdmissionError = co_await SessionRecognitionAdmission::Run(Run);
         }
+        AdmissionOwner_ = std::move(Run.Context.DataPlane.AdmissionOwner);
         if (AdmissionError.Failed())
         {
             Run.ReleaseCarrierViews();
-            (void)co_await Run.DrainAdmissionOwner();
             co_return Prism::Fault::Failure{AdmissionError};
         }
         const auto RelayFailure = co_await SessionDataPlaneRelay::Run(Run);
         Run.ReleaseCarrierViews();
-        const auto AdmissionRetirement = co_await Run.DrainAdmissionOwner();
-        if (AdmissionRetirement.Failed() && !RelayFailure.Failed()) co_return AdmissionRetirement;
         co_return RelayFailure;
     }
 

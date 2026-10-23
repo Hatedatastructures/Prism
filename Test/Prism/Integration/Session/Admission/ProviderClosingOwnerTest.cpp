@@ -1,6 +1,8 @@
 /** @file ProviderClosingOwnerTest.cpp @brief 实际 Application owner 释放后 L1 保存真实 worker context/PMR，失败不标完成。 */
 #include <Prism/Application/ClosingFailure.hpp>
+#include <Prism/Application/RuntimeGenerationSnapshot.hpp>
 #include <Prism/Application/Shutdown.hpp>
+#include <Prism/Application/Startup/GenerationPhase.hpp>
 #include <Prism/Composition/Provider/ProviderCatalog.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
@@ -19,6 +21,7 @@
 #include <chrono>
 #include <cstddef>
 #include <expected>
+#include <filesystem>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 #include <thread>
 namespace
@@ -226,6 +229,8 @@ namespace
         auto Scenario = std::make_shared<ProviderShutdownScenario>();
         Scenario->State = std::make_shared<ProviderShutdownScenario::Runtime>(1, Prism::GenerationId{1},
             Prism::Network::Dns::Config{});
+        /** @brief ShutdownRuntime 要求进程 worker executor 已启动。 */
+        Scenario->State->StartWorkers(1);
         Scenario->CarrierState = std::make_shared<PendingProviderState>(Scenario->State->Io.get_executor());
         Scenario->AcceptDone = std::make_shared<Signal>(Scenario->State->Io.get_executor(), 1);
         Scenario->ShutdownDone = std::make_shared<Signal>(Scenario->State->Io.get_executor(), 1);
@@ -359,6 +364,21 @@ namespace
             Prism::GenerationId{1}, Prism::Network::Dns::Config{});
         Prism::Application::ObserveClosingFailures(State);
         State->Phase.store(Prism::Application::RuntimePhase::Ready);
+        /** @brief Worker::Dispatch 只接受已发布的代次。 */
+        const auto Root = std::filesystem::path{PRISM_TEST_REPO_ROOT};
+        auto ConfigurationGeneration =
+            Prism::Application::Startup::GenerationPhase::BuildGeneration(
+                {Root / "Include/Prism/Application/Configuration/PrismConfiguration.json", {}});
+        ASSERT_TRUE(ConfigurationGeneration);
+        Prism::Application::RuntimeGenerationServices RuntimeServices;
+        auto PublishedGeneration =
+            std::make_shared<Prism::Application::RuntimeGenerationSnapshot>(
+                *ConfigurationGeneration, Prism::Application::AccountCatalog{},
+                std::move(RuntimeServices));
+        auto Publication = State->GenerationPublisher->Prepare({}, PublishedGeneration, {});
+        ASSERT_TRUE(Publication);
+        ASSERT_TRUE(State->GenerationPublisher->Publish(*Publication));
+        PublishedGeneration.reset();
         auto* Worker = State->Process->Workers().Find(Prism::WorkerId{1});
         ASSERT_NE(Worker, nullptr);
         bool CommandExecuted = false;
@@ -400,7 +420,6 @@ namespace
         EXPECT_EQ(State->ExitCode, 1);
         EXPECT_FALSE(State->Process);
         State.reset();
-        EXPECT_TRUE(WeakState.expired());
         EXPECT_FALSE(WeakWorker.expired());
         EXPECT_FALSE(WeakControl.expired());
         auto WorkerContext = WeakWorker.lock(), ControlContext = WeakControl.lock();
@@ -409,6 +428,7 @@ namespace
         WorkerContext->Io.run();
         ControlContext->Io.restart();
         ControlContext->Io.run();
+        EXPECT_TRUE(WeakState.expired());
         Storage->Collect();
         EXPECT_EQ(Storage->Pending(), 0);
         EXPECT_TRUE(Status->Destroyed);

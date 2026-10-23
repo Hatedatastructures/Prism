@@ -114,7 +114,7 @@ namespace Prism::Application::OperationsReload
     }
 
     [[nodiscard]] inline auto RunPreparedReload(ReloadWork Work,
-        const std::shared_ptr<RuntimeState> &State) -> Net::awaitable<Outcome>
+        std::shared_ptr<RuntimeState> State) -> Net::awaitable<Outcome>
     {
         const auto Prepared = co_await Prism::Application::Reload::PrepareGenerationReload(
             State, Work);

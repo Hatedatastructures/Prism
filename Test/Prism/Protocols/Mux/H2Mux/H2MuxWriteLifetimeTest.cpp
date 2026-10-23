@@ -26,6 +26,19 @@ namespace
         }
     }
 
+    /** @brief 由 accepted child owner 关闭本流并等待控制帧及真实活动退休。 */
+    auto CloseAndDrainAcceptedStream(const Prism::SharedTransmission &Stream)
+        -> Net::awaitable<void>
+    {
+        const auto CloseResult = Stream->Close();
+        EXPECT_TRUE(CloseResult);
+        const auto ActivityDrain = co_await Stream->Activity()->Drain();
+        EXPECT_TRUE(ActivityDrain);
+        const auto TerminationDrain = co_await std::static_pointer_cast<Http2Stream>(
+            Stream)->DrainTerminations();
+        EXPECT_TRUE(TerminationDrain);
+    }
+
     struct ConcurrentWritesScenario final
     {
         std::shared_ptr<Prism::Mux::H2Mux::Http2Server> Server;
@@ -139,6 +152,10 @@ namespace
             Scenario.FeedFailed = true;
         }
         Scenario.FramesParsed = FrameCount;
+        for (const auto &Stream : Streams)
+        {
+            co_await CloseAndDrainAcceptedStream(Stream);
+        }
         co_await DrainHttp2Server(Scenario.Server);
         Scenario.Guard.Cancel();
     }
@@ -324,6 +341,10 @@ namespace
             {
                 ++Scenario.SiblingWrites;
             }
+        }
+        for (std::size_t Index = 1; Index < Streams.size(); ++Index)
+        {
+            co_await CloseAndDrainAcceptedStream(Streams[Index]);
         }
         co_await DrainHttp2Server(Scenario.Server);
         Scenario.Guard.Cancel();

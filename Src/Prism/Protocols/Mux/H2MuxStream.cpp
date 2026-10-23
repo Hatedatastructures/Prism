@@ -57,6 +57,7 @@ namespace Prism::Mux::H2Mux
         MarkIncomingPending(false);
         if (ConnectionClosed_ || StreamTerminalPending_)
         {
+            Rx_.clear();
             FinalizeTerminalClose();
             return {};
         }
@@ -145,16 +146,19 @@ namespace Prism::Mux::H2Mux
             return {};
         }
         if (State_->Closed) return {};
-        if (LocalTerminal_ && RemoteClosed_)
-        {
-            const auto BaseClosed = CloseBase();
-            if (BaseClosed) TryQueueRetirement();
-            return BaseClosed;
-        }
         if (ResetByPeer_)
         {
             Closed_ = true;
             LocalTerminal_ = true;
+            const auto BaseClosed = CloseBase();
+            if (BaseClosed) TryQueueRetirement();
+            if (!BaseClosed) return BaseClosed;
+            const Prism::Fault::Failure Failure{Prism::Fault::Code::ConnectionAborted};
+            State_->RecordFailure(Failure);
+            return std::unexpected(Failure);
+        }
+        if (LocalTerminal_ && RemoteClosed_)
+        {
             const auto BaseClosed = CloseBase();
             if (BaseClosed) TryQueueRetirement();
             return BaseClosed;
@@ -180,14 +184,8 @@ namespace Prism::Mux::H2Mux
         const auto Scheduled = SubmitControl(MakeControlRequest(ControlKind::Reset, ErrorCode));
         if (Scheduled)
         {
-            // RST_STREAM 已按序进入本端输出队列，双向虚拟流即终止；
-            // 不得等待远端再补终态帧，否则 child 会停在 Draining。
-            RemoteClosed_ = true;
-            LocalTerminal_ = true;
-            Rx_.clear();
-            // CloseBase 可能因 Closed_ 已发布而没有再次触发 OnClose；这里显式
-            // 重新排队退休，避免控制完成前的空闲窗口错过唯一退休通知。
-            TryQueueRetirement();
+            // 只有 RESET 的真实提交/Flush 完成后才发布双向终态；若底层会话已
+            // 先关闭该 stream，保留原 RemoteClosed_ 以正确暴露 ConnectionAborted。
         }
         else
         {
@@ -279,7 +277,10 @@ namespace Prism::Mux::H2Mux
         StreamTerminalPending_ = true;
         IncomingPending_ = false;
         Notify_->try_send(boost::system::error_code{});
-        if (Unaccepted || CloseReceiptAvailable_) FinalizeTerminalClose();
+        if (Unaccepted || CloseReceiptAvailable_)
+        {
+            FinalizeTerminalClose();
+        }
         else
         {
             TryQueueRetirement();
@@ -290,6 +291,7 @@ namespace Prism::Mux::H2Mux
     auto Http2Stream::SetConnectionClosed(const Prism::Fault::Failure Terminal) -> void
     {
         if (ConnectionClosed_) return;
+        const auto Unaccepted = IncomingPending_;
         ConnectionClosed_ = true;
         Closed_ = true;
         if (!RemoteClosed_)
@@ -302,7 +304,11 @@ namespace Prism::Mux::H2Mux
         FinSent_ = true;
         StreamTerminalPending_ = true;
         Notify_->try_send(boost::system::error_code{});
-        if (IncomingPending_ || CloseReceiptAvailable_) FinalizeTerminalClose();
+        if (Unaccepted || CloseReceiptAvailable_)
+        {
+            Rx_.clear();
+            FinalizeTerminalClose();
+        }
         else
         {
             TryQueueRetirement();
@@ -317,7 +323,6 @@ namespace Prism::Mux::H2Mux
         Closed_ = true;
         RemoteClosed_ = LocalTerminal_ = FinSent_ = true;
         LocalEndPending_ = ResetPending_ = false;
-        Rx_.clear();
         IncomingPending_ = false;
         Notify_->try_send(boost::system::error_code{});
         if (!CloseReceiptAvailable_)

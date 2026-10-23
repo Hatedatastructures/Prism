@@ -67,6 +67,17 @@ namespace Prism::Executor
         }
     }
 
+    [[nodiscard]] auto ClosingStorage::HasPendingExcept(
+        const ClosingResource* Excluded) const noexcept -> bool
+    {
+        for (auto Value = Head_.load(); Value; Value = Value->Next_.load())
+        {
+            if (Value.get() == Excluded || Value->IsRetirementSupport()) continue;
+            if (!Value->IsRetired()) return true;
+        }
+        return false;
+    }
+
     ClosingStorage::TraversalLease::~TraversalLease()
     {
         Flag.clear(std::memory_order_release);

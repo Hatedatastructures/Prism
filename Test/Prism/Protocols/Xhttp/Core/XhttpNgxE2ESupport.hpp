@@ -114,25 +114,6 @@ namespace
         std::shared_ptr<bool> TimedOut;
     };
 
-    struct FactoryClientRequest final
-    {
-        SharedTransmission Raw;
-        SharedSslContext Context;
-        Xhttp::Config Config;
-        std::string Host;
-        std::string Payload;
-        std::shared_ptr<bool> Succeeded;
-    };
-
-    struct FactoryServerRequest final
-    {
-        SharedTransmission Raw;
-        SharedSslContext Context;
-        Xhttp::Config Config;
-        std::string Payload;
-        std::shared_ptr<bool> Succeeded;
-    };
-
     struct FactoryScenarioRequest final
     {
         Net::any_io_executor Executor;
@@ -151,6 +132,7 @@ namespace
             std::string ServerStage;
             std::string ClientError;
             std::string ServerError;
+            std::string ServerRetirementError;
             std::size_t ClientBytes{0};
             std::size_t ServerBytes{0};
             std::uint64_t ClientHash{1469598103934665603ULL};
@@ -458,154 +440,6 @@ namespace
         {
             const auto Retirement = co_await CloseAndDrainXhttp(Request.Server.Raw);
             if (!Retirement) *Request.Server.Succeeded = false;
-        }
-        co_return;
-    }
-
-    auto RunFactoryClient(FactoryClientRequest Request) -> Net::awaitable<void>
-    {
-        *Request.Succeeded = false;
-        auto Connected = co_await Xhttp::Connect(Xhttp::ClientConnectRequest{
-            std::move(Request.Raw), Request.Context.get(), Request.Config, Request.Host,
-            MakeXhttpFactoryBytes()});
-        if (!Connected)
-        {
-            co_return;
-        }
-        auto Transport = std::move(*Connected);
-
-        const auto PayloadBytes = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(Request.Payload.data()), Request.Payload.size());
-        std::error_code WriteError;
-        const auto Write = co_await Transport->WriteExact(PayloadBytes);
-        WriteError = Prism::Fault::ToNative(Write.Failure);
-        const auto BytesWritten = Write.Bytes;
-        if (WriteError || BytesWritten != PayloadBytes.size())
-        {
-            const auto Retirement = co_await CloseAndDrainXhttp(Transport);
-            if (!Retirement) *Request.Succeeded = false;
-            co_return;
-        }
-
-        const auto Finished = co_await Transport->WriteShutdown();
-        if (!Finished)
-        {
-            const auto Retirement = co_await CloseAndDrainXhttp(Transport);
-            if (!Retirement) *Request.Succeeded = false;
-            co_return;
-        }
-
-        std::vector<std::byte> Received;
-        std::array<std::byte, 256> Buffer{};
-        std::error_code ReadError;
-        while (Received.size() < Request.Payload.size())
-        {
-            const auto Read = co_await Transport->ReadSome(Buffer);
-            ReadError = Prism::Fault::ToNative(Read.Failure);
-            const auto BytesRead = Read.Bytes;
-            if (ReadError || BytesRead == 0)
-            {
-                const auto Retirement = co_await CloseAndDrainXhttp(Transport);
-                if (!Retirement) *Request.Succeeded = false;
-                co_return;
-            }
-            const auto ReceivedSpan = std::span<const std::byte>(Buffer.data(), BytesRead);
-            Received.insert(Received.end(), ReceivedSpan.begin(), ReceivedSpan.end());
-        }
-
-        const auto ReceivedBytes = std::span<const std::byte>(Received);
-        *Request.Succeeded = HasPayload(ReceivedBytes, Request.Payload);
-        const auto Retirement = co_await CloseAndDrainXhttp(Transport);
-        *Request.Succeeded = *Request.Succeeded && Retirement.has_value();
-        Transport.reset();
-        co_return;
-    }
-
-    auto RunFactoryServer(FactoryServerRequest Request) -> Net::awaitable<void>
-    {
-        *Request.Succeeded = false;
-        auto Accepted = co_await Xhttp::Accept(Xhttp::AcceptRequest{
-            std::move(Request.Raw), *Request.Context, Request.Config, MakeXhttpFactoryBytes()});
-        if (!Accepted)
-        {
-            co_return;
-        }
-        auto Transport = std::move(Accepted->Transport);
-
-        std::array<std::byte, 256> Buffer{};
-        std::error_code ReadError;
-        const auto Read = co_await Transport->ReadSome(Buffer);
-        ReadError = Prism::Fault::ToNative(Read.Failure);
-        const auto BytesRead = Read.Bytes;
-        if (ReadError || BytesRead == 0)
-        {
-            const auto Retirement = co_await CloseAndDrainXhttp(Transport);
-            if (!Retirement) *Request.Succeeded = false;
-            co_return;
-        }
-
-        const auto EchoSpan = std::span<const std::byte>(Buffer.data(), BytesRead);
-        std::error_code WriteError;
-        const auto Write = co_await Transport->WriteExact(EchoSpan);
-        WriteError = Prism::Fault::ToNative(Write.Failure);
-        const auto BytesWritten = Write.Bytes;
-        *Request.Succeeded = !WriteError && BytesWritten == EchoSpan.size();
-        const auto Retirement = co_await CloseAndDrainXhttp(Transport);
-        *Request.Succeeded = *Request.Succeeded && Retirement.has_value();
-        Transport.reset();
-        co_return;
-    }
-
-    auto RunFactoryPair(FactoryScenarioRequest Request) -> Net::awaitable<void>
-    {
-        FactoryClientRequest ClientRequest{
-            std::move(Request.ClientRaw),
-            Request.ClientContext,
-            Request.Config,
-            "example.com",
-            Request.Payload,
-            Request.ClientSucceeded};
-        FactoryServerRequest ServerRequest{
-            std::move(Request.ServerRaw),
-            Request.ServerContext,
-            Request.Config,
-            Request.Payload,
-            Request.ServerSucceeded};
-        auto ClientOperation = Net::co_spawn(
-            Request.Executor, RunFactoryClient(std::move(ClientRequest)), Net::use_awaitable);
-        auto ServerOperation = Net::co_spawn(
-            Request.Executor, RunFactoryServer(std::move(ServerRequest)), Net::use_awaitable);
-        co_await (std::move(ClientOperation) && std::move(ServerOperation));
-        co_return;
-    }
-
-    auto RunFactoryScenario(FactoryScenarioRequest Request) -> Net::awaitable<void>
-    {
-        auto PairOperation = Net::co_spawn(
-            Request.Executor, RunFactoryPair(Request), Net::use_awaitable);
-        auto WatchdogOperation = Net::co_spawn(
-            Request.Executor,
-            RunWatchdog(Request.Executor, std::chrono::seconds(5), Request.TimedOut),
-            Net::use_awaitable);
-        try
-        {
-            auto RaceResult = co_await (std::move(PairOperation) || std::move(WatchdogOperation));
-            (void)RaceResult;
-        }
-        catch (...)
-        {
-            *Request.ClientSucceeded = false;
-            *Request.ServerSucceeded = false;
-        }
-        if (Request.ClientRaw)
-        {
-            const auto Retirement = co_await CloseAndDrainXhttp(Request.ClientRaw);
-            if (!Retirement) *Request.ClientSucceeded = false;
-        }
-        if (Request.ServerRaw)
-        {
-            const auto Retirement = co_await CloseAndDrainXhttp(Request.ServerRaw);
-            if (!Retirement) *Request.ServerSucceeded = false;
         }
         co_return;
     }

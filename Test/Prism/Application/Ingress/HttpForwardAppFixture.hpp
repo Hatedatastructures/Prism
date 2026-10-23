@@ -50,6 +50,8 @@ namespace Prism::Testing::HttpForward
     {
         std::filesystem::path LogDirectory; ///< 空路径时创建独立临时目录。
         std::string LogFileName{"http-ingress.log"}; ///< 初始日志文件名。
+        bool HotReloadEnabled{false}; ///< 按需启用 Operations reload 测试路径。
+        bool IncludeTestAccount{true}; ///< 入口测试默认保留认证账户。
     };
 
     [[nodiscard]] auto FindFreePort() -> std::uint16_t;
@@ -264,12 +266,9 @@ namespace Prism::Testing::HttpForward
     }],
     "Carriers": [],
     "ProtocolBindings": [],
-    "Accounts": [{
-        "Id": "local",
-        "SecretRef": "",
-        "Credential": "http-password",
-        "Credentials": {}
-    }],
+    "Accounts": )json" << (Options.IncludeTestAccount
+        ? R"json([{"Id":"local","SecretRef":"","Credential":"http-password","Credentials":{}}])json"
+        : "[]") << R"json(,
     "Routes": [],
     "Dns": {"Servers": ["1.1.1.1"], "Timeout": 1000},
     "Logging": {
@@ -284,7 +283,8 @@ namespace Prism::Testing::HttpForward
     "Statistics": {"Enabled": true, "Interval": 1000},
     "Operations": {"Enabled": true, "Endpoint": "127.0.0.1:)json"
              << OperationsPort << R"json(", "Timeout": 1000},
-    "HotReload": {"Enabled": false, "AckTimeout": 5000},
+    "HotReload": {"Enabled": )json" << (Options.HotReloadEnabled ? "true" : "false")
+        << R"json(, "AckTimeout": 5000},
     "Shutdown": {"Timeout": 5000}
 })json";
     }

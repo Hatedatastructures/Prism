@@ -159,8 +159,8 @@ namespace Prism::Mux::H2Mux
                 RecordFailure(Rejected.error());
                 return;
             }
-            const auto Reset = Session->ResetStream(StreamId, Prism::Http2::ErrorProtocol);
-            if (!Reset) RecordFailure(Reset.error());
+            // 完整 400 END_STREAM 已结束该请求；再发 RST_STREAM 会针对已关闭的
+            // stream 形成第二个终态帧，客户端可合法忽略它。
             return;
         }
         if (!IsConnect)
@@ -481,15 +481,8 @@ namespace Prism::Mux::H2Mux
             const auto Stream = Iterator->second;
             if (Stream->AwaitsTerminalClose())
             {
-                // 根 Drain 是最终关闭者：accepted child 未自行 Close 时，必须由这里
-                // 提交最终 Close，产生 terminal 回执后再等待，否则永远停在 Pending。
-                const auto Closed = Stream->Close();
-                if (!Closed)
-                {
-                    Stream->MarkRetirementFailed(Closed.error());
-                    Complete = false;
-                    continue;
-                }
+                // accepted stream 仍归其 child owner；根只发布连接终态并等待 child
+                // 消费粘滞读终态或显式 Close，不能先封止它后续读取的准入。
                 boost::system::error_code NotificationError;
                 if (!StreamDrainPending.exchange(
                         false, std::memory_order_acq_rel))

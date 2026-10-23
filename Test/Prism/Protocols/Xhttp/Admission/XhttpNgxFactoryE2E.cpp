@@ -2,7 +2,7 @@
  * @file XhttpNgxFactoryE2E.cpp
  * @brief XHTTP factory and split-mode end-to-end tests.
  */
-#include "../Core/XhttpNgxE2ESupport.hpp"
+#include "../Core/FactoryScenario.hpp"
 
 TEST(XhttpNgxE2E, ClientFactoryProvidesStreamOneTransport)
 {
@@ -22,6 +22,7 @@ TEST(XhttpNgxE2E, ClientFactoryProvidesStreamOneTransport)
     auto ClientSucceeded = std::make_shared<bool>(false);
     auto ServerSucceeded = std::make_shared<bool>(false);
     auto TimedOut = std::make_shared<bool>(false);
+    auto Trace = std::make_shared<FactoryScenarioRequest::SplitTrace>();
     FactoryScenarioRequest Request{
         IoContext->get_executor(),
         std::move(ClientRaw),
@@ -32,12 +33,26 @@ TEST(XhttpNgxE2E, ClientFactoryProvidesStreamOneTransport)
         Payload,
         ClientSucceeded,
         ServerSucceeded,
-        TimedOut};
+        TimedOut,
+        Trace};
 
     RunCoroutine(IoContext, RunFactoryScenario(std::move(Request)));
     EXPECT_FALSE(*TimedOut);
-    EXPECT_TRUE(*ServerSucceeded);
-    EXPECT_TRUE(*ClientSucceeded);
+    EXPECT_TRUE(*ServerSucceeded)
+        << " clientSucceeded=" << *ClientSucceeded
+        << " clientStage=" << Trace->ClientStage
+        << " clientBytes=" << Trace->ClientBytes
+        << " clientError=" << Trace->ClientError
+        << " timedOut=" << *TimedOut
+        << " serverStage=" << Trace->ServerStage
+        << " serverBytes=" << Trace->ServerBytes
+        << " serverError=" << Trace->ServerError
+        << " serverRetirementError=" << Trace->ServerRetirementError
+        << " exception=" << Trace->Exception;
+    EXPECT_TRUE(*ClientSucceeded)
+        << " clientStage=" << Trace->ClientStage
+        << " clientBytes=" << Trace->ClientBytes
+        << " clientError=" << Trace->ClientError;
     EXPECT_TRUE(ClientWeak.expired());
     EXPECT_TRUE(ServerWeak.expired());
 }

@@ -187,7 +187,15 @@ namespace Prism::Transport
             Error.category() == Net::ssl::error::get_stream_category())
         {
             Failure.Code = Fault::Code::TlsHsfail;
-            if (SSL_get_verify_result(Stream->native_handle()) != X509_V_OK)
+            auto *PeerCertificate = SSL_get_peer_certificate(Stream->native_handle());
+            const bool HasPeerCertificate = PeerCertificate != nullptr;
+            if (PeerCertificate)
+            {
+                X509_free(PeerCertificate);
+            }
+            // 没有对端证书时不使用 verify_result 覆盖真实的协议/密码套件告警。
+            if (HasPeerCertificate &&
+                SSL_get_verify_result(Stream->native_handle()) != X509_V_OK)
             {
                 Failure.Code = Fault::Code::Verifyfail;
             }

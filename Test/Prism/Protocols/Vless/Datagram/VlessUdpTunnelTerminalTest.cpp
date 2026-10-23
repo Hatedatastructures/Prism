@@ -147,12 +147,14 @@ namespace
 
     auto RunScenario(ReadScenario Scenario) -> Net::awaitable<void>
     {
+        const auto Executor = co_await Net::this_coro::executor;
         auto Raw = std::make_shared<TerminalTransmission>(
-            co_await Net::this_coro::executor,
+            Executor,
             std::move(Scenario.Input), Scenario.Terminal);
         const auto Uuid = std::array<std::uint8_t, Vless::UuidLen>{};
         auto Stream = std::make_shared<Vless::Conn<>>(Raw, Uuid);
-        Vless::UdpTunnelFrames Frames(Stream, std::chrono::milliseconds::zero());
+        Vless::UdpTunnelFrames Frames(
+            Stream, std::chrono::milliseconds::zero(), Executor);
 
         const auto First = co_await Frames.Read();
         EXPECT_EQ(static_cast<bool>(First), Scenario.CompleteFrame);

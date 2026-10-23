@@ -282,6 +282,7 @@ TEST(VlessDgramErr, UdpTunnelCleanFrameBoundaryEofDrainsSuccessfully)
 {
     Net::io_context Ioc;
     auto [ClientMemory, PeerMemory] = MakeMemoryPair(Ioc.get_executor());
+    auto Peer = std::make_shared<MemoryStream>(std::move(PeerMemory));
     auto Connection = std::make_shared<Vless::Conn<>>(
         std::make_shared<MemoryStream>(std::move(ClientMemory)),
         std::array<std::uint8_t, Vless::UuidLen>{});
@@ -292,11 +293,13 @@ TEST(VlessDgramErr, UdpTunnelCleanFrameBoundaryEofDrainsSuccessfully)
 
     RunCoroutine(Ioc, [&]() -> Net::awaitable<void>
     {
-        const auto PeerShutdown = co_await PeerMemory.WriteShutdown();
+        const auto PeerShutdown = co_await Peer->WriteShutdown();
         EXPECT_TRUE(PeerShutdown.has_value());
         EXPECT_TRUE((co_await Tunnel->Run()).has_value());
         const auto Drained = co_await Tunnel->Drain();
         EXPECT_TRUE(Drained);
+        const auto PeerClosed = Peer->Close();
+        EXPECT_TRUE(PeerClosed.has_value());
     });
 }
 

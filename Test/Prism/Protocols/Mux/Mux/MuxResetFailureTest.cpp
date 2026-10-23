@@ -79,6 +79,7 @@ namespace
         const std::shared_ptr<Prism::Lifecycle::TaskRetirementReceipt> &Receipt) -> void
     {
         (void)State->Complete(Prism::Fault::Failure{Prism::Fault::Code::Canceled});
+        State->Retire();
         Receipt->Publish();
     }
 

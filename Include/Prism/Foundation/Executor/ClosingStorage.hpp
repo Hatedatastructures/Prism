@@ -29,6 +29,8 @@ namespace Prism::Executor
         /** @brief 已释放载体且实际 I/O 已退栈时才为 true；没有半关闭语义。 */
         [[nodiscard]] virtual auto IsRetired() const noexcept -> bool = 0;
         [[nodiscard]] virtual auto IsDispatchUnavailable() const noexcept -> bool = 0;
+        /** @brief 仅支撑其它关闭 owner 的 executor/进程依赖，不阻塞它们的退休判断。 */
+        [[nodiscard]] virtual auto IsRetirementSupport() const noexcept -> bool { return false; }
     private:
         friend class ClosingStorage;
         std::atomic<std::shared_ptr<ClosingResource>> Next_;
@@ -49,6 +51,8 @@ namespace Prism::Executor
         auto Retry() -> void;
         /** @brief 移除已真正退休的空槽位；载体与在途 I/O 必须已由原 executor 释放。 */
         auto Collect() noexcept -> void;
+        /** @brief 查询除指定 owner 外是否仍有真实未退休资源。 */
+        [[nodiscard]] auto HasPendingExcept(const ClosingResource* Excluded) const noexcept -> bool;
         /** @brief 未收集槽位数；可包含已退休等待收集的槽，绝不漏算仍在保留的实物。 */
         [[nodiscard]] auto Pending() const noexcept -> std::size_t { return Retained_.load(); }
     private:

@@ -194,6 +194,7 @@ namespace Prism::Runtime
                 if (Input.Drain) Input.Drain->MarkSessionDrained();
                 const auto Identity = Control->CurrentIdentity();
                 const auto Services = Input.SessionOwner->Services();
+                Input.SessionOwner.reset();
                 if (Services && Services->Traffic && Identity.SessionId.Value() != 0U)
                 {
                     const auto TrafficRetirement = co_await Prism::Foundation::RetireTraffic(

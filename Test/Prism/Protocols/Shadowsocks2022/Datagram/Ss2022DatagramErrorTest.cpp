@@ -339,7 +339,7 @@ TEST(Ss2022DgramErr, ReceiveBadSessionId)
     Net::io_context IoContext;
     auto Key = MakeShadowsocks2022Key();
     auto Packet = MakeShadowsocks2022Packet(
-        DatagramPacketRequest{Key, 0x01, {}, {}});
+        DatagramPacketRequest{Key, 0x01});
     Packet[0] ^= 0xFF;
     RunCoroutine(
         IoContext,
@@ -359,7 +359,7 @@ TEST(Ss2022DgramErr, ReceiveBadType)
         RunDatagramError(DatagramErrorRequest{
             IoContext,
             DatagramCase{
-                MakeShadowsocks2022Packet(DatagramPacketRequest{Key, 0x02, {}}),
+                MakeShadowsocks2022Packet(DatagramPacketRequest{Key, 0x02}),
                 Error::BadMessage,
                 DatagramOperation{}},
             DatagramFaults{false, false}}));
@@ -369,14 +369,15 @@ TEST(Ss2022DgramErr, ReceiveDomainTruncated)
 {
     Net::io_context IoContext;
     const auto Key = MakeShadowsocks2022Key();
+    /** @brief 补足 SS2022 UDP 最小 wire 长度，声明的 255 字节域名仍截断。 */
+    auto Packet = MakeShadowsocks2022Packet(
+        DatagramPacketRequest{Key, 0x00, {0x03, 0xFF, 0x61, 0x62, 0x63}, {}});
     RunCoroutine(
         IoContext,
         RunDatagramError(DatagramErrorRequest{
             IoContext,
             DatagramCase{
-                MakeShadowsocks2022Packet(
-                    DatagramPacketRequest{
-                        Key, 0x00, {0x03, 0xFF}, {}}),
+                std::move(Packet),
                 Error::BadMessage,
                 DatagramOperation{}},
             DatagramFaults{false, false}}));

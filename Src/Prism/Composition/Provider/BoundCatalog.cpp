@@ -306,13 +306,14 @@ namespace Prism::Composition::Provider
 
     auto BoundCatalog::Close() noexcept -> void
     {
-        for (auto& Entry : Entries_)
-        {
-            std::visit([](const auto& Owner) { CloseOwner(Owner); }, Entry.Owner);
-        }
+        // 先正常关闭 Mux root，避免协议 factory 转发 Close 时将同一 root 升级为显式取消。
         for (const auto& Mux : Muxes_)
         {
             Mux.Close();
+        }
+        for (auto& Entry : Entries_)
+        {
+            std::visit([](const auto& Owner) { CloseOwner(Owner); }, Entry.Owner);
         }
         for (const auto& [Name, Owner] : CarrierOwners_)
         {

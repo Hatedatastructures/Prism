@@ -526,9 +526,8 @@ namespace
         {
             ExpectedErrorValue = Prism::Error::Canceled;
         }
-        const auto ExpectedError = std::error_code{
-            static_cast<int>(ExpectedErrorValue),
-            std::generic_category()};
+        const auto ExpectedError = static_cast<std::error_code>(
+            Prism::make_error_code(ExpectedErrorValue));
         EXPECT_EQ(Pending->Error, ExpectedError);
         EXPECT_EQ(ServerDatagram->IsClosed(),
                   Request.Action == DatagramProviderAction::Close);

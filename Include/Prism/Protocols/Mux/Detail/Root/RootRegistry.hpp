@@ -35,6 +35,7 @@ namespace Prism::Mux::Detail
             explicit operator bool() const noexcept;
 
         private:
+            friend class RootRegistry;
             std::atomic_uint64_t &Gate;
             bool Active{false};
         };
@@ -71,12 +72,16 @@ namespace Prism::Mux::Detail
         [[nodiscard]] auto BeginRegistration()
             -> std::optional<Registration>;
 
-        /** @brief 把冷创建时预留的 owner 节点转交给 registry；调用方须持有登记门票据。 */
-        [[nodiscard]] auto Register(const std::shared_ptr<RootSession> &Root)
+        /** @brief 仅在本 registry 的有效登记门票据保护下发布预留 owner 节点。 */
+        [[nodiscard]] auto Register(
+            const Registration &Ticket,
+            const std::shared_ptr<RootSession> &Root)
             -> bool;
 
-        /** @brief 封止新注册并向当前目录中的每个 root 发出取消。 */
+        /** @brief 封止新注册；取消活动 root，并正常关闭尚未运行的 root。 */
         auto Close() noexcept -> void;
+        /** @brief 封止新注册并对全部活动 root 发出正常关闭请求。 */
+        auto CloseForDrain() noexcept -> void;
 
         [[nodiscard]] auto IsClosed() const noexcept -> bool;
 

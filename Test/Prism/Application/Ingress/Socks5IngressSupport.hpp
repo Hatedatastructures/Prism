@@ -16,11 +16,13 @@
 #include "Socks5AccountIngressClient.hpp"
 #include "Socks5IngressOperations.hpp"
 
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace
 {
@@ -82,17 +84,26 @@ namespace
             return std::nullopt;
         }
         const auto *Id = FindJsonValue(Items->get_array().front(), "id");
-        if (Id == nullptr || !Id->is_number())
+        if (Id == nullptr || !Id->is_string())
         {
             return std::nullopt;
         }
-        return Prism::SessionId{static_cast<std::uint64_t>(Id->get_number())};
+        const auto &Text = Id->get_string();
+        std::uint64_t SessionValue{};
+        const auto [End, Error] = std::from_chars(
+            Text.data(), Text.data() + Text.size(), SessionValue);
+        if (Error != std::errc{} || End != Text.data() + Text.size())
+        {
+            return std::nullopt;
+        }
+        return Prism::SessionId{SessionValue};
     }
 
     struct CommandObservation final
     {
         std::string Status;
         std::string Message;
+        std::optional<std::uint64_t> Operation;
     };
 
     [[nodiscard]] auto ParseCommandObservation(const std::string_view Response)
@@ -105,12 +116,28 @@ namespace
         }
         const auto *Status = FindJsonValue(*Document, "status");
         const auto *Message = FindJsonValue(*Document, "message");
-        if (Status == nullptr || Message == nullptr || !Status->is_string() ||
-            !Message->is_string())
+        const auto *Operation = FindJsonValue(*Document, "operation");
+        if (Status == nullptr || Message == nullptr || Operation == nullptr ||
+            !Status->is_string() || !Message->is_string() || !Operation->is_string())
         {
             return std::nullopt;
         }
-        return CommandObservation{Status->get<std::string>(), Message->get<std::string>()};
+
+        std::uint64_t OperationValue{};
+        const auto &OperationText = Operation->get<std::string>();
+        const auto [End, Error] = std::from_chars(
+            OperationText.data(), OperationText.data() + OperationText.size(), OperationValue);
+        if (Error != std::errc{} || End != OperationText.data() + OperationText.size())
+        {
+            return std::nullopt;
+        }
+        std::optional<std::uint64_t> OperationId;
+        if (OperationValue != 0U)
+        {
+            OperationId = OperationValue;
+        }
+        return CommandObservation{
+            Status->get<std::string>(), Message->get<std::string>(), OperationId};
     }
 
 } // namespace

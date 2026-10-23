@@ -102,7 +102,10 @@ namespace Prism::Transport::Detail
         }
         Owner->ReleaseCommand(Index);
         if (Index == CancelCapacity)
+        {
             Owner->Activity->RecordCloseDelivered();
+            Owner->MarkInFlightCancelRetriesClosePending();
+        }
         Owner->Storage->Collect();
         FinishRetry();
     }
@@ -228,22 +231,28 @@ namespace Prism::Transport::Detail
                 co_return ControlResult{};
             }
             CloseAttemptWaiters.fetch_add(1, std::memory_order_acq_rel);
-            if (CloseAttempt.load(std::memory_order_acquire) == CloseAttemptPhase::Terminal)
+            boost::system::error_code Error;
+            std::shared_ptr<CloseWaitState> Waiter;
+            bool CompletedBeforeRegistration = false;
+            {
+                std::lock_guard Guard(CloseDispatchMutex);
+                CompletedBeforeRegistration = CloseAttempt.load(
+                    std::memory_order_acquire) == CloseAttemptPhase::Terminal;
+                if (!CompletedBeforeRegistration)
+                {
+                    Waiter = CloseWaiter.lock();
+                    if (!Waiter)
+                    {
+                        Waiter = std::make_shared<CloseWaitState>(
+                            Reclaimer->Executor());
+                        CloseWaiter = Waiter;
+                    }
+                }
+            }
+            if (CompletedBeforeRegistration)
             {
                 CloseAttemptWaiters.fetch_sub(1, std::memory_order_acq_rel);
                 continue;
-            }
-            boost::system::error_code Error;
-            std::shared_ptr<CloseWaitState> Waiter;
-            {
-                std::lock_guard Guard(CloseDispatchMutex);
-                Waiter = CloseWaiter.lock();
-                if (!Waiter)
-                {
-                    Waiter = std::make_shared<CloseWaitState>(
-                        Reclaimer->Executor());
-                    CloseWaiter = Waiter;
-                }
             }
             co_await Waiter->Changes.async_receive(
                 boost::asio::redirect_error(boost::asio::use_awaitable, Error));
@@ -398,6 +407,21 @@ namespace Prism::Transport::Detail
                 CommandValue.KnownControlFailure.load(std::memory_order_acquire) != KnownFailurePhase::None)
                 ReleaseCommand(Index);
             CommandValue.Retry.store(RetryState::Idle, std::memory_order_release);
+        }
+    }
+
+    auto TransmissionControlOwner::MarkInFlightCancelRetriesClosePending() noexcept -> void
+    {
+        for (std::size_t Index = 0U; Index < CancelCapacity; ++Index)
+        {
+            auto& CommandValue = Commands[Index];
+            if (!CommandValue.Used.load(std::memory_order_acquire) ||
+                CommandValue.KnownControlFailure.load(std::memory_order_acquire) !=
+                    KnownFailurePhase::Recorded)
+                continue;
+            auto Expected = RetryState::InFlight;
+            (void)CommandValue.Retry.compare_exchange_strong(
+                Expected, RetryState::ClosePending, std::memory_order_acq_rel);
         }
     }
 
@@ -576,8 +600,11 @@ namespace Prism::Transport::Detail
                 (void)CloseAttemptFailure.TrySet({Prism::Fault::Code::Blocked});
             return false;
         }
+        const auto CloseSettledRetry = IsRetry &&
+            Commands[Index].Retry.load(std::memory_order_acquire) == RetryState::ClosePending;
         if (ExternalCloseConfirmed.load(std::memory_order_acquire) ||
-            (Index < CancelCapacity && LocalClosed.load(std::memory_order_acquire) && !IsRetry))
+            (Index < CancelCapacity && LocalClosed.load(std::memory_order_acquire) &&
+                (!IsRetry || CloseSettledRetry)))
         {
             HandlerInvoked = true;
             return true;

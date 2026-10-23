@@ -104,6 +104,11 @@ namespace Prism
         return Control_;
     }
 
+    auto Transmission::AwaitCloseDispatch() const -> Net::awaitable<ControlResult>
+    {
+        co_return co_await CloseReceipt()->AwaitCloseDispatch();
+    }
+
     auto Transmission::Ready(Completion Handler) -> ReadyCompletion
     {
         Transport::Detail::QueuedCompletion Queued(std::move(Handler));

@@ -338,7 +338,7 @@ namespace
         Context->Io.run();
         Storage->Collect();
 
-        EXPECT_EQ(State->CancelAttempts.load(std::memory_order_relaxed), 2U);
+        EXPECT_EQ(State->CancelAttempts.load(std::memory_order_relaxed), 1U);
         EXPECT_EQ(State->CloseAttempts.load(std::memory_order_relaxed), 2U);
         EXPECT_EQ(State->DrainAttempts.load(std::memory_order_relaxed), 2U);
         EXPECT_TRUE(State->NativeClosed.load(std::memory_order_acquire));

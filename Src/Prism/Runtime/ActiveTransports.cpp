@@ -5,6 +5,7 @@
 #include <boost/asio/strand.hpp>
 #include <boost/asio/this_coro.hpp>
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <system_error>
@@ -180,7 +181,17 @@ namespace Prism::Runtime
         if (!Owner) return;
         Owner->Retiring.store(false);
         if (!Invoked) Owner->Fail({Prism::Fault::Code::Blocked}, true);
-        else Owner->FinishRetirement();
+        else if (Owner->ContentsReleased.load(std::memory_order_acquire))
+            Owner->FinishRetirement();
+        else if (!Owner->Error().Failed())
+            Owner->Fail({Prism::Fault::Code::Blocked}, !Owner->Reclaimer->CanDispatch());
+        if (!Owner->ContentsReleased.load(std::memory_order_acquire))
+        {
+            // 完成本次失败尝试以便 Finalize 返回错误；owner 仍留在 ClosingStorage 等待重试。
+            Owner->CompletionReservation.reset();
+            Owner->Completion.Seal();
+            Owner->Storage->Collect();
+        }
     }
 
     auto ActiveTransports::Resource::RetirementCompletion::operator()(
@@ -202,7 +213,9 @@ namespace Prism::Runtime
 
     auto ActiveTransports::Resource::CanAcceptView() const noexcept -> bool
     {
-        return !Closing.load() && !Releasing.load() && !Retired.load() && !Error().Failed();
+        return !Closing.load() && !Releasing.load() &&
+            !CancelRequested.load(std::memory_order_acquire) &&
+            !Retired.load() && !Error().Failed();
     }
 
     auto ActiveTransports::Resource::RequestRetirement() -> void
@@ -237,6 +250,7 @@ namespace Prism::Runtime
 
     auto ActiveTransports::Resource::MarkCancelRequested() noexcept -> void
     {
+        Views.Seal();
         CancelRequested.store(true, std::memory_order_release);
         RequestRetirement();
     }
@@ -260,6 +274,12 @@ namespace Prism::Runtime
     auto ActiveTransports::Resource::Execute() -> void
     {
         if (Retired.load()) return;
+        if (Rejecting.load(std::memory_order_acquire) ||
+            CancelRequested.load(std::memory_order_acquire))
+        {
+            // Cancel 只中断在途 I/O；owner 的 Close/Drain 仍等正式关闭阶段。
+            (void)CancelValue();
+        }
         if (Closing.load())
         {
             const auto Closed = CloseValue();
@@ -310,13 +330,15 @@ namespace Prism::Runtime
         // 装饰器仍持旧 inner view 时不能 Seal 公共底层；先等这些真正借用退出。
         Self->Activity->Seal();
         auto Operations = co_await Self->Activity->Drain();
-        if (!Operations && Self->Closing.load() &&
-            Operations.error().Code == Prism::Fault::Code::IoError)
+        if (!Operations && Self->Closing.load(std::memory_order_acquire) &&
+            Self->Error().Failed() &&
+            Operations.error().Code == Prism::Fault::Code::IoError &&
+            Self->Activity->IsRetired())
         {
-            // 关闭已交付后，取消失败只保留为控制回执，不再阻断 carrier 物理退休。
+            // 已记录的控制回执可以保留为报告错误；底层退休回执成立后才释放实物。
             Self->Value = {};
             Self->Activity.reset();
-            Self->ContentsReleased.store(true);
+            Self->ContentsReleased.store(true, std::memory_order_release);
             co_return;
         }
         // 仅在独立退休回执已成立时接受取消；其余失败继续保留实物。
@@ -324,14 +346,14 @@ namespace Prism::Runtime
             (Operations.error().Code != Prism::Fault::Code::Canceled ||
              !Self->Activity->IsRetired()))
         {
-            if (Operations.error().Code != Prism::Fault::Code::Canceled &&
+            const bool AlreadyReportedCloseFailure =
+                Self->Closing.load(std::memory_order_acquire) && Self->Error().Failed();
+            if (!AlreadyReportedCloseFailure &&
+                Operations.error().Code != Prism::Fault::Code::Canceled &&
                 !Self->Activity->IsRetired())
             {
                 Self->CancelRequested.store(true, std::memory_order_release);
-                if (Self->Value.Mux) Self->Value.Mux->Cancel();
-                if (Self->Value.Datagram) Self->Value.Datagram->Cancel();
-                if (Self->Value.Inbound) (void)Self->Value.Inbound->Cancel();
-                if (Self->Value.Outbound) (void)Self->Value.Outbound->Cancel();
+                (void)Self->CancelValue();
             }
             Self->Fail(Operations.error(), !Self->Reclaimer->CanDispatch());
             co_return;
@@ -353,49 +375,79 @@ namespace Prism::Runtime
     {
         if (Value.Mux)
         {
-            if (Rejecting.load(std::memory_order_acquire) ||
-                CancelRequested.load(std::memory_order_acquire))
-                Value.Mux->Cancel();
             Value.Mux->Close();
         }
         if (Value.Datagram)
         {
-            if (Rejecting.load(std::memory_order_acquire) ||
-                CancelRequested.load(std::memory_order_acquire))
-                Value.Datagram->Cancel();
             Value.Datagram->Close();
         }
         std::expected<void, Failure> Result;
         if (Value.Inbound)
         {
-            const auto CancelInFlight = Rejecting.load(std::memory_order_acquire) ||
-                CancelRequested.load(std::memory_order_acquire);
-            const auto Closed = CloseStream(Value.Inbound, CancelInFlight);
+            const auto Closed = CloseStream(Value.Inbound);
             if (!Closed) Result = std::unexpected(Closed.error());
         }
         if (Value.Outbound)
         {
-            const auto CancelInFlight = Rejecting.load(std::memory_order_acquire) ||
-                CancelRequested.load(std::memory_order_acquire);
-            const auto Closed = CloseStream(Value.Outbound, CancelInFlight);
+            const auto Closed = CloseStream(Value.Outbound);
             if (!Closed && Result) Result = std::unexpected(Closed.error());
         }
         return Result;
     }
 
-    auto ActiveTransports::Resource::CloseStream(
-        const Prism::SharedTransmission& Stream,
-        const bool CancelInFlight) -> std::expected<void, Failure>
+    auto ActiveTransports::Resource::CancelValue() -> std::expected<void, Failure>
     {
-        if (CancelInFlight)
+        if (CancelDelivered) return {};
+        if (Value.Mux)
         {
-            const auto Cancel = Stream->Cancel();
-            if (!Cancel)
+            Value.Mux->Cancel();
+            CancelDelivered = true;
+            return {};
+        }
+        if (Value.Datagram)
+        {
+            Value.Datagram->Cancel();
+            CancelDelivered = true;
+            return {};
+        }
+
+        std::expected<void, Failure> Result;
+        if (Value.Inbound && !InboundCancelDelivered)
+        {
+            const auto Canceled = Value.Inbound->Cancel();
+            if (Canceled)
             {
-                (void)FailureState.TrySet(Cancel.error());
+                InboundCancelDelivered = true;
+            }
+            else
+            {
+                (void)FailureState.TrySet(Canceled.error());
                 Storage->Retain(shared_from_this());
+                Result = std::unexpected(Canceled.error());
             }
         }
+        if (Value.Outbound && !OutboundCancelDelivered)
+        {
+            const auto Canceled = Value.Outbound->Cancel();
+            if (Canceled)
+            {
+                OutboundCancelDelivered = true;
+            }
+            else
+            {
+                (void)FailureState.TrySet(Canceled.error());
+                Storage->Retain(shared_from_this());
+                if (Result) Result = std::unexpected(Canceled.error());
+            }
+        }
+        CancelDelivered = (!Value.Inbound || InboundCancelDelivered) &&
+            (!Value.Outbound || OutboundCancelDelivered);
+        return Result;
+    }
+
+    auto ActiveTransports::Resource::CloseStream(
+        const Prism::SharedTransmission& Stream) -> std::expected<void, Failure>
+    {
         const auto Close = Stream->Close();
         if (!Close) return std::unexpected(Close.error());
         return {};
@@ -482,9 +534,14 @@ namespace Prism::Runtime
     auto ActiveTransports::RequestClose() -> std::expected<void, Failure>
     {
         Closing_.store(true);
-        if (HasOwner(OwnerKind::Mux)) return RequestCloseOwners(OwnerKind::Mux);
-        if (HasOwner(OwnerKind::Datagram)) return RequestCloseOwners(OwnerKind::Datagram);
-        return RequestCloseOwners(OwnerKind::Stream);
+        std::expected<void, Failure> Result;
+        constexpr std::array Types{OwnerKind::Mux, OwnerKind::Datagram, OwnerKind::Stream};
+        for (const auto Type : Types)
+        {
+            const auto Requested = RequestCloseOwners(Type);
+            if (!Requested && Result) Result = std::unexpected(Requested.error());
+        }
+        return Result;
     }
 
     auto ActiveTransports::MarkCancelRequested() noexcept -> void
