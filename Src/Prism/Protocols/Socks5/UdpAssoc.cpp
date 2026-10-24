@@ -245,9 +245,14 @@ namespace Prism::Socks5
                 {
                     const auto Code = ObserveNativeError(ErrorCode);
                     if (Code == Prism::Fault::Code::Canceled) co_return Code;
+                    RequestRetirement();
                     co_return Prism::Fault::Code::Success;
                 }
-                if (!Size) co_return Prism::Fault::Code::Success;
+                if (!Size)
+                {
+                    RequestRetirement();
+                    co_return Prism::Fault::Code::Success;
+                }
                 const auto ControlPeer = BindGate_->ControlPeer();
                 if (!ControlPeer || ClientEp.address() != ControlPeer->address()) continue;
                 AcceptedDatagram Packet;
@@ -266,7 +271,15 @@ namespace Prism::Socks5
                 }
                 const auto Status = co_await Prism::Protocols::AwaitDatagramDeadline(
                     Exchange(Packet, Reply), {Ex_, Opts_.IdleTimeout});
-                if (Prism::Fault::Failed(Status)) co_return Status;
+                if (Prism::Fault::Failed(Status))
+                {
+                    // 先启动最终关闭以唤醒并发 TCP watcher，再等待它退栈完成 drain。
+                    if (Status == Prism::Fault::Code::Canceled)
+                        RequestCancellationRetirement();
+                    else
+                        RequestRetirement();
+                    co_return Status;
+                }
             }
         }
         catch (const boost::asio::multiple_exceptions& ErrorValue)
@@ -275,14 +288,18 @@ namespace Prism::Socks5
                 ErrorValue.first_exception());
             if (Cause.Code == Prism::Fault::Code::Canceled)
             {
+                RequestCancellationRetirement();
                 co_return Cause.Code;
             }
             Retirement_->RecordFailure(Cause);
+            RequestRetirement();
             co_return Cause.Code;
         }
         catch (...)
         {
-            co_return Retirement_->RecordException(std::current_exception()).Code;
+            const auto Cause = Retirement_->RecordException(std::current_exception());
+            RequestRetirement();
+            co_return Cause.Code;
         }
     }
 
@@ -402,6 +419,7 @@ namespace Prism::Socks5
             const auto Tcp = Retirement_->Tcp();
             if (!Tcp)
             {
+                RequestRetirement();
                 co_return Prism::Fault::Code::Success;
             }
             std::array<std::byte, 1> Probe{};
@@ -413,13 +431,17 @@ namespace Prism::Socks5
             if (Result.Failure.Native && Result.Failure.Code != Prism::Fault::Code::Eof)
             {
                 Retirement_->RecordFailure(Result.Failure);
+                RequestRetirement();
                 co_return Result.Failure.Code;
             }
+            RequestRetirement();
             co_return Prism::Fault::Code::Success;
         }
         catch (...)
         {
-            co_return Retirement_->RecordException(std::current_exception()).Code;
+            const auto Cause = Retirement_->RecordException(std::current_exception());
+            RequestRetirement();
+            co_return Cause.Code;
         }
     }
 
