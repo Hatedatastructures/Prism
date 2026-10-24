@@ -1,9 +1,0 @@
-# middleware 子模块测试
-AddPrismTest(MiddlewarePipelineTest.cpp)
-target_link_libraries(MiddlewarePipelineTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismTestSupport)
-AddPrismTest(PrismMiddlewareTest.cpp)
-target_link_libraries(PrismMiddlewareTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismTestSupport)
-AddPrismTest(TimeoutRelayTest.cpp)
-target_link_libraries(TimeoutRelayTest PRIVATE PrismTransport PrismRuntime PrismTestSupport)
-AddPrismTest(MiddlewareContextCoverageTest.cpp)
-target_link_libraries(MiddlewareContextCoverageTest PRIVATE PrismRuntime PrismTestSupport)

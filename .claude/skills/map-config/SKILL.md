@@ -7,15 +7,9 @@ description: 新增或修改 Prism 配置字段、Glaze 映射、默认值、校
 
 ## 当前配置链
 
-配置相关代码主要位于：
+当前配置类型、JSON 映射、解析与校验由 `Include/Prism/Application/Configuration/` 提供；实现、私有辅助头和 owner CMake 位于 `Src/Prism/Application/Configuration/`。默认配置文件是 `Include/Prism/Application/Configuration/PrismConfiguration.json`。
 
-- `include/prism/settings/settings.hpp`：配置结构和字段
-- `include/prism/settings/loader/load.hpp`：加载入口
-- `include/prism/settings/transformer/json.hpp`：JSON 转换
-- `include/prism/settings/validator.hpp`：值域和组合校验
-- `src/configuration.json`：默认配置示例
-
-修改前必须读取这些文件和所属 CMake，确认实际字段名、嵌套关系和资源所有者。
+配置字段若影响类型化协议或承载绑定，还要检查 `Include/Prism/Composition/` 与其 `Src/Prism/Composition/` owner。修改前读取实际被改文件及所属 CMake，以当前结构和调用者确认字段名、嵌套关系、默认值与资源所有者。
 
 ## 接入步骤
 
@@ -23,7 +17,7 @@ description: 新增或修改 Prism 配置字段、Glaze 映射、默认值、校
 2. 修改配置结构和 JSON 映射，确认字符串、数字、数组、对象和枚举的转换方式。
 3. 将非法值、缺失值、重复值和组合冲突放入 validator，而不是让运行时静默修正。
 4. 检查配置是否影响 process、worker、session 或协议级资源的生命周期。
-5. 更新 `src/configuration.json`，不得写入真实凭据、私钥或开发者本机路径。
+5. 更新当前默认配置示例 `Include/Prism/Application/Configuration/PrismConfiguration.json`，不得写入真实凭据、私钥或开发者本机路径。
 6. 增加映射、默认值、拒绝非法配置和兼容组合测试。
 
 ## 审计清单
@@ -36,7 +30,7 @@ description: 新增或修改 Prism 配置字段、Glaze 映射、默认值、校
 
 ## 验证
 
-优先运行 settings/loader/validator 测试，再运行受影响协议的集成测试。若变更涉及资源上限或池策略，补充 `audit-memory` 或 `pool-audit` 审计。
+优先运行 `Test/Prism/Application/Configuration/` 中的配置测试，再运行受影响协议的集成测试。若变更涉及资源上限或池策略，补充 `audit-memory` 或 `pool-audit` 审计。
 
 ## 相关 Skill
 

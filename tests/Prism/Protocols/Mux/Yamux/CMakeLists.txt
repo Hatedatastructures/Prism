@@ -1,2 +1,0 @@
-AddPrismTest(YamuxCodecError.cpp)
-target_link_libraries(YamuxCodecError PRIVATE PrismProtocolMux PrismTestSupport)

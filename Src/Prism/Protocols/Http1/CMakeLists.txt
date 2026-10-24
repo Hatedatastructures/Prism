@@ -1,0 +1,28 @@
+PrismAddStaticTarget(PrismProtocolHttp
+    SOURCES
+        Conn.cpp
+        IngressFactory.cpp
+        ForwardRequest.cpp
+        ForwardRequestTransport.cpp
+        ForwardRequestSource.cpp
+        ForwardRequestState.cpp
+        ForwardRequestFraming.cpp
+        ForwardRequestUpgrade.cpp
+        ForwardResponseTransport.cpp
+        Parser.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Binding.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Conn.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/ForwardRequest.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/ForwardRequestTransport.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/ForwardResponseTransport.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/IngressFactory.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Parser.hpp
+    PRIVATE_HEADERS
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/BasicAuthentication.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestFraming.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestSource.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestState.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestUpgrade.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ParserSupport.hpp
+)

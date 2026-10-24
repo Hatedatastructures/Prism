@@ -7,7 +7,7 @@ description: 用户要求分析 Prism forward.log、连接故障、DNS 延迟、
 
 ## 数据来源
 
-默认日志是 `logs/forward.log` 和 `logs/prism.log`。日志字段、时间精度、级别和消息格式必须先从 `src/prism/` 的实际输出代码确认；不能假设存在未定义的 `[Resolve]`、`[Pool]` 或 mux 标签。
+先从当前配置、启动参数和实际运行环境确认日志文件位置、轮转方式与时间范围，不假设日志文件一定存在或路径固定。字段和消息格式必须从当前 `Include/Prism/`、`Src/Prism/` 的真实日志调用点确认；从具体 sink 和字段 emitter 沿调用链追踪，并与对应模块测试交叉核对。不能依据旧源码路径或推测的标签解析日志。
 
 ## 分析流程
 

@@ -1,0 +1,47 @@
+# 共享传输 owner 与装饰层。
+PrismAddStaticTarget(PrismTransport
+    SOURCES
+        ActivityGroup.cpp
+        Encrypted.cpp
+        IoCompletion.cpp
+        IoActivity.cpp
+        MemoryStream.cpp
+        NativeTls.cpp
+        Pad.cpp
+        PadPolicy.cpp
+        Preview.cpp
+        Reliable.cpp
+        Replay.cpp
+        TlsStream.cpp
+        Transmission.cpp
+        TransmissionControl.cpp
+        Unreliable.cpp
+        Writer.cpp
+        Detail/PadDriver.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/ActivityGroupFactory.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Connector.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/IoActivity.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/IoCompletion.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/PadDriver.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/TrackedCompletion.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Encrypted.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/MemoryStream.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/NativeTls.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Pad.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/PadPolicy.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Preview.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Reliable.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Replay.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Stream.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/StreamAlgorithms.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Transmission.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/TlsStream.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Unreliable.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/WriteDriver.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Writer.hpp
+    PRIVATE_HEADERS
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Transport/Detail/TransmissionControl.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Transport/Detail/TlsOperations.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Transport/Detail/TlsEngine.hpp
+)

@@ -6,6 +6,7 @@ build_options.*
 !.agents/
 !.agents/skills/
 !.agents/skills/**
+/.agents/
 config.log
 *.o
 build/
@@ -16,6 +17,8 @@ _external/
 !.gitignore
 !.gitattributes
 !.clang-format
+!.clang-tidy
+!.clang-tidy-safe
 !.claude
 .claude/plan/
 *.so

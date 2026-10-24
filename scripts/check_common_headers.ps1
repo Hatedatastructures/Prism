@@ -1,188 +1,169 @@
-# check-common-headers.ps1 - G7 gate: Prism header ownership completeness
+# check-common-headers.ps1 - Prism Include/Src HPP ownership gate.
 # Usage: pwsh scripts/check_common_headers.ps1 [-RepoRoot <path>]
-# Checks Prism module roots and the current tests/Prism support tree.
-# headers against their owning target_sources blocks.
-# Exit code: 0 = pass, 1 = gate failure
 
-param(
-    [string]$RepoRoot = ""
-)
+param([string]$RepoRoot = "")
 
 $ErrorActionPreference = "Stop"
-
 if (-not $RepoRoot) {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 }
 
-$prismRoots = @(
-    (Join-Path $RepoRoot "Prism/Account")
-    (Join-Path $RepoRoot "Prism/Application")
-    (Join-Path $RepoRoot "Prism/Boundary")
-    (Join-Path $RepoRoot "Prism/Composition")
-    (Join-Path $RepoRoot "Prism/Contract")
-    (Join-Path $RepoRoot "Prism/Foundation")
-    (Join-Path $RepoRoot "Prism/Lifecycle")
-    (Join-Path $RepoRoot "Prism/Net")
-    (Join-Path $RepoRoot "Prism/Operations")
-    (Join-Path $RepoRoot "Prism/Protocols")
-    (Join-Path $RepoRoot "Prism/Resource")
-    (Join-Path $RepoRoot "Prism/Runtime")
-    (Join-Path $RepoRoot "Prism/Statistics")
-    (Join-Path $RepoRoot "Prism/Transport")
-)
-$testSupportDir = Join-Path $RepoRoot "tests/TestSupport"
-$experimentDir = Join-Path $RepoRoot "tests/Experiments/Prism"
-$prismCmake = Join-Path $RepoRoot "Prism/CMakeLists.txt"
-$testSupportCmake = Join-Path $testSupportDir "CMakeLists.txt"
-
-$requiredPaths = $prismRoots + @(
-    $testSupportDir
-    $prismCmake
-    $testSupportCmake
-)
+$IncludeRoot = Join-Path $RepoRoot "Include/Prism"
+$SourceRoot = Join-Path $RepoRoot "Src/Prism"
+$TestSupportDir = Join-Path $RepoRoot "Test/TestSupport"
+$ExperimentDir = Join-Path $RepoRoot "Test/Experiments/Prism"
+$ProductionCmakeRoot = Join-Path $RepoRoot "Src/Prism"
+$TestSupportCmake = Join-Path $TestSupportDir "CMakeLists.txt"
+$RequiredPaths = @($IncludeRoot, $SourceRoot, $TestSupportDir, $ProductionCmakeRoot, $TestSupportCmake)
 
 function Assert-ExactPathCase {
     param([string]$Path)
-
-    $fullPath = [IO.Path]::GetFullPath($Path)
-    if (-not (Test-Path -LiteralPath $fullPath)) {
-        throw "Required path not found: $fullPath"
-    }
-
-    $current = [IO.Path]::GetPathRoot($fullPath)
-    $relative = ($fullPath.Substring($current.Length) -replace '^[\\/]+', '')
-    foreach ($component in ($relative -split '[\\/]')) {
-        if ([string]::IsNullOrEmpty($component)) {
-            continue
-        }
-        $entry = Get-ChildItem -LiteralPath $current -Force |
-            Where-Object { $_.Name -ceq $component } |
-            Select-Object -First 1
-        if (-not $entry) {
-            throw "Path case mismatch: requested '$fullPath' but '$current' has no exact entry '$component'"
-        }
-        $current = Join-Path $current $component
+    $FullPath = [IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $FullPath)) { throw "Required path not found: $FullPath" }
+    $Current = [IO.Path]::GetPathRoot($FullPath)
+    $Relative = $FullPath.Substring($Current.Length) -replace '^[\\/]+', ''
+    foreach ($Component in ($Relative -split '[\\/]')) {
+        if ([string]::IsNullOrEmpty($Component)) { continue }
+        $Entry = Get-ChildItem -LiteralPath $Current -Force |
+            Where-Object { $_.Name -ceq $Component } | Select-Object -First 1
+        if (-not $Entry) { throw "Path case mismatch: requested '$FullPath', missing exact entry '$Component' in '$Current'" }
+        $Current = Join-Path $Current $Component
     }
 }
 
-foreach ($requiredPath in $requiredPaths) {
-    Assert-ExactPathCase $requiredPath
+foreach ($RequiredPath in $RequiredPaths) { Assert-ExactPathCase $RequiredPath }
+
+function Convert-ToRepoRelativePath {
+    param([string]$Token, [string]$BaseDirectory)
+    $Value = $Token.Trim('"', "'")
+    $Value = $Value.Replace('${PROJECT_SOURCE_DIR}/', "$RepoRoot/")
+    $Value = $Value.Replace('${CMAKE_SOURCE_DIR}/', "$RepoRoot/")
+    $Value = $Value.Replace('${CMAKE_CURRENT_SOURCE_DIR}/', "$BaseDirectory/")
+    if (-not [IO.Path]::IsPathRooted($Value)) { $Value = Join-Path $BaseDirectory $Value }
+    return [IO.Path]::GetRelativePath($RepoRoot, [IO.Path]::GetFullPath($Value)).Replace('\', '/')
 }
 
-function Get-TargetSources {
-    param(
-        [string]$CmakeFile,
-        [string]$PathPrefix
-    )
+function Get-ProductionHeaderRegistrations {
+    param([string]$CmakeFile)
+    $Text = [IO.File]::ReadAllText($CmakeFile)
+    $Directory = Split-Path -Parent $CmakeFile
+    $Variables = @{}
+    foreach ($SetMatch in [regex]::Matches($Text, '(?is)\bset\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*(.*?)\)')) {
+        $Name = $SetMatch.Groups[1].Value
+        $Values = @()
+        foreach ($ValueMatch in [regex]::Matches($SetMatch.Groups[2].Value, '"[^"]*"|\S+')) {
+            $Value = $ValueMatch.Value.Trim('"', "'")
+            if ($Value -match '\.hpp$') { $Values += $Value }
+        }
+        if ($Values.Count -gt 0) { $Variables[$Name] = $Values }
+    }
 
-    $registrations = @()
-    $activeTarget = ""
-    $insideTargetSources = $false
-    foreach ($rawLine in Get-Content $CmakeFile -Encoding UTF8) {
-        $line = $rawLine.Trim()
-        if ($line -match '^(?:target_sources|add_library|add_executable)\(\s*([A-Za-z][A-Za-z0-9_]*)(?:\s+(?:(?:INTERFACE|PUBLIC|PRIVATE|STATIC|SHARED|MODULE|OBJECT)\s*))?$') {
-            $activeTarget = $Matches[1]
-            $insideTargetSources = $true
-            continue
-        }
-        if (-not $insideTargetSources) { continue }
-        if ($line -eq ')') {
-            $activeTarget = ""
-            $insideTargetSources = $false
-            continue
-        }
-        $sourceLine = $line.TrimEnd(')').Trim('"')
-        if ($sourceLine -match '^\$\{(?:CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/(tests/Experiments/Prism/[A-Za-z0-9_/.-]+\.hpp)$') {
-            $registrations += [pscustomobject]@{
-                Target = $activeTarget
-                Path = $Matches[1]
+    $Registrations = @()
+    foreach ($TargetMatch in [regex]::Matches($Text, '(?is)PrismAdd(?:Interface|Static)Target\s*\((.*?)\)')) {
+        $Tokens = @([regex]::Matches($TargetMatch.Groups[1].Value, '"[^"]*"|\S+') |
+            ForEach-Object { $_.Value.Trim('"', "'") })
+        if ($Tokens.Count -lt 1) { continue }
+        $Target = $Tokens[0]
+        $Section = ""
+        foreach ($Token in $Tokens | Select-Object -Skip 1) {
+            if ($Token -in @('HEADERS', 'PRIVATE_HEADERS', 'SOURCES')) {
+                $Section = $Token
+                continue
             }
-            continue
-        }
-        if ($line -match '^([A-Za-z0-9_/.-]+\.hpp)\)?$') {
-            $registrations += [pscustomobject]@{
-                Target = $activeTarget
-                Path = "$PathPrefix/$($Matches[1])"
+            if ($Section -notin @('HEADERS', 'PRIVATE_HEADERS')) { continue }
+            if ($Token -match '^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$') {
+                foreach ($Expanded in $Variables[$Matches[1]]) {
+                    if ($Expanded -match '\.hpp$') {
+                        $Registrations += [pscustomobject]@{
+                            Target = $Target
+                            Path = Convert-ToRepoRelativePath $Expanded $Directory
+                        }
+                    }
+                }
+                continue
+            }
+            if ($Token -match '\.hpp$') {
+                $Registrations += [pscustomobject]@{
+                    Target = $Target
+                    Path = Convert-ToRepoRelativePath $Token $Directory
+                }
             }
         }
     }
-    return $registrations
+    return $Registrations
 }
 
-# 1. Collect public headers in the active Prism and test support roots.
-$diskFiles = @()
-$sourceRoots = $prismRoots + @($testSupportDir, $experimentDir)
-foreach ($sourceRoot in $sourceRoots) {
-    $diskFiles += Get-ChildItem -Path $sourceRoot -Recurse -Filter *.hpp -File |
-        ForEach-Object {
-            $_.FullName.Substring($RepoRoot.Length + 1).Replace("\", "/")
+function Get-LegacyTargetSources {
+    param([string]$CmakeFile, [string]$PathPrefix)
+    $Registrations = @()
+    $Directory = Split-Path -Parent $CmakeFile
+    $Text = [IO.File]::ReadAllText($CmakeFile, [Text.Encoding]::UTF8) -replace '(?m)^[ \t]*#.*$', ''
+    foreach ($TargetSources in [regex]::Matches($Text, '(?is)\btarget_sources\s*\(\s*([A-Za-z][A-Za-z0-9_]*)\s+(?:INTERFACE|PUBLIC|PRIVATE)\s+(.*?)\)')) {
+        $Target = $TargetSources.Groups[1].Value
+        foreach ($TokenMatch in [regex]::Matches($TargetSources.Groups[2].Value, '"[^"]*"|\S+')) {
+            $Token = $TokenMatch.Value.Trim('"', "'")
+            if ($Token -notmatch '\.hpp$') { continue }
+            $Path = Convert-ToRepoRelativePath $Token $Directory
+            $Registrations += [pscustomobject]@{ Target = $Target; Path = $Path }
         }
+    }
+    return $Registrations
 }
-$diskFiles = $diskFiles | Sort-Object -Unique
 
-# 2. Parse target_sources from both CMake owners.
-$registrations = @()
-$prismCmakeFiles = Get-ChildItem -LiteralPath (Join-Path $RepoRoot "Prism") -Recurse -Filter CMakeLists.txt -File
-foreach ($CmakeFile in $prismCmakeFiles) {
-    $Directory = Split-Path -Parent $CmakeFile.FullName
-    $PathPrefix = $Directory.Substring($RepoRoot.Length + 1).Replace("\", "/")
-    $registrations += Get-TargetSources $CmakeFile.FullName $PathPrefix
+$DiskFiles = @()
+foreach ($Root in @($IncludeRoot, $SourceRoot, $TestSupportDir, $ExperimentDir)) {
+    if (Test-Path -LiteralPath $Root -PathType Container) {
+        $DiskFiles += Get-ChildItem -LiteralPath $Root -Recurse -Filter '*.hpp' -File |
+            ForEach-Object { [IO.Path]::GetRelativePath($RepoRoot, $_.FullName).Replace('\', '/') }
+    }
 }
-$registrations += Get-TargetSources $testSupportCmake "tests/TestSupport"
-Get-ChildItem -LiteralPath (Join-Path $RepoRoot "tests/Prism") -Recurse -Filter CMakeLists.txt -File |
-    ForEach-Object {
+$DiskFiles = $DiskFiles | Sort-Object -Unique
+
+$Registrations = @()
+Get-ChildItem -LiteralPath $ProductionCmakeRoot -Recurse -Filter CMakeLists.txt -File |
+    ForEach-Object { $Registrations += Get-ProductionHeaderRegistrations $_.FullName }
+$Registrations += Get-LegacyTargetSources $TestSupportCmake 'Test/TestSupport'
+if (Test-Path -LiteralPath $ExperimentDir -PathType Container) {
+    Get-ChildItem -LiteralPath $ExperimentDir -Recurse -Filter CMakeLists.txt -File | ForEach-Object {
         $Directory = Split-Path -Parent $_.FullName
-        $PathPrefix = $Directory.Substring($RepoRoot.Length + 1).Replace("\", "/")
-        $registrations += Get-TargetSources $_.FullName $PathPrefix |
-            Where-Object { $_.Path.StartsWith('tests/Experiments/Prism/') }
+        $Prefix = [IO.Path]::GetRelativePath($RepoRoot, $Directory).Replace('\', '/')
+        $Registrations += Get-LegacyTargetSources $_.FullName $Prefix
     }
-$cmakeEntries = $registrations | ForEach-Object { $_.Path }
-$allowedTargetPattern = '^(Prism[A-Za-z0-9]*|TestSupport|Experimental[A-Za-z0-9]*)$'
-$problems = @()
-
-$unknownTargets = $registrations | Where-Object {
-    $_.Target -notmatch $allowedTargetPattern -and
-    !$_.Path.StartsWith('tests/Experiments/Prism/')
 }
-if ($unknownTargets) {
-    $problems += "UNKNOWN TARGET (header registered on a non-module target):"
-    $problems += $unknownTargets | ForEach-Object { "  $($_.Target): $($_.Path)" }
-}
+$CmakeEntries = $Registrations | ForEach-Object { $_.Path }
+$AllowedTargetPattern = '^(Prism[A-Za-z0-9]*|TestSupport|Experimental[A-Za-z0-9]*)$'
+$Problems = @()
 
-$ownerGroups = $registrations | Group-Object -Property Path
-$ownedExactlyOnce = $ownerGroups |
-    Where-Object Count -eq 1 |
-    ForEach-Object { $_.Name }
-$missing = $diskFiles | Where-Object { $ownedExactlyOnce -cnotcontains $_ }
-if ($missing) {
-    $problems += "MISSING OR NOT UNIQUELY OWNED (on disk but not registered exactly once):"
-    $problems += $missing | ForEach-Object { "  $_" }
+$UnknownTargets = $Registrations | Where-Object { $_.Target -notmatch $AllowedTargetPattern }
+if ($UnknownTargets) {
+    $Problems += 'UNKNOWN TARGET (header registered on a non-module target):'
+    $Problems += $UnknownTargets | ForEach-Object { "  $($_.Target): $($_.Path)" }
 }
-
-$stale = $cmakeEntries | Sort-Object -Unique |
-    Where-Object { $diskFiles -cnotcontains $_ }
-if ($stale) {
-    $problems += "STALE (registered but missing on disk):"
-    $problems += $stale | ForEach-Object { "  $_" }
+$OwnerGroups = $Registrations | Group-Object -Property Path
+$OwnedExactlyOnce = $OwnerGroups | Where-Object Count -eq 1 | ForEach-Object { $_.Name }
+$Missing = $DiskFiles | Where-Object { $OwnedExactlyOnce -cnotcontains $_ }
+if ($Missing) {
+    $Problems += 'MISSING OR NOT UNIQUELY OWNED (on disk but not registered exactly once):'
+    $Problems += $Missing | ForEach-Object { "  $_" }
 }
-
-$duplicates = $registrations | Group-Object -Property Path |
-    Where-Object Count -gt 1
-if ($duplicates) {
-    $problems += "DUPLICATE (registered more than once):"
-    $problems += $duplicates | ForEach-Object {
-        $owners = ($_.Group | ForEach-Object { $_.Target }) -join ', '
-        "  $($_.Count)x $($_.Name) [$owners]"
+$Stale = $CmakeEntries | Sort-Object -Unique | Where-Object { $DiskFiles -cnotcontains $_ }
+if ($Stale) {
+    $Problems += 'STALE (registered but missing on disk):'
+    $Problems += $Stale | ForEach-Object { "  $_" }
+}
+$Duplicates = $Registrations | Group-Object -Property Path | Where-Object Count -gt 1
+if ($Duplicates) {
+    $Problems += 'DUPLICATE (registered more than once):'
+    $Problems += $Duplicates | ForEach-Object {
+        $Owners = ($_.Group | ForEach-Object { $_.Target }) -join ', '
+        "  $($_.Count)x $($_.Name) [$Owners]"
     }
 }
 
-if ($problems.Count -gt 0) {
-    Write-Host "G7 gate FAILED:" -ForegroundColor Red
-    $problems | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
-    Write-Host ""
-    Write-Host "Fix: assign each public header to exactly one module target_sources block"
+if ($Problems.Count -gt 0) {
+    $Problems | ForEach-Object { Write-Output $_ }
+    Write-Output "Prism Include/Src ownership gate FAILED: $($Problems.Count) issue(s)"
     exit 1
 }
-
-Write-Host "G7 gate passed: $($diskFiles.Count) headers, $($registrations.Count) owned entries"
+Write-Output "Prism Include/Src ownership gate passed: $($DiskFiles.Count) headers, each registered exactly once; public headers, private headers, TestSupport, and experiment headers checked"
 exit 0

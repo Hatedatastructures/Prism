@@ -4,9 +4,8 @@ import path from "node:path";
 // 校验 SDD 台账与 logs/issues.md 中引用的**仓库内文件路径**是否真实存在。
 // 动机：本会话三次因"按引用文本拼路径"产出错误坐标（少 Detail/、把 Http3 根目录文件写成 Qpack/ 子目录等）。
 // 用法：node scripts/check_prism_doc_paths.mjs [--full]
-// 门禁默认只扫「本计划工作区 + 问题账 + Prism 自带的 README」；repo 文档整体陈旧度用 --include-docs 单独量（属 M36 台账更新待办，不混入门禁退出码）。
-// Prism/ 必须进默认面：docs/ 的多份文档把 `Prism/README.md` 指为**当前**入口，而它此前不在任何坐标校验范围内。
-const dirs = [".superpowers/sdd/2026-10-09-preview-quality-modification-plan", "logs", "Prism"];
+// 门禁默认只扫「本计划工作区 + 问题账 + Include/Src 生产树」；repo 文档整体陈旧度用 --include-docs 单独量。
+const dirs = [".superpowers/sdd/2026-10-09-preview-quality-modification-plan", "logs", "Include/Prism", "Src/Prism"];
 if (process.argv.includes("--include-docs")) dirs.push("docs");
 const full = process.argv.includes("--full");
 const existsCache = new Map();
@@ -19,7 +18,7 @@ function exists(rel) {
 }
 
 // 存在性必须**精确到大小写**：本仓库在 Windows（core.ignorecase=true）上开发，
-// fs.existsSync 对 `tests/prism/` 这种只错大小写的写法同样返回 true，
+// fs.existsSync 对 `Test/prism/` 这种只错大小写的写法同样返回 true，
 // 而 Linux CI 与 MinGW 之外的编译器会直接找不到文件。
 const exactCache = new Map();
 function existsExact(rel) {
@@ -39,7 +38,7 @@ function existsExact(rel) {
 }
 
 // 只认带扩展名的仓库相对路径；反引号/空格/中文顿号作为边界
-const refRe = /(?:Prism|tests|scripts|docs|src|include)\/[A-Za-z0-9_.\/-]*\.(?:hpp|cpp|json|md|txt|cmake|ps1|sh|mjs)/g;
+const refRe = /(?:Include\/Prism|Src\/Prism|Prism|tests|scripts|docs|src|include)\/[A-Za-z0-9_.\/-]*\.(?:hpp|cpp|json|md|txt|cmake|ps1|sh|mjs)/g;
 
 const bad = [];
 let checked = 0;
@@ -55,8 +54,7 @@ const retiredDirs = new Set([...deletedSet].map((p) => p.split("/").slice(0, -1)
 const isRetired = (p) => deletedSet.has(p) || [...retiredDirs].some((d) => d && (p === d || p.startsWith(d + "/")));
 
 const buckets = { retired: [], mainOnly: [], wrongPath: [], unknown: [], caseMismatch: [], historical: [] };
-// 双树引用是合法写法（例如「主树仍在 Protocols/Http1/，执行树已移到 Foundation/Utility/Http/」）。
-// 因此执行树里不存在、主树里存在的路径单独归一类，不算笔误。
+// 双树引用是合法写法；执行树里不存在、主树里存在的路径单独归一类，不算笔误。
 const MAIN_ROOT = process.env.PRISM_MAIN_TREE || "I:/code/Prism";
 // 主树存在性也必须**逐段大小写校核**：`fs.existsSync` 在 Windows 上大小写不敏感，
 // 会把「主树只有 Protocols/」与「主树只有 protocols/」两种事实判成一样，从而把真实错拼

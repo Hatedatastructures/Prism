@@ -56,11 +56,77 @@ function Assert-TrusttunnelReadinessContract {
         'Wait-TcpReady\s+''127\.0\.0\.1''\s+\$TrusttunnelPort\s+-ProcessId\s+\$GoServerProcess\.Id') `
         'Go TrustTunnel readiness is bound to the launched process'
     Assert-Equal $true ($TrusttunnelFunctionSource -match
+        'Wait-OutputReady\s+\$CppServerProcess\s+\$CppOut') `
+        'Prism TrustTunnel readiness uses its server READY record'
+    Assert-Equal $false ($TrusttunnelFunctionSource -match
         'Wait-TcpReady\s+''127\.0\.0\.1''\s+\$TrusttunnelPort\s+-ProcessId\s+\$CppServerProcess\.Id') `
-        'Prism TrustTunnel readiness is bound to the launched process'
+        'Prism TrustTunnel readiness does not consume its single accepted connection'
 }
 
 Assert-TrusttunnelReadinessContract
+
+function Assert-ServerReadinessResultContract {
+    $SourcePath = Join-Path $PSScriptRoot 'Run-Matrix.ps1'
+    $Source = Get-Content -LiteralPath $SourcePath -Raw -ErrorAction Stop
+    $ReadinessFunctionSource = [regex]::Match(
+        $Source,
+        '(?ms)^function Add-ServerReadinessResult \{.*?(?=^function Invoke-TrojanInterop \{)'
+    ).Value
+    Assert-Equal $true ($ReadinessFunctionSource.Length -gt 0) 'server readiness result function source'
+    Assert-Equal $true ($ReadinessFunctionSource -match
+        '\$ResultStatus\s*=\s*if\s*\(\$Exited\)\s*\{\s*''server-start-failure''\s*\}\s*else\s*\{\s*''environment-unavailable''\s*\}') `
+        'early server exit and unconfirmed readiness have distinct statuses'
+    Assert-Equal $true ($ReadinessFunctionSource -match
+        '(?s)\$ExitCode\s*=\s*if\s*\(\$Exited\).*?\$ServerExitCode\s*-ne\s*0.*?\$ServerExitCode.*?127') `
+        'early server exit preserves nonzero code while readiness timeout is blocked'
+    Assert-Equal $true ($ReadinessFunctionSource -match "client_status\s*=\s*'not-run'") `
+        'readiness failure records client as not run'
+    Assert-Equal $true ($ReadinessFunctionSource -match 'server_exit_code\s*=\s*\$ServerExitCode') `
+        'readiness result preserves server exit code'
+    Assert-Equal $false ($ReadinessFunctionSource -match '''protocol-failure''') `
+        'pre-client server readiness failures are not protocol failures'
+
+    $SummarySource = [regex]::Match(
+        $Source,
+        '(?ms)^\$Summary = \[ordered\]@\{.*?^\}'
+    ).Value
+    Assert-Equal $true ($SummarySource -match
+        'server_start_failed\s*=\s*@\(\$Results\s*\|\s*Where-Object\s*\{\s*\$_.status\s*-eq\s*''server-start-failure''') `
+        'summary separately counts server start failures'
+    Assert-Equal $true ($SummarySource -match
+        'failed\s*=\s*@\(\$Results\s*\|\s*Where-Object\s*\{\s*\$_.status\s*-in\s*@\(''protocol-failure'',\s*''implementation-mismatch'',\s*''server-start-failure''\)') `
+        'server start failures remain included in Gate D failed count'
+    Assert-Equal $true ($SummarySource -match
+        'blocked\s*=\s*@\(\$Results\s*\|\s*Where-Object\s*\{\s*\$_.status\s*-in\s*@\(''environment-unavailable''') `
+        'unconfirmed readiness remains included in blocked count'
+
+    Assert-Equal $true ($Source -match
+        '(?s)\$Summary\.gate_d_classification\s*=\s*if\s*\(\$Summary\.failed\s*-gt\s*0\)\s*\{\s*''failed''') `
+        'Gate D gives server start failures the hard-failure classification'
+    Assert-Equal $true ($Source -match
+        '(?s)\$Summary\.gate_d_classification.*?\$Summary\.blocked\s*-gt\s*0\)\s*\{\s*''prism-only-blocked''') `
+        'Gate D preserves environment-unavailable as blocked'
+}
+
+Assert-ServerReadinessResultContract
+
+function Assert-TuicReferenceServerImplementationContract {
+    $SourcePath = Join-Path $PSScriptRoot 'Run-Matrix.ps1'
+    $Source = Get-Content -LiteralPath $SourcePath -Raw -ErrorAction Stop
+    $TuicFunctionSource = [regex]::Match(
+        $Source,
+        '(?ms)^function Invoke-TuicInterop \{.*?(?=^function Invoke-Hysteria2Interop \{)'
+    ).Value
+    Assert-Equal $true ($TuicFunctionSource.Length -gt 0) 'TUIC interop function source'
+
+    $ReverseReferencePattern = '(?ms)\$GoServerProcess\s*=\s*Start-Process\s+-FilePath\s+\$TuicGoServer.*?Invoke-InteropCase\s+-Executable\s+\$TuicCpp.*?-Direction\s+''prism-client-to-reference-server''.*?-Implementation\s+''go-quic-tuic-reference-server'''
+    Assert-Equal $true ($TuicFunctionSource -match $ReverseReferencePattern) `
+        'TUIC reverse case label identifies its Go reference server and Prism client'
+    Assert-Equal $false ($TuicFunctionSource -match "mihomo-tuic-v5-reference-tcp-udp") `
+        'TUIC reverse case does not claim a Mihomo implementation'
+}
+
+Assert-TuicReferenceServerImplementationContract
 if ($StaticOnly) {
     Write-Output 'PASS: InteropRunner static contracts'
     return
@@ -73,7 +139,7 @@ Assert-Equal 'environment-unavailable' (Get-InteropStatus -ExitCode 127 -Output 
 Assert-Equal 'interface-gap' (Get-InteropStatus -ExitCode 2 -Output 'BLOCKED: interface-gap: missing stream API') 'interface gap marker'
 Assert-Equal 'blocked-production-prerequisite' (Get-InteropStatus -ExitCode 0 -Output '' -BlockedProductionPrerequisite) 'blocked prerequisite wins'
 Assert-Equal 'prism-only' (Get-InteropMatrixScope -PrismExe '') 'prism-only matrix scope'
-Assert-Equal 'full' (Get-InteropMatrixScope -PrismExe 'build/Prism.exe') 'full matrix scope'
+Assert-Equal 'full' (Get-InteropMatrixScope -PrismExe 'build/src/Prism.exe') 'full matrix scope'
 Assert-Equal 'production-blocked' (Get-GateDClassification -Scope full -Status blocked-production-prerequisite) 'full gate blocks production prerequisite'
 Assert-Equal 'prism-only-blocked' (Get-GateDClassification -Scope prism-only -Status blocked-production-prerequisite) 'prism-only gate classifies production prerequisite'
 Assert-Equal 'prism-only-blocked' (Get-GateDClassification -Scope prism-only -Status environment-unavailable) 'prism-only gate classifies missing environment'

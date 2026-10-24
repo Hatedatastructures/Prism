@@ -1,5 +1,5 @@
 # PrismPreview verified Mihomo/Clash runtime matrix.
-# Server target: 192.168.0.106:18080
+# Server target: 127.0.0.1:18080
 # Active nodes are real TCP paths; Verified nodes have exact client/server payload evidence.
 # AnyTLS uses its own application mux. Generic mux is advertised only for
 # VLESS Smux/Yamux/H2Mux, VMess Yamux and Trojan Smux.
@@ -9,13 +9,13 @@
 # No URL-test health group is configured; isolated validation owns health and payload checks.
 
 # 全局端口设置
-mixed-port: 7890
-socks-port: 7891
-allow-lan: true                # 允许局域网连接（手机可通过局域网IP连接）
-bind-address: '*'              # 监听所有网卡
+mixed-port: 0
+socks-port: 0
+allow-lan: false               # 隔离测试仅允许本机回环
+bind-address: 127.0.0.1         # 隔离测试仅监听回环
 mode: rule
 log-level: info
-external-controller: 192.168.0.106:19091
+external-controller: 127.0.0.1:19091
 
 # DNS 设置
 # 测试：当前开发环境没有ipv6，只能使用v4
@@ -38,7 +38,7 @@ dns:
 # SOCKS5 outbound 的 TLS ServerName 由 Mihomo 的 server 字段决定；
 # 该别名只用于本地协议测试，hosts 解析仍指向本机受控 listener。
 hosts:
-  socks5.preview: 192.168.0.106
+  socks5.preview: 127.0.0.1
 
 # ---------- carrier routing notes ----------
 # The SNI mappings below describe staged carrier variants only:
@@ -60,7 +60,7 @@ hosts:
 proxies:
   - name: "SOCKS5 TCP Cert" # status: active
     type: socks5
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     username: "local"
     password: "PrismPreview-106-20260914"
@@ -69,7 +69,7 @@ proxies:
 
   - name: "SOCKS5 UDP Cert" # status: verified-manual
     type: socks5
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     username: "local"
     password: "PrismPreview-106-20260914"
@@ -90,7 +90,7 @@ proxies:
 
   - name: "Http" # status: active
     type: http
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     username: local
     password: "PrismPreview-106-20260914"
@@ -100,7 +100,7 @@ proxies:
 
   - name: "HTTP Native TLS" # status: verified-manual
     type: http
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     username: local
     password: "PrismPreview-106-20260914"
@@ -111,7 +111,7 @@ proxies:
 
   - name: "Trojan Native TLS TCP" # status: active
     type: trojan
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "PrismPreview-106-20260914"
     tls: true
@@ -121,7 +121,7 @@ proxies:
 
   - name: "VMess Native TLS TCP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -139,7 +139,7 @@ proxies:
 
   - name: "SS2022 TCP" # status: active
     type: ss
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
@@ -148,7 +148,7 @@ proxies:
 
   - name: "SS2022 UDP" # status: verified-manual
     type: ss
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
@@ -157,7 +157,7 @@ proxies:
 
   - name: "SS2022 ShadowTLS TCP" # status: verified-manual
     type: ss
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
@@ -171,7 +171,7 @@ proxies:
 
   - name: "SS2022 Restls TLS13 TCP" # status: verified-manual
     type: ss
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
@@ -185,7 +185,7 @@ proxies:
 
   - name: "VLESS TCP" # status: active
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -195,7 +195,7 @@ proxies:
 
   - name: "VLESS UDP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -205,7 +205,7 @@ proxies:
 
   - name: "VLESS Native TLS TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -217,7 +217,7 @@ proxies:
 
   - name: "VLESS Smux TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -233,7 +233,7 @@ proxies:
 
   - name: "VLESS Yamux TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -249,7 +249,7 @@ proxies:
 
   - name: "VLESS H2Mux TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -265,7 +265,7 @@ proxies:
 
   - name: "VLESS Reality TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -281,7 +281,7 @@ proxies:
 
   - name: "AnyTLS TCP" # status: verified-manual
     type: anytls
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "anytls_password"         # 认证密码: 与服务端 users.password 一致
     sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
@@ -291,7 +291,7 @@ proxies:
 
   - name: "VMess TCP" # status: active
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -303,7 +303,7 @@ proxies:
 
   - name: "VMess UDP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -315,7 +315,7 @@ proxies:
 
   - name: "VMess Yamux TCP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -333,7 +333,7 @@ proxies:
 
   - name: "VMess Reality TCP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -353,21 +353,25 @@ proxies:
 
   - name: "Hysteria2 QUIC" # status: verified-manual
     type: hysteria2
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     udp: true
     password: "hysteria2_password"
     sni: "hysteria2-gateway-e2e"
     skip-cert-verify: true
+    alpn:
+      - h3
 
   - name: "TUIC v5 QUIC" # status: server-side pending
     type: tuic
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     password: "tuic_password"
     sni: "tuic-gateway-e2e"
     skip-cert-verify: true
+    alpn:
+      - h3
     udp: true
 
   # VLESS Reality connection-limit variants (max-connections and max-streams
@@ -375,7 +379,7 @@ proxies:
 
   - name: "Trojan Reality TCP" # status: verified-manual
     type: trojan
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "PrismPreview-106-20260914"
     tls: true
@@ -390,7 +394,7 @@ proxies:
 
   - name: "Trojan Smux TCP" # status: verified-manual
     type: trojan
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "PrismPreview-106-20260914"
     tls: true
@@ -404,7 +408,7 @@ proxies:
 
   - name: "VLESS Smux 1Conn TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -420,7 +424,7 @@ proxies:
 
   - name: "VLESS Smux 4Conn TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -436,7 +440,7 @@ proxies:
 
   - name: "VLESS Smux 64Streams TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -452,7 +456,7 @@ proxies:
 
   - name: "VLESS Smux 256Streams TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -468,7 +472,7 @@ proxies:
 
   - name: "VLESS Yamux 1Conn TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -484,7 +488,7 @@ proxies:
 
   - name: "VLESS Yamux 4Conn TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -500,7 +504,7 @@ proxies:
 
   - name: "VLESS Yamux 64Streams TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -516,7 +520,7 @@ proxies:
 
   - name: "VLESS Yamux 256Streams TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -532,7 +536,7 @@ proxies:
 
   - name: "VLESS H2Mux 1Conn TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -548,7 +552,7 @@ proxies:
 
   - name: "VLESS H2Mux 4Conn TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -564,7 +568,7 @@ proxies:
 
   - name: "VLESS H2Mux 64Streams TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -580,7 +584,7 @@ proxies:
 
   - name: "VLESS H2Mux 256Streams TCP" # status: verified-manual
     type: vless
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
@@ -596,7 +600,7 @@ proxies:
 
   - name: "VMess Yamux 1Conn TCP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -614,7 +618,7 @@ proxies:
 
   - name: "VMess Yamux 4Conn TCP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -632,7 +636,7 @@ proxies:
 
   - name: "VMess Yamux 64Streams TCP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -650,7 +654,7 @@ proxies:
 
   - name: "VMess Yamux 256Streams TCP" # status: verified-manual
     type: vmess
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     alterId: 0
@@ -668,7 +672,7 @@ proxies:
 
   - name: "Trojan Smux 1Conn TCP" # status: verified-manual
     type: trojan
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "PrismPreview-106-20260914"
     tls: true
@@ -683,7 +687,7 @@ proxies:
 
   - name: "Trojan Smux 4Conn TCP" # status: verified-manual
     type: trojan
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "PrismPreview-106-20260914"
     tls: true
@@ -698,7 +702,7 @@ proxies:
 
   - name: "Trojan Smux 64Streams TCP" # status: verified-manual
     type: trojan
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "PrismPreview-106-20260914"
     tls: true
@@ -713,7 +717,7 @@ proxies:
 
   - name: "Trojan Smux 256Streams TCP" # status: verified-manual
     type: trojan
-    server: 192.168.0.106
+    server: 127.0.0.1
     port: 18080
     password: "PrismPreview-106-20260914"
     tls: true

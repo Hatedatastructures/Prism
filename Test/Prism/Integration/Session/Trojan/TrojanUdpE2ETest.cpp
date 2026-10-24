@@ -1,0 +1,626 @@
+/**
+ * @file TrojanUdpE2ETest.cpp
+ * @brief Trojan UDP_ASSOCIATE 纵向测试（链 P：数据面经 adapter 接入缝）
+ * @details Trojan UDP 命令经 adapter::MakeAcceptTrojan 置 is_dgram 并包装
+ *          Dgram 数据面；udp_service 在 Dgram（TCP 承载）与真实 UDP 间中继。
+ *          复用 Runtime::Session 的协议无关 Dgram 分支。
+ */
+
+#include <gtest/gtest.h>
+#include <Prism/Contract/Services/Datagram.hpp>
+#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/udp.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <Prism/Foundation/Fault/Code.hpp>
+#include <Prism/Runtime/Middleware/Context.hpp>
+#include <Prism/Net/Dialer/Dialer.hpp>
+#include <Prism/Protocols/Anytls/IngressFactory.hpp>
+#include <Prism/Protocols/Vless/IngressFactory.hpp>
+#include <Prism/Protocols/Trojan/IngressFactory.hpp>
+#include <Prism/Protocols/Vmess/IngressFactory.hpp>
+#include <Prism/Runtime/Listener.hpp>
+#include <Prism/Runtime/SessionRegistry.hpp>
+#include <Prism/Runtime/Session.hpp>
+#include <Prism/Transport/Transmission.hpp>
+#include <Prism/Protocols/Trojan/Dgram.hpp>
+#include <Prism/Protocols/Trojan/Trojan.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
+#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
+
+namespace
+{
+
+    namespace Net = boost::asio;
+    namespace Runtime = Prism::Runtime;
+    namespace Network = Prism::Network;
+    namespace Fault = Prism::Fault;
+    using Prism::Error;
+    using Prism::SharedTransmission;
+    using Udp = Net::ip::udp;
+    using udp = Udp;
+    using Tcp = Net::ip::tcp;
+
+    using UdpEchoDone = Net::experimental::channel<void(boost::system::error_code, bool)>;
+
+    struct TrojanUdpEchoOwner final
+    {
+        std::shared_ptr<Udp::socket> Socket;
+        std::shared_ptr<UdpEchoDone> Done;
+        std::shared_ptr<std::exception_ptr> Failure;
+        boost::system::error_code OpenError;
+    };
+
+    auto RunTrojanUdpEchoServer(const TrojanUdpEchoOwner &Owner)
+        -> Net::awaitable<void>
+    {
+        std::array<std::byte, 65535> Buffer{};
+        while (true)
+        {
+            Udp::endpoint Source;
+            boost::system::error_code ErrorCode;
+            const auto Size = co_await Owner.Socket->async_receive_from(
+                Net::buffer(Buffer), Source,
+                Net::redirect_error(Net::use_awaitable, ErrorCode));
+            if (ErrorCode)
+            {
+                co_return;
+            }
+            co_await Owner.Socket->async_send_to(
+                Net::buffer(Buffer.data(), Size), Source,
+                Net::redirect_error(Net::use_awaitable, ErrorCode));
+            if (ErrorCode)
+            {
+                co_return;
+            }
+        }
+    }
+
+    auto StartTrojanUdpEcho(Net::io_context &Io) -> TrojanUdpEchoOwner
+    {
+        TrojanUdpEchoOwner Owner;
+        Owner.Socket = std::make_shared<Udp::socket>(Io.get_executor());
+        Owner.Socket->open(Udp::v4(), Owner.OpenError);
+        Owner.Socket->bind(
+            Udp::endpoint(Net::ip::make_address("127.0.0.1"), 0),
+            Owner.OpenError);
+        Owner.Done = std::make_shared<UdpEchoDone>(Io.get_executor(), 1);
+        Owner.Failure = std::make_shared<std::exception_ptr>();
+        Net::co_spawn(
+            Io.get_executor(), RunTrojanUdpEchoServer(Owner),
+            [Owner](const std::exception_ptr &ErrorValue)
+            {
+                if (ErrorValue && !*Owner.Failure)
+                {
+                    *Owner.Failure = ErrorValue;
+                }
+                (void)Owner.Done->try_send(
+                    boost::system::error_code{}, true);
+            });
+        return Owner;
+    }
+
+    auto StopTrojanUdpEcho(TrojanUdpEchoOwner &Owner) -> Net::awaitable<void>
+    {
+        boost::system::error_code ErrorCode;
+        Owner.Socket->close(ErrorCode);
+        (void)co_await Owner.Done->async_receive(Net::use_awaitable);
+        if (*Owner.Failure)
+        {
+            std::rethrow_exception(*Owner.Failure);
+        }
+    }
+
+    /** @brief 等待 Trojan UDP echo 和 listener 的真实关闭完成。 */
+    auto FinishTrojanUdpFlow(
+        TrojanUdpEchoOwner &Echo, Runtime::TcpListener &Listener,
+        std::exception_ptr &FirstFailure) -> Net::awaitable<void>
+    {
+        try
+        {
+            co_await StopTrojanUdpEcho(Echo);
+        }
+        catch (...)
+        {
+            if (!FirstFailure)
+            {
+                FirstFailure = std::current_exception();
+            }
+        }
+        try
+        {
+            co_await Listener.Shutdown();
+        }
+        catch (...)
+        {
+            if (!FirstFailure)
+            {
+                FirstFailure = std::current_exception();
+            }
+        }
+        if (FirstFailure)
+        {
+            std::rethrow_exception(FirstFailure);
+        }
+    }
+
+    // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
+    using Prism::Testing::RunCoro;
+
+    /// Trojan 纵向测试共享状态
+    struct trojan_udp_state
+    {
+        std::uint16_t EchoPort{0};
+    };
+
+    auto MakeDatagramServices(const std::shared_ptr<trojan_udp_state>& State,
+                              std::chrono::milliseconds IdleTimeout)
+        -> Prism::Contract::DatagramServices
+    {
+        Prism::Contract::DatagramServices Services;
+        Services.IdleTimeout = IdleTimeout;
+        Services.Resolve = [Port = State->EchoPort](Prism::Network::Target)
+            -> Net::awaitable<std::expected<Udp::endpoint, Prism::Fault::Failure>>
+        { co_return Udp::endpoint(Net::ip::address_v4::loopback(), Port); };
+        return Services;
+    }
+
+    struct SessionCountWait final
+    {
+        Net::io_context &Ioc;
+        Runtime::TcpListener &Listener;
+        std::size_t Expected;
+    };
+
+    /** @brief 等待 listener registry 发布指定数量的真实活动 Session。 */
+    auto WaitForSessionCount(SessionCountWait Wait) -> Net::awaitable<bool>
+    {
+        const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        Net::steady_timer Timer(Wait.Ioc.get_executor());
+        while (std::chrono::steady_clock::now() < Deadline)
+        {
+            if (Wait.Listener.Registry().Size() == Wait.Expected)
+            {
+                co_return true;
+            }
+            Timer.expires_after(std::chrono::milliseconds(5));
+            co_await Timer.async_wait(Net::use_awaitable);
+        }
+        co_return Wait.Listener.Registry().Size() == Wait.Expected;
+    }
+
+    /** @brief 发送并验证真实 Trojan UDP echo，确保后续生命周期检查针对已运行会话。 */
+    auto ExchangeTrojanUdpProbe(Prism::Trojan::SharedDgram Dgram, std::string Probe)
+        -> Net::awaitable<bool>
+    {
+        const auto SendResult = co_await Dgram->AsyncSendTo(
+            Prism::Trojan::Address{Prism::Trojan::AddressType::Domain, "example.com", 443},
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t *>(Probe.data()), Probe.size()));
+        if (SendResult.Failure.Failed())
+        {
+            ADD_FAILURE() << "Trojan UDP probe send failed: "
+                          << static_cast<int>(SendResult.Failure.Code);
+            co_return false;
+        }
+
+        Prism::Trojan::Address Source;
+        std::vector<std::uint8_t> Received;
+        Net::steady_timer Watchdog(Dgram->Executor());
+        Watchdog.expires_after(std::chrono::seconds(2));
+        using Net::experimental::awaitable_operators::operator||;
+        auto Outcome = co_await (Dgram->AsyncReceiveFrom(Source, Received) ||
+                                 Watchdog.async_wait(Net::use_awaitable));
+        if (Outcome.index() == 1U)
+        {
+            ADD_FAILURE() << "Trojan UDP probe echo timed out";
+            co_return false;
+        }
+        const auto ReceiveResult = std::get<0>(std::move(Outcome));
+        if (ReceiveResult.Failure.Failed())
+        {
+            ADD_FAILURE() << "Trojan UDP probe receive failed: "
+                          << static_cast<int>(ReceiveResult.Failure.Code);
+            co_return false;
+        }
+        const auto ReceivedText = std::string(Received.begin(), Received.end());
+        EXPECT_EQ(ReceivedText, Probe);
+        co_return ReceivedText == Probe;
+    }
+
+    struct TrojanUdpSessionFactory final
+    {
+        std::shared_ptr<trojan_udp_state> State;
+        std::chrono::milliseconds IdleTimeout;
+
+        auto operator()(Runtime::SessionAdmission Admission) const
+            -> Runtime::SessionAdmissionResult
+        {
+            Runtime::SessionOptions Options;
+            Options.Services->Bytes = std::make_shared<Prism::Memory::BytePool>(
+                Prism::Memory::BytePoolOptions{.BlockCount = 8});
+            auto Inbound = std::move(Admission.Inbound);
+            Options.SourceIp = std::move(Admission.SourceIp);
+            Prism::Trojan::ServerConfig Configuration;
+            Configuration.Password = "Secret";
+            Configuration.EnableUdp = true;
+            auto Datagrams = MakeDatagramServices(State, IdleTimeout);
+            auto UseState = Prism::Testing::MakeProtocolIngressUseState();
+            Options.Services->GenerationUseState = UseState;
+            Options.Services->AcceptProtocol = Prism::Testing::MakeTrojanIngress(
+                std::move(Configuration), Prism::Testing::ProtocolIngressResources{
+                    std::move(Datagrams), UseState, Inbound->Executor()}, Prism::Trojan::IngressRoute{});
+            return Runtime::SessionAdmissionResult{
+                std::make_shared<Runtime::Session>(std::move(Options))};
+        }
+    };
+
+    struct TrojanUdpEchoFlow final
+    {
+        Net::io_context &Ioc;
+        Runtime::TcpListener &Listener;
+        TrojanUdpEchoOwner &EchoOwner;
+        bool &Ok;
+        std::string &Echo;
+    };
+
+    /** @brief 驱动 Trojan UDP 包往返并等待真实数据面收口。 */
+    auto RunTrojanUdpEchoFlow(TrojanUdpEchoFlow Flow) -> Net::awaitable<void>
+    {
+        std::exception_ptr FirstFailure;
+        Prism::Trojan::SharedDgram Dgram;
+        try
+        {
+            const auto StartResult = co_await Flow.Listener.Start(
+                Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+            EXPECT_EQ(StartResult, Fault::Code::Success);
+            if (StartResult == Fault::Code::Success)
+            {
+                const auto ListenPort = Flow.Listener.LocalEndpoint().port();
+                Network::Dialer::Dialer Dialer(Flow.Ioc.get_executor());
+                auto Raw = co_await Dialer.Connect(
+                    {*Prism::Network::ParseHost("127.0.0.1"), ListenPort});
+                if (Raw && *Raw)
+                {
+                    auto ConnectResult = co_await Prism::Trojan::ConnectPacket(
+                        std::move(*Raw), Prism::Trojan::ClientConfig{"Secret"},
+                        Prism::Trojan::Address{Prism::Trojan::AddressType::Domain,
+                                                 "example.com", 443});
+                    if (ConnectResult) EXPECT_TRUE(*ConnectResult);
+                    if (ConnectResult)
+                    {
+                        if (*ConnectResult)
+                        {
+                            Dgram = std::move(*ConnectResult);
+                        }
+                        else
+                        {
+                            ADD_FAILURE() << "Trojan factory returned an empty successful owner";
+                        }
+                    }
+                    else
+                    {
+                        ADD_FAILURE() << "Trojan UDP handshake failed: "
+                                      << static_cast<int>(ConnectResult.error().Code);
+                    }
+                    if (Dgram)
+                    {
+                        const std::string Payload = "trojan udp payload";
+                        const auto SendResult = co_await Dgram->AsyncSendTo(
+                            Prism::Trojan::Address{Prism::Trojan::AddressType::Domain,
+                                                     "example.com", 443},
+                            std::span<const std::uint8_t>(
+                                reinterpret_cast<const std::uint8_t *>(Payload.data()),
+                                Payload.size()));
+                        EXPECT_TRUE(SendResult.Failure.Succeeded());
+                        Prism::Trojan::Address Source;
+                        std::vector<std::uint8_t> Received;
+                        Net::steady_timer Watchdog(Dgram->Executor());
+                        Watchdog.expires_after(std::chrono::seconds(2));
+                        using Net::experimental::awaitable_operators::operator||;
+                        auto Result = co_await (Dgram->AsyncReceiveFrom(Source, Received) ||
+                                                Watchdog.async_wait(Net::use_awaitable));
+                        bool ReceiveSucceeded = false;
+                        if (Result.index() != 1)
+                        {
+                            ReceiveSucceeded =
+                                std::get<0>(std::move(Result)).Failure.Succeeded();
+                        }
+                        if (ReceiveSucceeded)
+                        {
+                            Flow.Echo.assign(
+                                reinterpret_cast<const char *>(Received.data()), Received.size());
+                            Flow.Ok = Flow.Echo == Payload;
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+            FirstFailure = std::current_exception();
+        }
+        try
+        {
+            if (Dgram)
+            {
+                Dgram->Close();
+            }
+        }
+        catch (...)
+        {
+            if (!FirstFailure)
+            {
+                FirstFailure = std::current_exception();
+            }
+        }
+        co_await FinishTrojanUdpFlow(Flow.EchoOwner, Flow.Listener, FirstFailure);
+    }
+
+    struct TrojanUdpIdleFlow final
+    {
+        Net::io_context &Ioc;
+        Runtime::TcpListener &Listener;
+        TrojanUdpEchoOwner &Echo;
+        bool &Closed;
+    };
+
+    /** @brief 驱动 Trojan UDP 空闲超时并验证错误收口。 */
+    auto RunTrojanUdpIdleFlow(TrojanUdpIdleFlow Flow) -> Net::awaitable<void>
+    {
+        std::exception_ptr FirstFailure;
+        Prism::Trojan::SharedDgram Dgram;
+        try
+        {
+            const auto StartResult = co_await Flow.Listener.Start(
+                Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+            EXPECT_EQ(StartResult, Fault::Code::Success);
+            if (StartResult == Fault::Code::Success)
+            {
+                const auto ListenPort = Flow.Listener.LocalEndpoint().port();
+                Network::Dialer::Dialer Dialer(Flow.Ioc.get_executor());
+                auto Raw = co_await Dialer.Connect(
+                    {*Prism::Network::ParseHost("127.0.0.1"), ListenPort});
+                if (Raw && *Raw)
+                {
+                    auto ConnectResult = co_await Prism::Trojan::ConnectPacket(
+                        std::move(*Raw), Prism::Trojan::ClientConfig{"Secret"},
+                        Prism::Trojan::Address{Prism::Trojan::AddressType::Domain,
+                                                 "example.com", 443});
+                    if (ConnectResult) EXPECT_TRUE(*ConnectResult);
+                    if (ConnectResult)
+                    {
+                        if (*ConnectResult)
+                        {
+                            Dgram = std::move(*ConnectResult);
+                        }
+                        else
+                        {
+                            ADD_FAILURE() << "Trojan factory returned an empty successful owner";
+                        }
+                    }
+                    else
+                    {
+                        ADD_FAILURE() << "Trojan UDP handshake failed: "
+                                      << static_cast<int>(ConnectResult.error().Code);
+                    }
+                    if (Dgram)
+                    {
+                        const auto ProbeSucceeded = co_await ExchangeTrojanUdpProbe(
+                            Dgram, "Trojan idle timeout probe");
+                        if (ProbeSucceeded)
+                        {
+                            const auto ActiveSessions = Flow.Listener.Registry().Size();
+                            EXPECT_EQ(ActiveSessions, 1U)
+                                << "echo completed without an active listener session";
+                            if (ActiveSessions == 1U)
+                            {
+                                Flow.Closed = co_await WaitForSessionCount(
+                                    SessionCountWait{Flow.Ioc, Flow.Listener, 0U});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+            FirstFailure = std::current_exception();
+        }
+        try
+        {
+            if (Dgram)
+            {
+                Dgram->Close();
+            }
+        }
+        catch (...)
+        {
+            if (!FirstFailure)
+            {
+                FirstFailure = std::current_exception();
+            }
+        }
+        co_await FinishTrojanUdpFlow(Flow.Echo, Flow.Listener, FirstFailure);
+    }
+
+    struct TrojanUdpTcpCloseFlow final
+    {
+        Net::io_context &Ioc;
+        Runtime::TcpListener &Listener;
+        TrojanUdpEchoOwner &Echo;
+        bool &Closed;
+    };
+
+    /** @brief 驱动 Trojan UDP 控制连接关闭后的真实中继退出。 */
+    auto RunTrojanUdpTcpCloseFlow(TrojanUdpTcpCloseFlow Flow) -> Net::awaitable<void>
+    {
+        std::exception_ptr FirstFailure;
+        Prism::Trojan::SharedDgram Dgram;
+        try
+        {
+            const auto StartResult = co_await Flow.Listener.Start(
+                Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+            EXPECT_EQ(StartResult, Fault::Code::Success);
+            if (StartResult == Fault::Code::Success)
+            {
+                const auto ListenPort = Flow.Listener.LocalEndpoint().port();
+                Network::Dialer::Dialer Dialer(Flow.Ioc.get_executor());
+                auto Raw = co_await Dialer.Connect(
+                    {*Prism::Network::ParseHost("127.0.0.1"), ListenPort});
+                if (Raw && *Raw)
+                {
+                    auto ConnectResult = co_await Prism::Trojan::ConnectPacket(
+                        std::move(*Raw), Prism::Trojan::ClientConfig{"Secret"},
+                        Prism::Trojan::Address{Prism::Trojan::AddressType::Domain,
+                                                 "example.com", 443});
+                    if (ConnectResult) EXPECT_TRUE(*ConnectResult);
+                    if (ConnectResult)
+                    {
+                        if (*ConnectResult)
+                        {
+                            Dgram = std::move(*ConnectResult);
+                        }
+                        else
+                        {
+                            ADD_FAILURE() << "Trojan factory returned an empty successful owner";
+                        }
+                    }
+                    else
+                    {
+                        ADD_FAILURE() << "Trojan UDP handshake failed: "
+                                      << static_cast<int>(ConnectResult.error().Code);
+                    }
+                    if (Dgram)
+                    {
+                        const auto ProbeSucceeded = co_await ExchangeTrojanUdpProbe(
+                            Dgram, "Tcp-Close Probe");
+                        if (ProbeSucceeded)
+                        {
+                            const auto ActiveSessions = Flow.Listener.Registry().Size();
+                            EXPECT_EQ(ActiveSessions, 1U)
+                                << "echo completed without an active listener session";
+                            if (ActiveSessions == 1U)
+                            {
+                                Dgram->Close();
+                                Flow.Closed = co_await WaitForSessionCount(
+                                    SessionCountWait{Flow.Ioc, Flow.Listener, 0U});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+            FirstFailure = std::current_exception();
+        }
+        try
+        {
+            if (Dgram)
+            {
+                Dgram->Close();
+            }
+        }
+        catch (...)
+        {
+            if (!FirstFailure)
+            {
+                FirstFailure = std::current_exception();
+            }
+        }
+        co_await FinishTrojanUdpFlow(Flow.Echo, Flow.Listener, FirstFailure);
+    }
+
+    TEST(TcpListener, TrojanUdpAssociateEcho)
+    {
+        Net::io_context IoContext;
+        auto EchoOwner = StartTrojanUdpEcho(IoContext);
+        ASSERT_FALSE(EchoOwner.OpenError);
+        const auto EchoPort = EchoOwner.Socket->local_endpoint().port();
+        auto EchoEndpointPointer = EchoOwner.Failure;
+
+        auto State = std::make_shared<trojan_udp_state>(
+            trojan_udp_state{EchoPort});
+
+        Runtime::TcpListener Listener(
+            Runtime::TcpListener::Options{
+            .Executor = IoContext.get_executor(),
+            .Factory = TrojanUdpSessionFactory{State, std::chrono::seconds(5)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{1})});
+
+        bool Ok = false;
+        std::string EchoPayload;
+        RunCoro(IoContext, RunTrojanUdpEchoFlow(
+            TrojanUdpEchoFlow{IoContext, Listener, EchoOwner, Ok, EchoPayload}));
+        EXPECT_TRUE(Ok);
+        EXPECT_EQ(EchoPayload, "trojan udp payload");
+        EXPECT_FALSE(*EchoEndpointPointer);
+    }
+
+    TEST(TcpListener, TrojanUdpAssociateIdleTimeout)
+    {
+        Net::io_context IoContext;
+        auto Echo = StartTrojanUdpEcho(IoContext);
+        ASSERT_FALSE(Echo.OpenError);
+        const auto EchoPort = Echo.Socket->local_endpoint().port();
+
+        auto State = std::make_shared<trojan_udp_state>(
+            trojan_udp_state{EchoPort});
+
+        Runtime::TcpListener Listener(
+            Runtime::TcpListener::Options{
+            .Executor = IoContext.get_executor(),
+            .Factory = TrojanUdpSessionFactory{State, std::chrono::milliseconds(150)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{2})});
+
+        bool Closed = false;
+        RunCoro(IoContext, RunTrojanUdpIdleFlow(
+            TrojanUdpIdleFlow{IoContext, Listener, Echo, Closed}));
+        EXPECT_TRUE(Closed);
+        EXPECT_FALSE(*Echo.Failure);
+    }
+
+    TEST(TcpListener, TrojanUdpAssociateTcpCloseTerminates)
+    {
+        Net::io_context IoContext;
+        auto Echo = StartTrojanUdpEcho(IoContext);
+        ASSERT_FALSE(Echo.OpenError);
+        const auto EchoPort = Echo.Socket->local_endpoint().port();
+
+        auto State = std::make_shared<trojan_udp_state>(
+            trojan_udp_state{EchoPort});
+
+        Runtime::TcpListener Listener(
+            Runtime::TcpListener::Options{
+            .Executor = IoContext.get_executor(),
+            .Factory = TrojanUdpSessionFactory{State, std::chrono::seconds(30)},
+            .Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+                Prism::GenerationId{3})});
+
+        bool Closed = false;
+        RunCoro(IoContext, RunTrojanUdpTcpCloseFlow(
+            TrojanUdpTcpCloseFlow{IoContext, Listener, Echo, Closed}));
+        EXPECT_TRUE(Closed);
+        EXPECT_FALSE(*Echo.Failure);
+    }
+
+} // namespace

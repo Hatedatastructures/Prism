@@ -1,5 +1,0 @@
-AddPrismTest(QuicOwnershipTest.cpp)
-target_link_libraries(QuicOwnershipTest PRIVATE PrismFoundation PrismTransport PrismProtocolQuicNative)
-target_sources(QuicOwnershipTest PRIVATE ../../../TestSupport/Prism/QuicFactory.hpp)
-AddPrismTest(NativeDatagramInboxTest.cpp)
-target_link_libraries(NativeDatagramInboxTest PRIVATE PrismProtocolQuicNative PrismTestSupport)

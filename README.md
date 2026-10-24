@@ -3,7 +3,7 @@
   <p>基于 C++23 与 Boost.Asio 的异步多协议代理服务端，提供 TCP、UDP/关联流量与 QUIC 接入，以及可选的 HTTP 运维 API 和 Web 控制台。</p>
 </div>
 
-Prism 面向需要在同一服务中配置多种代理协议入口、统一处理账户认证与上游转发，并通过管理接口观察和维护运行实例的场景。生产实现位于 `Prism/`，功能测试位于 `tests/Prism/`，CMake 程序 target 为 `Prism`。旧版 `include/prism/`、`src/prism/` 和旧测试实现已经退役；历史文档仅用于理解旧实现，不代表当前接口或运行能力。
+Prism 面向需要在同一服务中配置多种代理协议入口、统一处理账户认证与上游转发，并通过管理接口观察和维护运行实例的场景。公开生产头文件位于 `Include/Prism/`，实现和私有头文件位于 `Src/Prism/`，功能测试位于 `tests/Prism/`，CMake 程序 target 为 `Prism`。旧版 `include/prism/`、`src/prism/` 和旧测试实现已经退役；历史文档仅用于理解旧实现，不代表当前接口或运行能力。
 
 ## 功能一览
 
@@ -33,9 +33,9 @@ Prism 会将通过认证的请求送入统一的数据面服务，按已装配�
 
 - **异步 I/O：** 基于 C++23 与 Boost.Asio，将 listener、session、stream、datagram 和管理服务组织在异步执行路径中。
 - **启动时编译配置：** 配置经过 schema、能力、provider 和 binding 校验后，组装为类型化 generation 与冻结的 provider catalog；不支持的实例或组合在启动阶段以错误返回。
-- **清晰的数据面边界：** `Protocols/` 拥有协议 wire、认证和会话状态；`Composition/` 负责冷启动装配；`Boundary/` 管理 TCP/UDP/QUIC 入口；`Runtime/` 调度通用 session；`Application/` 编排启动、回滚和关闭。
+- **清晰的数据面边界：** `Protocols/` 拥有协议 wire、认证和会话状态；`Composition/` 负责冷启动装配；`Boundary/` 管理 UDP/datagram 入口与 QUIC 准入；TCP acceptor 由 `Runtime/` 拥有，Runtime 也调度通用 session；`Application/` 编排启动、回滚和关闭。
 - **面向资源生命周期：** 取消、写半关闭、最终关闭和 drain 是不同步骤，由真正拥有 I/O 的协议、transport 或入口 owner 完成，避免把“停止接收”误当成所有连接都已退出。
-- **单一当前生产实现：** `Prism/` 是唯一正式生产代码；README、配置示例和测试入口均以当前 Prism 为准，不再保留旧版 API 兼容层。
+- **单一当前生产实现：** `Include/Prism/` 与 `Src/Prism/` 共同组成唯一正式生产代码；README、配置示例和测试入口均以当前 Prism 为准，不再保留旧版 API 兼容层。
 
 ## 当前能力边界
 
@@ -119,20 +119,29 @@ CTest 只运行构建目录里已有的测试程序；测试注册、源码检�
 ## 项目结构
 
 ```text
-Prism/                  当前 C++23 生产实现
-  Application/          配置、启动、重载、Operations 装配与停机
-  Composition/          provider 准备、能力校验和 typed binding
-  Protocols/             各代理协议与 mux 的 wire/session owner
-  Boundary/              TCP、UDP、QUIC 网络入口
-  Runtime/               worker、listener、session 与运行态调度
+Include/Prism/          公共生产接口、配置模型与开放模板
+Src/Prism/              各模块实现、私有头文件及模块 CMake
   Account/               凭据、账户准入、策略与额度
+  Application/           配置、启动、重载、Operations 装配与停机
+  Boundary/              UDP/datagram 入口、QUIC registry 与 packet admission
+  Composition/           provider 准备、能力校验和 typed binding
+  Contract/              跨模块共享的 typed 契约
+  Foundation/            通用错误、标识符、工具与诊断基础设施
+  Lifecycle/             task 注册、取消、完成通知与 drain 原语
+  Net/                   DNS、出站拨号、路由与通用 relay
   Operations/            独立 HTTP 管理 API 与可选静态资源服务
+  Protocols/              各代理协议与 mux 的 wire/session owner
+  Resource/              进程、worker 与 session 资源
+  Runtime/               TCP acceptor、worker、listener 与 session 调度
+  Statistics/             运行统计、事件与历史数据
+  Transport/             typed I/O、传输装饰与 activity drain
+  CMake/                 共享构建目标与依赖边界辅助文件
 tests/Prism/             当前功能测试
 Web/                     独立构建的 Operations Web 控制台
 docs/                    用户指南、当前架构与测试手册
 ```
 
-Prism 的生产 owner 采用 header-only 组织，最终程序入口由 CMake 作为 C++ source 编译。模块职责、依赖方向、请求路径和资源关闭约定见[架构总览](docs/ARCHITECTURE.md)与[Prism 开发入口](docs/prism/README.md)。
+含有真实 `.cpp` 的模块由静态库 target 编译，纯契约与开放模板 target 保持 `INTERFACE`；最终进程入口由 Prism executable 编译。模块职责、依赖方向、请求路径和资源关闭约定见[架构总览](docs/ARCHITECTURE.md)与[Prism 开发入口](docs/prism/README.md)。
 
 ## 文档
 

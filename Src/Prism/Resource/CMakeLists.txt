@@ -1,0 +1,14 @@
+PrismAddStaticTarget(PrismResource
+    SOURCES
+        ProcessResources.cpp
+        Storage/Executor.cpp
+        WorkerMemoryResourceService.cpp
+        WorkerResources.cpp
+    HEADERS
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Resource/ProcessResources.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Resource/ResourceMemorySnapshot.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Resource/Storage/Executor.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Resource/WorkerResources.hpp"
+    PRIVATE_HEADERS
+        Detail/WorkerMemoryResourceService.hpp
+)

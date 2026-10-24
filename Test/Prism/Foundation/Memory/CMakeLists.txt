@@ -1,0 +1,9 @@
+# memory 子模块测试
+AddPrismTest(MemoryLifecycleTest.cpp)
+target_link_libraries(MemoryLifecycleTest PRIVATE PrismFoundation PrismTransport PrismProtocolSocks5 PrismTestSupport)
+AddPrismTest(MemoryPointerTest.cpp)
+target_link_libraries(MemoryPointerTest PRIVATE PrismFoundation PrismProtocolSocks5 PrismTestSupport)
+AddPrismTest(Performance/MemoryPerfTest.cpp)
+target_link_libraries(MemoryPerfTest PRIVATE PrismFoundation PrismProtocolSocks5 PrismTestSupport)
+AddPrismTest(PrismMemoryTest.cpp)
+target_link_libraries(PrismMemoryTest PRIVATE PrismFoundation PrismTestSupport)

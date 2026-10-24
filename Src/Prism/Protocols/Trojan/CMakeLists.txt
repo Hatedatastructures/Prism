@@ -1,0 +1,24 @@
+PrismAddStaticTarget(PrismProtocolTrojan
+    SOURCES
+        Codec.cpp
+        Binding.cpp
+        DatagramSession.cpp
+        Trojan.cpp
+        Detail/Target.cpp
+        IngressFactory.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/AddressCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/BeastCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Binding.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Conn.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/CredentialCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/DatagramSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Dgram.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/IngressFactory.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/RequestCodec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Trojan.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Types.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/UdpCodec.hpp
+    PRIVATE_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Target.hpp
+)

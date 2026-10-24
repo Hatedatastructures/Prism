@@ -1,3 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
-  <path fill="#3d443e" fill-rule="evenodd" d="M7 4h12a10 10 0 1 1 0 20h-5v8H7V4Zm7 6v8h5a4 4 0 1 0 0-8h-5Z" clip-rule="evenodd"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <defs>
+    <linearGradient id="FaceLeft" x1="7" y1="7" x2="20" y2="34" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6EE7F2"/>
+      <stop offset="1" stop-color="#377DFF"/>
+    </linearGradient>
+    <linearGradient id="FaceRight" x1="22" y1="6" x2="35" y2="34" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8F36B"/>
+      <stop offset="1" stop-color="#23C7A4"/>
+    </linearGradient>
+    <linearGradient id="FaceTop" x1="10" y1="8" x2="30" y2="17" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE28A"/>
+      <stop offset="1" stop-color="#FF8C64"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="38" height="38" rx="12" fill="#2F5CFF"/>
+  <path d="m20 6.5 11.5 6.8v13.4L20 33.5 8.5 26.7V13.3L20 6.5Z" fill="#244ACB"/>
+  <path d="M20 7.2 30.8 13.6 20 20.1 9.2 13.6 20 7.2Z" fill="url(#FaceTop)"/>
+  <path d="M9.2 13.6 20 20.1v12.4L9.2 26.1V13.6Z" fill="url(#FaceLeft)"/>
+  <path d="M30.8 13.6 20 20.1v12.4l10.8-6.4V13.6Z" fill="url(#FaceRight)"/>
+  <path d="m14.1 17.2 5.9 3.4 5.9-3.4" stroke="white" stroke-opacity=".72" stroke-width="1.4" stroke-linecap="round"/>
 </svg>

@@ -1,2 +1,0 @@
-AddPrismTest(SmuxFrameError.cpp)
-target_link_libraries(SmuxFrameError PRIVATE PrismProtocolMux PrismTestSupport)

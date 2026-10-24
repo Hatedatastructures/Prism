@@ -6,7 +6,7 @@
 #   ⚠ REVIEW   ：其他 detached 协程，需人工确认捕获列表或 operation helper
 #
 # 用法：bash scripts/audit_detached.sh [source_dir]
-# 默认 source_dir=Prism
+# 默认同时扫描 Include/Prism 与 Src/Prism；传入 source_dir 时只扫描该目录。
 #
 # 当前 Prism 的 owner/executor/cancel/close/drain 规则见 docs/prism/ownership-and-lifecycle.md
 #
@@ -16,14 +16,36 @@
 
 set -euo pipefail
 
-SRC="${1:-Prism}"
-
-if [[ ! -d "$SRC" ]]; then
-    echo "错误：源目录不存在：$SRC" >&2
+if [[ "$#" -gt 1 ]]; then
+    echo "用法：bash scripts/audit_detached.sh [source_dir]" >&2
     exit 2
 fi
 
-ABS_SRC="$(cd "$SRC" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+if [[ "$#" -eq 1 ]]; then
+    SOURCE_DIRS=("$1")
+else
+    SOURCE_DIRS=("$REPO_ROOT/Include/Prism" "$REPO_ROOT/Src/Prism")
+fi
+
+ABS_SOURCE_DIRS=()
+for SOURCE_DIR in "${SOURCE_DIRS[@]}"; do
+    if [[ ! -d "$SOURCE_DIR" ]]; then
+        echo "错误：源目录不存在：$SOURCE_DIR" >&2
+        exit 2
+    fi
+    ABS_SOURCE_DIR="$(cd -- "$SOURCE_DIR" && pwd)"
+    if ! FIRST_SOURCE="$(find "$ABS_SOURCE_DIR" -type f \( -name "*.cpp" -o -name "*.hpp" \) -print -quit)"; then
+        echo "错误：无法枚举源目录：$ABS_SOURCE_DIR" >&2
+        exit 2
+    fi
+    if [[ -z "$FIRST_SOURCE" ]]; then
+        echo "错误：源目录不包含 .cpp 或 .hpp 文件：$ABS_SOURCE_DIR" >&2
+        exit 2
+    fi
+    ABS_SOURCE_DIRS+=("$ABS_SOURCE_DIR")
+done
 
 # 危险捕获模式（正则）
 DANGEROUS_PATTERN='session\s*[&*]|frame_arena\.get|ctx\.inbound\s*[&]|ctx\.outbound\s*[&]|&ctx\.session'
@@ -41,15 +63,24 @@ SPAWN_PATTERN='(net|Net|boost::asio)::co_spawn'
 # capture，但仍是 detached 的 operation，必须作为独立审计项输出。
 OPERATION_HELPERS='RunOperation|MaintenanceLoop|ServerCoroutine|server_coro[0-9]*|SessionOperation|EchoMemory|TcpEchoServer|writer'
 
-files=$(grep -rlE "$SPAWN_PATTERN" "$ABS_SRC" --include="*.cpp" --include="*.hpp" 2>/dev/null || true)
+if files=$(grep -rlE "$SPAWN_PATTERN" "${ABS_SOURCE_DIRS[@]}" --include="*.cpp" --include="*.hpp"); then
+    :
+else
+    grep_status=$?
+    if [[ "$grep_status" -ne 1 ]]; then
+        echo "错误：grep 扫描源目录失败（状态 $grep_status）" >&2
+        exit 2
+    fi
+    files=""
+fi
 
 if [[ -z "$files" ]]; then
-    echo "✓ 未发现任何 net::detached 调用"
+    echo "✓ 未发现任何 net::co_spawn 调用"
     exit 0
 fi
 
 echo "=== Prism detached 协程审计 ==="
-echo "源目录：$ABS_SRC"
+echo "扫描根目录：${SOURCE_DIRS[*]}"
 echo ""
 
 extract_spawn_calls() {
@@ -254,7 +285,11 @@ split_spawn_arguments() {
 }
 
 while IFS= read -r f; do
-    rel_path="${f#$ABS_SRC/}"
+    if [[ "$f" == "$REPO_ROOT"/* ]]; then
+        rel_path="${f#"$REPO_ROOT"/}"
+    else
+        rel_path="$f"
+    fi
     while IFS=$'\t' read -r line expression; do
         [[ -z "$line" ]] && continue
         while IFS=$'\t' read -r operation completion; do

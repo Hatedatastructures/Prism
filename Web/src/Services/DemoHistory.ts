@@ -12,13 +12,30 @@ export function DemoHistory(Request: HistoryRequest): HistorySnapshot {
     const Coverage = Request.Metric === 'recognition_admission' ? '演示夹具 · 窗口延迟样本' : Request.Metric === 'active' ? `演示夹具 · ${Request.Scope === 'worker' ? '活动任务' : '活动量'}窗口` : '演示夹具 · 窗口有效载荷';
     return { SampledAt: Request.To, From: Request.From, To: Request.To, ResolutionMs: String(Step), Coverage, Gaps: [],
         Items: Array.from({ length: Count }, (_, Index) => {
-            const Phase = Index / Count * Math.PI * 5;
-            const P50 = 5000 + Math.round((Math.sin(Phase) + 1) * 2000);
+            const Phase = Index / Count;
+            const Burst = Index > 0 && Index % 47 >= 41 ? Math.sin((Index % 47 - 41) / 6 * Math.PI) * .34 : 0;
+            const Noise = DeterministicNoise(Seed + Index * 17) - .5;
+            const UpRate = Math.max(48_000, 365_000 + 112_000 * Math.sin(Phase * Math.PI * 3.1 + .35)
+                + 46_000 * Noise + 155_000 * Burst);
+            const DownRate = Math.max(72_000, 585_000 + 148_000 * Math.sin(Phase * Math.PI * 2.45 + 1.1)
+                + 68_000 * (DeterministicNoise(Seed + 911 + Index * 31) - .5) + 245_000 * Burst);
+            const P50 = Math.max(3_200, Math.round(5_400 + 900 * Math.sin(Phase * Math.PI * 2.2)
+                + 540 * Noise + 920 * Burst));
             return { Time: new Date(Math.min(To, From + (Index + 1) * Step)).toISOString(),
-                UpBytes: Request.Metric === 'recognition_admission' ? null : String(Math.round((400_000 + Math.sin(Phase + .8) * 180_000) * Step / 1000 * Multiplier)),
-                DownBytes: Request.Metric === 'recognition_admission' ? null : String(Math.round((650_000 + Math.sin(Phase) * 240_000) * Step / 1000 * Multiplier)),
-                Active: String(Math.max(0, Math.round((4 + Math.sin(Phase) * 2) * Multiplier))), P50Us: Request.Metric === 'recognition_admission' ? String(P50) : null,
-                P95Us: Request.Metric === 'recognition_admission' ? String(P50 + 11000 + Math.round(Math.max(0, Math.sin(Phase + .2)) * 12000)) : null,
-                P99Us: Request.Metric === 'recognition_admission' ? String(P50 + 29000) : null, SampleCount: Request.Metric === 'recognition_admission' ? '24' : '0', Quality: 'demo' };
+                UpBytes: Request.Metric === 'recognition_admission' ? null : String(Math.round(UpRate * Step / 1000 * Multiplier)),
+                DownBytes: Request.Metric === 'recognition_admission' ? null : String(Math.round(DownRate * Step / 1000 * Multiplier)),
+                Active: String(Math.max(0, Math.round((3.2 + Math.sin(Phase * Math.PI * 2.1) * 1.4
+                    + DeterministicNoise(Seed + 53 + Index * 7) * .8 + Burst * 1.2) * Multiplier))),
+                P50Us: Request.Metric === 'recognition_admission' ? String(P50) : null,
+                P95Us: Request.Metric === 'recognition_admission' ? String(P50 + 9_200 + Math.round(8_500 * Burst
+                    + 2_600 * DeterministicNoise(Seed + 67 + Index * 11))) : null,
+                P99Us: Request.Metric === 'recognition_admission' ? String(P50 + 22_000 + Math.round(14_000 * Burst)) : null,
+                SampleCount: Request.Metric === 'recognition_admission' ? '24' : '0', Quality: 'demo' };
         }) };
+}
+
+/** @brief 固定种子的低成本噪声，保持演示可复现，不引入随机源或外部依赖。 */
+function DeterministicNoise(Seed: number): number {
+    const Value = Math.sin(Seed * 12.9898) * 43_758.5453;
+    return Value - Math.floor(Value);
 }

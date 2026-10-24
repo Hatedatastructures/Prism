@@ -5,17 +5,24 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const root = process.cwd();
-const PROD = path.join(root, "Prism");
+const PROD = [path.join(root, "Include", "Prism"), path.join(root, "Src", "Prism")];
+const missingRoots = PROD.filter((directory) =>
+  !fs.existsSync(directory) || !fs.statSync(directory).isDirectory());
+if (missingRoots.length > 0) {
+  console.error(`Required production source roots are missing: ${missingRoots.join(", ")}`);
+  process.exit(1);
+}
 
 const walk = (d, acc = []) => {
+  if (!fs.existsSync(d)) return acc;
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
     const p = path.join(d, e.name);
     if (e.isDirectory()) walk(p, acc);
-    else if (/\.hpp$/i.test(e.name)) acc.push(p);
+    else if (/\.(?:hpp|cpp)$/i.test(e.name)) acc.push(p);
   }
   return acc;
 };
-const rel = (p) => path.relative(root, p).split(path.sep).join("/");
+const rel = (p) => path.relative(root, p).split(path.sep).join("/").replace(/^(?:Include|Src)\//, "");
 
 // 去注释与字符串，避免把示例、日志文本和 wire 字段当成代码事实。
 function strip(text) {
@@ -26,7 +33,7 @@ function strip(text) {
     .replace(/\\?[^\S\n]?'(?:[^'\\\n]|\\.)*'/g, " ''");
 }
 
-// 与 Prism/CMake/PrismBoundary.cmake 的模块所有权表对应的源码侧规则。
+// 与 Src/Prism/CMake/PrismBoundary.cmake 的模块所有权表对应的源码侧规则。
 const RULES = [
   { owner: "^Prism/Foundation/", forbidden: /^Prism\/(?!Foundation\/)/, why: "Foundation 必须处于最底层" },
   { owner: "^Prism/Lifecycle/", forbidden: /^Prism\/(?!Foundation\/|Lifecycle\/)/, why: "Lifecycle 只依赖 Foundation" },
@@ -41,7 +48,7 @@ const RULES = [
   { owner: "^Prism/Contract/", forbidden: /^Prism\/(Protocols|Composition|Application|Runtime)\//, why: "Contract 是中立契约，不得引用具体协议/装配/应用/调度" },
 ];
 
-const files = walk(PROD);
+const files = PROD.flatMap((directory) => walk(directory));
 const findings = { includeDirection: [], forwardDeclCoupling: [], compatLayer: [], duplicateErrorShapes: [], nonPascalIdentifiers: [], missingChineseDoxygen: [], ternaryFiles: 0, ternaryCount: 0 };
 const includeRe = /#\s*include\s*[<"]([^">]+)[>"]/g;
 // 第三方/标准库规定的回调 ABI 名，必须保留小写；每一项都是显式例外，不是启发式放过。
@@ -109,7 +116,9 @@ const compatExempted = [];
 // 把命名空间解析回模块目录（优先 Prism/Protocols/<Ns>，再 Prism/<Ns>），再套用同一方向规则。
 function moduleOfNamespace(ns) {
   const cand = [`Prism/Protocols/${ns}`, `Prism/${ns}`];
-  for (const c of cand) if (fs.existsSync(path.join(root, c))) return c + "/";
+  for (const c of cand) {
+    if (fs.existsSync(path.join(root, "Include", c)) || fs.existsSync(path.join(root, "Src", c))) return c + "/";
+  }
   return null;
 }
 const fwdRe = /namespace\s+Prism::([A-Za-z0-9_]+)\s*\{[^}]*\b(?:class|struct)\s+([A-Za-z0-9_]+)\s*;[^}]*\}/g;
@@ -150,7 +159,7 @@ function blankOut(text) {
   return out;
 }
 
-function paramMetrics(code, file) {
+function paramMetrics(code, file, abiFile = file) {
   let scanned = 0;
   const rows = [];
   for (const m of code.matchAll(declRe)) {
@@ -163,7 +172,7 @@ function paramMetrics(code, file) {
     const required = params.filter((p) => !p.includes("=")).length;
     if (params.length > 2) {
       const line = code.slice(0, m.index).split("\n").length;
-      rows.push({ file, line, name: m[1], params: params.length, required });
+      rows.push({ file, abiFile, line, name: m[1], params: params.length, required });
     }
   }
   return { scanned, rows };
@@ -248,7 +257,8 @@ for (const p of files) {
 let paramScanned = 0;
 const over2 = [];
 for (const p of files) {
-  const pm = paramMetrics(blankOut(fs.readFileSync(p, "utf8")), rel(p));
+  const abiFile = path.relative(root, p).split(path.sep).join("/");
+  const pm = paramMetrics(blankOut(fs.readFileSync(p, "utf8")), rel(p), abiFile);
   paramScanned += pm.scanned;
   over2.push(...pm.rows);
 }
@@ -343,12 +353,12 @@ const manifest = crypto.createHash("sha256").update(entries.join("\n")).digest("
 // 每项必须写明对应的上游签名，命中即豁免「超过 3 个参数」判定，但仍在 findings 里逐条输出以便审计。
 // 未鉴权变更型管理路由（计划 §M34 与 issues.md E-1 的机检化：修复后必须归 0，防止回归）。
 // 判定：管理请求路径文件中不存在任何鉴权检查点时，MakePostRoute 的每一条路由臂都算未鉴权变更端点。
-const OPS_PATH = "Prism/Operations/Routes/RouteDispatch.hpp";
+const OPS_PATH = "Include/Prism/Operations/Routes/RouteDispatch.hpp";
 const OPS_REQUEST_PATH_FILES = [
   OPS_PATH,
-  "Prism/Operations/HttpConnection.hpp",
-  "Prism/Operations/Router.hpp",
-  "Prism/Application/OperationsStartup.hpp",
+  "Include/Prism/Operations/HttpConnection.hpp",
+  "Include/Prism/Operations/Router.hpp",
+  "Src/Prism/Application/OperationsStartup.hpp",
 ];
 // 必须是**真实检查构造**，不能是散文里的词：`origin-form`、`{"vary", "origin"}` 这类命中曾让本规则出现假阴性（安全判据最坏的一类 bug）。
 // 因此 Origin 必须与同行校验谓词共现；`authoriz` 要求后接非字母（排除 authorizer 之外的歧义拼法无风险）。
@@ -391,12 +401,13 @@ if (fs.existsSync(path.join(root, OPS_PATH))) {
   }
 }
 
-const isForeignAbi = (r) => GetPrismAbiContract(r.file, r.name, r.params) !== undefined;
+const isForeignAbi = (r) => GetPrismAbiContract(r.abiFile, r.name, r.params) !== undefined;
 const abiExemptSeen = over2.filter((r) => r.params > 3 && isForeignAbi(r));
 
 const summary = {
   capturedAt: new Date().toISOString(),
-  productionHeaders: files.length,
+  productionHeaders: files.filter((file) => /\.hpp$/i.test(file)).length,
+  productionSources: files.filter((file) => /\.cpp$/i.test(file)).length,
   sourceManifestSha256: manifest,
   counts: {
     includeDirection: findings.includeDirection.length,
@@ -439,7 +450,7 @@ findings.compatNamingExemptions = compatExempted;
 findings.missingNodiscard = (fullDump ? nodiscardRows : nodiscardRows.slice(0, 40))
   .map((x) => `${x.file}:${x.line} ${x.name}() -> ${x.type}`);
 findings.missingNodiscardTruncated = !fullDump && nodiscardRows.length > 40;
-findings.signatureMethod = "**结构性下界指标，用于定位缺口，不是合规证明。** 判定：带尾随 `-> T` 的 `auto Name(...)` 声明且 T 不以 void 开头、也不是 awaitable/task/generator<void>，其声明行未出现 [[nodiscard]]。构造函数、运算符、宏内声明、.cpp（本树生产无 .cpp）未纳入。是否真的值得加 [[nodiscard]] 必须逐条人工判断（忽略返回值是否构成错误），不得为把数字做低而批量加标注。曾尝试同时做「经典返回类型」检测，正则实测把构造函数/operator/control flow 全部误报（第一版甚至因分隔符写错而报 0，即伪绿），已撤下：该判据需要真解析器。";
+findings.signatureMethod = "**结构性下界指标，用于定位缺口，不是合规证明。** 判定：带尾随 `-> T` 的 `auto Name(...)` 声明且 T 不以 void 开头、也不是 awaitable/task/generator<void>，其声明行未出现 [[nodiscard]]。构造函数、运算符、宏内声明及其他不符合上述签名形态的形式未纳入；扫描范围包括 Include/Prism 与 Src/Prism 下的 .hpp/.cpp。是否真的值得加 [[nodiscard]] 必须逐条人工判断（忽略返回值是否构成错误），不得为把数字做低而批量加标注。曾尝试同时做「经典返回类型」检测，正则实测把构造函数/operator/control flow 全部误报（第一版甚至因分隔符写错而报 0，即伪绿），已撤下：该判据需要真解析器。";
 findings.contractDocGaps = fullDump ? contractMissing : contractMissing.slice(0, 40);
 console.log(JSON.stringify({ summary, findings }, null, 2));
 process.exit(findings.includeDirection.length + findings.forwardDeclCoupling.length + findings.unauthenticatedMutatingRoutes.length === 0 ? 0 : 1);

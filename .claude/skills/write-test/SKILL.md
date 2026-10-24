@@ -7,11 +7,11 @@ description: 为 Prism 新增或修改 GoogleTest、MockTransport、MockTlsServe
 
 ## 当前测试结构
 
-- 生产测试公共设施：`tests/TestSupport/Production/`
-- TLS 测试公共设施：`tests/TestSupport/Tls/`
-- preview 公共设施：`tests/TestSupport/Preview/`
-- 测试 runner：`tests/TestSupport/Runner/`
-- target 注册入口：`tests/CMakeLists.txt`
+- 生产测试公共设施：`Test/TestSupport/Production/`
+- TLS 测试公共设施：`Test/TestSupport/Tls/`
+- preview 公共设施：`Test/TestSupport/Preview/`
+- 测试 runner：`Test/TestSupport/Runner/`
+- target 注册入口：`Test/CMakeLists.txt`
 
 当前使用 `AddProductionTest`、`AddPreviewTest` 和 `AddContractTest`，不得使用历史测试注册 helper 或未定义的 `TestSupport` target。
 

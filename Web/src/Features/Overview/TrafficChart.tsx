@@ -61,19 +61,19 @@ export function TrafficPanel(Input: Readonly<{ Snapshot: OverviewSnapshot }>): R
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <AreaChart data={ChartPoints} margin={{ top: 12, right: 8, bottom: 0, left: 0 }} accessibilityLayer>
                         <defs><linearGradient id="traffic-down" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="var(--chart-down)" stopOpacity={.2} /><stop offset="100%" stopColor="var(--chart-down)" stopOpacity={.02} />
+                            <stop offset="0%" stopColor="var(--chart-down)" stopOpacity={.22} /><stop offset="60%" stopColor="var(--chart-down)" stopOpacity={.05} /><stop offset="100%" stopColor="var(--chart-down)" stopOpacity={0} />
                         </linearGradient><linearGradient id="traffic-up" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="var(--chart-up)" stopOpacity={.12} /><stop offset="100%" stopColor="var(--chart-up)" stopOpacity={0} />
+                            <stop offset="0%" stopColor="var(--chart-up)" stopOpacity={.16} /><stop offset="100%" stopColor="var(--chart-up)" stopOpacity={0} />
                         </linearGradient></defs>
-                        <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 4" />
+                        <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
                         <XAxis dataKey="Time" tickFormatter={Value => FormatTime(String(Value))} axisLine={false} tickLine={false} minTickGap={40}
                             tick={{ fill: 'var(--muted)', fontSize: 12 }} dy={4} height={26} />
                         <YAxis tickFormatter={AxisRate} axisLine={false} tickLine={false} width={70} tickCount={4}
                             tick={{ fill: 'var(--muted)', fontSize: 12 }} />
                         <Tooltip content={<TrafficTooltip />} cursor={{ stroke: 'var(--muted-light)', strokeDasharray: '3 3' }} isAnimationActive={false} />
-                        <Area type="monotone" dataKey="Down" name="下行" stroke="var(--chart-down)" fill="url(#traffic-down)" strokeWidth={2}
+                        <Area type="monotone" dataKey="Down" name="下行" stroke="var(--chart-down)" fill="url(#traffic-down)" strokeWidth={2.2} strokeLinecap="round"
                             connectNulls={false} isAnimationActive={false} activeDot={{ r: 4, strokeWidth: 3, stroke: 'var(--surface)' }} />
-                        <Area type="monotone" dataKey="Up" name="上行" stroke="var(--chart-up)" fill="url(#traffic-up)" strokeWidth={2}
+                        <Area type="monotone" dataKey="Up" name="上行" stroke="var(--chart-up)" fill="url(#traffic-up)" strokeWidth={1.8} strokeLinecap="round"
                             connectNulls={false} isAnimationActive={false} activeDot={{ r: 4, strokeWidth: 3, stroke: 'var(--surface)' }} />
                     </AreaChart>
                 </ResponsiveContainer>

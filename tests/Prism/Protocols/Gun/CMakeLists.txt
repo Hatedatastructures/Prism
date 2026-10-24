@@ -1,5 +1,0 @@
-AddPrismTest(GunCodecDeep.cpp)
-target_link_libraries(GunCodecDeep PRIVATE PrismProtocolGun PrismTestSupport)
-
-AddPrismTest(GunGrpcContractTest.cpp)
-target_link_libraries(GunGrpcContractTest PRIVATE PrismProtocolGun PrismProtocolHttp2 PrismTestSupport)

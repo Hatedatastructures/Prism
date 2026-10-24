@@ -1,0 +1,40 @@
+set(PrismConfigurationPublicHeaders
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/Configuration.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/ConfigurationError.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/ConfigurationGeneration.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/ConfigurationParser.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/ConfigurationValidator.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/GenerationBuilder.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/PreparedConfiguration.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/PrismConfiguration.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/PrismConfigurationJson.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/PublicSettingsValidator.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/ReferenceValidation.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/ReloadCoordinator.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/ResolvedSecrets.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/SecretRefResolver.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/Validation/ValidationTypes.hpp"
+)
+set(PrismConfigurationPrivateHeaders
+    "${CMAKE_CURRENT_SOURCE_DIR}/Detail/PreparedConfigurationSecrets.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/CapabilityValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/CarrierValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/CommonValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/ConfigurationValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/ProtocolIndependentValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/ReferenceValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/SchemaValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/SecretValidation.hpp"
+)
+
+PrismAddStaticTarget(PrismConfiguration
+    SOURCES
+        ConfigurationParser.cpp
+        ConfigurationValidator.cpp
+        GenerationBuilder.cpp
+        PreparedConfiguration.cpp
+        PublicSettingsValidator.cpp
+        ReferenceValidation.cpp
+        ReloadCoordinator.cpp
+    HEADERS ${PrismConfigurationPublicHeaders}
+    PRIVATE_HEADERS ${PrismConfigurationPrivateHeaders})

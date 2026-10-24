@@ -39,7 +39,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.25.x'
-          cache-dependency-path: tests/Prism/Integration/Go/go.sum
+          cache-dependency-path: Test/Prism/Integration/Go/go.sum
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -57,7 +57,7 @@ jobs:
 
       - name: Build
         shell: pwsh
-        run: cmake --build build --config Release --parallel 4
+        run: cmake --build build --config Release --parallel 2
 
       - name: Run Tests
         shell: pwsh
@@ -65,20 +65,20 @@ jobs:
 
       - name: Build Go reference tools
         shell: pwsh
-        working-directory: tests/Prism/Integration/Go
+        working-directory: Test/Prism/Integration/Go
         run: |
-          New-Item -ItemType Directory -Force -Path ../../../../build/tests/Prism/Integration/Go | Out-Null
+          New-Item -ItemType Directory -Force -Path ../../../../build/Test/Prism/Integration/Go | Out-Null
           $Tools = @('anytlscmp', 'guncmp', 'realitycmp', 'restlscmp', 'shadowtlscmp', 'trusttunnelcmp', 'wscmp', 'httpcmp', 'socks5cmp', 'trojancmp', 'vlesscmp', 'hysteria2cmp', 'tuiccmp', 'xhttpcmp', 'vmesscmp')
           foreach ($Tool in $Tools) {
-            go build -o ("../../../../build/tests/Prism/Integration/Go/{0}.exe" -f $Tool) ("./{0}" -f $Tool)
+            go build -o ("../../../../build/Test/Prism/Integration/Go/{0}.exe" -f $Tool) ("./{0}" -f $Tool)
           }
-          go build -o ../../../../build/tests/Prism/Integration/Go/ss2022_client.exe ./Interop/Ss2022Client
-          go build -o ../../../../build/tests/Prism/Integration/Go/ss2022_server.exe ./Interop/Ss2022Server
-          go build -o ../../../../build/tests/Prism/Integration/Go/websocket.exe ./websocket
-          go build -o ../../../../build/tests/Prism/Integration/Go/anytls.exe ./anytls
-          go build -o ../../../../build/tests/Prism/Integration/Go/gun.exe ./gun
-          go build -o ../../../../build/tests/Prism/Integration/Go/xhttp.exe ./xhttp
-          go build -o ../../../../build/tests/Prism/Integration/Go/trusttunnel.exe ./trusttunnel
+          go build -o ../../../../build/Test/Prism/Integration/Go/ss2022_client.exe ./Interop/Ss2022Client
+          go build -o ../../../../build/Test/Prism/Integration/Go/ss2022_server.exe ./Interop/Ss2022Server
+          go build -o ../../../../build/Test/Prism/Integration/Go/websocket.exe ./websocket
+          go build -o ../../../../build/Test/Prism/Integration/Go/anytls.exe ./anytls
+          go build -o ../../../../build/Test/Prism/Integration/Go/gun.exe ./gun
+          go build -o ../../../../build/Test/Prism/Integration/Go/xhttp.exe ./xhttp
+          go build -o ../../../../build/Test/Prism/Integration/Go/trusttunnel.exe ./trusttunnel
 
       - name: Select Prism executable
         id: prism

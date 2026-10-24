@@ -1,0 +1,57 @@
+set(PrismAccountHeaders
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Account.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Authenticator.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Binding.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Credential.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/CredentialScope.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Failure.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Index.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Lease.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Materials.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Policy.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/PolicyConfiguration.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/PolicyVersion.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Quota.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Rate.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/RateTypes.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Runtime.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/RuntimeRegistry.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/SecureBytes.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/Store.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/TransferBudget.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/UsageCalendar.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/UsageModels.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Account/UsagePersistence.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Account/AdmissionAuthority.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Account/PayloadBudget.hpp"
+)
+
+PrismAddStaticTarget(PrismAccount
+    SOURCES
+        AccountAdmission.cpp
+        Authenticator.cpp
+        Binding.cpp
+        Credential.cpp
+        Detail/LeasePool.cpp
+        Detail/RateLedger.cpp
+        Failure.cpp
+        Index.cpp
+        Lease.cpp
+        Materials.cpp
+        PayloadBudget.cpp
+        PolicyConfiguration.cpp
+        Rate.cpp
+        Runtime.cpp
+        RuntimeRegistry.cpp
+        SecureBytes.cpp
+        Store.cpp
+        TransferBudget.cpp
+        UsageCalendar.cpp
+    HEADERS
+        ${PrismAccountHeaders}
+    PRIVATE_HEADERS
+        Detail/LeasePool.hpp
+        Detail/RateLedger.hpp
+        Detail/TransferRequestKey.hpp
+        Detail/TransferSequence.hpp
+)

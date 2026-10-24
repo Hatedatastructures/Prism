@@ -1,0 +1,524 @@
+/**
+ * @file StreamController.cpp
+ * @brief HTTP/2 流状态、流控和输出操作实现
+ */
+
+#include <Prism/Protocols/Http2/Detail/StreamController.hpp>
+#include <Prism/Protocols/Http2/Detail/CodecState.hpp>
+
+namespace Prism::Http2::Detail
+{
+    StreamController::StreamController(ConnectionState &Connection, CodecState &Codec, H2Session &Events)
+        : Connection_(Connection), Codec_(Codec), Events_(Events)
+    {
+    }
+
+    auto StreamController::OpenStream(const HeaderList &Headers, bool EndStream)
+        -> std::expected<std::int32_t, Prism::Fault::Failure>
+    {
+        if (Connection_.IsServer())
+        {
+            return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::NotSupported});
+        }
+        const auto StreamId = NextClientStreamId();
+        if (!StreamId)
+        {
+            return std::unexpected(StreamId.error());
+        }
+        const auto HeaderResult = SubmitHeadersFrame(*StreamId, Headers, EndStream);
+        if (!HeaderResult)
+        {
+            Streams_.erase(*StreamId);
+            return std::unexpected(HeaderResult.error());
+        }
+        return *StreamId;
+    }
+
+    auto StreamController::SubmitHeaders(
+        const std::int32_t StreamId,
+        const HeaderList &Headers,
+        const bool EndStream) -> std::expected<void, Prism::Fault::Failure>
+    {
+        return SubmitHeadersFrame(StreamId, Headers, EndStream);
+    }
+
+    auto StreamController::SubmitData(
+        const std::int32_t StreamId,
+        std::span<const std::byte> Data,
+        const bool EndStream) -> SubmitDataStatus
+    {
+        if (StreamId <= 0 || Data.size() > 0x7FFFFFFFU)
+        {
+            return SubmitDataStatus::Invalid;
+        }
+        const auto StreamIterator = Streams_.find(StreamId);
+        if (StreamIterator == Streams_.end())
+        {
+            return IsClosedStream(StreamId) ? SubmitDataStatus::Closed : SubmitDataStatus::Invalid;
+        }
+        if (StreamIterator->second.LocalClosed)
+        {
+            return SubmitDataStatus::Closed;
+        }
+        const auto RequiredBytes = static_cast<std::uint64_t>(Data.size());
+        if (RequiredBytes != 0 &&
+            (Connection_.ConnectionSendWindow() < 0 || StreamIterator->second.SendWindow < 0 ||
+             RequiredBytes > static_cast<std::uint64_t>(Connection_.ConnectionSendWindow()) ||
+             RequiredBytes > static_cast<std::uint64_t>(StreamIterator->second.SendWindow)))
+        {
+            return SubmitDataStatus::Blocked;
+        }
+        auto Offset = std::size_t{0};
+        if (Data.empty())
+        {
+            const auto Flags = EndStream ? FlagEndStream : FlagNone;
+            Connection_.QueueFrame(
+                {FrameType::Data, Flags, static_cast<std::uint32_t>(StreamId), {}});
+        }
+        while (Offset < Data.size())
+        {
+            const auto Remaining = Data.size() - Offset;
+            const auto Count = (std::min)(Remaining, static_cast<std::size_t>(PeerMaxFrameSize_));
+            const auto Last = Offset + Count == Data.size();
+            const std::vector<std::byte> Payload(
+                Data.begin() + static_cast<std::ptrdiff_t>(Offset),
+                Data.begin() + static_cast<std::ptrdiff_t>(Offset + Count));
+            const auto Flags = Last && EndStream ? FlagEndStream : FlagNone;
+            Connection_.QueueFrame(
+                {FrameType::Data, Flags, static_cast<std::uint32_t>(StreamId), Payload});
+            Connection_.ConnectionSendWindow() -= static_cast<std::uint32_t>(Count);
+            StreamIterator->second.SendWindow -= static_cast<std::uint32_t>(Count);
+            Offset += Count;
+        }
+        if (EndStream)
+        {
+            StreamIterator->second.LocalClosed = true;
+            WakeWaiters(StreamIterator->second.WritableWaiters);
+            if (StreamIterator->second.RemoteClosed)
+            {
+                ClosedStreams_.insert(static_cast<std::uint32_t>(StreamId));
+                Streams_.erase(StreamIterator);
+            }
+        }
+        return SubmitDataStatus::Accepted;
+    }
+
+    auto StreamController::AwaitWritable(
+        const std::int32_t StreamId,
+        const std::size_t RequiredBytes)
+        -> Net::awaitable<std::expected<void, Prism::Fault::Failure>>
+    {
+        if (StreamId <= 0 || RequiredBytes == 0 || RequiredBytes > 0x7FFFFFFFU)
+        {
+            co_return std::unexpected(
+                Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
+        }
+        const auto Cancellation = co_await Net::this_coro::cancellation_state;
+        while (true)
+        {
+            co_await Net::dispatch(Connection_.Executor(), Net::use_awaitable);
+            if (Cancellation.cancelled() != Net::cancellation_type::none)
+            {
+                co_return std::unexpected(
+                    Prism::Fault::Failure{Prism::Fault::Code::Canceled});
+            }
+            const auto StreamIterator = Streams_.find(StreamId);
+            if (StreamIterator == Streams_.end())
+            {
+                const auto Code = IsClosedStream(StreamId)
+                    ? Prism::Fault::Code::ConnectionAborted
+                    : Prism::Fault::Code::InvalidArgument;
+                co_return std::unexpected(Prism::Fault::Failure{Code});
+            }
+            if (StreamIterator->second.LocalClosed)
+            {
+                co_return std::unexpected(
+                    Prism::Fault::Failure{Prism::Fault::Code::ConnectionAborted});
+            }
+            if (HasSendWindow(StreamIterator->second, RequiredBytes))
+            {
+                co_return std::expected<void, Prism::Fault::Failure>{};
+            }
+            const auto Waiter = std::make_shared<Net::steady_timer>(Connection_.Executor());
+            Waiter->expires_at((Net::steady_timer::time_point::max)());
+            PruneWaiters(ConnectionWaiters_);
+            PruneWaiters(StreamIterator->second.WritableWaiters);
+            ConnectionWaiters_.emplace_back(Waiter);
+            StreamIterator->second.WritableWaiters.emplace_back(Waiter);
+            boost::system::error_code WaitError;
+            co_await Waiter->async_wait(Net::redirect_error(Net::use_awaitable, WaitError));
+            if (Cancellation.cancelled() != Net::cancellation_type::none)
+            {
+                co_return std::unexpected(
+                    Prism::Fault::Failure{Prism::Fault::Code::Canceled});
+            }
+            if (WaitError && WaitError != Net::error::operation_aborted)
+            {
+                co_return std::unexpected(Prism::Fault::FromNative(
+                    static_cast<std::error_code>(WaitError)));
+            }
+        }
+    }
+
+    auto StreamController::ConsumeData(const std::int32_t StreamId, const std::size_t Bytes) -> void
+    {
+        if (StreamId <= 0 || Bytes == 0)
+        {
+            return;
+        }
+        const auto StreamIterator = Streams_.find(StreamId);
+        if (StreamIterator == Streams_.end())
+        {
+            return;
+        }
+        RestoreReceiveWindow(ConnectionStreamId, Bytes, Connection_.ConnectionReceiveWindow());
+        RestoreReceiveWindow(
+            static_cast<std::uint32_t>(StreamId), Bytes, StreamIterator->second.ReceiveWindow);
+    }
+
+    auto StreamController::ConsumeClosedStreamData(const std::size_t Bytes) -> void
+    {
+        if (Bytes == 0) return;
+        RestoreReceiveWindow(ConnectionStreamId, Bytes, Connection_.ConnectionReceiveWindow());
+    }
+
+    auto StreamController::ResetStream(
+        const std::int32_t StreamId,
+        const std::uint32_t ErrorCode) -> std::expected<void, Prism::Fault::Failure>
+    {
+        if (StreamId <= 0)
+        {
+            return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
+        }
+        const auto StreamIterator = Streams_.find(StreamId);
+        if (StreamIterator == Streams_.end())
+        {
+            return std::unexpected(Prism::Fault::Failure{MissingStreamCode(StreamId)});
+        }
+        const auto Payload = EncodeRstStream(ErrorCode);
+        Connection_.QueueFrame(
+            {FrameType::RstStream, FlagNone, static_cast<std::uint32_t>(StreamId), Payload});
+        ClosedStreams_.insert(static_cast<std::uint32_t>(StreamId));
+        WakeWaiters(StreamIterator->second.WritableWaiters);
+        Streams_.erase(StreamIterator);
+        return {};
+    }
+
+    auto StreamController::SendSettings(std::span<const SettingsEntry> Entries) -> void
+    {
+        const auto Payload = EncodeSettings(Entries);
+        Connection_.QueueFrame({FrameType::Settings, FlagNone, ConnectionStreamId, Payload});
+    }
+
+    auto StreamController::SendPing(std::span<const std::byte, 8> Opaque) -> void
+    {
+        const std::vector<std::byte> Payload(Opaque.begin(), Opaque.end());
+        Connection_.QueueFrame({FrameType::Ping, FlagNone, ConnectionStreamId, Payload});
+    }
+
+    auto StreamController::SendGoaway(const std::uint32_t LastStreamId, const std::uint32_t ErrorCode) -> void
+    {
+        GoawayParams Params;
+        Params.LastStreamId = LastStreamId;
+        Params.ErrorCode = ErrorCode;
+        const auto Payload = EncodeGoaway(Params);
+        Connection_.QueueFrame({FrameType::Goaway, FlagNone, ConnectionStreamId, Payload});
+    }
+
+    auto StreamController::ValidateIncomingStream(
+        const std::uint32_t StreamId,
+        std::error_code &ErrorCode) const -> bool
+    {
+        if (StreamId == ConnectionStreamId)
+        {
+            ErrorCode = make_error_code(Error::ProtocolError);
+            return false;
+        }
+        if (const auto *State = Find(static_cast<std::int32_t>(StreamId)))
+        {
+            if (State->RemoteClosed)
+            {
+                ErrorCode = make_error_code(Error::ProtocolError);
+                return false;
+            }
+            return true;
+        }
+        const auto InvalidParity = Connection_.IsServer() ? StreamId % 2U == 0 : StreamId % 2U != 0;
+        if (InvalidParity)
+        {
+            ErrorCode = make_error_code(Error::ProtocolError);
+            return false;
+        }
+        if (IsClosedStream(static_cast<std::int32_t>(StreamId))) return true;
+        if (StreamId <= LastRxStream_)
+        {
+            ErrorCode = make_error_code(Error::ProtocolError);
+            return false;
+        }
+        return true;
+    }
+
+    auto StreamController::RegisterIncomingStream(const std::uint32_t StreamId) -> void
+    {
+        if (!Find(static_cast<std::int32_t>(StreamId)))
+        {
+            Streams_.emplace(static_cast<std::int32_t>(StreamId), StreamState{});
+            LastRxStream_ = (std::max)(LastRxStream_, StreamId);
+        }
+    }
+
+    auto StreamController::ApplyPeerSettings(
+        const std::vector<SettingsEntry> &Entries,
+        std::error_code &ErrorCode) -> bool
+    {
+        for (const auto &Entry : Entries)
+        {
+            if (Entry.Id == SettingsEnablePush &&
+                (Entry.Value > 1 || (!Connection_.IsServer() && Entry.Value != 0)))
+            {
+                ErrorCode = make_error_code(Error::ProtocolError);
+                return false;
+            }
+            if (Entry.Id == SettingsInitialWindowSize && Entry.Value > 0x7FFFFFFFU)
+            {
+                ErrorCode = make_error_code(Error::ProtocolError);
+                return false;
+            }
+            if (Entry.Id == SettingsMaxFrameSize &&
+                (Entry.Value < DefaultFramePayload || Entry.Value > 0xFFFFFFU))
+            {
+                ErrorCode = make_error_code(Error::ProtocolError);
+                return false;
+            }
+        }
+        for (const auto &Entry : Entries)
+        {
+            if (Entry.Id == SettingsInitialWindowSize)
+            {
+                const auto Delta = static_cast<std::int64_t>(Entry.Value) -
+                                   static_cast<std::int64_t>(PeerInitialWindow_);
+                for (auto &[StreamId, State] : Streams_)
+                {
+                    (void)StreamId;
+                    State.SendWindow += Delta;
+                    WakeWaiters(State.WritableWaiters);
+                }
+                PeerInitialWindow_ = Entry.Value;
+            }
+            else if (Entry.Id == SettingsMaxFrameSize)
+            {
+                PeerMaxFrameSize_ = Entry.Value;
+            }
+        }
+        return true;
+    }
+
+    auto StreamController::ApplyStreamWindowUpdate(
+        const std::int32_t StreamId,
+        const std::uint32_t Increment,
+        std::error_code &ErrorCode) -> bool
+    {
+        const auto *State = Find(StreamId);
+        if (!State)
+        {
+            if (IsClosedStream(StreamId)) return true;
+            ErrorCode = make_error_code(Error::ProtocolError);
+            return false;
+        }
+        if (State->SendWindow > 0x7FFFFFFFU - Increment)
+        {
+            ErrorCode = make_error_code(Error::ProtocolError);
+            return false;
+        }
+        auto *MutableState = Find(StreamId);
+        MutableState->SendWindow += Increment;
+        WakeWaiters(MutableState->WritableWaiters);
+        return true;
+    }
+
+    auto StreamController::OnStreamCloseIf(const std::int32_t StreamId, const std::uint32_t ErrorCode) -> void
+    {
+        if (const auto Iterator = Streams_.find(StreamId); Iterator != Streams_.end())
+        {
+            WakeWaiters(Iterator->second.WritableWaiters);
+        }
+        if (StreamId > 0) ClosedStreams_.insert(static_cast<std::uint32_t>(StreamId));
+        Streams_.erase(StreamId);
+        if (Events_.OnStreamClose)
+        {
+            Events_.OnStreamClose(
+                {StreamId, StreamReceiveClosureKind::Reset, ErrorCode});
+        }
+    }
+
+    auto StreamController::OnRemoteEnd(const std::int32_t StreamId, const std::uint32_t ErrorCode) -> void
+    {
+        auto *State = Find(StreamId);
+        if (!State)
+        {
+            return;
+        }
+        State->RemoteClosed = true;
+        if (Events_.OnStreamClose)
+        {
+            Events_.OnStreamClose(
+                {StreamId, StreamReceiveClosureKind::EndStream, ErrorCode});
+        }
+        if (const auto *Current = Find(StreamId); Current && Current->LocalClosed)
+        {
+            ClosedStreams_.insert(static_cast<std::uint32_t>(StreamId));
+            Streams_.erase(StreamId);
+        }
+    }
+
+    auto StreamController::WakeConnectionWaiters() -> void
+    {
+        WakeWaiters(ConnectionWaiters_);
+    }
+
+    auto StreamController::HasSendWindow(
+        const StreamState &State,
+        const std::size_t RequiredBytes) const noexcept -> bool
+    {
+        if (Connection_.ConnectionSendWindow() < 0 || State.SendWindow < 0)
+        {
+            return false;
+        }
+        return RequiredBytes <= static_cast<std::uint64_t>(Connection_.ConnectionSendWindow()) &&
+               RequiredBytes <= static_cast<std::uint64_t>(State.SendWindow);
+    }
+
+    auto StreamController::PruneWaiters(
+        std::vector<std::weak_ptr<Net::steady_timer>> &Waiters) -> void
+    {
+        Waiters.erase(
+            std::remove_if(Waiters.begin(), Waiters.end(),
+                [](const auto &Waiter) { return Waiter.expired(); }),
+            Waiters.end());
+    }
+
+    auto StreamController::WakeWaiters(
+        std::vector<std::weak_ptr<Net::steady_timer>> &Waiters) -> void
+    {
+        for (const auto &WeakWaiter : Waiters)
+        {
+            if (const auto Waiter = WeakWaiter.lock())
+            {
+                (void)Waiter->cancel();
+            }
+        }
+        Waiters.clear();
+    }
+
+    auto StreamController::RestoreReceiveWindow(
+        const std::uint32_t StreamId,
+        const std::size_t Bytes,
+        std::uint32_t &Window) -> void
+    {
+        constexpr std::uint64_t MaxWindowIncrement = 0x7FFFFFFFU;
+        constexpr std::uint32_t MaxWindow = 0x7FFFFFFFU;
+        std::uint64_t Remaining = Bytes;
+        while (Remaining != 0 && Window < MaxWindow)
+        {
+            const auto Capacity = static_cast<std::uint64_t>(MaxWindow - Window);
+            const auto Increment = (std::min)({Remaining, Capacity, MaxWindowIncrement});
+            if (Increment == 0)
+            {
+                return;
+            }
+            Window += static_cast<std::uint32_t>(Increment);
+            const auto Payload = EncodeWindowUpdate(static_cast<std::uint32_t>(Increment));
+            Connection_.QueueFrame({FrameType::WindowUpdate, FlagNone, StreamId, Payload});
+            Remaining -= Increment;
+        }
+    }
+
+    auto StreamController::SubmitHeadersFrame(
+        const std::int32_t StreamId,
+        const HeaderList &Headers,
+        const bool EndStream) -> std::expected<void, Prism::Fault::Failure>
+    {
+        if (StreamId <= 0)
+        {
+            return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::InvalidArgument});
+        }
+        const auto StreamIterator = Streams_.find(StreamId);
+        if (StreamIterator == Streams_.end())
+        {
+            return std::unexpected(Prism::Fault::Failure{MissingStreamCode(StreamId)});
+        }
+        if (StreamIterator->second.LocalClosed)
+        {
+            return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::ConnectionAborted});
+        }
+        const auto Block = Codec_.EncodeHeaders(Headers);
+        if (Block.size() <= PeerMaxFrameSize_)
+        {
+            auto Flags = static_cast<std::uint8_t>(FlagEndHeaders);
+            if (EndStream)
+            {
+                Flags |= FlagEndStream;
+            }
+            Connection_.QueueFrame(
+                {FrameType::Headers, Flags, static_cast<std::uint32_t>(StreamId), Block});
+        }
+        else
+        {
+            auto Offset = std::size_t{0};
+            while (Offset < Block.size())
+            {
+                const auto Count = (std::min)(static_cast<std::size_t>(PeerMaxFrameSize_),
+                                               Block.size() - Offset);
+                const std::vector<std::byte> Fragment(
+                    Block.begin() + static_cast<std::ptrdiff_t>(Offset),
+                    Block.begin() + static_cast<std::ptrdiff_t>(Offset + Count));
+                const auto First = Offset == 0;
+                const auto Last = Offset + Count == Block.size();
+                if (First)
+                {
+                    const auto Flags = EndStream ? FlagEndStream : FlagNone;
+                    Connection_.QueueFrame(
+                        {FrameType::Headers, Flags, static_cast<std::uint32_t>(StreamId), Fragment});
+                }
+                else
+                {
+                    const auto Flags = Last ? FlagEndHeaders : FlagNone;
+                    Connection_.QueueFrame(
+                        {FrameType::Continuation, Flags, static_cast<std::uint32_t>(StreamId), Fragment});
+                }
+                Offset += Count;
+            }
+        }
+        if (EndStream)
+        {
+            StreamIterator->second.LocalClosed = true;
+            WakeWaiters(StreamIterator->second.WritableWaiters);
+            if (StreamIterator->second.RemoteClosed)
+            {
+                ClosedStreams_.insert(static_cast<std::uint32_t>(StreamId));
+                Streams_.erase(StreamIterator);
+            }
+        }
+        return {};
+    }
+
+    auto StreamController::NextClientStreamId()
+        -> std::expected<std::int32_t, Prism::Fault::Failure>
+    {
+        if (NextClientId_ > 0x7FFFFFFF - 2)
+        {
+            return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::ResourceUnavailable});
+        }
+        const auto StreamId = NextClientId_;
+        NextClientId_ += 2;
+        Streams_[StreamId] = {};
+        return StreamId;
+    }
+
+    auto StreamController::MissingStreamCode(const std::int32_t StreamId) const noexcept
+        -> Prism::Fault::Code
+    {
+        if (IsClosedStream(StreamId)) return Prism::Fault::Code::ConnectionAborted;
+        return Prism::Fault::Code::InvalidArgument;
+    }
+} // namespace Prism::Http2::Detail

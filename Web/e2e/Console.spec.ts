@@ -59,7 +59,7 @@ test('概览采用真实任务分区，事件不会推迟账户区域', async ({
     if (Width < 768) {
         const Grid = await page.locator('.overview-grid-v2').boundingBox();
         expect(Grid).not.toBeNull();
-        for (const Class of ['traffic', 'latency', 'ingress', 'worker', 'protocol', 'account', 'events', 'resource']) {
+        for (const Class of ['traffic', 'latency', 'runtime', 'worker', 'ingress', 'account', 'protocol', 'events', 'resource']) {
             const Panel = await page.locator(`.overview-${Class}-v2`).boundingBox();
             expect(Panel).not.toBeNull();
             expect(Math.abs(Panel!.width - Grid!.width)).toBeLessThanOrEqual(1);

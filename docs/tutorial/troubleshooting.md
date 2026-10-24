@@ -14,7 +14,14 @@
 
 ## Web catalog 或页面资源缺失
 
-确认当前构建生成了 `Web/catalog.json`，并检查 `Operations.WebDirectory` 是否指向完整资源目录。若指定路径为相对路径，它按配置文件位置解析；修改目录后使用实际部署配置重新验证。
+默认 `Prism` target 不会生成 Web catalog。先在仓库根目录安装 Web 依赖并显式构建 `PrismWeb`：
+
+```powershell
+npm ci --prefix Web
+cmake --build build --config Release --target PrismWeb -j 16
+```
+
+构建后再检查 `build/Web/catalog.json`。22:00–08:00 构建时将 `-j 16` 改为 `-j 1`。最后确认 `Operations.WebDirectory` 指向包含 catalog 和页面资源的完整目录；相对路径按配置文件位置解析。
 
 ## 测试与运行结果不同
 

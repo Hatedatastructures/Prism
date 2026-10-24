@@ -9,7 +9,7 @@ import { parseArgs } from 'node:util';
 const { values } = parseArgs({ options: {
   repo: { type: 'string', default: path.resolve(import.meta.dirname, '..') },
   'parser-lib': { type: 'string' },
-  scope: { type: 'string', default: 'Prism' },
+  scope: { type: 'string', multiple: true, default: ['Include/Prism', 'Src/Prism'] },
   report: { type: 'string' },
 } });
 const require = createRequire(import.meta.url);
@@ -103,84 +103,91 @@ function HasComboTestDefinition(tree) {
 const result = { capturedAt: new Date().toISOString(), parserLib, files: [],
   functions: 0, lambdas: 0, declarations: 0, foreignAbi: [], problems: [], parseErrors: [], parseRecoveries: [] };
 
-const scopeDirectory = path.resolve(values.repo, values.scope);
-const isTestScope = path.relative(values.repo, scopeDirectory).replaceAll('\\', '/').startsWith('tests/');
-for (const file of Sources(scopeDirectory)) {
-  const bytes = fs.readFileSync(file);
-  const source = bytes.toString('utf8');
-  const relative = path.relative(values.repo, file).replaceAll('\\', '/');
-  const lines = source.split('\n').length - (source.endsWith('\n') ? 1 : 0);
-  result.files.push({ path: relative, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), lines });
-  const fileLimit = isTestScope ? 800 : 600;
-  if (lines > fileLimit) result.problems.push({ kind: 'header', path: relative, lines, limit: fileLimit });
-  const { tree, recoveries } = ParseWithDefaultRecovery(source);
-  if (!tree) throw new Error(`无法解析 ${relative}`);
-  result.parseRecoveries.push(...recoveries.map(recovery => ({ path: relative, ...recovery })));
-  // 这两个 CPP 的已核生成宏展开为 TEST 函数定义，调用末尾不需要表达式分号。
-  const testDefinitionMacro =
-    ['tests/Prism/Integration/Layering/CarrierTcpIntegrityBenchmark.cpp',
-      'tests/Prism/Integration/Layering/CarrierTcpThroughputBenchmark.cpp'].some(
-        file => file.toLowerCase() === relative.toLowerCase()) &&
-    HasComboTestDefinition(tree);
-  const stack = [tree.rootNode];
-  while (stack.length) {
-    const node = stack.pop();
-    const position = { path: relative, start: node.startPosition.row + 1, end: node.endPosition.row + 1 };
-    if (node.type === 'ERROR' || node.isMissing) {
-      // 缺失节点必须位于默认参数的列表初始化中；真实语法错误与函数正文不豁免。
-      const bracedDefault = node.isMissing && node.type === 'type_identifier' &&
-        node.parent?.type === 'compound_literal_expression' &&
-        node.parent.namedChildren.length === 2 &&
-        node.parent.namedChildren[1].type === 'initializer_list' &&
-        node.parent.parent?.type === 'optional_parameter_declaration';
-      const macroDefinition = testDefinitionMacro && node.isMissing && node.type === ';' &&
-        node.parent?.type === 'expression_statement' &&
-        node.parent.namedChildren.length === 1 &&
-        node.parent.namedChildren[0].type === 'call_expression' &&
-        node.parent.namedChildren[0].childForFieldName('function')?.text === 'DEFINE_COMBO_TEST';
-      (bracedDefault || macroDefinition ? result.parseRecoveries : result.parseErrors).push({ ...position, type: node.type,
-        reason: bracedDefault ? 'braced-default-argument-parser-limit' :
-          macroDefinition ? 'test-definition-macro-parser-limit' : 'unclassified' });
-    }
-    if (node.type === 'function_definition') {
-      ++result.functions;
-      const body = node.childForFieldName('body');
-      const declarator = FunctionDeclarator(node.childForFieldName('declarator'));
-      if (body) {
-        const bodyLines = body.endPosition.row - body.startPosition.row + 1;
-        if (bodyLines > 120) result.problems.push({ kind: 'function', ...position,
-          name: declarator?.childForFieldName('declarator')?.text ?? '<unnamed>', bodyLines, limit: 120 });
+const scopes = Array.isArray(values.scope) ? values.scope : [values.scope];
+for (const scope of scopes) {
+  const scopeDirectory = path.resolve(values.repo, scope);
+  if (!fs.existsSync(scopeDirectory)) throw new Error(`检查范围不存在：${scope}`);
+  const isTestScope = path.relative(values.repo, scopeDirectory).replaceAll('\\', '/').startsWith('Test/');
+  for (const file of Sources(scopeDirectory)) {
+    const bytes = fs.readFileSync(file);
+    const source = bytes.toString('utf8');
+    const relative = path.relative(values.repo, file).replaceAll('\\', '/');
+    const lines = source.split('\n').length - (source.endsWith('\n') ? 1 : 0);
+    result.files.push({ path: relative, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), lines });
+    const extension = path.extname(file).toLowerCase();
+    const fileLimit = isTestScope ? 800 : extension === '.hpp' ? 600 : null;
+    if (fileLimit !== null && lines > fileLimit)
+      result.problems.push({ kind: 'header', path: relative, lines, limit: fileLimit });
+    const { tree, recoveries } = ParseWithDefaultRecovery(source);
+    if (!tree) throw new Error(`无法解析 ${relative}`);
+    result.parseRecoveries.push(...recoveries.map(recovery => ({ path: relative, ...recovery })));
+    // 这两个 CPP 的已核生成宏展开为 TEST 函数定义，调用末尾不需要表达式分号。
+    const testDefinitionMacro =
+      ['Test/Prism/Integration/Layering/CarrierIntegrityTest.cpp',
+        'Test/Prism/Integration/Layering/CarrierThroughputTest.cpp'].some(
+          file => file.toLowerCase() === relative.toLowerCase()) &&
+      HasComboTestDefinition(tree);
+    const stack = [tree.rootNode];
+    while (stack.length) {
+      const node = stack.pop();
+      const position = { path: relative, start: node.startPosition.row + 1, end: node.endPosition.row + 1 };
+      if (node.type === 'ERROR' || node.isMissing) {
+        // 缺失节点必须位于默认参数的列表初始化中；真实语法错误与函数正文不豁免。
+        const bracedDefault = node.isMissing && node.type === 'type_identifier' &&
+          node.parent?.type === 'compound_literal_expression' &&
+          node.parent.namedChildren.length === 2 &&
+          node.parent.namedChildren[1].type === 'initializer_list' &&
+          node.parent.parent?.type === 'optional_parameter_declaration';
+        const macroDefinition = testDefinitionMacro && node.isMissing && node.type === ';' &&
+          node.parent?.type === 'expression_statement' &&
+          node.parent.namedChildren.length === 1 &&
+          node.parent.namedChildren[0].type === 'call_expression' &&
+          node.parent.namedChildren[0].childForFieldName('function')?.text === 'DEFINE_COMBO_TEST';
+        (bracedDefault || macroDefinition ? result.parseRecoveries : result.parseErrors).push({ ...position, type: node.type,
+          reason: bracedDefault ? 'braced-default-argument-parser-limit' :
+            macroDefinition ? 'test-definition-macro-parser-limit' : 'unclassified' });
       }
-    }
-    if (node.type === 'lambda_expression') {
-      ++result.lambdas;
-      const body = node.childForFieldName('body');
-      const bodyLines = body ? body.endPosition.row - body.startPosition.row + 1 : 0;
-      const spanLines = position.end - position.start + 1;
-      if (spanLines > 10) result.problems.push({ kind: 'lambda', ...position, spanLines, bodyLines, limit: 10 });
-    }
-    if (node.type === 'function_declarator') {
-      ++result.declarations;
-      const count = CountParameters(node);
-      if (count > 3) {
-        const name = node.childForFieldName('declarator')?.text ?? '<unnamed>';
-        const abi = GetPrismAbiContract(relative, name, count);
-        if (abi?.count === count) result.foreignAbi.push({ ...position, name, count,
-          contract: abi.contract, signature: source.slice(node.startIndex, node.endIndex) });
-        else result.problems.push({ kind: 'parameters', ...position, name, count, limit: 3 });
+      if (node.type === 'function_definition') {
+        ++result.functions;
+        const body = node.childForFieldName('body');
+        const declarator = FunctionDeclarator(node.childForFieldName('declarator'));
+        if (body) {
+          const bodyLines = body.endPosition.row - body.startPosition.row + 1;
+          if (bodyLines > 120) result.problems.push({ kind: 'function', ...position,
+            name: declarator?.childForFieldName('declarator')?.text ?? '<unnamed>', bodyLines, limit: 120 });
+        }
       }
+      if (node.type === 'lambda_expression') {
+        ++result.lambdas;
+        const body = node.childForFieldName('body');
+        const bodyLines = body ? body.endPosition.row - body.startPosition.row + 1 : 0;
+        const spanLines = position.end - position.start + 1;
+        if (spanLines > 10) result.problems.push({ kind: 'lambda', ...position, spanLines, bodyLines, limit: 10 });
+      }
+      if (node.type === 'function_declarator') {
+        ++result.declarations;
+        const count = CountParameters(node);
+        if (count > 3) {
+          const name = node.childForFieldName('declarator')?.text ?? '<unnamed>';
+          const abi = GetPrismAbiContract(relative, name, count);
+          if (abi?.count === count) result.foreignAbi.push({ ...position, name, count,
+            contract: abi.contract, signature: source.slice(node.startIndex, node.endIndex) });
+          else result.problems.push({ kind: 'parameters', ...position, name, count, limit: 3 });
+        }
+      }
+      // 缺失分号、括号等标点节点没有名字，仍必须作为真实语法错误检查。
+      stack.push(...node.namedChildren, ...node.children.filter(child => !child.isNamed && child.isMissing));
     }
-    // 缺失分号、括号等标点节点没有名字，仍必须作为真实语法错误检查。
-    stack.push(...node.namedChildren, ...node.children.filter(child => !child.isNamed && child.isMissing));
+    tree.delete();
   }
-  tree.delete();
 }
 parser.delete();
 if (values.report) fs.writeFileSync(path.resolve(values.report), JSON.stringify(result, null, 2) + '\n');
 const counts = Object.fromEntries(['header', 'function', 'lambda', 'parameters'].map(kind =>
   [kind, result.problems.filter(problem => problem.kind === kind).length]));
-console.log(JSON.stringify({ scope: values.scope, files: result.files.length, functions: result.functions,
+console.log(JSON.stringify({ scope: scopes.join(','), files: result.files.length, functions: result.functions,
   lambdas: result.lambdas, declarations: result.declarations, counts, parseErrors: result.parseErrors.length,
+  parseErrorDetails: result.parseErrors,
   foreignAbiContracts: result.foreignAbi.length,
   parseRecoveries: result.parseRecoveries.length,
   bracedDefaultRecoveries: result.parseRecoveries.filter(recovery => recovery.reason.startsWith('braced-default-')).length,

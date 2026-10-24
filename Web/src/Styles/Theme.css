@@ -1,10 +1,2 @@
-@import './Tokens.css';
-@import './Shell.css';
-@import './Components.css';
-@import './Overview.css';
-@import './Resources.css';
-@import './Dashboard.css';
-@import './Workspaces.css';
-@import './Console.css';
-@import './Interactions.css';
-@import './Responsive.css';
+@import './Prism.css';
+@import './ControlDeck.css';

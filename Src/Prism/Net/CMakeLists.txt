@@ -1,0 +1,85 @@
+# 网络值模型与 socket/DNS owner。
+PrismAddStaticTarget(PrismNetworkModel
+    SOURCES
+        NetworkValues.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/DomainName.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Host.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/HostText.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Target.hpp
+)
+target_link_libraries(PrismNetworkModel PRIVATE BoostSystemHeaderOnly)
+
+PrismAddStaticTarget(PrismNet
+    SOURCES
+        Dns/AddressList.cpp
+        Dns/Answer.cpp
+        Dns/Cache.cpp
+        Dns/Config.cpp
+        Dialer/Dialer.cpp
+        Dns/Doh.cpp
+        Dns/Format.cpp
+        Dns/QueryExecutor.cpp
+        Dns/QueryIdentity.cpp
+        Dns/QueryIds.cpp
+        Dns/Record.cpp
+        Dns/Resolver.cpp
+        Dns/ResolverState.cpp
+        Dns/Rules.cpp
+        Dns/TcpFrame.cpp
+        Dns/Upstream.cpp
+        Datagram/Egress.cpp
+        Relay.cpp
+        Tcp/SocketExecutorTransfer.cpp
+        UdpRelay.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Datagram/Egress.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dialer/Dialer.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/AttemptDeadline.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/AddressList.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Answer.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/AnswerSet.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Cache.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Coalescer.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Config.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/ConnPool.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Doh.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Format.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/QueryIdentity.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/QueryType.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Resolver.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Rules.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Transport.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/Upstream.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Dns/UpstreamTypes.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Relay/Relay.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Services/StreamEgress.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Services/StreamRelay.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Services/WorkerDialService.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/Tcp/SocketExecutorTransfer.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Net/UdpRelay.hpp
+    PRIVATE_HEADERS
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dialer/Detail/AttemptRetirement.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/AliasIndex.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/CheckedAnswer.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/ConfigOptions.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Deadline.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/DohResponse.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Exchange.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Fallback.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Maintenance.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Name.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/QueryExecutor.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/QueryIds.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Record.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/ResolverCacheResults.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/ResolverFailure.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/ResolverOwner.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Scan.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/TcpTransport.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/TlsTransport.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/UdpTransport.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/UpstreamState.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Wire.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Udp/EndpointRetirement.hpp
+)

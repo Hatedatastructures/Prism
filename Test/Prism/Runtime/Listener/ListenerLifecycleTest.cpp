@@ -1,0 +1,676 @@
+/**
+ * @file ListenerLifecycleTest.cpp
+ * @brief 按功能拆分的 GoogleTest 行为契约。
+ */
+
+#include "ListenerTestSupport.hpp"
+
+#include <Prism/Runtime/WorkerDispatchResult.hpp>
+
+namespace
+{
+
+    auto AcceptConnectionStorm(
+        std::atomic<int> &SourceIpCaptured,
+        Prism::Contract::StreamAcceptInput Input)
+        -> Net::awaitable<Prism::Contract::AcceptOutcome>
+    {
+        Prism::Contract::ProtocolDataPlane Plane;
+        Plane.Root = Prism::Contract::StreamDataPlane{std::move(Input.Inbound)};
+        if (Input.Metadata.SourceIp == "127.0.0.1")
+        {
+            SourceIpCaptured.fetch_add(1, std::memory_order_relaxed);
+        }
+        Plane.Target.Route = Prism::Network::RouteKind::Forward;
+        Plane.Target.Host = *Prism::Network::ParseHost("127.0.0.1");
+        Plane.Target.Port = 0;
+        co_return Plane;
+    }
+
+    auto DialConnectionStorm(
+        Net::io_context &Io,
+        const unsigned short EchoPort,
+        const Prism::Network::Target &)
+        -> Net::awaitable<std::expected<Prism::SharedTransmission, Prism::Fault::Failure>>
+    {
+        std::error_code Error;
+        Prism::Network::Dialer::Dialer Dialer(Io.get_executor());
+        auto Dialed = co_await Dialer.Connect({*Prism::Network::ParseHost("127.0.0.1"), EchoPort});
+        Prism::SharedTransmission Connection;
+        if (Dialed)
+        {
+            Connection = std::move(*Dialed);
+            Error.clear();
+        }
+        else
+        {
+            Error = Prism::Fault::ToNative(Dialed.error());
+        }
+        if (Error)
+        {
+            co_return std::unexpected(Prism::Fault::Failure{Prism::Fault::Code::Unreachable});
+        }
+        co_return std::move(Connection);
+    }
+
+    struct ConnectionStormSessionFactory final
+    {
+        Net::io_context *Io{};
+        unsigned short EchoPort{0};
+        std::atomic<int> *SourceIpCaptured{};
+        Prism::Runtime::WorkerGroup *Workers{};
+
+        auto operator()(Prism::Runtime::SessionAdmission Admission) const
+            -> std::shared_ptr<Prism::Runtime::Session>
+        {
+            Prism::Runtime::SessionOptions Options;
+            Options.SourceIp = std::move(Admission.SourceIp);
+            Options.Services->Generation = Admission.Generation;
+            Options.Services->Bytes = RequireWorkerBytePool(
+                Workers, static_cast<std::size_t>(Admission.Worker.Value() - 1U));
+            Options.Services->RelayIdleTimeout = std::chrono::milliseconds(300);
+            Options.Services->AcceptProtocol = std::make_shared<Prism::Testing::StreamFactory>(
+                [SourceIpCaptured = SourceIpCaptured](
+                    Prism::Contract::StreamAcceptInput Input)
+                {
+                    return AcceptConnectionStorm(*SourceIpCaptured, std::move(Input));
+                });
+            Options.Services->Dial = [Io = Io, EchoPort = EchoPort](
+                const Prism::Network::Target &Target)
+            {
+                return DialConnectionStorm(*Io, EchoPort, Target);
+            };
+            return std::make_shared<Prism::Runtime::Session>(std::move(Options));
+        }
+    };
+
+    auto RunConnectionStormEcho(
+        const std::shared_ptr<Tcp::acceptor> &Acceptor,
+        const Net::any_io_executor Executor) -> Net::awaitable<void>
+    {
+        while (true)
+        {
+            boost::system::error_code Error;
+            auto Socket = co_await Acceptor->async_accept(
+                Net::redirect_error(Net::use_awaitable, Error));
+            if (Error)
+            {
+                co_return;
+            }
+            Net::co_spawn(Executor, TcpEchoServer(std::move(Socket)), Net::detached);
+        }
+    }
+
+    struct ConnectionStormClients final
+    {
+        Net::any_io_executor Executor;
+        unsigned short Port{0};
+        int Count{0};
+        std::shared_ptr<std::atomic<int>> Done;
+        std::shared_ptr<std::atomic<int>> Success;
+        std::string Payload;
+    };
+
+    auto RunConnectionStormClient(
+        const std::shared_ptr<ConnectionStormClients> &Options,
+        const int) -> Net::awaitable<void>
+    {
+        std::error_code Error;
+        Prism::Network::Dialer::Dialer Dialer(Options->Executor);
+        auto Dialed = co_await Dialer.Connect({*Prism::Network::ParseHost("127.0.0.1"), Options->Port});
+        Prism::SharedTransmission Connection;
+        if (Dialed)
+        {
+            Connection = std::move(*Dialed);
+            Error.clear();
+        }
+        else
+        {
+            Error = Prism::Fault::ToNative(Dialed.error());
+        }
+        if (Error)
+        {
+            Options->Done->fetch_add(1, std::memory_order_relaxed);
+            co_return;
+        }
+        const auto Write = co_await Connection->WriteSome(
+            std::span<const std::byte>(
+                reinterpret_cast<const std::byte *>(Options->Payload.data()), Options->Payload.size()));
+        Error = Prism::Fault::ToNative(Write.Failure);
+        std::array<std::byte, 64> Buffer{};
+        const auto Read = co_await Connection->ReadSome(Buffer);
+        Error = Prism::Fault::ToNative(Read.Failure);
+        const auto Bytes = Read.Bytes;
+        if (!Error && std::string_view(reinterpret_cast<const char *>(Buffer.data()), Bytes) == Options->Payload)
+        {
+            Options->Success->fetch_add(1, std::memory_order_relaxed);
+        }
+        (void)Connection->Close();
+        Options->Done->fetch_add(1, std::memory_order_relaxed);
+    }
+
+    auto RunConnectionStormClients(const std::shared_ptr<ConnectionStormClients> &Options)
+        -> Net::awaitable<void>
+    {
+        for (int Index = 0; Index < Options->Count; ++Index)
+        {
+            Net::co_spawn(Options->Executor, RunConnectionStormClient(Options, Index), Net::detached);
+        }
+        while (Options->Done->load(std::memory_order_acquire) < Options->Count)
+        {
+            Net::steady_timer Timer(Options->Executor);
+            Timer.expires_after(std::chrono::milliseconds(10));
+            co_await Timer.async_wait(Net::use_awaitable);
+        }
+    }
+
+    struct StopAcceptingRequest final
+    {
+        Net::io_context &IoContext;
+        Prism::Runtime::TcpListener &Listener;
+        Prism::Fault::Code &StartResult;
+        bool &Connected;
+        bool &Refused;
+    };
+
+    /**
+     * @brief 验证 listener 启动后接受连接，Stop 后拒绝新连接。
+     * @param Request listener、执行器和连接结果槽。
+     * @return 完成启动、连接、停止和拒绝检查的异步操作。
+     */
+    auto RunStopAcceptingScenario(StopAcceptingRequest Request)
+        -> Net::awaitable<void>
+    {
+        Request.StartResult = co_await Request.Listener.Start(
+            Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        const auto ListenPort = Request.Listener.LocalEndpoint().port();
+
+        std::error_code ErrorCode;
+        Prism::Network::Dialer::Dialer Dialer(Request.IoContext.get_executor());
+        auto Dialed = co_await Dialer.Connect({*Prism::Network::ParseHost("127.0.0.1"), ListenPort});
+        Prism::SharedTransmission Connection;
+        if (Dialed)
+        {
+            Connection = std::move(*Dialed);
+            ErrorCode.clear();
+        }
+        else
+        {
+            ErrorCode = Prism::Fault::ToNative(Dialed.error());
+        }
+        Request.Connected = !ErrorCode;
+        if (Connection)
+        {
+            (void)Connection->Close();
+        }
+
+        Request.Listener.Stop();
+        ErrorCode.clear();
+        auto RejectedDialed = co_await Dialer.Connect({*Prism::Network::ParseHost("127.0.0.1"), ListenPort});
+        Prism::SharedTransmission RejectedConnection;
+        if (RejectedDialed)
+        {
+            RejectedConnection = std::move(*RejectedDialed);
+            ErrorCode.clear();
+        }
+        else
+        {
+            ErrorCode = Prism::Fault::ToNative(RejectedDialed.error());
+        }
+        Request.Refused = static_cast<bool>(ErrorCode) || RejectedConnection == nullptr;
+        if (RejectedConnection)
+        {
+            (void)RejectedConnection->Close();
+        }
+    }
+
+    struct ConnectionStormRequest final
+    {
+        Net::io_context &IoContext;
+        Prism::Runtime::TcpListener &Listener;
+        std::shared_ptr<Tcp::acceptor> EchoAcceptor;
+        int ConnectionCount;
+        std::shared_ptr<std::atomic<int>> Counters;
+        std::shared_ptr<std::atomic<int>> Success;
+    };
+
+    /**
+     * @brief 驱动多连接 accept、session 发布、echo 和自然 Shutdown。
+     * @param Request listener、echo acceptor、连接数和统计 owner。
+     * @return 完成启动、并发客户端、关闭 echo acceptor 的异步操作。
+     */
+    auto RunConnectionStormScenario(ConnectionStormRequest Request)
+        -> Net::awaitable<void>
+    {
+        const auto StartResult = co_await Request.Listener.Start(
+            Tcp::endpoint(Tcp::v4(), 0));
+        EXPECT_EQ(StartResult, Prism::Fault::Code::Success);
+        if (StartResult != Prism::Fault::Code::Success)
+        {
+            co_return;
+        }
+        ConnectionStormClients Options{
+            Request.IoContext.get_executor(), Request.Listener.LocalEndpoint().port(),
+            Request.ConnectionCount, Request.Counters, Request.Success, Socks5Greeting()};
+        co_await RunConnectionStormClients(
+            std::make_shared<ConnectionStormClients>(std::move(Options)));
+        co_await Request.Listener.Shutdown();
+        boost::system::error_code ErrorCode;
+        Request.EchoAcceptor->close(ErrorCode);
+    }
+
+    struct StopRaceRequest final
+    {
+        Net::io_context &IoContext;
+        Prism::Runtime::TcpListener &Listener;
+        Prism::Runtime::WorkerGroup &Workers;
+        std::atomic<bool> &ReleaseBlocker;
+    };
+
+    /**
+     * @brief 验证停止竞态丢弃排队 admission 并关闭 inbound transport。
+     * @param Request listener、worker mailbox 和阻塞释放信号。
+     * @return 完成启动、排队、Stop、worker 停止和尾部读取检查的异步操作。
+     */
+    auto RunStopRaceScenario(StopRaceRequest Request) -> Net::awaitable<void>
+    {
+        const auto StartResult = co_await Request.Listener.Start(
+            Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        EXPECT_EQ(StartResult, Prism::Fault::Code::Success);
+        if (StartResult != Prism::Fault::Code::Success)
+        {
+            co_return;
+        }
+
+        std::error_code ErrorCode;
+        Prism::Network::Dialer::Dialer Dialer(Request.IoContext.get_executor());
+        auto Dialed = co_await Dialer.Connect({*Prism::Network::ParseHost("127.0.0.1"), Request.Listener.LocalEndpoint().port()});
+        Prism::SharedTransmission Client;
+        if (Dialed)
+        {
+            Client = std::move(*Dialed);
+            ErrorCode.clear();
+        }
+        else
+        {
+            ErrorCode = Prism::Fault::ToNative(Dialed.error());
+        }
+        EXPECT_FALSE(ErrorCode);
+        EXPECT_NE(Client, nullptr);
+        if (ErrorCode || !Client)
+        {
+            co_return;
+        }
+
+        for (int Attempt = 0;
+             Attempt < 100 && Request.Workers.Snapshot().front().MailboxSize == 0;
+             ++Attempt)
+        {
+            Net::steady_timer Tick(Request.IoContext);
+            Tick.expires_after(std::chrono::milliseconds(1));
+            co_await Tick.async_wait(Net::use_awaitable);
+        }
+        EXPECT_EQ(Request.Workers.Snapshot().front().MailboxSize, std::size_t{1});
+        if (Request.Workers.Snapshot().front().MailboxSize != std::size_t{1})
+        {
+            (void)Client->Close();
+            co_return;
+        }
+
+        Request.Listener.Stop();
+        Request.Workers.Stop();
+        Request.ReleaseBlocker.store(true, std::memory_order_release);
+        Request.ReleaseBlocker.notify_all();
+
+        std::array<std::byte, 1> Buffer{};
+        std::error_code ReadError;
+        (void)co_await Prism::Testing::TailReadGuarded(Client, Buffer, ReadError);
+        EXPECT_TRUE(ReadError);
+        (void)Client->Close();
+    }
+
+} // namespace
+
+TEST(TcpListener, StopStopsAccepting)
+    {
+        Net::io_context Ioc;
+        Prism::Runtime::Process::Options ProcessOptions;
+        ProcessOptions.Id = Prism::ProcessId{12};
+        ProcessOptions.Generation = Prism::GenerationId{22};
+        ProcessOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            ProcessOptions.Generation);
+        Prism::Runtime::Process ProcessValue(ProcessOptions);
+        WorkerGroupRunner WorkerRunner(ProcessValue.Workers());
+
+        Prism::Runtime::TcpListener::Options ListenerOptions;
+        ListenerOptions.Executor = Ioc.get_executor();
+        ListenerOptions.Workers = &ProcessValue.Workers();
+        ListenerOptions.Publication = ProcessOptions.Publication;
+        ListenerOptions.Factory =
+            [](Prism::Runtime::SessionAdmission)
+                -> std::shared_ptr<Prism::Runtime::Session>
+        { return nullptr; };
+        Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
+
+        Prism::Fault::Code StartResult = Prism::Fault::Code::Success;
+        bool Connected = false;
+        bool Refused = false;
+        RunCoro(Ioc, RunStopAcceptingScenario(
+                         StopAcceptingRequest{Ioc, Listener, StartResult, Connected, Refused}));
+        EXPECT_EQ(StartResult, Prism::Fault::Code::Success);
+        EXPECT_TRUE(Connected);
+        EXPECT_TRUE(Refused);
+    }
+
+TEST(TcpListener, StartAfterStopIsRejected)
+    {
+        Net::io_context Ioc;
+        Prism::Runtime::Process::Options ProcessOptions;
+        ProcessOptions.Id = Prism::ProcessId{33};
+        ProcessOptions.Generation = Prism::GenerationId{49};
+        ProcessOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            ProcessOptions.Generation);
+        Prism::Runtime::Process ProcessValue(ProcessOptions);
+        WorkerGroupRunner WorkerRunner(ProcessValue.Workers());
+
+        Prism::Runtime::TcpListener::Options ListenerOptions;
+        ListenerOptions.Executor = Ioc.get_executor();
+        ListenerOptions.Workers = &ProcessValue.Workers();
+        ListenerOptions.Publication = ProcessOptions.Publication;
+        ListenerOptions.Factory =
+            [](Prism::Runtime::SessionAdmission)
+                -> std::shared_ptr<Prism::Runtime::Session>
+        { return nullptr; };
+        Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
+
+        Prism::Fault::Code FirstResult = Prism::Fault::Code::GenericError;
+        Prism::Fault::Code SecondResult = Prism::Fault::Code::GenericError;
+        RunCoro(
+            Ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                FirstResult = co_await Listener.Start(
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+                Listener.Stop();
+                SecondResult = co_await Listener.Start(
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+            });
+
+        EXPECT_EQ(FirstResult, Prism::Fault::Code::Success);
+        EXPECT_EQ(SecondResult, Prism::Fault::Code::InvalidArgument);
+    }
+
+TEST(TcpListener, DestroyAfterStopKeepsAcceptLoopStateAlive)
+    {
+        Net::io_context Ioc;
+        Prism::Runtime::Process::Options ProcessOptions;
+        ProcessOptions.Id = Prism::ProcessId{16};
+        ProcessOptions.Generation = Prism::GenerationId{26};
+        ProcessOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            ProcessOptions.Generation);
+        Prism::Runtime::Process ProcessValue(ProcessOptions);
+        WorkerGroupRunner WorkerRunner(ProcessValue.Workers());
+        Prism::Fault::Code StartResult = Prism::Fault::Code::GenericError;
+        {
+            Prism::Runtime::TcpListener::Options ListenerOptions;
+            ListenerOptions.Executor = Ioc.get_executor();
+            ListenerOptions.Workers = &ProcessValue.Workers();
+            ListenerOptions.Publication = ProcessOptions.Publication;
+            ListenerOptions.Factory =
+                [](Prism::Runtime::SessionAdmission)
+                    -> std::shared_ptr<Prism::Runtime::Session>
+            { return nullptr; };
+            auto Listener = std::make_unique<Prism::Runtime::TcpListener>(
+                std::move(ListenerOptions));
+            RunCoro(Ioc,
+                    [&]() -> Net::awaitable<void>
+                    {
+                        StartResult = co_await Listener->Start(
+                            Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+                        Listener->Stop();
+                    });
+        }
+
+        // Stop 的 accept completion 可能尚未被调度；共享 Lifetime 必须独立完成。
+        Ioc.restart();
+        Ioc.run();
+        EXPECT_EQ(StartResult, Prism::Fault::Code::Success);
+        SUCCEED();
+    }
+
+TEST(TcpListener, ShutdownOperationCapturesLifetimeBeforeFirstAwait)
+    {
+        Net::io_context Ioc;
+        auto FactoryLifetime = std::make_shared<int>(1);
+        std::weak_ptr<int> WeakLifetime = FactoryLifetime;
+        auto Listener = std::make_shared<Prism::Runtime::TcpListener>(
+            Prism::Runtime::TcpListener::Options{
+                .Executor = Ioc.get_executor(),
+                .Factory = [FactoryLifetime](Prism::Runtime::SessionAdmission)
+                    -> std::shared_ptr<Prism::Runtime::Session>
+                {
+                    (void)FactoryLifetime;
+                    return {};
+                }});
+        FactoryLifetime.reset();
+        ASSERT_FALSE(WeakLifetime.expired());
+
+        auto Operation = Listener->Shutdown();
+        Listener.reset();
+        EXPECT_FALSE(WeakLifetime.expired())
+            << "Shutdown 必须在调用时捕获 Lifetime，而不是等待首次 await";
+
+        RunCoro(Ioc, [Operation = std::move(Operation)]() mutable
+            -> Net::awaitable<void>
+            {
+                const auto Result = co_await std::move(Operation);
+                EXPECT_TRUE(Result);
+            });
+        EXPECT_TRUE(WeakLifetime.expired());
+    }
+
+TEST(TcpListener, DestructorStopsAccepting)
+    {
+        // P-H13：不显式 Stop()，listener 析构必须关闭 acceptor，
+        // 且残留的 accept completion 不得再进入会话工厂。
+        Net::io_context Ioc;
+        Prism::Runtime::Process::Options ProcessOptions;
+        ProcessOptions.Id = Prism::ProcessId{17};
+        ProcessOptions.Generation = Prism::GenerationId{27};
+        ProcessOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            ProcessOptions.Generation);
+        Prism::Runtime::Process ProcessValue(ProcessOptions);
+        WorkerGroupRunner WorkerRunner(ProcessValue.Workers());
+        Tcp::endpoint Bound;
+        std::atomic<int> FactoryCalls{0};
+        {
+            Prism::Runtime::TcpListener::Options ListenerOptions;
+            ListenerOptions.Executor = Ioc.get_executor();
+            ListenerOptions.Workers = &ProcessValue.Workers();
+            ListenerOptions.Publication = ProcessOptions.Publication;
+            ListenerOptions.Factory =
+                [&FactoryCalls](Prism::Runtime::SessionAdmission)
+                    -> std::shared_ptr<Prism::Runtime::Session>
+            {
+                FactoryCalls.fetch_add(1, std::memory_order_relaxed);
+                return nullptr;
+            };
+            Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
+            Prism::Fault::Code StartResult = Prism::Fault::Code::IoError;
+            RunCoro(Ioc,
+                    [&]() -> Net::awaitable<void>
+                    {
+                        StartResult = co_await Listener.Start(
+                            Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+                        Bound = Listener.LocalEndpoint();
+                    });
+            EXPECT_EQ(StartResult, Prism::Fault::Code::Success);
+            // 不调用 Stop()，直接让 listener 离开作用域
+        }
+
+        Tcp::socket Probe(Ioc);
+        boost::system::error_code ErrorCode;
+        const Tcp::endpoint Target(Net::ip::make_address("127.0.0.1"), Bound.port());
+        Probe.connect(Target, ErrorCode);
+        const bool Refused = static_cast<bool>(ErrorCode);
+        if (!ErrorCode)
+        {
+            Probe.close();
+        }
+        EXPECT_TRUE(Refused) << "listener 析构后 acceptor 仍接受连接";
+
+        // 让可能残留的 accept completion 有机会被调度
+        Ioc.restart();
+        RunCoro(Ioc,
+                []() -> Net::awaitable<void>
+                {
+                    Net::steady_timer Timer(co_await Net::this_coro::executor);
+                    Timer.expires_after(std::chrono::milliseconds(50));
+                    boost::system::error_code TimerError;
+                    co_await Timer.async_wait(
+                        Net::redirect_error(Net::use_awaitable, TimerError));
+                });
+        EXPECT_EQ(FactoryCalls.load(std::memory_order_relaxed), 0) << "析构后仍有会话进入工厂";
+    }
+
+TEST(TcpListener, ConnectionStorm)
+    {
+        Net::io_context Ioc;
+        auto EchoAcceptor = std::make_shared<Tcp::acceptor>(
+            Ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        const auto EchoPort = EchoAcceptor->local_endpoint().port();
+        Net::co_spawn(Ioc, RunConnectionStormEcho(EchoAcceptor, Ioc.get_executor()), Net::detached);
+
+        constexpr int ConnectionCount = 20;
+        Prism::Runtime::Process::Options ProcessOptions;
+        ProcessOptions.Id = Prism::ProcessId{18};
+        ProcessOptions.Generation = Prism::GenerationId{28};
+        ProcessOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            ProcessOptions.Generation);
+        ProcessOptions.WorkerCount = 4;
+        Prism::Runtime::Process ProcessValue(ProcessOptions);
+        WorkerGroupRunner WorkerRunner(ProcessValue.Workers());
+
+        Prism::Runtime::TcpListener::Options ListenerOptions;
+        ListenerOptions.Executor = Ioc.get_executor();
+        ListenerOptions.Workers = &ProcessValue.Workers();
+        ListenerOptions.Publication = ProcessOptions.Publication;
+        std::atomic<int> SourceIpCaptured{0};
+        ListenerOptions.Factory = ConnectionStormSessionFactory{
+            &Ioc, EchoPort, &SourceIpCaptured, &ProcessValue.Workers()};
+        Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
+
+        auto Counters = std::make_shared<std::atomic<int>>(0);
+        auto Success = std::make_shared<std::atomic<int>>(0);
+        RunCoro(Ioc, RunConnectionStormScenario(ConnectionStormRequest{
+                         Ioc, Listener, EchoAcceptor, ConnectionCount, Counters, Success}));
+        EXPECT_EQ(Success->load(std::memory_order_relaxed), ConnectionCount);
+        EXPECT_EQ(SourceIpCaptured.load(std::memory_order_relaxed), ConnectionCount);
+    }
+
+TEST(TcpListener, SessionIdsAreUniqueAcrossListenersInOneProcess)
+    {
+        Net::io_context ListenerIo;
+        Prism::Runtime::Process::Options ProcessOptions;
+        ProcessOptions.Id = Prism::ProcessId{41};
+        ProcessOptions.Generation = Prism::GenerationId{57};
+        ProcessOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            ProcessOptions.Generation);
+        ProcessOptions.WorkerCount = 1;
+        Prism::Runtime::Process ProcessValue(ProcessOptions);
+        WorkerGroupRunner WorkerRunner(ProcessValue.Workers());
+
+        auto Events = std::make_shared<SessionIdentityEvents>(ListenerIo.get_executor(), 2);
+        auto Captured = std::make_shared<SessionIdentityCapture>();
+        Prism::Runtime::TcpListener::Options FirstOptions;
+        FirstOptions.Executor = ListenerIo.get_executor();
+        FirstOptions.Workers = &ProcessValue.Workers();
+        FirstOptions.Publication = ProcessOptions.Publication;
+        FirstOptions.Factory = SessionIdentityFactory{
+            Events, Captured, 0, &ProcessValue.Workers()};
+        Prism::Runtime::TcpListener::Options SecondOptions;
+        SecondOptions.Executor = ListenerIo.get_executor();
+        SecondOptions.Workers = &ProcessValue.Workers();
+        SecondOptions.Publication = ProcessOptions.Publication;
+        SecondOptions.Factory = SessionIdentityFactory{
+            Events, Captured, 1, &ProcessValue.Workers()};
+
+        auto First = std::make_shared<Prism::Runtime::TcpListener>(std::move(FirstOptions));
+        auto Second = std::make_shared<Prism::Runtime::TcpListener>(std::move(SecondOptions));
+        auto Result = std::make_shared<SessionIdentityProbeResult>();
+        RunCoro(ListenerIo, RunSessionIdentityProbe(SessionIdentityProbeRequest{
+                                                         ListenerIo.get_executor(), First, Second,
+                                                         Events, Result}));
+
+        EXPECT_EQ(Result->FirstStart, Prism::Fault::Code::Success);
+        EXPECT_EQ(Result->SecondStart, Prism::Fault::Code::Success);
+        EXPECT_TRUE(Result->FirstConnected);
+        EXPECT_TRUE(Result->SecondConnected);
+        EXPECT_TRUE(Result->GreetingsWritten);
+        EXPECT_EQ(Result->EventsReceived, 2U);
+        const auto FirstSession = Captured->Values[0].load(std::memory_order_acquire);
+        const auto SecondSession = Captured->Values[1].load(std::memory_order_acquire);
+        EXPECT_GT(FirstSession, 0U);
+        EXPECT_GT(SecondSession, 0U);
+        EXPECT_NE(FirstSession, SecondSession);
+        ASSERT_TRUE(Captured->PeerIpCaptured[0].load(std::memory_order_acquire));
+        ASSERT_TRUE(Captured->PeerIpCaptured[1].load(std::memory_order_acquire));
+        EXPECT_EQ(Captured->PeerIps[0], "127.0.0.1");
+        EXPECT_EQ(Captured->PeerIps[1], "127.0.0.1");
+    }
+
+TEST(TcpListener, StopRaceDiscardsQueuedAdmissionAndClosesTransport)
+    {
+        Net::io_context ListenerIo;
+        Prism::Runtime::Process::Options ProcessOptions;
+        ProcessOptions.Id = Prism::ProcessId{32};
+        ProcessOptions.Generation = Prism::GenerationId{48};
+        ProcessOptions.Publication = Prism::Testing::Runtime::MakeListenerTestPublication(
+            ProcessOptions.Generation);
+        ProcessOptions.WorkerCount = 1;
+        ProcessOptions.MailboxCapacity = 2;
+        Prism::Runtime::Process ProcessValue(ProcessOptions);
+        auto &Workers = ProcessValue.Workers();
+        auto *WorkerValue = Workers.Find(Prism::WorkerId{1});
+        ASSERT_NE(WorkerValue, nullptr);
+        WorkerGroupRunner Runner(Workers);
+
+        std::atomic<bool> BlockerStarted{false};
+        std::atomic<bool> ReleaseBlocker{false};
+        ASSERT_EQ(Workers.Dispatch(
+                      Prism::WorkerId{1}, Prism::GenerationId{48},
+                      [&BlockerStarted, &ReleaseBlocker]
+                      {
+                          BlockerStarted.store(true, std::memory_order_release);
+                          BlockerStarted.notify_all();
+                          while (!ReleaseBlocker.load(std::memory_order_acquire))
+                          {
+                              ReleaseBlocker.wait(false, std::memory_order_acquire);
+                          }
+                      }),
+                  Prism::Runtime::WorkerDispatchResult::Accepted);
+        while (!BlockerStarted.load(std::memory_order_acquire))
+        {
+            BlockerStarted.wait(false, std::memory_order_acquire);
+        }
+
+        std::atomic<int> FactoryCalls{0};
+        Prism::Runtime::TcpListener::Options ListenerOptions;
+        ListenerOptions.Executor = ListenerIo.get_executor();
+        ListenerOptions.Workers = &Workers;
+        ListenerOptions.Publication = ProcessOptions.Publication;
+        ListenerOptions.Factory =
+            [&FactoryCalls](Prism::Runtime::SessionAdmission)
+                -> std::shared_ptr<Prism::Runtime::Session>
+        {
+            FactoryCalls.fetch_add(1, std::memory_order_relaxed);
+            return std::make_shared<Prism::Runtime::Session>(Prism::Runtime::SessionOptions{});
+        };
+        Prism::Runtime::TcpListener Listener(std::move(ListenerOptions));
+
+        RunCoro(ListenerIo, RunStopRaceScenario(
+                              StopRaceRequest{ListenerIo, Listener, Workers, ReleaseBlocker}));
+        EXPECT_EQ(FactoryCalls.load(std::memory_order_acquire), 0);
+        ReleaseBlocker.store(true, std::memory_order_release);
+        ReleaseBlocker.notify_all();
+    }

@@ -1,9 +1,0 @@
-# Reality SessionId 实验测试与生产协议断言分离。
-AddExperimentTest(RealitySessionIdToolTest.cpp)
-target_link_libraries(ExperimentRealitySessionIdToolTest PRIVATE PrismProtocolReality)
-
-AddExperimentTest(SessionIdChannelErrorTest.cpp)
-target_link_libraries(ExperimentSessionIdChannelErrorTest PRIVATE PrismTransport PrismProtocolReality)
-
-AddExperimentTest(SessionIdChannelDecoratorTest.cpp)
-target_link_libraries(ExperimentSessionIdChannelDecoratorTest PRIVATE PrismTransport PrismProtocolReality)

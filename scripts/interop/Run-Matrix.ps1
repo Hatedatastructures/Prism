@@ -76,11 +76,11 @@ $CodecVectorTools = @{
     websocket = 'wscmp'
 }
 
-$CppClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSs2022Client.exe'
-$CppServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSs2022Server.exe'
-$GoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/ss2022_server.exe'
-$GoClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/ss2022_client.exe'
-$InteropScript = Join-Path $RepoRoot 'tests/Prism/Integration/Go/Interop/run_interop.ps1'
+$CppClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropSs2022Client.exe'
+$CppServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropSs2022Server.exe'
+$GoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/ss2022_server.exe'
+$GoClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/ss2022_client.exe'
+$InteropScript = Join-Path $RepoRoot 'Test/Prism/Integration/Go/Interop/run_interop.ps1'
 $Pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
 if (-not $Pwsh) {
     $Pwsh = (Get-Command powershell -ErrorAction SilentlyContinue).Source
@@ -103,63 +103,63 @@ if ((Test-Path -LiteralPath $CppClient -PathType Leaf) -and
         'SS2022 C++/Go interop executables or PowerShell runner are unavailable'
 }
 
-$TrojanClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrojanClient.exe'
-$TrojanServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrojanServer.exe'
-$TrojanGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/trojan.exe'
+$TrojanClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTrojanClient.exe'
+$TrojanServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTrojanServer.exe'
+$TrojanGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/trojan.exe'
 $TrojanPort = 19082
-$VmessClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVmessClient.exe'
-$VmessServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVmessServer.exe'
-$VmessGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/singvmess.exe'
-$VmessGoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/vmess_server.exe'
+$VmessClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVmessClient.exe'
+$VmessServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVmessServer.exe'
+$VmessGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/singvmess.exe'
+$VmessGoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/vmess_server.exe'
 $VmessPort = 19083
-$VlessClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVlessClient.exe'
-$VlessServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropVlessServer.exe'
-$VlessGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/vless.exe'
+$VlessClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVlessClient.exe'
+$VlessServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropVlessServer.exe'
+$VlessGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/vless.exe'
 $VlessPort = 19084
-$Socks5Cpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropSocks5.exe'
-$Socks5Go = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/socks5.exe'
+$Socks5Cpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropSocks5.exe'
+$Socks5Go = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/socks5.exe'
 $Socks5Port = 19085
-$HttpCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHttp.exe'
-$HttpGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/http.exe'
+$HttpCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropHttp.exe'
+$HttpGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/http.exe'
 $HttpPort = 19086
-$RecognitionCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropRecognition.exe'
+$RecognitionCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropRecognition.exe'
 $RecognitionDeterministicPort = 19110
 $RecognitionDeterministicSocks5Port = 19112
 $RecognitionMixedTrialPort = 19111
 $RecognitionMixedTrojanPort = 19113
 $RecognitionMixedVmessPort = 19114
 $RecognitionMixedSs2022Port = 19115
-$NativeTlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropNativeTls.exe'
-$NativeTlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/native_tls.exe'
+$NativeTlsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropNativeTls.exe'
+$NativeTlsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/native_tls.exe'
 $NativeTlsPort = 19092
-$WsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropWs.exe'
-$WsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/websocket.exe'
+$WsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropWs.exe'
+$WsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/websocket.exe'
 $WsPort = 19093
-$AnytlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropAnytls.exe'
-$AnytlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/anytls.exe'
+$AnytlsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropAnytls.exe'
+$AnytlsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/anytls.exe'
 $AnytlsPort = 19094
-$GunCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropGun.exe'
-$GunGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/gun.exe'
+$GunCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropGun.exe'
+$GunGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/gun.exe'
 $GunPort = 19095
-$XhttpCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropXhttp.exe'
-$XhttpGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/xhttp.exe'
+$XhttpCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropXhttp.exe'
+$XhttpGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/xhttp.exe'
 $XhttpPort = 19096
-$TrusttunnelCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTrusttunnel.exe'
-$TrusttunnelGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/trusttunnel.exe'
+$TrusttunnelCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTrusttunnel.exe'
+$TrusttunnelGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/trusttunnel.exe'
 $TrusttunnelPort = 19097
-$ShadowtlsCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropShadowtls.exe'
-$ShadowtlsGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/shadowtls.exe'
+$ShadowtlsCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropShadowtls.exe'
+$ShadowtlsGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/shadowtls.exe'
 $ShadowtlsPort = 19100
 $ShadowtlsTargetPort = 19101
-$TuicCpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropTuic.exe'
-$TuicGo = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/tuic.exe'
-$TuicGoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/tuic_server.exe'
+$TuicCpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropTuic.exe'
+$TuicGo = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/tuic.exe'
+$TuicGoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/tuic_server.exe'
 $TuicPort = 19087
 $TuicReferencePort = 19091
-$Hysteria2Cpp = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHysteria2.exe'
-$Hysteria2CppClient = Join-Path $RepoRoot 'build/tests/Prism/Integration/InteropHysteria2Client.exe'
-$Hysteria2Go = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/hysteria2.exe'
-$Hysteria2GoServer = Join-Path $RepoRoot 'build/tests/Prism/Integration/Go/hysteria2_server.exe'
+$Hysteria2Cpp = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropHysteria2.exe'
+$Hysteria2CppClient = Join-Path $RepoRoot 'build/Test/Prism/Integration/InteropHysteria2Client.exe'
+$Hysteria2Go = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/hysteria2.exe'
+$Hysteria2GoServer = Join-Path $RepoRoot 'build/Test/Prism/Integration/Go/hysteria2_server.exe'
 $Hysteria2Port = 19088
 $Hysteria2ReferencePort = 19089
 $Hysteria2ReferenceUdpPort = 19090
@@ -231,6 +231,108 @@ function Add-DependencyArtifacts {
     return $Result
 }
 
+function Add-ServerLifecycleResult {
+    param(
+        [Parameter(Mandatory = $true)][object]$Result,
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
+        [object[]]$RelatedResults = @(),
+        [int]$WaitMilliseconds = 10000
+    )
+
+    $Wait = [System.Diagnostics.Stopwatch]::StartNew()
+    $Exited = $Process.WaitForExit($WaitMilliseconds)
+    $Wait.Stop()
+
+    $ServerExitCode = $null
+    if ($Exited) {
+        $Process.Refresh()
+        $ServerExitCode = $Process.ExitCode
+    }
+    $ServerStatus = if (-not $Exited) {
+        'timeout'
+    } elseif ($ServerExitCode -eq 0) {
+        'pass'
+    } else {
+        'protocol-failure'
+    }
+    $ServerWaitMilliseconds = $Wait.Elapsed.TotalMilliseconds
+    foreach ($ClientResult in (@($Result) + @($RelatedResults))) {
+        $ClientStatus = $ClientResult.status
+        $ClientExitCode = $ClientResult.exit_code
+        $ClientResult.client_status = $ClientStatus
+        $ClientResult.client_exit_code = $ClientExitCode
+        $ClientResult.server_status = $ServerStatus
+        $ClientResult.server_exit_code = $ServerExitCode
+        $ClientResult.server_wait_ms = $ServerWaitMilliseconds
+
+        if ($ClientStatus -eq 'pass' -and $ServerStatus -ne 'pass') {
+            $ClientResult.status = 'protocol-failure'
+            $ClientResult.exit_code = if ($Exited) { $ServerExitCode } else { 124 }
+            $ServerDetail = if ($Exited) {
+                "server exit code $ServerExitCode"
+            } else {
+                "server did not exit within $WaitMilliseconds ms"
+            }
+            $ClientResult.command = '{0}; {1}' -f $ClientResult.command, $ServerDetail
+        }
+    }
+
+    return $Result
+}
+
+function Add-ServerReadinessResult {
+    param(
+        [Parameter(Mandatory = $true)][string]$Protocol,
+        [Parameter(Mandatory = $true)][string]$Direction,
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Process,
+        [Parameter(Mandatory = $true)][string]$Reason,
+        [string]$Scenario = 'authenticated-echo',
+        [string]$Implementation = 'prism-server',
+        [string[]]$Artifacts = @(),
+        [ValidateSet('Deterministic', 'MixedTrial', 'direct-handler', 'not-exercised')][string]$RecognitionMode = 'not-exercised',
+        [string]$CandidateProfile = '',
+        [string]$Route = ''
+    )
+
+    $Exited = $false
+    $ServerExitCode = $null
+    try {
+        $Process.Refresh()
+        if ($Process.HasExited) {
+            $ServerExitCode = $Process.ExitCode
+            $Exited = $true
+        }
+    } catch {
+    }
+
+    $ServerStatus = if ($Exited) { 'startup-failure' } else { 'readiness-unconfirmed' }
+    $ResultStatus = if ($Exited) { 'server-start-failure' } else { 'environment-unavailable' }
+    $ExitCode = if ($Exited) {
+        if ($ServerExitCode -ne 0) { $ServerExitCode } else { 1 }
+    } else {
+        127
+    }
+    $ServerDetail = if ($Exited) {
+        "server exited before readiness with exit code $ServerExitCode"
+    } else {
+        'server readiness could not be confirmed before the deadline'
+    }
+    $Result = New-InteropResult -Protocol $Protocol -Direction $Direction -Scenario $Scenario `
+        -Implementation $Implementation -Commit $Commit -Platform $Platform -Status $ResultStatus `
+        -ExitCode $ExitCode -Command ('{0}; {1}' -f $Reason, $ServerDetail) -Artifacts $Artifacts `
+        -RecognitionMode $RecognitionMode -CandidateProfile $CandidateProfile -Route $Route
+    $Result.client_status = 'not-run'
+    $Result.client_exit_code = $null
+    $Result.server_status = $ServerStatus
+    $Result.server_exit_code = $ServerExitCode
+    $Result.server_ready = $false
+
+    $Name = ($Protocol + '_' + $Direction + '_' + $Scenario) -replace '[^A-Za-z0-9_.-]', '_'
+    $Path = Join-Path $OutputDirectory ($Name + '.json')
+    Write-InteropResult -Result $Result -Path $Path
+    [void]$Results.Add($Result)
+}
+
 function Invoke-TrojanInterop {
     if (-not (Test-Path -LiteralPath $TrojanClient -PathType Leaf) -or
         -not (Test-Path -LiteralPath $TrojanServer -PathType Leaf) -or
@@ -276,9 +378,10 @@ function Invoke-TrojanInterop {
         $CppServerProcess = Start-Process -FilePath $TrojanServer -ArgumentList @(
             '-addr', $ServerAddress, '-password', 'prism') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
-        if (-not (Wait-TcpReady '127.0.0.1' $TrojanPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'trojan' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism Trojan server did not become ready'
+        if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
+            Add-ServerReadinessResult -Protocol 'trojan' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism Trojan server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $TrojanGo -Arguments @(
@@ -287,6 +390,7 @@ function Invoke-TrojanInterop {
                 -Protocol 'trojan' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'prism-trojan-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -318,19 +422,24 @@ function Invoke-VmessInterop {
         $CppServerProcess = Start-Process -FilePath $VmessServer -ArgumentList @(
             '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
-        if (-not (Wait-TcpReady '127.0.0.1' $VmessPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'vmess' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism VMess server did not become ready'
+        if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
+            Add-ServerReadinessResult -Protocol 'vmess' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism VMess server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $VmessGo -Arguments @($ServerAddress) `
                 -Protocol 'vmess' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'sing-vmess-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
-            if ($CppServerProcess -and -not $CppServerProcess.HasExited) {
-                [void]$CppServerProcess.WaitForExit(2000)
-            }
+            $SecondResult = Invoke-InteropCase -Executable $VmessGo -Arguments @($ServerAddress, '-tcp-only') `
+                -Protocol 'vmess' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo-session-2' `
+                -Implementation 'sing-vmess-reference' -Commit $Commit -Platform $Platform `
+                -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess `
+                -RelatedResults @($SecondResult)
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
+            $Results.Add((Add-DependencyArtifacts $SecondResult @($CppOut, $CppErr)))
         }
     }
     finally {
@@ -417,9 +526,10 @@ function Invoke-VlessInterop {
         $CppServerProcess = Start-Process -FilePath $VlessServer -ArgumentList @(
             '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
-        if (-not (Wait-TcpReady '127.0.0.1' $VlessPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'vless' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism VLESS server did not become ready'
+        if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
+            Add-ServerReadinessResult -Protocol 'vless' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism VLESS server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $VlessGo -Arguments @(
@@ -427,6 +537,7 @@ function Invoke-VlessInterop {
                 -Protocol 'vless' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'prism-vless-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -468,9 +579,10 @@ function Invoke-VlessInterop {
         $UdpCppServerProcess = Start-Process -FilePath $VlessServer -ArgumentList @(
             '-addr', $ServerAddress, '-udp', '1') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $UdpCppOut -RedirectStandardError $UdpCppErr
-        if (-not (Wait-TcpReady '127.0.0.1' $VlessPort -ProcessId $UdpCppServerProcess.Id)) {
-            Add-BlockedResult 'vless' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism VLESS UDP server did not become ready'
+        if (-not (Wait-OutputReady $UdpCppServerProcess $UdpCppOut)) {
+            Add-ServerReadinessResult -Protocol 'vless' -Direction 'reference-client-to-prism-server' `
+                -Scenario 'authenticated-udp-echo' -Process $UdpCppServerProcess `
+                -Reason 'Prism VLESS UDP server did not become ready' -Artifacts @($UdpCppOut, $UdpCppErr)
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $VlessGo -Arguments @(
@@ -478,6 +590,7 @@ function Invoke-VlessInterop {
                 -Protocol 'vless' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-udp-echo' `
                 -Implementation 'prism-vless-server-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $UdpResult = Add-ServerLifecycleResult -Result $UdpResult -Process $UdpCppServerProcess
             $Results.Add((Add-DependencyArtifacts $UdpResult @($UdpCppOut, $UdpCppErr)))
         }
     }
@@ -558,9 +671,10 @@ function Invoke-Socks5Interop {
         $CppServerProcess = Start-Process -FilePath $Socks5Cpp -ArgumentList @(
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
-        if (-not (Wait-TcpReady '127.0.0.1' $Socks5Port -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'socks5' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism SOCKS5 server did not become ready'
+        if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
+            Add-ServerReadinessResult -Protocol 'socks5' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism SOCKS5 server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $Socks5Go -Arguments @(
@@ -568,6 +682,7 @@ function Invoke-Socks5Interop {
                 -Protocol 'socks5' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'prism-socks5-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -621,9 +736,10 @@ function Invoke-HttpInterop {
         $CppServerProcess = Start-Process -FilePath $HttpCpp -ArgumentList @(
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
-        if (-not (Wait-TcpReady '127.0.0.1' $HttpPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'http' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism HTTP CONNECT server did not become ready'
+        if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
+            Add-ServerReadinessResult -Protocol 'http' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism HTTP CONNECT server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $HttpGo -Arguments @(
@@ -631,6 +747,7 @@ function Invoke-HttpInterop {
                 -Protocol 'http' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'prism-http-connect-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -681,7 +798,9 @@ function Invoke-RecognitionModeInterop {
             Mode = 'Deterministic'
             Port = $RecognitionDeterministicPort
             Client = $HttpGo
-            Arguments = @('-mode', 'client', '-server', ('127.0.0.1:' + $RecognitionDeterministicPort), '-target', 'example.com:443')
+            Arguments = @('-mode', 'client', '-server', ('127.0.0.1:' + $RecognitionDeterministicPort),
+                '-target', 'example.com:443', '-user', 'provider-fixture',
+                '-password', 'provider-fixture')
             Scenario = 'deterministic-profile-single-port'
             Implementation = 'go-http-reference-prism-profile-listener'
             CandidateProfile = 'http|socks5'
@@ -755,9 +874,12 @@ function Invoke-RecognitionModeInterop {
                 '-mode', $Case.Mode, '-protocol', $Case.Protocol, '-addr', $ServerAddress) `
                 -PassThru -WindowStyle Hidden -RedirectStandardOutput $ServerOut -RedirectStandardError $ServerErr
             if (-not (Wait-OutputReady $ServerProcess $ServerOut)) {
-                Add-BlockedResult $Case.Protocol 'external-client-to-prism-single-port' 'environment-unavailable' `
-                    ('Prism ' + $Case.Mode + ' recognition listener did not become ready') `
-                    -RecognitionMode $Case.Mode -CandidateProfile $Case.CandidateProfile -Route $Case.Route
+                Add-ServerReadinessResult -Protocol $Case.Protocol `
+                    -Direction 'external-client-to-prism-single-port' -Scenario $Case.Scenario `
+                    -Implementation 'prism-recognition-listener' -Process $ServerProcess `
+                    -Reason ('Prism ' + $Case.Mode + ' recognition listener did not become ready') `
+                    -Artifacts @($ServerOut, $ServerErr) -RecognitionMode $Case.Mode `
+                    -CandidateProfile $Case.CandidateProfile -Route $Case.Route
             }
             else {
                 $Result = Invoke-InteropCase -Executable $Case.Client -Arguments $Case.Arguments `
@@ -765,6 +887,7 @@ function Invoke-RecognitionModeInterop {
                     -Scenario $Case.Scenario -Implementation $Case.Implementation `
                     -Commit $Commit -Platform $Platform -OutputDirectory $OutputDirectory `
                     -RecognitionMode $Case.Mode -CandidateProfile $Case.CandidateProfile -Route $Case.Route
+                $Result = Add-ServerLifecycleResult -Result $Result -Process $ServerProcess
                 $Results.Add((Add-DependencyArtifacts $Result @($ServerOut, $ServerErr)))
             }
         }
@@ -820,8 +943,9 @@ function Invoke-NativeTlsInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'native-tls' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism native TLS server did not become ready'
+            Add-ServerReadinessResult -Protocol 'native-tls' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism native TLS server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $NativeTlsGo -Arguments @(
@@ -829,6 +953,7 @@ function Invoke-NativeTlsInterop {
                 -Protocol 'native-tls' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'prism-native-tls-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -870,8 +995,9 @@ function Invoke-ShadowtlsInterop {
                 '-addr', $RelayAddress, '-target', $TargetAddress, '-password', 'relay-password') `
                 -PassThru -WindowStyle Hidden -RedirectStandardOutput $RelayOut -RedirectStandardError $RelayErr
             if (-not (Wait-OutputReady $RelayProcess $RelayOut)) {
-                Add-BlockedResult 'shadowtls' 'reference-client-to-prism-server' 'environment-unavailable' `
-                    'Prism ShadowTLS relay did not become ready'
+                Add-ServerReadinessResult -Protocol 'shadowtls' -Direction 'reference-client-to-prism-server' `
+                    -Process $RelayProcess -Reason 'Prism ShadowTLS relay did not become ready' `
+                    -Artifacts @($RelayOut, $RelayErr)
             }
             else {
                 $Result = Invoke-InteropCase -Executable $ShadowtlsGo -Arguments @(
@@ -879,6 +1005,7 @@ function Invoke-ShadowtlsInterop {
                     -Protocol 'shadowtls' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                     -Implementation 'mihomo-shadowtls-v3-client-prism-server' -Commit $Commit -Platform $Platform `
                     -OutputDirectory $OutputDirectory
+                $Result = Add-ServerLifecycleResult -Result $Result -Process $RelayProcess
                 $Results.Add((Add-DependencyArtifacts $Result @($TargetOut, $TargetErr, $RelayOut, $RelayErr)))
             }
         }
@@ -937,8 +1064,9 @@ function Invoke-WebsocketInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'websocket' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism WebSocket reference server did not become ready'
+            Add-ServerReadinessResult -Protocol 'websocket' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism WebSocket reference server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $WsGo -Arguments @(
@@ -946,6 +1074,7 @@ function Invoke-WebsocketInterop {
                 -Protocol 'websocket' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'prism-websocket-server-gobwas-ws-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -1000,8 +1129,9 @@ function Invoke-AnytlsInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'anytls' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism AnyTLS server did not become ready'
+            Add-ServerReadinessResult -Protocol 'anytls' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism AnyTLS server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $AnytlsGo -Arguments @(
@@ -1009,6 +1139,7 @@ function Invoke-AnytlsInterop {
                 -Protocol 'anytls' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'prism-anytls-server-go-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -1063,8 +1194,9 @@ function Invoke-GunInterop {
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'grpc' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism gun-lite server did not become ready'
+            Add-ServerReadinessResult -Protocol 'grpc' -Direction 'reference-client-to-prism-server' `
+                -Scenario 'gun-lite-authenticated-echo' -Process $CppServerProcess `
+                -Reason 'Prism gun-lite server did not become ready' -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $GunGo -Arguments @(
@@ -1072,6 +1204,7 @@ function Invoke-GunInterop {
                 -Protocol 'grpc' -Direction 'reference-client-to-prism-server' -Scenario 'gun-lite-authenticated-echo' `
                 -Implementation 'prism-gun-lite-server-go-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -1126,8 +1259,9 @@ function Invoke-XhttpInterop {
             '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'xhttp' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism XHTTP server did not become ready'
+            Add-ServerReadinessResult -Protocol 'xhttp' -Direction 'reference-client-to-prism-server' `
+                -Scenario 'http2-stream-one-echo' -Process $CppServerProcess `
+                -Reason 'Prism XHTTP server did not become ready' -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $XhttpGo -Arguments @(
@@ -1135,6 +1269,7 @@ function Invoke-XhttpInterop {
                 -Protocol 'xhttp' -Direction 'reference-client-to-prism-server' -Scenario 'http2-stream-one-echo' `
                 -Implementation 'go-x-net-http2-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -1189,10 +1324,11 @@ function Invoke-TrusttunnelInterop {
         $CppServerProcess = Start-Process -FilePath $TrusttunnelCpp -ArgumentList @(
             '-mode', 'server', '-addr', $ServerAddress) -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
-        if (-not (Wait-OutputReady $CppServerProcess $CppOut) -or
-            -not (Wait-TcpReady '127.0.0.1' $TrusttunnelPort -ProcessId $CppServerProcess.Id)) {
-            Add-BlockedResult 'trusttunnel' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism TrustTunnel standard HTTP/2 server did not become ready'
+        if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
+            Add-ServerReadinessResult -Protocol 'trusttunnel' -Direction 'reference-client-to-prism-server' `
+                -Scenario 'http2-connect-echo' -Process $CppServerProcess `
+                -Reason 'Prism TrustTunnel standard HTTP/2 server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $TrusttunnelGo -Arguments @(
@@ -1200,6 +1336,7 @@ function Invoke-TrusttunnelInterop {
                 -Protocol 'trusttunnel' -Direction 'reference-client-to-prism-server' -Scenario 'http2-connect-echo' `
                 -Implementation 'go-x-net-http2-reference-prism-trusttunnel-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -1231,8 +1368,9 @@ function Invoke-TuicInterop {
             '-uuid', '123e4567-e89b-12d3-a456-426614174000') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'tuic' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism TUIC server did not become ready'
+            Add-ServerReadinessResult -Protocol 'tuic' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism TUIC server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $TuicGo -Arguments @(
@@ -1241,6 +1379,7 @@ function Invoke-TuicInterop {
                 -Protocol 'tuic' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'go-quic-tuic-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -1259,8 +1398,9 @@ function Invoke-TuicInterop {
             '-uuid', '123e4567-e89b-12d3-a456-426614174000', '-udp', '1') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $UdpOut -RedirectStandardError $UdpErr
         if (-not (Wait-OutputReady $UdpServerProcess $UdpOut)) {
-            Add-BlockedResult 'tuic' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism TUIC UDP server did not become ready'
+            Add-ServerReadinessResult -Protocol 'tuic' -Direction 'reference-client-to-prism-server' `
+                -Scenario 'authenticated-udp-echo' -Process $UdpServerProcess `
+                -Reason 'Prism TUIC UDP server did not become ready' -Artifacts @($UdpOut, $UdpErr)
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $TuicGo -Arguments @(
@@ -1269,6 +1409,7 @@ function Invoke-TuicInterop {
                 -Protocol 'tuic' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-udp-echo' `
                 -Implementation 'go-quic-tuic-reference-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $UdpResult = Add-ServerLifecycleResult -Result $UdpResult -Process $UdpServerProcess
             $Results.Add((Add-DependencyArtifacts $UdpResult @($UdpOut, $UdpErr)))
         }
     }
@@ -1296,7 +1437,7 @@ function Invoke-TuicInterop {
                 '-mode', 'client', '-addr', $ReferenceAddress, '-password', 'tuic_password',
                 '-uuid', '123e4567-e89b-12d3-a456-426614174000') `
                 -Protocol 'tuic' -Direction 'prism-client-to-reference-server' -Scenario 'authenticated-echo' `
-                -Implementation 'mihomo-tuic-v5-reference-tcp-udp' -Commit $Commit -Platform $Platform `
+                -Implementation 'go-quic-tuic-reference-server' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
             $Results.Add((Add-DependencyArtifacts $Result @($GoOut, $GoErr)))
         }
@@ -1329,8 +1470,9 @@ function Invoke-Hysteria2Interop {
             '-addr', $ServerAddress, '-password', 'hysteria2_password') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $CppOut -RedirectStandardError $CppErr
         if (-not (Wait-OutputReady $CppServerProcess $CppOut)) {
-            Add-BlockedResult 'hysteria2' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism Hysteria2 server did not become ready'
+            Add-ServerReadinessResult -Protocol 'hysteria2' -Direction 'reference-client-to-prism-server' `
+                -Process $CppServerProcess -Reason 'Prism Hysteria2 server did not become ready' `
+                -Artifacts @($CppOut, $CppErr)
         }
         else {
             $Result = Invoke-InteropCase -Executable $Hysteria2Go -Arguments @(
@@ -1338,6 +1480,7 @@ function Invoke-Hysteria2Interop {
                 -Protocol 'hysteria2' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-echo' `
                 -Implementation 'sing-quic-hysteria2-reference' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $Result = Add-ServerLifecycleResult -Result $Result -Process $CppServerProcess
             $Results.Add((Add-DependencyArtifacts $Result @($CppOut, $CppErr)))
         }
     }
@@ -1355,8 +1498,9 @@ function Invoke-Hysteria2Interop {
             '-addr', $ServerAddress, '-password', 'hysteria2_password', '-udp', '1') -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $UdpOut -RedirectStandardError $UdpErr
         if (-not (Wait-OutputReady $UdpServerProcess $UdpOut)) {
-            Add-BlockedResult 'hysteria2' 'reference-client-to-prism-server' 'environment-unavailable' `
-                'Prism Hysteria2 UDP server did not become ready'
+            Add-ServerReadinessResult -Protocol 'hysteria2' -Direction 'reference-client-to-prism-server' `
+                -Scenario 'authenticated-udp-echo' -Process $UdpServerProcess `
+                -Reason 'Prism Hysteria2 UDP server did not become ready' -Artifacts @($UdpOut, $UdpErr)
         }
         else {
             $UdpResult = Invoke-InteropCase -Executable $Hysteria2Go -Arguments @(
@@ -1364,6 +1508,7 @@ function Invoke-Hysteria2Interop {
                 -Protocol 'hysteria2' -Direction 'reference-client-to-prism-server' -Scenario 'authenticated-udp-echo' `
                 -Implementation 'sing-quic-hysteria2-reference-udp' -Commit $Commit -Platform $Platform `
                 -OutputDirectory $OutputDirectory
+            $UdpResult = Add-ServerLifecycleResult -Result $UdpResult -Process $UdpServerProcess
             $Results.Add((Add-DependencyArtifacts $UdpResult @($UdpOut, $UdpErr)))
         }
     }
@@ -1436,7 +1581,7 @@ foreach ($Protocol in $Protocols) {
     }
 
     if ($CodecVectorTools.ContainsKey($Protocol)) {
-        $VectorExecutable = Join-Path $RepoRoot ('build/tests/Prism/Integration/Go/' + $CodecVectorTools[$Protocol] + '.exe')
+        $VectorExecutable = Join-Path $RepoRoot ('build/Test/Prism/Integration/Go/' + $CodecVectorTools[$Protocol] + '.exe')
         $VectorResult = Invoke-InteropCase -Executable $VectorExecutable `
             -Protocol $Protocol -Direction 'reference-codec-vector' -Scenario 'codec-vector' `
             -Implementation 'go-reference-vector' -Commit $Commit -Platform $Platform `
@@ -1568,9 +1713,10 @@ $Summary = [ordered]@{
     total = $Results.Count
     pass = @($Results | Where-Object { $_.status -eq 'pass' }).Count
     blocked = @($Results | Where-Object { $_.status -in @('environment-unavailable', 'interface-gap', 'blocked-production-prerequisite') }).Count
+    server_start_failed = @($Results | Where-Object { $_.status -eq 'server-start-failure' }).Count
     production_blocked = @($Results | Where-Object { $_.status -eq 'blocked-production-prerequisite' }).Count
     prism_only_blocked = @($Results | Where-Object { $_.status -in @('environment-unavailable', 'interface-gap') }).Count
-    failed = @($Results | Where-Object { $_.status -in @('protocol-failure', 'implementation-mismatch') }).Count
+    failed = @($Results | Where-Object { $_.status -in @('protocol-failure', 'implementation-mismatch', 'server-start-failure') }).Count
     recognition_coverage = $RecognitionCoverage
     recognition_coverage_complete = $RecognitionCoverageComplete
     reference_versions = $ReferenceVersions

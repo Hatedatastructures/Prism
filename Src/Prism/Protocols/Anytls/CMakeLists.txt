@@ -1,0 +1,23 @@
+PrismAddStaticTarget(PrismProtocolAnytls
+    SOURCES
+        Binding.cpp
+        Anytls.cpp
+        Codec.cpp
+        Detail/Session/Relay.cpp
+        IngressFactory.cpp
+    HEADERS
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Anytls/Anytls.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Anytls/Binding.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Anytls/Codec.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Anytls/Conn.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Anytls/Frame.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Anytls/IngressFactory.hpp
+    PRIVATE_HEADERS
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Session/Relay.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Session/Retirement.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Session/RetirementExecutor.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Session/Session.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Session/State.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Session/Writer.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Stream/Stream.hpp
+)

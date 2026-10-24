@@ -2,15 +2,15 @@
 
 ## 范围
 
-`Prism/` 是当前正式生产实现，`tests/Prism/` 是对应功能测试。旧 `include/prism/`、`src/prism/` 和旧测试实现已退役；旧 API 不属于当前接口。
+`Include/Prism/` 保存当前公开生产接口，`Src/Prism/` 保存实现与私有头，`Test/Prism/` 保存对应功能测试。旧 `include/prism/`、`src/prism/` 和旧测试实现已退役；旧 API 不属于当前接口。
 
-生产实现采用头文件 owner。CMake target 和源码路径共同表达模块依赖；不能仅凭目录名或 `INTERFACE` target 名称推断边界。
+每个生产模块由自己的 CMake target 清单管理公开头、私有头和 `.cpp`。含真实 `.cpp` 的模块使用编译库，纯契约和值类型/开放模板保留 `INTERFACE` target。CMake target 和源码 include 共同表达模块依赖；不能仅凭目录名或 target 名称推断边界。
 
 ## 启动路径
 
-进程入口是 `Prism/Application/Main/PrismMain.hpp`。入口从命令行第一个参数取得配置路径；没有参数时，读取可执行文件同目录的 `PrismConfiguration.json`。入口还设置环境变量密钥解析器和默认 Web 资源目录。
+进程入口是 `Src/Prism/Application/Main/PrismMain.cpp`。入口从命令行第一个参数取得配置路径；没有参数时，读取可执行文件同目录的 `PrismConfiguration.json`。入口还设置环境变量密钥解析器和默认 Web 资源目录。
 
-`Prism/Application/Startup/Start.hpp` 编排应用启动事务：构造并校验配置代次，准备进程服务、协议 provider 与承载绑定，启动网络入口和 Operations 服务，最后发布 readiness。启动中途失败时由启动事务回滚已创建的资源。
+公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`。启动流程构造并校验配置代次，准备进程服务、协议 provider 与承载绑定，启动网络入口和 Operations 服务，最后发布 readiness。`StartupTransaction` 位于 `Src/Prism/Application/Startup/StartupTransaction.hpp`，是 Application 的私有启动回滚实现；启动中途失败时由该事务回滚已创建的资源。
 
 可执行 target 名为 `Prism`，输出到 `build/src/`。构建后默认配置会复制到可执行文件旁。
 

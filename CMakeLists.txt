@@ -61,6 +61,10 @@ endif()
 
 # === 所有依赖均通过 FetchContent 或本地查找自动解决 ===
 include(FetchContent)
+# CMake 3.24+ 使用新的解压时间戳策略；3.23 保持其默认行为。
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
 
 # 依赖缓存：复用已有构建的 _deps 目录，避免重复下载
 # 必须在 FetchContent_MakeAvailable 之前设置，否则缓存变量不生效
@@ -93,7 +97,6 @@ FetchContent_Declare(
     spdlog
     URL https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.tar.gz
     URL_HASH SHA256=d8862955c6d74e5846b3f580b1605d2428b11d97a410d86e2fb13e857cd3a744
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(spdlog)
 
@@ -105,7 +108,6 @@ FetchContent_Declare(
     boost_src
     URL https://archives.boost.io/release/1.89.0/source/boost_1_89_0.tar.bz2
     URL_HASH SHA256=85a33fa22621b4f314f8e85e1a5e2a9363d22e4f4992925d4bb3bc631b5a0c7a
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE  # 解压文件使用下载时间戳，确保 URL 变更时触发重新构建
 )
 FetchContent_MakeAvailable(boost_src)
 
@@ -129,7 +131,6 @@ FetchContent_Declare(
     glaze
     URL https://github.com/stephenberry/glaze/archive/refs/tags/v6.5.1.tar.gz
     URL_HASH SHA256=90303d360752bbac0a71c929fd4ba141892567a6dd10ecb3f27eb27779413662
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(glaze)
 
@@ -249,7 +250,6 @@ FetchContent_Declare(
     boringssl
     URL https://github.com/google/boringssl/archive/beafe3db15e3213bbce1711f85f704b6c00413d1.tar.gz
     URL_HASH SHA256=890af7d232ca5f7dd42c80d421aa906364b97c6653e8fd20f8b06cf21d07b937
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
 # CMP0169: 允许在 MinGW patch 场景下使用 FetchContent_Populate
@@ -307,7 +307,6 @@ FetchContent_Declare(
     blake3
     URL https://github.com/BLAKE3-team/BLAKE3/archive/refs/tags/1.8.1.tar.gz
     URL_HASH SHA256=fc2aac36643db7e45c3653fd98a2a745e6d4d16ff3711e4b7abd3b88639463dd
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(blake3)
 
@@ -356,7 +355,6 @@ FetchContent_Declare(
     nghttp2
     URL https://github.com/nghttp2/nghttp2/archive/refs/tags/v1.69.0.tar.gz
     URL_HASH SHA256=e5ebde703437d4a0bb39e0e2ba03dfda0ee74beba2395003ec71efaf8fb15d03
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(nghttp2)
 
@@ -367,7 +365,6 @@ FetchContent_Declare(
     googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
     URL_HASH SHA256=78c676fc63881529bf97bf9d45948d905a66833fbfa5318ea2cd7478cb98f399
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(googletest)
 
@@ -382,10 +379,10 @@ endif()
 enable_testing()
 
 # 可选的基准测试和压力测试工具开关
-option(PRISM_ENABLE_BENCHMARK "Enable deferred Prism benchmark tests" OFF)
+option(PRISM_ENABLE_BENCHMARK "Enable currently connected Prism benchmark targets" OFF)
 message(STATUS "PRISM_ENABLE_BENCHMARK=${PRISM_ENABLE_BENCHMARK}")
 
-option(PRISM_ENABLE_STRESS "Enable deferred Prism stress tests" OFF)
+option(PRISM_ENABLE_STRESS "Enable currently connected Prism stress targets" OFF)
 message(STATUS "PRISM_ENABLE_STRESS=${PRISM_ENABLE_STRESS}")
 
 option(PRISM_ENABLE_INTEROP "Enable external Prism interoperability runners" OFF)
@@ -441,7 +438,6 @@ FetchContent_Declare(
     ngtcp2
     URL https://github.com/ngtcp2/ngtcp2/releases/download/v1.25.0/ngtcp2-1.25.0.tar.gz
     URL_HASH SHA256=1C0843076528A87B65E9A9D455100941F4CB65D44F96C5DA6AE56DF146043955
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     PATCH_COMMAND ${CMAKE_COMMAND} -P
         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch-ngtcp2.cmake <SOURCE_DIR>
 )
@@ -475,7 +471,6 @@ FetchContent_Declare(
     nghttp3
     URL https://github.com/ngtcp2/nghttp3/releases/download/v1.18.0/nghttp3-1.18.0.tar.gz
     URL_HASH SHA256=2812E9C06583FA24C8DC46BDB5291310A69196352CEACA8FBE98106FF36AE7D8
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     PATCH_COMMAND ${CMAKE_COMMAND} -P
         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch-nghttp3.cmake <SOURCE_DIR>
 )
@@ -483,12 +478,12 @@ FetchContent_MakeAvailable(nghttp3)
 
 # Prism production and its test support must be configured after all fetched
 # dependencies have declared their public targets.
-add_subdirectory(Prism)
-add_subdirectory(tests/TestSupport)
+add_subdirectory(Src/Prism)
+add_subdirectory(Test/TestSupport)
 set(BUILD_TESTING ${PRISM_BUILD_TESTING} CACHE BOOL "Build Prism tests" FORCE)
 if(PRISM_BUILD_TESTING)
     message(STATUS "Prism test targets: ENABLED")
-    add_subdirectory(tests)
+    add_subdirectory(Test)
 else()
     message(STATUS "Prism test targets: DISABLED by explicit PRISM_BUILD_TESTING=OFF")
 endif()
