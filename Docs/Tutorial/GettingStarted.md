@@ -14,7 +14,7 @@ Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
 cmake --build build --config Release --target Prism -j 16
 ```
 
-每次构建前检查上海时间。08:00–22:00 使用 `-j 16`，22:00–08:00 使用 `-j 1`。完整限制和测试命令见[构建与测试](../TESTING.md)。
+每次构建前检查上海时间。08:00–22:00 使用 `-j 16`，22:00–08:00 使用 `-j 1`。完整限制和测试命令见[构建与测试](../Testing.md)。
 
 ## 启动
 
@@ -28,4 +28,4 @@ CMake 构建后会把 `Include/Prism/Application/Configuration/PrismConfiguratio
 
 ## 验证
 
-从 `docs/TESTING.md` 选择当前 CTest 注册名运行 focused test。构建或测试通过不代表真实客户端互操作和性能验收完成。
+从 [构建与测试](../Testing.md) 选择当前 CTest 注册名运行 focused test。构建或测试通过不代表真实客户端互操作和性能验收完成。

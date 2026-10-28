@@ -6,7 +6,7 @@
  *   热路径零释放（Arena 语义，随会话析构一次性回收）
  * - 资源指针（ResourcePointer）在函数间传递（非拥有语义），
  *   由会话持有 Arena，handler/Conn 通过 Arena.get() 分配临时对象
- * @note 生命周期规则（对齐 docs/ARCHITECTURE.md）：
+ * @note 生命周期规则（对齐 Docs/Architecture.md）：
  * - Arena 由会话（Conn 工厂）持有，随会话析构
  * - Arena 分配的对象只能在会话存活期内使用（handler 内）
  * - 跨协程/跨会话的对象必须用 GlobalPool（Prism/Snapshot 规则）

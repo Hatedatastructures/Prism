@@ -41,9 +41,6 @@ bazel-*
 !.bazelrc
 *.exe
 cmake-build-*/
-!docs/.vitepress
-docs/.vitepress/cache
-docs/public
 node_modules
 compile_commands.json
 

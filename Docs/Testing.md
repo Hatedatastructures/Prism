@@ -59,10 +59,20 @@ ctest --test-dir build --output-on-failure -j 1 --timeout 30
 QUIC 契约正反例；两者都不启动 Mihomo、Prism 或网络服务。
 
 混合矩阵的独立实跑入口为
-`Test/Prism/Integration/Matrix/RunCurrentMixedCase.ps1`。使用仓库内的
-`PrismConfigurationMatrix.json`、`PrismClient.yaml` 和
-`H:\Tools\Mihomo\1.19.32\mihomo.exe` 时，先确认脚本帮助中的参数，并将
-`-CaseDirectory` 指定为单段标签；runner 会创建 `H:\PrismInteropResults-<token>-<label>`，
+`Test/Prism/Integration/Matrix/RunCurrentMixedCase.ps1`。使用仓库根目录的
+`PrismConfigurationMatrix.json` 和 `PrismClient.yaml`，并通过 `-MihomoExecutable`
+指定本机 Mihomo 程序。运行前确认脚本帮助中的参数，并将 `-CaseDirectory` 设为短标签：
+
+```powershell
+$env:PRISM_MIHOMO = '<本机 mihomo.exe 的完整路径>'
+pwsh -File .\Test\Prism\Integration\Matrix\RunCurrentMixedCase.ps1 `
+    -PrismTemplate .\PrismConfigurationMatrix.json `
+    -MihomoTemplate .\PrismClient.yaml `
+    -CaseDirectory mixed-smoke `
+    -MihomoExecutable $env:PRISM_MIHOMO
+```
+
+runner 会在 `H:\` 根目录创建 `PrismInteropResults-<token>-<label>`，
 使用 `127.0.0.1`、随机端口和独立 controller。TCP、UDP、QUIC 专项入口仍分别使用三个
 `RunCurrentMihomo*Case.ps1`，QUIC 入口只接受两个已固定的仓库内协议模板。
 四个入口的端口参数均可用 `0`（默认值）请求自动分配；显式传入的正整数保持调用者选择。

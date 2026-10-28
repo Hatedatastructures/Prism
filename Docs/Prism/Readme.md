@@ -22,9 +22,9 @@ TCP acceptor 当前仍位于 Runtime。目标职责和当前实现差异应如�
 
 ## 继续阅读
 
-- [架构与责任边界](../ARCHITECTURE.md)
-- [构建与测试](../TESTING.md)
-- [所有权与异步生命周期](ownership-and-lifecycle.md)
-- [配置](../tutorial/configuration.md)
+- [架构与责任边界](../Architecture.md)
+- [构建与测试](../Testing.md)
+- [所有权与异步生命周期](Ownership.md)
+- [配置](../Tutorial/Configuration.md)
 
 本项目不维护逐协议专题页。具体 wire 与行为以 `Include/Prism/Protocols/`、`Src/Prism/Protocols/` 和对应的 `Test/Prism/Protocols/` 用例为准。

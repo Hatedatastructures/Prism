@@ -8,7 +8,7 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 `Include/Prism/` 与 `Src/Prism/`、`Test/Prism/` 和 `Prism` 是当前唯一正式实现。公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`；`Src/Prism/Application/Startup/Detail/Transaction.hpp` 是私有启动回滚实现。默认沿此启动路径和 `Include/Prism/Runtime/Session.hpp`、`Include/Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
 
-Prism 的当前文档入口见 [docs/index.md](docs/index.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/prism/README.md](docs/prism/README.md)。文档只描述当前实现与可复核的验收边界；不保留旧任务报告作为当前执行状态。
+Prism 的当前文档入口见 [Docs/Index.md](Docs/Index.md)、[Docs/Architecture.md](Docs/Architecture.md) 和 [Docs/Prism/Readme.md](Docs/Prism/Readme.md)。文档只描述当前实现与可复核的验收边界；不保留旧任务报告作为当前执行状态。
 
 ### Prism 模块所有权
 
@@ -241,7 +241,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 - **命名空间**: PascalCase，`Psm::` 前缀（迁移后）；存量 `psm::` 未迁移前继续使用
 - **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Net/Transport/Reliable.hpp`）；
-  工程根级目录（`src/`、`include/`、`Test/`、`docs/`、`Scripts/`、`build/`）保持生态惯例不动
+  工程根级目录（`src/`、`include/`、`Test/`、`Docs/`、`Scripts/`、`build/`）保持生态惯例不动
 - **生产代码**: 类/结构体/枚举/枚举值/类型别名/模板参数 PascalCase
   （如 `PendingEntry`、`StreamType::Tcp`、`SharedTransmission`；模板参数已有先例 `typename Memory`）
 - **函数/方法**: PascalCase（`ActivateStream()`、`SendData()`）
@@ -277,7 +277,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 ### 门禁同步义务
 
-每批迁移必须同步更新：引用文件路径的 CMakeLists（共 108 个）、`Scripts/CheckCommonHeaders.ps1`（磁盘↔target_sources 双向校验）、`Scripts/AuditDetached.sh`（按路径审计）、docs 中引用的示例路径。
+每批迁移必须同步更新：引用文件路径的 CMakeLists、`Scripts/CheckCommonHeaders.ps1`（磁盘↔target_sources 双向校验）、`Scripts/AuditDetached.sh`（按路径审计）、`Docs/` 中引用的示例路径。
 - **函数体** (Rule 3): 不超过 120 行
 - **Lambda** (Rule 13): 不超过 10 行，超长提取为命名函数
 - **`using namespace`** (Rule 4.3): 仅允许 `using namespace psm::diagnose;`，其余用显式限定或 namespace 别名
@@ -369,13 +369,13 @@ node Scripts/CheckPrismStyle.mjs --scope Test/Prism
 
 ## 资源所有权模型
 
-旧版 `include/prism/`、`src/prism/` 的四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached）与 PMR 规则见 [docs/legacy/prism-architecture.md](docs/legacy/prism-architecture.md)；Prism 的 typed owner、executor、取消、关闭与 drain 规则见 [docs/prism/ownership-and-lifecycle.md](docs/prism/ownership-and-lifecycle.md)。不要把旧版 resource 层级直接当作 Prism 模块所有权表。
+旧版 `include/prism/`、`src/prism/` 的四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached）和 PMR 规则仅作历史背景；Prism 当前的 owner、executor、取消、关闭与 drain 规则见 [Docs/Prism/Ownership.md](Docs/Prism/Ownership.md)。不要把旧版 resource 层级直接当作 Prism 模块所有权表。
 
 新增 detached 协程（`net::co_spawn + net::detached`）或修改 PMR allocator 时，必须对照该文档审查资源所有权，并运行 `Scripts/AuditDetached.sh` 静态审计。
 
 ## 旧版任务记录
 
-旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Include/Prism/`、`Src/Prism/`、`Test/Prism/` 及 [docs/index.md](docs/index.md)。
+旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Include/Prism/`、`Src/Prism/`、`Test/Prism/` 及 [Docs/Index.md](Docs/Index.md)。
 
 ## 已知问题
 

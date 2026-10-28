@@ -7,13 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const dirs = [
-  ".superpowers/sdd/2026-10-09-preview-quality-modification-plan",
-  "logs",
-  "Include/Prism",
-  "Src/Prism",
-];
-if (process.argv.includes("--include-docs")) dirs.push("docs");
+const dirs = ["logs", "Include/Prism", "Src/Prism"];
+if (process.argv.includes("--include-docs")) dirs.push("Docs");
 const full = process.argv.includes("--full");
 
 // 存在性必须逐段大小写精确：Windows 的 existsSync 不敏感，Linux/git 敏感（与 docpaths 同一判据）。
@@ -39,7 +34,7 @@ function lineCount(rel) {
 }
 
 // 只认带扩展名的仓库相对路径后紧跟 :数字；前面必须是路径边界（避免 URL、`a/b:12` 之类）。
-const citeRe = /(?:Prism|Test|tests|Scripts|scripts|docs|src|include)\/[A-Za-z0-9_./-]*\.(?:hpp|cpp|h|md|txt|cmake|ps1|sh|mjs|json|go):[0-9]+(?:-[0-9]+)?/g;
+const citeRe = /(?:Prism|Test|tests|Scripts|scripts|Docs|src|include)\/[A-Za-z0-9_./-]*\.(?:hpp|cpp|h|md|txt|cmake|ps1|sh|mjs|json|go):[0-9]+(?:-[0-9]+)?/g;
 const buckets = { ok: 0, fileMissing: [], lineBeyond: [], rangeBeyond: [], reversedRange: [], retired: [], crossTree: [], crossTreeLines: [], historical: [] };
 
 // 与 docpaths 同一套退役/跨树判定：tracked 但在磁盘上已删 = 有意退役；主树有 = 合法的跨树陈述。

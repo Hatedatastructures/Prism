@@ -36,4 +36,4 @@
 
 每个资源需要有清楚的 owner、executor、取消路径、半关闭语义、最终关闭者和 drain 行为。协议代码不负责 Application 启停或跨协议 registry；Runtime 与 Boundary 不实现具体协议装配。
 
-公共接口优先表达真实领域类型与生命周期。不得以万能 context、无关字段参数包、旧接口别名或 fallback 维持第二套正式事实。详细规则见 [所有权与生命周期](prism/ownership-and-lifecycle.md)。
+公共接口优先表达真实领域类型与生命周期。不得以万能 context、无关字段参数包、旧接口别名或 fallback 维持第二套正式事实。详细规则见 [所有权与生命周期](Prism/Ownership.md)。

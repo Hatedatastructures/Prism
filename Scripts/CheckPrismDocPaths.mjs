@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// 校验 SDD 台账与 logs/issues.md 中引用的**仓库内文件路径**是否真实存在。
-// 动机：本会话三次因"按引用文本拼路径"产出错误坐标（少 Detail/、把 Http3 根目录文件写成 Qpack/ 子目录等）。
+// 校验问题台账、生产源码和可选文档范围内的仓库文件路径是否存在且大小写完全匹配。
 // 用法：node Scripts/CheckPrismDocPaths.mjs [--full]
-// 门禁默认只扫「本计划工作区 + 问题账 + Include/Src 生产树」；repo 文档整体陈旧度用 --include-docs 单独量。
-const dirs = [".superpowers/sdd/2026-10-09-preview-quality-modification-plan", "logs", "Include/Prism", "Src/Prism"];
-if (process.argv.includes("--include-docs")) dirs.push("docs");
+// 默认扫描问题账和 Include/Src 生产树；--include-docs 增加当前文档目录 Docs/。
+const dirs = ["logs", "Include/Prism", "Src/Prism"];
+if (process.argv.includes("--include-docs")) dirs.push("Docs");
 const full = process.argv.includes("--full");
 const existsCache = new Map();
 
@@ -38,7 +37,7 @@ function existsExact(rel) {
 }
 
 // 只认带扩展名的仓库相对路径；反引号/空格/中文顿号作为边界
-const refRe = /(?:Include\/Prism|Src\/Prism|Prism|Test|tests|Scripts|scripts|docs|src|include)\/[A-Za-z0-9_.\/-]*\.(?:hpp|cpp|json|md|txt|cmake|ps1|sh|mjs)/g;
+const refRe = /(?:Include\/Prism|Src\/Prism|Prism|Test|tests|Scripts|scripts|Docs|src|include)\/[A-Za-z0-9_.\/-]*\.(?:hpp|cpp|json|md|txt|cmake|ps1|sh|mjs)/g;
 
 const bad = [];
 let checked = 0;

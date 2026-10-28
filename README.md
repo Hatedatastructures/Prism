@@ -97,7 +97,7 @@ cmake --build build --config Release --target PrismWeb -j 16
 $env:PRISM_SECRET_PROXY_PASSWORD = '替换为实际密钥'
 ```
 
-启动输出中的 `Prism READY` 表示应用完成启动并发布 readiness；它不证明某个协议认证、目标拨号、UDP/QUIC 请求或管理命令已经实际通过。可按[快速开始指南](docs/tutorial/getting-started.md)发送真实请求，并检查正向/反向认证、响应内容和关闭行为。
+启动输出中的 `Prism READY` 表示应用完成启动并发布 readiness；它不证明某个协议认证、目标拨号、UDP/QUIC 请求或管理命令已经实际通过。可按[快速开始指南](Docs/Tutorial/GettingStarted.md)发送真实请求，并检查正向/反向认证、响应内容和关闭行为。
 
 ## 测试与验收
 
@@ -138,16 +138,16 @@ Src/Prism/              各模块实现、私有头文件及模块 CMake
   CMake/                 共享构建目标与依赖边界辅助文件
 tests/Prism/             当前功能测试
 Web/                     独立构建的 Operations Web 控制台
-docs/                    用户指南、当前架构与测试手册
+Docs/                    用户指南、当前架构与测试手册
 ```
 
-含有真实 `.cpp` 的模块由静态库 target 编译，纯契约与开放模板 target 保持 `INTERFACE`；最终进程入口由 Prism executable 编译。模块职责、依赖方向、请求路径和资源关闭约定见[架构总览](docs/ARCHITECTURE.md)与[Prism 开发入口](docs/prism/README.md)。
+含有真实 `.cpp` 的模块由静态库 target 编译，纯契约与开放模板 target 保持 `INTERFACE`；最终进程入口由 Prism executable 编译。模块职责、依赖方向、请求路径和资源关闭约定见[架构总览](Docs/Architecture.md)与[Prism 开发入口](Docs/Prism/Readme.md)。
 
 ## 文档
 
-- [文档索引](docs/index.md)：用户指南与当前开发手册。
-- 用户指南：[快速开始](docs/tutorial/getting-started.md)、[配置](docs/tutorial/configuration.md)、[部署](docs/tutorial/deployment.md)、[故障排查](docs/tutorial/troubleshooting.md)、[常见问题](docs/tutorial/faq.md)。
-- 开发手册：[架构总览](docs/ARCHITECTURE.md)、[Prism 开发入口](docs/prism/README.md)、[配置](docs/tutorial/configuration.md)、[所有权与生命周期](docs/prism/ownership-and-lifecycle.md)、[构建与测试](docs/TESTING.md)。
+- [文档索引](Docs/Index.md)：用户指南与当前开发手册。
+- 用户指南：[快速开始](Docs/Tutorial/GettingStarted.md)、[配置](Docs/Tutorial/Configuration.md)、[部署](Docs/Tutorial/Deployment.md)、[故障排查](Docs/Tutorial/Troubleshooting.md)、[常见问题](Docs/Tutorial/Faq.md)。
+- 开发手册：[架构总览](Docs/Architecture.md)、[Prism 开发入口](Docs/Prism/Readme.md)、[配置](Docs/Tutorial/Configuration.md)、[所有权与生命周期](Docs/Prism/Ownership.md)、[构建与测试](Docs/Testing.md)。
 - [Operations Web 控制台说明](Web/README.md)：前端 API、能力协商和独立构建边界。
 
 目录结构和配置模型说明源码现状；某项功能是否在特定部署中可用，还要核对实际配置、启动绑定和相应运行证据。
