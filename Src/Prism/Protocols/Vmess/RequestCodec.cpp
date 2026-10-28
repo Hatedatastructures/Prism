@@ -333,7 +333,8 @@ namespace Prism::Vmess
         }
 
         Msg_.uuid = Uuid_;
-        std::memcpy(Msg_.AuthId.data(), AuthId.data(), Msg_.AuthId.size());
+        const auto VerifiedAuthId = std::span<const std::uint8_t>(Buf_).first(16);
+        std::memcpy(Msg_.AuthId.data(), VerifiedAuthId.data(), Msg_.AuthId.size());
         Msg_.RequestNonce = Metadata.iv;
         Msg_.RequestKey = Metadata.key;
         Msg_.Cmd = static_cast<std::uint8_t>(RequestValue.Cmd);

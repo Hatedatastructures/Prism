@@ -29,7 +29,7 @@
 #include <Prism/Protocols/Trojan/IngressFactory.hpp>
 #include <Prism/Protocols/Vmess/IngressFactory.hpp>
 #include <Prism/Runtime/Listener.hpp>
-#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
+#include <Test/Prism/Runtime/Session/AdmissionSupport.hpp>
 #include <Prism/Runtime/Session.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>

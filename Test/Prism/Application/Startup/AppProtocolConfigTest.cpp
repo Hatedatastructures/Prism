@@ -3,8 +3,8 @@
  * @brief 按功能拆分的 GoogleTest 行为契约。
  */
 
-#include "ApplicationTestSupport.hpp"
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include "StartupSupport.hpp"
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 
 TEST(PrismApplication, AcceptsConfiguredSocks5Protocol)
 {

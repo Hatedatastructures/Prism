@@ -11,7 +11,7 @@
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Foundation/Memory/Container.hpp>
 #include <Prism/Foundation/Memory/TrackingResource.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <Prism/Resource/ResourceMemorySnapshot.hpp>
 
 #include <memory>

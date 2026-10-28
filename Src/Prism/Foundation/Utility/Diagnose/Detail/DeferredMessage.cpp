@@ -2,7 +2,7 @@
  * @file DeferredMessage.cpp
  * @brief 固定快照消息的非模板存储操作。
  */
-#include <Prism/Foundation/Utility/Diagnose/Detail/DeferredMessage.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Message.hpp>
 
 #include <cstddef>
 #include <cstdint>

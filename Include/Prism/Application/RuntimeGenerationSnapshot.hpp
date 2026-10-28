@@ -7,13 +7,13 @@
 #include <Prism/Application/AccountCatalog.hpp>
 #include <Prism/Application/Configuration/ConfigurationGeneration.hpp>
 #include <Prism/Composition/Provider/ProviderCatalog.hpp>
-#include <Prism/Contract/Ingress/DatagramIngressSelection.hpp>
+#include <Prism/Contract/Ingress/Datagram/Selection.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Fault/FailureState.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Net/Dns/Resolver.hpp>
 #include <Prism/Net/Services/WorkerDialService.hpp>
-#include <Prism/Runtime/SessionServices.hpp>
+#include <Prism/Runtime/Session/Services.hpp>
 
 #include <boost/asio/awaitable.hpp>
 

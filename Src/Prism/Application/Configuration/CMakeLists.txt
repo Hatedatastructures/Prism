@@ -16,15 +16,15 @@ set(PrismConfigurationPublicHeaders
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Configuration/Validation/ValidationTypes.hpp"
 )
 set(PrismConfigurationPrivateHeaders
-    "${CMAKE_CURRENT_SOURCE_DIR}/Detail/PreparedConfigurationSecrets.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/CapabilityValidation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/CarrierValidation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/CommonValidation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/ConfigurationValidation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/ProtocolIndependentValidation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/ReferenceValidation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/SchemaValidation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/SecretValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Detail/Secrets.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Capability.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Carrier.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Common.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Configuration.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Protocol.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Reference.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Schema.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Validation/Detail/Secret.hpp"
 )
 
 PrismAddStaticTarget(PrismConfiguration

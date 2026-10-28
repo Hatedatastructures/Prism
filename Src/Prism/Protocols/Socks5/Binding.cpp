@@ -2,7 +2,7 @@
 #include <Prism/Protocols/Socks5/Binding.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 #include <Prism/Contract/Services/Datagram.hpp>
-#include <Prism/Protocols/Common/DatagramBinding.hpp>
+#include <Prism/Protocols/Common/Datagram/Binding.hpp>
 #include <Prism/Protocols/Socks5/Reply.hpp>
 
 #include "Detail/Target.hpp"

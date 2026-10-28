@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'MihomoTestSupport.ps1')
 
 function Assert-QuicMihomoTemplateInputContract {
-    $QuicRunnerPath = Join-Path $PSScriptRoot 'RunCurrentMihomoQuicCase.ps1'
+    $QuicRunnerPath = Join-Path $PSScriptRoot 'MihomoQuic.ps1'
     $QuicRunnerSource = Get-Content -LiteralPath $QuicRunnerPath -Raw
     $ValidationCall = '$MihomoTemplatePath = Resolve-QuicMihomoTemplatePath $MihomoTemplate $PSScriptRoot'
     $TemplateBytesRead = '$MihomoTemplateBytes = [System.IO.File]::ReadAllBytes($MihomoTemplatePath)'
@@ -104,8 +104,8 @@ function Assert-CurrentMihomoRunnerStaticContract {
     }
     $RunnerSources = @{}
     foreach ($Name in @(
-            'RunCurrentMihomoCase.ps1', 'RunCurrentMihomoUdpCase.ps1',
-            'RunCurrentMihomoQuicCase.ps1', 'RunCurrentMixedCase.ps1')) {
+            'RunCurrentMihomoCase.ps1', 'MihomoUdp.ps1',
+            'MihomoQuic.ps1', 'RunCurrentMixedCase.ps1')) {
         $RunnerSources[$Name] = Get-Content -LiteralPath (Join-Path $PSScriptRoot $Name) -Raw
     }
     foreach ($Entry in $RunnerSources.GetEnumerator()) {
@@ -116,11 +116,11 @@ function Assert-CurrentMihomoRunnerStaticContract {
         }
         Test-CurrentRunnerContains $Source 'New-MihomoIsolatedChildEnvironment' $Entry.Key
         Test-CurrentRunnerContains $Source "127.0.0.1:" $Entry.Key
-        if ($Entry.Key -ne 'RunCurrentMihomoUdpCase.ps1') {
+        if ($Entry.Key -ne 'MihomoUdp.ps1') {
             Test-CurrentRunnerContains $Source '--noproxy=' $Entry.Key
         }
         Test-CurrentRunnerContains $Source 'Get-MihomoSelectedProxyChainSnapshot' $Entry.Key
-        if ($Entry.Key -ne 'RunCurrentMihomoQuicCase.ps1') {
+        if ($Entry.Key -ne 'MihomoQuic.ps1') {
             if ($Source -notmatch '(?i)controllerProxiesApiResponded') {
                 throw "Current Mihomo runner is missing required controller result evidence: $($Entry.Key)"
             }
@@ -139,7 +139,7 @@ function Assert-CurrentMihomoRunnerStaticContract {
             throw "Current Mihomo runner has an unchecked cleanup removal: $($Entry.Key)"
         }
     }
-    $UdpSource = [string]$RunnerSources['RunCurrentMihomoUdpCase.ps1']
+    $UdpSource = [string]$RunnerSources['MihomoUdp.ps1']
     if (-not $UdpSource.Contains('if ($PrismPort -eq 0 -and $PrismUdpPort -eq 0)')) {
         throw 'UDP Mihomo runner must skip automatic port probing when both ports are explicit'
     }
@@ -151,7 +151,7 @@ function Assert-CurrentMihomoRunnerStaticContract {
             throw "Current Mihomo runner does not default every case port to zero: $($Entry.Key)"
         }
     }
-    $QuicSource = [string]$RunnerSources['RunCurrentMihomoQuicCase.ps1']
+    $QuicSource = [string]$RunnerSources['MihomoQuic.ps1']
     if (-not $QuicSource.Contains('Get-NextLoopbackPort $ProxyAvoidPorts') -or
         -not $QuicSource.Contains('Get-NextLoopbackPort $ControllerAvoidPorts')) {
         throw 'QUIC Mihomo runner must reserve distinct ports for every repeated attempt'

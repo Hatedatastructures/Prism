@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <Prism/Foundation/Utility/Diagnose/Detail/RenderEpoch.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Context/Epoch.hpp>
 
 #include <atomic>
 #include <cstdint>

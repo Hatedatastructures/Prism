@@ -427,7 +427,7 @@ HTTP/3 native client 的 `CbRand()` 在 `RAND_bytes()` 失败后用 `Index * 37 
 
 ### P-M11 ProbeDefense 过期依赖外部调用，MaxRecords=0 失去容量约束（已修复 2026-09-11）
 
-**文件**：`preview/Runtime/Recognition/ProbeDefense.hpp:85-133,191-267`
+**文件**：`preview/Runtime/Recognition/Defense.hpp:85-133,191-267`
 
 旧实现中 `FailCount()`/`ShouldChallenge()` 依赖调用方定期 `Expire()`，`MaxRecords_==0` 时仍会插入新 key。现已让查询和记录路径主动清理窗口，新增 key 在达到容量时淘汰最旧记录，零容量直接拒绝；时钟可注入以覆盖精确过期边界。
 
@@ -666,7 +666,7 @@ preview/Protocols/Native/Conn.hpp
 preview/Protocols/Native/Native.hpp
 preview/Protocols/Native/Types.hpp
 preview/Protocols/Quic/DatagramAdapter.hpp
-preview/Protocols/Quic/GatewayCommon.hpp
+preview/Protocols/Quic/Common.hpp
 preview/Protocols/Quic/Native.cpp
 preview/Protocols/Quic/Native.hpp
 preview/Protocols/Quic/StreamAdapter.hpp
@@ -752,12 +752,12 @@ preview/Runtime/Recognition/DeterministicMode.hpp
 preview/Runtime/Recognition/MixedTrialMode.hpp
 preview/Runtime/Recognition/Probe.hpp
 preview/Runtime/Recognition/ProbeBuffer.hpp
-preview/Runtime/Recognition/ProbeDefense.hpp
+preview/Runtime/Recognition/Defense.hpp
 preview/Runtime/Recognition/Profile.hpp
 preview/Runtime/Recognition/Protocol.hpp
 preview/Runtime/Recognition/Recognition.hpp
 preview/Runtime/Recognition/Route.hpp
-preview/Runtime/Recognition/SchemeExecutor.hpp
+preview/Runtime/Recognition/Executor.hpp
 preview/Runtime/Recognition/Tls.hpp
 preview/Runtime/Recognition/Types.hpp
 preview/Runtime/Session.hpp
@@ -778,7 +778,7 @@ preview/Transport/Unreliable.hpp
 
 ## 验证缺口与下一步修复顺序
 
-本次没有构建或运行测试，原因是 `AGENTS.md` 明确禁止在未获授权时构建；因此报告中的“确认”是源码级确认，不等同于 AddressSanitizer、网络互操作或跨平台 CI 证据。仓库现有 `scripts/audit_detached.sh` 本次虽输出 `DANGEROUS=0`，但其源目录固定为 `src/`，不能替代 Preview detached 审计。修复顺序建议为：
+本次没有构建或运行测试，原因是 `AGENTS.md` 明确禁止在未获授权时构建；因此报告中的“确认”是源码级确认，不等同于 AddressSanitizer、网络互操作或跨平台 CI 证据。仓库现有 `Scripts/AuditDetached.sh` 本次虽输出 `DANGEROUS=0`，但其源目录固定为 `src/`，不能替代 Preview detached 审计。修复顺序建议为：
 
 1. 先修复 P-C01、P-H01/P-H02/P-H03、P-H04、P-H07/P-H08，分别覆盖认证降级、远程内存耗尽、UDP 关联污染、回放捕获和密码学随机数。
 2. 再统一 Transport/Protocol 的完整读写、零进展、timeout、cancel、Release 后状态和 detached completion 语义。

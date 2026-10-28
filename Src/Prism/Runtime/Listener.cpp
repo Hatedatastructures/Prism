@@ -9,7 +9,7 @@
 #include <Prism/Foundation/Identifier/SessionIdAllocator.hpp>
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
 #include <Prism/Runtime/ListenerAdmissionOwner.hpp>
 #include <Prism/Runtime/Detail/ListenerCompletion.hpp>
@@ -17,8 +17,8 @@
 #include <Prism/Runtime/ListenerConnectionGate.hpp>
 #include <Prism/Runtime/Detail/ListenerTrace.hpp>
 #include <Prism/Runtime/Session.hpp>
-#include <Prism/Runtime/SessionRegistry.hpp>
-#include <Prism/Runtime/SessionTraceRing.hpp>
+#include <Prism/Runtime/Session/Registry.hpp>
+#include <Prism/Runtime/Session/Trace/Ring.hpp>
 #include <Prism/Runtime/WorkerDispatchResult.hpp>
 #include <Prism/Runtime/WorkerGroup.hpp>
 #include <Prism/Transport/Transmission.hpp>

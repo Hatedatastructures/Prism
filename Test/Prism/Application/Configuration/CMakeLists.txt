@@ -1,36 +1,36 @@
 # configuration 子模块测试
-AddPrismTest(ConfigurationAssemblyTest.cpp)
-AddPrismTest(ConfigurationPreflightTest.cpp)
-AddPrismTest(ConfigurationSchemaTest.cpp)
-AddPrismTest(ConfigurationSecretTest.cpp)
-AddPrismTest(ConfigCapabilityTest.cpp)
-AddPrismTest(ConfigGenerationTest.cpp)
+AddPrismTest(AssemblyTest.cpp ConfigurationAssemblyTest)
+AddPrismTest(PreflightTest.cpp ConfigurationPreflightTest)
+AddPrismTest(SchemaTest.cpp ConfigurationSchemaTest)
+AddPrismTest(SecretTest.cpp ConfigurationSecretTest)
+AddPrismTest(CapabilityTest.cpp ConfigCapabilityTest)
+AddPrismTest(GenerationTest.cpp ConfigGenerationTest)
 target_link_libraries(ConfigurationAssemblyTest PRIVATE
     PrismApplication PrismConfiguration PrismComposition PrismNetworkModel PrismProtocolVless
     PrismRuntime PrismTestSupport)
-target_sources(ConfigurationAssemblyTest PRIVATE ConfigurationTestSupport.hpp)
+target_sources(ConfigurationAssemblyTest PRIVATE ConfigSupport.hpp)
 target_link_libraries(ConfigurationPreflightTest PRIVATE
     PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
-target_sources(ConfigurationPreflightTest PRIVATE ConfigurationTestSupport.hpp)
+target_sources(ConfigurationPreflightTest PRIVATE ConfigSupport.hpp)
 target_link_libraries(ConfigurationSchemaTest PRIVATE
     PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
-target_sources(ConfigurationSchemaTest PRIVATE ConfigurationTestSupport.hpp)
+target_sources(ConfigurationSchemaTest PRIVATE ConfigSupport.hpp)
 target_link_libraries(ConfigurationSecretTest PRIVATE
     PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
-target_sources(ConfigurationSecretTest PRIVATE ConfigurationTestSupport.hpp)
+target_sources(ConfigurationSecretTest PRIVATE ConfigSupport.hpp)
 target_link_libraries(ConfigCapabilityTest PRIVATE
     PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
-target_sources(ConfigCapabilityTest PRIVATE ConfigurationTestSupport.hpp)
+target_sources(ConfigCapabilityTest PRIVATE ConfigSupport.hpp)
 target_link_libraries(ConfigGenerationTest PRIVATE
     PrismConfiguration PrismComposition PrismRuntime PrismTestSupport)
-target_sources(ConfigGenerationTest PRIVATE ConfigurationTestSupport.hpp)
-AddPrismTest(ConfigurationOrderTest.cpp)
+target_sources(ConfigGenerationTest PRIVATE ConfigSupport.hpp)
+AddPrismTest(OrderTest.cpp ConfigurationOrderTest)
 target_link_libraries(ConfigurationOrderTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
 AddPrismTest(ValidationHeadersTest.cpp)
 target_link_libraries(ValidationHeadersTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
-AddPrismTest(SecretResolutionStageTest.cpp)
+AddPrismTest(SecretStageTest.cpp SecretResolutionStageTest)
 target_link_libraries(SecretResolutionStageTest PRIVATE PrismConfiguration PrismComposition PrismTestSupport)
-AddPrismTest(ConfigStageOrderTest.cpp)
+AddPrismTest(StageOrderTest.cpp ConfigStageOrderTest)
 target_link_libraries(ConfigStageOrderTest PRIVATE
     PrismApplication PrismConfiguration PrismComposition)
 foreach(PrismConfigurationWhiteboxTarget IN ITEMS

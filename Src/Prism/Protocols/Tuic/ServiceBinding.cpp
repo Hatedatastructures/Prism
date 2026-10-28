@@ -2,7 +2,7 @@
  * @file ServiceBinding.cpp
  * @brief TUIC wire 请求到 owning network services 的转换。
  */
-#include "ServiceBinding.hpp"
+#include <Prism/Protocols/Tuic/Detail/Binding.hpp>
 
 #include <Prism/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>

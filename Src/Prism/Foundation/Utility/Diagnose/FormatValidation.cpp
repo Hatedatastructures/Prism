@@ -2,7 +2,7 @@
  * @file FormatValidation.cpp
  * @brief 标准格式动态值与累计工作量验证实现。
  */
-#include <Prism/Foundation/Utility/Diagnose/Detail/DeferredMessage.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Message.hpp>
 
 #include <algorithm>
 #include <cstddef>

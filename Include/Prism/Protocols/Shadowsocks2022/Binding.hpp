@@ -3,7 +3,7 @@
 #include <Prism/Account/Credential.hpp>
 #include <Prism/Contract/Ingress/DataPlane.hpp>
 #include <Prism/Contract/Ingress/ProviderFailure.hpp>
-#include <Prism/Contract/Ingress/RawDatagramIngress.hpp>
+#include <Prism/Contract/Ingress/Datagram/Raw.hpp>
 #include <Prism/Contract/Ingress/StreamFactory.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Protocols/Common/BindingLifetime.hpp>

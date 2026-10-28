@@ -1,7 +1,7 @@
 /** @file ProviderCatalog.cpp @brief typed provider Prepare/Freeze/Bind 事务实现。 */
 
 #include <Prism/Composition/Provider/ProviderCatalog.hpp>
-#include <Prism/Composition/Provider/ProviderInstancePreparation.hpp>
+#include <Prism/Composition/Provider/Instance/Detail/Preparation.hpp>
 #include <Prism/Composition/Detail/BoundCatalogOwnerClosure.hpp>
 
 #include <memory>

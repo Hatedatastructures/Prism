@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 #include <Prism/Protocols/Tuic/Admission.hpp>
 #include <Prism/Protocols/Quic/Native.hpp>
-#include <TestSupport/Prism/QuicStreamProviderActivity.hpp>
+#include <TestSupport/Prism/Quic/StreamActivity.hpp>
 #include <Prism/Foundation/Executor/FatalState.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 

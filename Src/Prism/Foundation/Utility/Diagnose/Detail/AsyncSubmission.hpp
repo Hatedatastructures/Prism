@@ -4,7 +4,7 @@
 #pragma once
 #include <Prism/Foundation/Utility/Diagnose/Detail/AsyncBackendState.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/BackendWorker.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionRequest.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Request.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/Record.hpp>
 #include <Prism/Foundation/Utility/Text/Redaction.hpp>
 #include <chrono>

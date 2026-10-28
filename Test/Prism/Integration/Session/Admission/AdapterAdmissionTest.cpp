@@ -13,7 +13,7 @@
 
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
 #include <Prism/Foundation/ByteSpan.hpp>
-#include <Test/Prism/Transport/Core/TransportResources.hpp>
+#include <Test/Prism/Transport/Core/Resources.hpp>
 
 namespace
 {

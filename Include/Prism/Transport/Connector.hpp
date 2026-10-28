@@ -2,7 +2,7 @@
 #pragma once
 #include <tuple>
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/system/error_code.hpp>
 #include <array>

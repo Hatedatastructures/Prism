@@ -10,7 +10,7 @@
 #include <utility>
 
 // clang-format off
-#include <Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Smux/Wire/Codec.hpp>
 #include <Prism/Protocols/Mux/Client.hpp>
 #include <Prism/Protocols/Mux/Server.hpp>
 #include <Prism/Protocols/Mux/Session.hpp>

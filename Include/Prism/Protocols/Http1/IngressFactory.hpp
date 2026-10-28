@@ -14,7 +14,7 @@
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Protocols/Http1/Conn.hpp>
 #include <Prism/Foundation/Utility/Http/ForwardResponseFraming.hpp>
-#include <Prism/Protocols/Http1/ForwardResponseTransport.hpp>
+#include <Prism/Protocols/Http1/Forward/Response/Transport.hpp>
 
 #include <boost/asio/awaitable.hpp>
 

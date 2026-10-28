@@ -23,15 +23,15 @@
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Foundation/Utility/Diagnose/FieldKey.hpp>
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
-#include <Prism/Lifecycle/TaskState.hpp>
+#include <Prism/Lifecycle/Task/State.hpp>
 #include <Prism/Runtime/Middleware/Context.hpp>
 #include <Prism/Runtime/Session.hpp>
-#include <Prism/Runtime/SessionServices.hpp>
+#include <Prism/Runtime/Session/Services.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 #include <TestSupport/Fixtures/TaskRegistryAccess.hpp>
-#include <TestSupport/Prism/DiagnoseTestEnvironment.hpp>
+#include <TestSupport/Prism/Diagnose/Environment.hpp>
 
 namespace
 {

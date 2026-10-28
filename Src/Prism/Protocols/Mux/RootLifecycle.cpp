@@ -4,11 +4,11 @@
  */
 #include <Prism/Protocols/Mux/RootBinding.hpp>
 
-#include <Prism/Protocols/Mux/Detail/Root/RootChild.hpp>
-#include <Prism/Protocols/Mux/Detail/Root/RootRegistry.hpp>
-#include <Prism/Protocols/Mux/Detail/Root/RootRetirement.hpp>
-#include <Prism/Protocols/Mux/Detail/Root/RootState.hpp>
-#include <Prism/Protocols/Mux/Detail/Root/RootSession.hpp>
+#include <Prism/Protocols/Mux/Root/Child.hpp>
+#include <Prism/Protocols/Mux/Root/Registry.hpp>
+#include <Prism/Protocols/Mux/Root/Retirement.hpp>
+#include <Prism/Protocols/Mux/Root/State.hpp>
+#include <Prism/Protocols/Mux/Root/Session.hpp>
 #include "Detail/SingMux/SingMux.hpp"
 
 #include <boost/asio/dispatch.hpp>

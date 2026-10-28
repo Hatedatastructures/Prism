@@ -6,7 +6,7 @@
 #include <Prism/Protocols/Trusttunnel/IngressFactory.hpp>
 #include <Prism/Protocols/Trusttunnel/Detail/AcceptedCarrierActivity.hpp>
 #include <Prism/Protocols/Trusttunnel/Detail/CarrierOwner.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/Http2Transport.hpp>
+#include <Prism/Protocols/Trusttunnel/Detail/Http2/Transport.hpp>
 #include <Prism/Protocols/Trusttunnel/Detail/WireAuthBinding.hpp>
 #include <Prism/Transport/Transmission.hpp>
 

@@ -1,9 +1,9 @@
 /** @file TlsEngine.hpp @brief 双向 TLS engine 的私有 Asio 实现。 */
 #pragma once
 #include <Prism/Transport/Connector.hpp>
-#include <Prism/Transport/Detail/IoActivity.hpp>
+#include <Prism/Transport/Activity/Io.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 #include <Prism/Transport/Detail/TlsOperations.hpp>
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/associated_allocator.hpp>

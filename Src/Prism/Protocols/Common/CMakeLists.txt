@@ -2,24 +2,24 @@ set(PrismProtocolsCommonHeaders
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Address.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Authentication/ScopedMaterial.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/BindingLifetime.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramBinding.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramDeadline.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramFailure.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramObservation.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramOperationDeadline.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRelay.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRelayPump.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRelayState.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRetirement.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/DatagramRetirementActions.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Binding.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Deadline.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Failure.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Observation.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Operation/Deadline.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Relay.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Relay/Pump.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Relay/State.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Retirement.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Datagram/Retirement/Actions.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ExactIo.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Framing.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/IoBridge.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProtocolActivity.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderMuxRootState.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderSessionDrainAttempt.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderSessionResources.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/ProviderSessionRetirement.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Provider/Drain/Attempt.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Provider/Session/Resources.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Provider/Session/Retirement.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/QuicBindingState.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/QuicPreparation.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Common/Read.hpp"
@@ -30,15 +30,15 @@ PrismAddStaticTarget(PrismProtocolsCommon
     SOURCES
         Address.cpp
         BindingLifetime.cpp
-        DatagramBinding.cpp
-        DatagramDeadline.cpp
-        DatagramFailure.cpp
-        DatagramObservation.cpp
+        Datagram/Binding.cpp
+        Datagram/Deadline.cpp
+        Datagram/Failure.cpp
+        Datagram/Observation.cpp
         ExactIo.cpp
         Framing.cpp
         ProtocolActivity.cpp
         ProviderMuxRootState.cpp
-        ProviderSessionDrainAttempt.cpp
+        Provider/Drain/Attempt.cpp
         ProviderSessionResources.cpp
         QuicBindingState.cpp
         QuicPreparation.cpp

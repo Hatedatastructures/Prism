@@ -26,11 +26,11 @@
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Account/Authenticator.hpp>
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Tuic/Codec.hpp>
 #include <Prism/Protocols/Tuic/Admission.hpp>
-#include <Prism/Protocols/Tuic/Conn.hpp>
+#include <Prism/Protocols/Tuic/Connection/Connection.hpp>
 #include <Prism/Protocols/Tuic/Dgram.hpp>
 #include <Prism/Protocols/Tuic/Types.hpp>
 #include <cstdint>

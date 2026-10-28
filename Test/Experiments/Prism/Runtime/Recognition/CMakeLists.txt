@@ -1,13 +1,13 @@
 add_library(ExperimentalProbeDefenseSupport INTERFACE)
-target_sources(ExperimentalProbeDefenseSupport INTERFACE Probe/ProbeDefense.hpp)
+target_sources(ExperimentalProbeDefenseSupport INTERFACE Probe/Defense.hpp)
 
 add_library(ExperimentalRecognitionSupport INTERFACE)
 target_sources(ExperimentalRecognitionSupport INTERFACE
-    Probe/ProbeRecognition.hpp
+    Probe/Recognition.hpp
     Route/Route.hpp
-    Scheme/SchemeExecutor.hpp
+    Scheme/Executor.hpp
     Pipeline/RecognitionSupport.hpp
-    Tls/TlsRecognitionSupport.hpp
+    Tls/RecognitionSupport.hpp
 )
 add_subdirectory(Pipeline)
 add_subdirectory(Probe)

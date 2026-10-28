@@ -1,4 +1,4 @@
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 /**
  * @file SessionCancelTest.cpp
  * @brief 按功能拆分的 GoogleTest 行为契约。

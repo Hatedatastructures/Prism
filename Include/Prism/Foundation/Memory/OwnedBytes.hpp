@@ -5,7 +5,7 @@
 #pragma once
 
 #include <Prism/Foundation/Fault/Failure.hpp>
-#include <Prism/Foundation/Memory/Detail/BytePoolState.hpp>
+#include <Prism/Foundation/Memory/BytePool/State.hpp>
 
 #include <cstddef>
 #include <expected>

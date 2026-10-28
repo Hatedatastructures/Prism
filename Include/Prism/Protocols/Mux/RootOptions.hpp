@@ -2,7 +2,7 @@
 #pragma once
 #include <Prism/Contract/Services/Stream.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <Prism/Net/Relay/Relay.hpp>
 #include <Prism/Protocols/Mux/Types.hpp>
 #include <Prism/Account/Lease.hpp>

@@ -21,7 +21,7 @@
 #include <Prism/Foundation/Fault/Code.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Identifier/Id.hpp>
-#include <Prism/Lifecycle/TaskState.hpp>
+#include <Prism/Lifecycle/Task/State.hpp>
 #include <Prism/Net/Target.hpp>
 #include <Prism/Contract/Ingress/DataPlane.hpp>
 #include <Prism/Transport/Transmission.hpp>

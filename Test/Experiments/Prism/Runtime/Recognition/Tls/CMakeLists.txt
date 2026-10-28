@@ -1,10 +1,10 @@
 # TLS 识别实验测试。
-AddExperimentTest(TlsRouteTableTest.cpp)
+AddExperimentTest(RouteTableTest.cpp TlsRouteTableTest)
 target_include_directories(ExperimentTlsRouteTableTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(ExperimentTlsRouteTableTest PRIVATE
     ExperimentalRecognitionSupport PrismFoundation PrismTransport PrismRuntime)
 
-AddExperimentTest(TlsExperimentPipelineTest.cpp)
+AddExperimentTest(PipelineTest.cpp TlsExperimentPipelineTest)
 target_include_directories(ExperimentTlsExperimentPipelineTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(ExperimentTlsExperimentPipelineTest PRIVATE
     ExperimentalRecognitionSupport PrismFoundation PrismTransport PrismRuntime)

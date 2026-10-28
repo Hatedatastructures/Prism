@@ -38,7 +38,7 @@ description: 修改 shared_ptr、enable_shared_from_this、co_spawn 捕获或 co
 
 ## 验证
 
-审计报告必须给出对象所有者、挂起点、取消路径和修复建议。修改 detached 协程或 PMR allocator 后，运行 `scripts/audit_detached.sh` 及相关生命周期测试。
+审计报告必须给出对象所有者、挂起点、取消路径和修复建议。修改 detached 协程或 PMR allocator 后，运行 `Scripts/AuditDetached.sh` 及相关生命周期测试。
 
 ## 相关 Skill
 

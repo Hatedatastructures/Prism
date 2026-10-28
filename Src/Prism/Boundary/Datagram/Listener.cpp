@@ -1,0 +1,341 @@
+/** @file Listener.cpp @brief UDP listener 与借用 socket sender 的出线实现。 */
+
+#include <Prism/Boundary/Datagram/Listener.hpp>
+#include <Prism/Foundation/Executor/ContextOwner.hpp>
+
+#include <boost/asio/buffer.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/dispatch.hpp>
+#include <boost/asio/error.hpp>
+#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/socket_base.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/system/errc.hpp>
+
+#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <span>
+#include <utility>
+
+namespace Prism::Boundary
+{
+    struct DatagramListener::State final : Prism::Contract::QuicDatagramSender,
+        std::enable_shared_from_this<State>
+    {
+        explicit State(Net::any_io_executor ExecutorValue)
+            : Context(Prism::Executor::ContextOwner::Find(ExecutorValue)),
+              Executor(std::move(ExecutorValue)), Socket(Executor), Completion(Executor, 1)
+        {
+        }
+
+        /** @brief 已注册 executor 的独立 context pin 最后释放，晚于 socket 与等待 channel。 */
+        std::shared_ptr<Prism::Executor::ContextOwner> Context;
+        Net::any_io_executor Executor;
+        Net::ip::udp::socket Socket;
+        Net::experimental::channel<void(boost::system::error_code)> Completion;
+        std::shared_ptr<DatagramClassifier> Demux;
+        PacketHandler Handler;
+        ErrorHandler OnError;
+        std::atomic<bool> Started{false};
+        std::atomic<bool> Closed{false};
+        std::atomic<bool> Bound{false};
+        std::atomic<bool> Ready{false};
+        std::atomic<bool> Draining{false};
+        std::atomic<bool> ReceiveLoopStarted{false};
+        std::atomic<bool> ReceiveLoopCompleted{false};
+        std::atomic<std::uint64_t> PacketsReceived{0};
+        std::atomic<std::uint64_t> PacketsRejected{0};
+        boost::system::error_code LastError;
+
+        [[nodiscard]] auto SendTo(const std::span<const std::byte> Payload,
+            const boost::asio::ip::udp::endpoint& Peer)
+            -> Net::awaitable<boost::system::error_code> override
+        {
+            return SendOwned(shared_from_this(), Payload, Peer);
+        }
+
+        /** @brief 首次调度前保活 socket owner、复制 peer；payload 借用至发送完成。 */
+        [[nodiscard]] static auto SendOwned(std::shared_ptr<State> Owner,
+            std::span<const std::byte> Payload, boost::asio::ip::udp::endpoint Peer)
+            -> Net::awaitable<boost::system::error_code>
+        {
+            if (Owner->Context && !Owner->Context->CanDispatch())
+            {
+                co_return boost::asio::error::operation_aborted;
+            }
+            co_return co_await Net::co_spawn(Owner->Executor,
+                SendOnExecutor(Owner, Payload, std::move(Peer)), Net::use_awaitable);
+        }
+
+        [[nodiscard]] static auto SendOnExecutor(std::shared_ptr<State> Owner,
+            std::span<const std::byte> Payload, boost::asio::ip::udp::endpoint Peer)
+            -> Net::awaitable<boost::system::error_code>
+        {
+            if (Owner->Closed.load(std::memory_order_acquire) || !Owner->Socket.is_open())
+            {
+                co_return boost::system::errc::make_error_code(
+                    boost::system::errc::operation_canceled);
+            }
+            boost::system::error_code Error;
+            const auto Length = co_await Owner->Socket.async_send_to(
+                Net::buffer(Payload.data(), Payload.size()), Peer,
+                Net::redirect_error(Net::use_awaitable, Error));
+            if (!Error && Length != Payload.size())
+            {
+                Error = boost::system::errc::make_error_code(
+                    boost::system::errc::message_size);
+            }
+            co_return Error;
+        }
+    };
+
+    auto IsRecoverableReceiveError(const boost::system::error_code Error) noexcept -> bool
+    {
+        return Error == Net::error::connection_refused || Error == Net::error::connection_reset;
+    }
+
+    DatagramSender::DatagramSender(std::shared_ptr<Net::ip::udp::socket> Socket)
+        : Socket_(std::move(Socket))
+    {
+    }
+
+    auto DatagramSender::Send(Prism::Contract::DatagramPacket Packet)
+        -> Net::awaitable<boost::system::error_code>
+    {
+        const auto Socket = Socket_.lock();
+        if (!Socket)
+        {
+            co_return Net::error::operation_aborted;
+        }
+        co_return co_await Net::co_spawn(Socket->get_executor(),
+            SendOnExecutor(Socket, std::move(Packet)), Net::use_awaitable);
+    }
+
+    auto DatagramSender::SendOnExecutor(
+        std::shared_ptr<Net::ip::udp::socket> Socket,
+        Prism::Contract::DatagramPacket Packet)
+        -> Net::awaitable<boost::system::error_code>
+    {
+        if (!Socket->is_open())
+        {
+            co_return Net::error::operation_aborted;
+        }
+        boost::system::error_code Error;
+        co_await Socket->async_send_to(Net::buffer(Packet.Payload), Packet.Peer,
+            Net::redirect_error(Net::use_awaitable, Error));
+        co_return Error;
+    }
+
+    DatagramListener::DatagramListener(Net::any_io_executor Executor)
+        : State_(std::make_shared<State>(std::move(Executor)))
+    {
+    }
+
+    DatagramListener::~DatagramListener() noexcept
+    {
+        Stop(StopRequest{});
+    }
+
+    auto DatagramListener::Start(StartRequest Request) -> Net::awaitable<DatagramStartResult>
+    {
+        const auto State = State_;
+        if (!Request.Demux || !Request.Handler)
+        {
+            co_return DatagramStartResult{DatagramStartCode::Invalid, {}};
+        }
+        co_await Net::dispatch(State->Executor, Net::use_awaitable);
+        if (State->Closed.load(std::memory_order_acquire))
+        {
+            co_return DatagramStartResult{DatagramStartCode::Closed, {}};
+        }
+        if (State->Started.exchange(true, std::memory_order_acq_rel))
+        {
+            co_return DatagramStartResult{DatagramStartCode::AlreadyStarted, {}};
+        }
+
+        State->Demux = std::move(Request.Demux);
+        State->Handler = std::move(Request.Handler);
+        State->OnError = std::move(Request.OnError);
+        boost::system::error_code Error;
+        State->Socket.open(Request.Endpoint.protocol(), Error);
+        if (!Error)
+        {
+            State->Socket.set_option(Net::socket_base::reuse_address(true), Error);
+        }
+        if (!Error)
+        {
+            State->Socket.bind(Request.Endpoint, Error);
+        }
+        if (Error)
+        {
+            State->LastError = Error;
+            State->Started.store(false, std::memory_order_release);
+            boost::system::error_code CloseError;
+            State->Socket.close(CloseError);
+            co_return DatagramStartResult{DatagramStartCode::BindFailed, Error};
+        }
+        State->Bound.store(true, std::memory_order_release);
+        State->Ready.store(true, std::memory_order_release);
+        State->ReceiveLoopStarted.store(true, std::memory_order_release);
+        Net::co_spawn(State->Executor, ReceiveLoop(State), Net::detached);
+        co_return DatagramStartResult{DatagramStartCode::Success, {}};
+    }
+
+    auto DatagramListener::Stop(StopRequest Request) noexcept -> void
+    {
+        const auto State = State_;
+        if (State->Closed.exchange(true, std::memory_order_acq_rel))
+        {
+            return;
+        }
+        State->Draining.store(true, std::memory_order_release);
+        State->Ready.store(false, std::memory_order_release);
+        boost::system::error_code CancelError;
+        State->Socket.cancel(CancelError);
+        if (Request.CloseSocket)
+        {
+            boost::system::error_code Error;
+            State->Socket.close(Error);
+        }
+    }
+
+    auto DatagramListener::Drain() -> Net::awaitable<DatagramDrainResult>
+    {
+        const auto State = State_;
+        co_await Net::dispatch(State->Executor, Net::use_awaitable);
+        if (!State->ReceiveLoopStarted.load(std::memory_order_acquire) ||
+            State->ReceiveLoopCompleted.load(std::memory_order_acquire))
+        {
+            co_return DatagramDrainResult{true,
+                State->PacketsReceived.load(std::memory_order_relaxed)};
+        }
+        boost::system::error_code Error;
+        co_await State->Completion.async_receive(Net::redirect_error(Net::use_awaitable, Error));
+        co_return DatagramDrainResult{!Error,
+            State->PacketsReceived.load(std::memory_order_relaxed)};
+    }
+
+    auto DatagramListener::LocalEndpoint() const -> boost::asio::ip::udp::endpoint
+    {
+        boost::system::error_code Error;
+        return State_->Socket.local_endpoint(Error);
+    }
+
+    auto DatagramListener::SharedSocket() const -> std::shared_ptr<Net::ip::udp::socket>
+    {
+        return std::shared_ptr<Net::ip::udp::socket>(State_, &State_->Socket);
+    }
+
+    auto DatagramListener::Health() const noexcept -> DatagramListenerHealth
+    {
+        return {State_->Bound.load(std::memory_order_acquire),
+            State_->Ready.load(std::memory_order_acquire),
+            State_->Draining.load(std::memory_order_acquire),
+            State_->PacketsReceived.load(std::memory_order_relaxed),
+            State_->PacketsRejected.load(std::memory_order_relaxed), State_->LastError};
+    }
+
+    auto DatagramListener::IsReady() const noexcept -> bool
+    {
+        return State_->Ready.load(std::memory_order_acquire) &&
+            !State_->Closed.load(std::memory_order_acquire);
+    }
+
+    auto DatagramListener::IsBound() const noexcept -> bool
+    {
+        return State_->Bound.load(std::memory_order_acquire);
+    }
+
+    auto DatagramListener::ReportPacketError(const std::shared_ptr<State>& StateValue,
+        const boost::system::error_code Error) noexcept -> void
+    {
+        StateValue->PacketsRejected.fetch_add(1, std::memory_order_relaxed);
+        StateValue->LastError = Error;
+        if (!StateValue->OnError)
+        {
+            return;
+        }
+        try
+        {
+            StateValue->OnError(Error);
+        }
+        catch (...)
+        {
+            // 诊断回调不能破坏 packet pump 生命周期。
+        }
+    }
+
+    auto DatagramListener::ReceiveLoop(std::shared_ptr<State> StateValue)
+        -> Net::awaitable<void>
+    {
+        std::array<std::byte, 65536> Buffer{};
+        while (!StateValue->Closed.load(std::memory_order_acquire))
+        {
+            boost::system::error_code Error;
+            Net::ip::udp::endpoint Peer;
+            const auto Size = co_await StateValue->Socket.async_receive_from(
+                Net::buffer(Buffer), Peer,
+                Net::redirect_error(Net::use_awaitable, Error));
+            if (Error)
+            {
+                if (!StateValue->Closed.load(std::memory_order_acquire))
+                {
+                    if (IsRecoverableReceiveError(Error))
+                    {
+                        // UDP 对端退出后产生的 ICMP 拒绝不应终止入口泵。
+                        continue;
+                    }
+                    StateValue->LastError = Error;
+                    if (StateValue->OnError)
+                    {
+                        try
+                        {
+                            StateValue->OnError(Error);
+                        }
+                        catch (...)
+                        {
+                            // 入口错误回调不能让 receive pump 逃逸异常。
+                        }
+                    }
+                }
+                break;
+            }
+            if (Size == 0U || !StateValue->Demux || !StateValue->Handler)
+            {
+                StateValue->PacketsRejected.fetch_add(1, std::memory_order_relaxed);
+                continue;
+            }
+            try
+            {
+                BoundaryPacket Packet;
+                Packet.Payload.assign(Buffer.begin(), Buffer.begin() + Size);
+                Packet.Peer = Peer;
+                Packet.Classification = StateValue->Demux->Classify(Packet.Payload);
+                Packet.Sequence = StateValue->PacketsReceived.fetch_add(
+                    1, std::memory_order_relaxed) + 1U;
+                StateValue->Handler(std::move(Packet));
+            }
+            catch (...)
+            {
+                ReportPacketError(StateValue,
+                    boost::system::errc::make_error_code(boost::system::errc::io_error));
+            }
+        }
+        StateValue->Ready.store(false, std::memory_order_release);
+        StateValue->ReceiveLoopCompleted.store(true, std::memory_order_release);
+        (void)StateValue->Completion.try_send(boost::system::error_code{});
+    }
+
+    auto DatagramListener::SharedSender() const
+        -> std::shared_ptr<Prism::Contract::QuicDatagramSender>
+    {
+        return std::static_pointer_cast<Prism::Contract::QuicDatagramSender>(State_);
+    }
+
+} // namespace Prism::Boundary

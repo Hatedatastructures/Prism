@@ -3,7 +3,7 @@ PrismAddStaticTarget(PrismOperations
         Controller.cpp
         Http/ReadDeadline.cpp
         Http/ReadCompletion.cpp
-        HttpConnectionLifecycle.cpp
+        Http/Lifecycle.cpp
         HttpRequestBudget.cpp
         HttpServer.cpp
         Http/JsonWriter.cpp
@@ -40,7 +40,7 @@ PrismAddStaticTarget(PrismOperations
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/ManagementModels.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/Metrics.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/Models.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/OperationPublicationReceipt.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/Publication/Receipt.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/Operations.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/QueryPage.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/QueryResult.hpp"
@@ -65,15 +65,15 @@ PrismAddStaticTarget(PrismOperations
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/Web/Loader.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Operations/Web/Response.hpp"
     PRIVATE_HEADERS
-        "${CMAKE_CURRENT_SOURCE_DIR}/Detail/HttpConnectionLifecycle.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Http/Detail/Lifecycle.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Detail/HttpRequestLifecycle.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Detail/QueryNormalization.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Detail/RouterState.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Detail/RouteHttpDispatch.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Detail/TrafficJsonSupport.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/HttpConnection.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Http/ReadDeadline.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Http/ReadDeadlineOwner.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Http/ReadCompletion.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Http/ReadRequestResult.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Http/Detail/Connection.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Http/Detail/ReadDeadline.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Http/Detail/ReadDeadlineOwner.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Http/Detail/ReadCompletion.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Http/Detail/ReadRequestResult.hpp"
 )

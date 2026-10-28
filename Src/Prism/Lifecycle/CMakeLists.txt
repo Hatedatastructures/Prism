@@ -3,20 +3,20 @@ PrismAddStaticTarget(PrismLifecycle
         CancellationDomain.cpp
         DrainBarrier.cpp
         DrainNotification.cpp
-        TaskIdSet.cpp
-        TaskRegistry.cpp
-        TaskRegistryState.cpp
-        TaskRetirementReceipt.cpp
-        TaskState.cpp
+        Task/IdSet.cpp
+        Task/Registry.cpp
+        Task/Registry/State.cpp
+        Task/Retirement/Receipt.cpp
+        Task/State.cpp
     HEADERS
         "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/CancellationDomain.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/DrainBarrier.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskIdSet.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskRegistry.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskRegistryState.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskRetirementReceipt.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskState.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/TaskSubmission.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/Task/IdSet.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/Task/Registry.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/Task/Registry/State.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/Task/Retirement/Receipt.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/Task/State.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Lifecycle/Task/Submission.hpp"
     PRIVATE_HEADERS
         Detail/DrainNotification.hpp
 )

@@ -1,6 +1,6 @@
 /** @file CandidateFactoryHelpers.cpp @brief protocol recognition 与认证准备辅助实现。 */
 
-#include <Prism/Composition/Recognition/CandidateFactoryHelpers.hpp>
+#include <Prism/Composition/Recognition/Detail/CandidateFactory.hpp>
 
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Protocols/Anytls/Anytls.hpp>

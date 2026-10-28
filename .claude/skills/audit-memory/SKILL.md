@@ -28,7 +28,7 @@ Prism 在启动阶段启用全局内存池；具体容器仍可能显式绑定 f
 
 ## 验证
 
-修改 allocator、内存池配置或资源所有权后，运行对应 memory/lifecycle 测试和 `scripts/audit_detached.sh`。报告必须说明 resource 来源、存活范围、异常路径和测量依据。
+修改 allocator、内存池配置或资源所有权后，运行对应 memory/lifecycle 测试和 `Scripts/AuditDetached.sh`。报告必须说明 resource 来源、存活范围、异常路径和测量依据。
 
 ## 相关 Skill
 

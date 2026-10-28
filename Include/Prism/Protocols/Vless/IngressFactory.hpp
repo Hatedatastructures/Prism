@@ -2,7 +2,7 @@
 #pragma once
 
 #include <Prism/Protocols/Vless/Binding.hpp>
-#include <Prism/Protocols/Common/DatagramBinding.hpp>
+#include <Prism/Protocols/Common/Datagram/Binding.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 #include <Prism/Contract/Ingress/StreamFactory.hpp>
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>

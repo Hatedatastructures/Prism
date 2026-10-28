@@ -5,8 +5,8 @@
 #include <Prism/Protocols/Hysteria2/Admission.hpp>
 
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
-#include <Prism/Protocols/Hysteria2/DatagramSession.hpp>
-#include <Prism/Protocols/Hysteria2/AdmissionHelpers.hpp>
+#include <Prism/Protocols/Hysteria2/Datagram/Session.hpp>
+#include <Prism/Protocols/Hysteria2/Detail/Admission.hpp>
 #include <Prism/Protocols/Hysteria2/StreamSession.hpp>
 
 #include <cassert>

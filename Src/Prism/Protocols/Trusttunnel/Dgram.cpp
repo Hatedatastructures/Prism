@@ -8,7 +8,7 @@
 #include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/ForwardedActivity.hpp>
+#include <Prism/Protocols/Trusttunnel/Transport/Activity.hpp>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>

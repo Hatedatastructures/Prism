@@ -24,7 +24,7 @@
 #include <thread>
 #include <utility>
 
-#include <Prism/Runtime/SessionRegistry.hpp>
+#include <Prism/Runtime/Session/Registry.hpp>
 #include <Prism/Contract/Ingress/StreamCatalog.hpp>
 
 namespace

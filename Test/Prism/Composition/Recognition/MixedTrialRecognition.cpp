@@ -1,4 +1,4 @@
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 /**
  * @file MixedTrialRecognition.cpp

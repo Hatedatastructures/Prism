@@ -7,7 +7,7 @@
 - 进程入口：`Src/Prism/Application/Main/PrismMain.cpp`
 - 公开启动声明：`Include/Prism/Application/Definition.hpp` 中的 `Application::Start()`
 - 启动实现：`Src/Prism/Application/Startup/Start.cpp`
-- 启动回滚事务私有实现：`Src/Prism/Application/Startup/StartupTransaction.hpp`
+- 启动回滚事务私有实现：`Src/Prism/Application/Startup/Detail/Transaction.hpp`
 - 配置类型与解析：`Include/Prism/Application/Configuration/` 与 `Src/Prism/Application/Configuration/`
 - 应用装配：`Include/Prism/Application/Assembly/` 与 `Src/Prism/Application/Assembly/`
 - TCP session 调度：`Include/Prism/Runtime/` 与 `Src/Prism/Runtime/`

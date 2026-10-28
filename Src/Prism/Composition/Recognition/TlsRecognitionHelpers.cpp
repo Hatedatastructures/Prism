@@ -1,6 +1,6 @@
 /** @file TlsRecognitionHelpers.cpp @brief TLS probe prepare 与 carrier commit 实现。 */
 
-#include <Prism/Composition/Recognition/TlsRecognitionHelpers.hpp>
+#include <Prism/Composition/Recognition/Detail/Helpers.hpp>
 
 #include <boost/system/system_error.hpp>
 #include <boost/asio/this_coro.hpp>

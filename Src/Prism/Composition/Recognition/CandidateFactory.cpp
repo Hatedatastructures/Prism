@@ -2,8 +2,8 @@
 
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 
-#include <Prism/Composition/Detail/CandidateProviderProjection.hpp>
-#include <Prism/Composition/Recognition/CandidateFactoryHelpers.hpp>
+#include <Prism/Composition/Provider/Candidate/Detail/Projection.hpp>
+#include <Prism/Composition/Recognition/Detail/CandidateFactory.hpp>
 #include <Prism/Composition/Recognition/TrusttunnelCandidate.hpp>
 
 #include <algorithm>

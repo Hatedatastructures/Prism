@@ -14,7 +14,7 @@ description: 评估或改进 Prism 的 Agent 规则、skills、文档地图、�
 - `AGENTS.md`：项目共享规则和导航。
 - `.claude/skills/`：唯一仓库级 skill 树。
 - `docs/`：架构、计划、协议互操作和长期知识。
-- `scripts/`：可重复的静态检查和维护工具。
+- `Scripts/`：可重复的静态检查和维护工具。
 
 兼容入口可以引用 `AGENTS.md`，但不得复制一份长期独立维护的完整规则。仓库不维护被 `.gitignore` 忽略的第二套 skill 正文。
 

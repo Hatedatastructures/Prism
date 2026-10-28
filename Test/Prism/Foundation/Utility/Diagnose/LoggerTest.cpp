@@ -8,7 +8,7 @@
 #include <Prism/Foundation/Utility/Diagnose/FieldKey.hpp>
 #include <Prism/Foundation/Utility/Diagnose/RenderMode.hpp>
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
-#include <TestSupport/Prism/DiagnoseTestEnvironment.hpp>
+#include <TestSupport/Prism/Diagnose/Environment.hpp>
 
 #include <chrono>
 #include <filesystem>

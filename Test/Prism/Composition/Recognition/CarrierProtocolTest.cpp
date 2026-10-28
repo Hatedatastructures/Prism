@@ -10,7 +10,7 @@
 #include <Prism/Composition/Recognition/CandidateRegistry.hpp>
 #include <Prism/Composition/Provider/BoundCatalog.hpp>
 #include <Prism/Composition/Provider/TlsCarrierProvider.hpp>
-#include <Prism/Composition/Recognition/TlsCarrierFailure.hpp>
+#include <Prism/Composition/Recognition/Detail/CarrierFailure.hpp>
 #include <Prism/Composition/Recognition/RestlsCarrier.hpp>
 #include <Prism/Contract/Ingress/CarrierConfiguration.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>

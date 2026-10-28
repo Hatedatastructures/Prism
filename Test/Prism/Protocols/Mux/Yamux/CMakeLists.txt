@@ -1,5 +1,5 @@
-AddPrismTest(YamuxCodecError.cpp)
+AddPrismTest(CodecError.cpp YamuxCodecError)
 target_link_libraries(YamuxCodecError PRIVATE PrismProtocolMux PrismTestSupport)
 
-AddPrismTest(YamuxFrameTest.cpp)
+AddPrismTest(FrameTest.cpp YamuxFrameTest)
 target_link_libraries(YamuxFrameTest PRIVATE PrismProtocolMux)

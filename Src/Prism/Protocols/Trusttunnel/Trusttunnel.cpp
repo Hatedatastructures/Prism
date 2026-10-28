@@ -11,7 +11,7 @@
 #include <Prism/Protocols/Trusttunnel/Binding.hpp>
 #include <Prism/Protocols/Trusttunnel/Types.hpp>
 #include <Prism/Protocols/Trusttunnel/TransportTypes.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/ForwardedActivity.hpp>
+#include <Prism/Protocols/Trusttunnel/Transport/Activity.hpp>
 
 #include <boost/asio/this_coro.hpp>
 

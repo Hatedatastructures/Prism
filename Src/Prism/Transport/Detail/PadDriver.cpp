@@ -1,6 +1,6 @@
 /** @file PadDriver.cpp @brief keyed填充记录与载荷完成映射实现。 */
-#include <Prism/Transport/Detail/PadDriver.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Pad/Driver.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 #include <Prism/Foundation/Utility/Crypto/Random.hpp>
 
 #include <blake3.h>

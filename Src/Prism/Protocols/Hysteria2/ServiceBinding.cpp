@@ -2,7 +2,7 @@
  * @file ServiceBinding.cpp
  * @brief Hysteria2 wire 请求到 owning network services 的转换。
  */
-#include "ServiceBinding.hpp"
+#include <Prism/Protocols/Hysteria2/Detail/Binding.hpp>
 
 #include <Prism/Net/Target.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>

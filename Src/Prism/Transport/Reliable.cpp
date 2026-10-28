@@ -1,6 +1,6 @@
 /** @file Reliable.cpp @brief TCP socket ownership、deadline I/O 与 half-close 实现。 */
 #include <Prism/Transport/Reliable.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/as_tuple.hpp>

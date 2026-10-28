@@ -1,27 +1,27 @@
-AddPrismTest(Startup/AppAssemblyLifecycleTest.cpp)
+AddPrismTest(Startup/AssemblyLifecycleTest.cpp AppAssemblyLifecycleTest)
 add_subdirectory(Storage)
 AddPrismTest(Storage/UsagePersistenceTest.cpp)
 AddPrismTest(Storage/CommandJournalTest.cpp)
 AddPrismTest(Storage/HistoryStoreTest.cpp)
-AddPrismTest(Startup/ShutdownRetirementTest.cpp)
-AddPrismTest(Ingress/AppStartupLifecycleTest.cpp)
-AddPrismTest(Ingress/AccountPersistenceTest.cpp)
+AddPrismTest(Startup/ShutdownRetireTest.cpp ShutdownRetirementTest)
+AddPrismTest(Ingress/StartupLifecycleTest.cpp AppStartupLifecycleTest)
+AddPrismTest(Ingress/AccountStoreTest.cpp AccountPersistenceTest)
 AddPrismTest(Startup/AppProtocolConfigTest.cpp)
-AddPrismTest(Startup/ApplicationNativeTlsTest.cpp)
-AddPrismTest(Startup/ApplicationRequestPathTest.cpp)
+AddPrismTest(Startup/NativeTlsTest.cpp ApplicationNativeTlsTest)
+AddPrismTest(Startup/RequestPathTest.cpp ApplicationRequestPathTest)
 AddPrismTest(Ingress/Socks5IngressTest.cpp)
-AddPrismTest(Ingress/Socks5CancelIngressTest.cpp)
+AddPrismTest(Ingress/SocksCancelTest.cpp Socks5CancelIngressTest)
 AddPrismTest(Ingress/HttpForwardBasicTest.cpp)
-AddPrismTest(Ingress/HttpForwardOperationsTest.cpp)
-AddPrismTest(Ingress/RealityCarrierStartupTest.cpp)
-AddPrismTest(Ingress/TrustTunnelStartupTest.cpp)
+AddPrismTest(Ingress/ForwardOpsTest.cpp HttpForwardOperationsTest)
+AddPrismTest(Ingress/RealityStartupTest.cpp RealityCarrierStartupTest)
+AddPrismTest(Ingress/TrustStartupTest.cpp TrustTunnelStartupTest)
 AddPrismTest(Ingress/TuicStartupTest.cpp)
 AddPrismTest(Ingress/RestlsStartupTest.cpp)
 target_link_libraries(AppAssemblyLifecycleTest PRIVATE
     PrismApplication PrismComposition PrismFoundation PrismRuntime PrismNet PrismTransport
     PrismProtocolMux PrismProtocolAnytls PrismProtocolVless PrismProtocolTrojan PrismProtocolVmess
     PrismProtocolSocks5)
-target_sources(AppAssemblyLifecycleTest PRIVATE Startup/ApplicationTestSupport.hpp)
+target_sources(AppAssemblyLifecycleTest PRIVATE Startup/StartupSupport.hpp)
 target_link_libraries(UsagePersistenceTest PRIVATE PrismApplication)
 target_sources(UsagePersistenceTest PRIVATE Storage/StorageTestSupport.hpp)
 target_link_libraries(CommandJournalTest PRIVATE PrismApplication)
@@ -32,52 +32,52 @@ target_link_libraries(ShutdownRetirementTest PRIVATE
     PrismApplication PrismComposition PrismFoundation PrismRuntime PrismNet PrismTransport PrismAccount
     PrismIngressContract PrismProtocolMux PrismProtocolAnytls PrismProtocolVless PrismProtocolTrojan
     PrismProtocolVmess PrismProtocolSocks5)
-target_sources(ShutdownRetirementTest PRIVATE Startup/ApplicationTestSupport.hpp)
+target_sources(ShutdownRetirementTest PRIVATE Startup/StartupSupport.hpp)
 target_link_libraries(AppStartupLifecycleTest PRIVATE
     PrismApplication PrismComposition PrismNet PrismProtocolMux PrismProtocolAnytls PrismProtocolVless
     PrismProtocolTrojan PrismProtocolVmess PrismProtocolSocks5)
-target_sources(AppStartupLifecycleTest PRIVATE Startup/ApplicationTestSupport.hpp)
+target_sources(AppStartupLifecycleTest PRIVATE Startup/StartupSupport.hpp)
 target_link_libraries(AccountPersistenceTest PRIVATE
     PrismApplication PrismComposition PrismNet PrismProtocolMux PrismProtocolAnytls PrismProtocolVless
     PrismProtocolTrojan PrismProtocolVmess PrismProtocolSocks5)
-target_sources(AccountPersistenceTest PRIVATE Startup/ApplicationTestSupport.hpp)
+target_sources(AccountPersistenceTest PRIVATE Startup/StartupSupport.hpp)
 target_link_libraries(AppProtocolConfigTest PRIVATE
     PrismApplication PrismComposition PrismAccount PrismNet PrismRuntime PrismProtocolMux
     PrismProtocolAnytls PrismProtocolSocks5 PrismProtocolHttp PrismProtocolVless PrismProtocolTrojan
     PrismProtocolVmess PrismProtocolShadowsocks2022)
-target_sources(AppProtocolConfigTest PRIVATE Startup/ApplicationTestSupport.hpp)
+target_sources(AppProtocolConfigTest PRIVATE Startup/StartupSupport.hpp)
 target_link_libraries(ApplicationNativeTlsTest PRIVATE
     PrismApplication PrismConfiguration PrismComposition PrismNet PrismProtocolEch PrismProtocolMux
     PrismProtocolAnytls PrismProtocolVless PrismProtocolTrojan PrismProtocolVmess PrismProtocolSocks5)
-target_sources(ApplicationNativeTlsTest PRIVATE Startup/ApplicationTestSupport.hpp)
+target_sources(ApplicationNativeTlsTest PRIVATE Startup/StartupSupport.hpp)
 target_link_libraries(ApplicationRequestPathTest PRIVATE
     PrismApplication PrismComposition PrismNet PrismProtocolMux PrismProtocolAnytls PrismProtocolVless
     PrismProtocolTrojan PrismProtocolVmess PrismProtocolSocks5)
-target_sources(ApplicationRequestPathTest PRIVATE Startup/ApplicationTestSupport.hpp)
+target_sources(ApplicationRequestPathTest PRIVATE Startup/StartupSupport.hpp)
 target_link_libraries(Socks5IngressTest PRIVATE PrismApplication PrismProtocolSocks5)
 target_sources(Socks5IngressTest PRIVATE
-    Ingress/Socks5AccountIngressCore.hpp
-    Ingress/Socks5AccountIngressClient.hpp
-    Ingress/Socks5IngressOperations.hpp
+    Ingress/SocksCore.hpp
+    Ingress/SocksClient.hpp
+    Ingress/SocksOps.hpp
     Ingress/Socks5IngressSupport.hpp)
 target_link_libraries(Socks5CancelIngressTest PRIVATE PrismApplication PrismProtocolSocks5)
 target_sources(Socks5CancelIngressTest PRIVATE
-    Ingress/Socks5AccountIngressCore.hpp
-    Ingress/Socks5AccountIngressClient.hpp
-    Ingress/Socks5IngressOperations.hpp
+    Ingress/SocksCore.hpp
+    Ingress/SocksClient.hpp
+    Ingress/SocksOps.hpp
     Ingress/Socks5IngressSupport.hpp)
 target_link_libraries(HttpForwardBasicTest PRIVATE PrismApplication)
 target_sources(HttpForwardBasicTest PRIVATE
     Ingress/HttpForwardAppFixture.hpp
-    Ingress/HttpForwardOriginFixture.hpp
-    Ingress/HttpForwardProtocolFixture.hpp
-    Ingress/HttpForwardTestSupport.hpp)
+    Ingress/OriginFixture.hpp
+    Ingress/ProtocolFixture.hpp
+    Ingress/ForwardSupport.hpp)
 target_link_libraries(HttpForwardOperationsTest PRIVATE PrismApplication PrismDiagnoseBackend PrismFoundation)
 target_sources(HttpForwardOperationsTest PRIVATE
     Ingress/HttpForwardAppFixture.hpp
-    Ingress/HttpForwardOriginFixture.hpp
-    Ingress/HttpForwardProtocolFixture.hpp
-    Ingress/HttpForwardTestSupport.hpp)
+    Ingress/OriginFixture.hpp
+    Ingress/ProtocolFixture.hpp
+    Ingress/ForwardSupport.hpp)
 target_link_libraries(RealityCarrierStartupTest PRIVATE PrismApplication)
 target_link_libraries(TrustTunnelStartupTest PRIVATE PrismApplication)
 target_link_libraries(TuicStartupTest PRIVATE PrismApplication)

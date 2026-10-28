@@ -81,5 +81,5 @@ PrismAddStaticTarget(PrismNet
         ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/UdpTransport.hpp
         ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/UpstreamState.hpp
         ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Dns/Detail/Wire.hpp
-        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Udp/EndpointRetirement.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Net/Udp/Detail/EndpointRetirement.hpp
 )

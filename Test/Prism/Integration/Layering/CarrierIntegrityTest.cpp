@@ -32,7 +32,7 @@
 #include <thread>
 #include <string_view>
 #include <vector>
-#include "CarrierBenchmarkWsFactory.hpp"
+#include "WsFactory.hpp"
 #include "CarrierBenchResult.hpp"
 #include <Prism/Transport/Reliable.hpp>
 #include <Prism/Protocols/Socks5/Socks5.hpp>
@@ -40,7 +40,7 @@
 #include <Prism/Protocols/Vless/Vless.hpp>
 #include <Prism/Protocols/Anytls/Anytls.hpp>
 #include <Prism/Protocols/Gun/Gun.hpp>
-#include <Test/Experiments/Prism/Reality/Session/SessionIdBenchSupport.hpp>
+#include <Test/Experiments/Prism/Reality/Session/IdBenchSupport.hpp>
 #include <Prism/Protocols/Restls/Restls.hpp>
 #include <Prism/Protocols/Shadowtls/Shadowtls.hpp>
 #include <Prism/Protocols/Trusttunnel/Trusttunnel.hpp>

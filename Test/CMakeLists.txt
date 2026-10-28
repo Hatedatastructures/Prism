@@ -5,7 +5,11 @@ include(GoogleTest)
 set(_prism_test_main ${CMAKE_SOURCE_DIR}/Test/TestSupport/Runner/PrismGtestMain.cpp)
 
 function(AddPrismTest source_file)
-    get_filename_component(test_name ${source_file} NAME_WE)
+    if(ARGC GREATER 1)
+        set(test_name "${ARGV1}")
+    else()
+        get_filename_component(test_name ${source_file} NAME_WE)
+    endif()
     if(NOT test_name MATCHES "^[A-Z][A-Za-z0-9]*$")
         message(FATAL_ERROR "Prism test target must be PascalCase: ${test_name}")
     endif()
@@ -26,9 +30,9 @@ function(AddPrismTest source_file)
         target_compile_options(${test_name} PRIVATE -g1 -Os)
     endif()
 
-    if("${source_file}" MATCHES "StressTest")
+    if("${test_name}" MATCHES "StressTest")
         set(_test_labels LABELS stress)
-    elseif("${source_file}" MATCHES "Perf")
+    elseif("${test_name}" MATCHES "Perf")
         set(_test_labels LABELS perf)
     else()
         set(_test_labels)
@@ -69,7 +73,11 @@ function(AddPrismTest source_file)
 endfunction()
 
 function(AddExperimentTest source_file)
-    get_filename_component(test_name ${source_file} NAME_WE)
+    if(ARGC GREATER 1)
+        set(test_name "${ARGV1}")
+    else()
+        get_filename_component(test_name ${source_file} NAME_WE)
+    endif()
     if(NOT test_name MATCHES "^[A-Z][A-Za-z0-9]*$")
         message(FATAL_ERROR "Experiment test target must be PascalCase: ${test_name}")
     endif()
@@ -221,7 +229,7 @@ if(PRISM_ENABLE_INTEROP)
     endif()
     add_test(NAME PrismInteropMatrix
         COMMAND ${PRISM_POWERSHELL_EXECUTABLE} -NoProfile -ExecutionPolicy Bypass
-                -File ${CMAKE_SOURCE_DIR}/scripts/interop/Run-Matrix.ps1
+                -File ${CMAKE_SOURCE_DIR}/Scripts/Interop/RunMatrix.ps1
                 -RepoRoot ${CMAKE_SOURCE_DIR}
                 -OutputDirectory ${CMAKE_BINARY_DIR}/prism-interop-results
                 -PrismExe $<TARGET_FILE:Prism>)

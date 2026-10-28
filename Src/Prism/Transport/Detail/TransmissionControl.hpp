@@ -6,7 +6,7 @@
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Executor/ExecutorReclaimer.hpp>
 #include <Prism/Foundation/Fault/FailureState.hpp>
-#include <Prism/Transport/Detail/IoActivity.hpp>
+#include <Prism/Transport/Activity/Io.hpp>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>

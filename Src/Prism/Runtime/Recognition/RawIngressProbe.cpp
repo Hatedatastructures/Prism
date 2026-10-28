@@ -52,7 +52,12 @@ namespace Prism::Recognition
             co_return std::get<0>(std::move(Race));
         }
 
-        Request.Transport->Cancel();
+        const auto Cancelled = Request.Transport->Cancel();
+        if (!Cancelled)
+        {
+            const auto Failure = Cancelled.error();
+            co_return Rejected(RejectedInput{{}, Failure.Code, Prism::Fault::ToNative(Failure)});
+        }
         co_return Rejected(RejectedInput{
             Buffer->Replay(std::move(Request.Transport)), Prism::Fault::Code::Timeout,
             std::make_error_code(std::errc::timed_out)});

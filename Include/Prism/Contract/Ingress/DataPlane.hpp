@@ -11,7 +11,7 @@
 
 #include <expected>
 #include <functional>
-#include <Prism/Contract/Ingress/DatagramSession.hpp>
+#include <Prism/Contract/Ingress/Datagram/Session.hpp>
 #include <Prism/Contract/Ingress/MuxSession.hpp>
 #include <Prism/Contract/Ingress/Protocol.hpp>
 #include <memory>

@@ -1,6 +1,6 @@
 /** @file Replay.cpp @brief 有界候选捕获、重放、提交与关闭权限实现。 */
 #include <Prism/Transport/Replay.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 
 #include <boost/asio/cancellation_state.hpp>
 #include <boost/asio/dispatch.hpp>

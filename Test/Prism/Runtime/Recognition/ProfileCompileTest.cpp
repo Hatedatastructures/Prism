@@ -3,7 +3,7 @@
  * @brief 按功能拆分的 GoogleTest 行为契约。
  */
 
-#include "ProfileCompileTestSupport.hpp"
+#include "ProfileSupport.hpp"
 
 TEST(ProfileCompileTest, CompilesSingleConfiguredCandidate)
     {

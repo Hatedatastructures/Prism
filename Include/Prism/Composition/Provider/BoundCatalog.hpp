@@ -8,7 +8,7 @@
 #include <Prism/Contract/Ingress/Protocol.hpp>
 #include <Prism/Contract/Ingress/QuicConnection.hpp>
 #include <Prism/Contract/Ingress/ProviderFailure.hpp>
-#include <Prism/Contract/Ingress/RawDatagramIngress.hpp>
+#include <Prism/Contract/Ingress/Datagram/Raw.hpp>
 #include <Prism/Contract/Ingress/StreamFactory.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>

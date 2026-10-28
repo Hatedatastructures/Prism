@@ -43,9 +43,9 @@
 #include <Prism/Foundation/Executor/ExecutorReclaimer.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>
 #include <Prism/Foundation/Error.hpp>
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
-#include <Prism/Protocols/Tuic/Conn.hpp>
+#include <Prism/Protocols/Tuic/Connection/Connection.hpp>
 #include <Prism/Protocols/Tuic/Dgram.hpp>
 #include <Prism/Protocols/Tuic/Types.hpp>
 #include <Prism/Transport/Transmission.hpp>

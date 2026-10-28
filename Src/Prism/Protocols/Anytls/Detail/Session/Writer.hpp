@@ -1,7 +1,7 @@
 /** @file Writer.hpp @brief AnyTLS 唯一完整帧 writer，拥有 encoded buffer 和每个 producer completion。 */
 #pragma once
 #include <Prism/Protocols/Anytls/Frame.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/use_awaitable.hpp>

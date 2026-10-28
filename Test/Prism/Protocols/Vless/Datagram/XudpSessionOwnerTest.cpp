@@ -5,12 +5,12 @@
 #include <Prism/Net/Dns/Resolver.hpp>
 #include <Prism/Net/HostText.hpp>
 #include <Prism/Protocols/Vless/IngressFactory.hpp>
-#include <Prism/Protocols/Vless/Xudp/RootSession.hpp>
+#include <Prism/Protocols/Vless/Xudp/Detail/Session.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 #include <array>
 #include <optional>
 #include <system_error>

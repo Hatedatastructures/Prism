@@ -1,7 +1,7 @@
 /** @file HttpServer.cpp @brief Operations HTTP listener 与排空实现。 */
 #include <Prism/Operations/HttpServer.hpp>
-#include <Prism/Operations/Detail/HttpConnectionLifecycle.hpp>
-#include <Prism/Operations/HttpConnection.hpp>
+#include <Prism/Operations/Http/Detail/Lifecycle.hpp>
+#include <Prism/Operations/Http/Detail/Connection.hpp>
 #include <Prism/Operations/HttpRequestSecurity.hpp>
 
 #include <boost/asio/post.hpp>

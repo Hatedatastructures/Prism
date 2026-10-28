@@ -31,7 +31,7 @@
 #include <Prism/Runtime/Middleware/Pipeline.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 
 namespace
 {

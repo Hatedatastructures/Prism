@@ -25,17 +25,17 @@
 #include <thread>
 #include <utility>
 
-#include <Prism/Contract/Ingress/DatagramSession.hpp>
+#include <Prism/Contract/Ingress/Datagram/Session.hpp>
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Runtime/ActiveTransports.hpp>
 #include <Prism/Runtime/CarrierDomain.hpp>
-#include <Prism/Transport/Detail/IoActivity.hpp>
+#include <Prism/Transport/Activity/Io.hpp>
 #include <Prism/Transport/Detail/TransmissionControl.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
-#include "CanceledRetireTestSupport.hpp"
+#include <TestSupport/Prism/MockTransport.hpp>
+#include "RetireSupport.hpp"
 
 namespace
 {

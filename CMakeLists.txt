@@ -108,6 +108,8 @@ FetchContent_Declare(
     boost_src
     URL https://archives.boost.io/release/1.89.0/source/boost_1_89_0.tar.bz2
     URL_HASH SHA256=85a33fa22621b4f314f8e85e1a5e2a9363d22e4f4992925d4bb3bc631b5a0c7a
+    PATCH_COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/Scripts/PatchBoostResolver.cmake <SOURCE_DIR>
 )
 FetchContent_MakeAvailable(boost_src)
 
@@ -439,7 +441,7 @@ FetchContent_Declare(
     URL https://github.com/ngtcp2/ngtcp2/releases/download/v1.25.0/ngtcp2-1.25.0.tar.gz
     URL_HASH SHA256=1C0843076528A87B65E9A9D455100941F4CB65D44F96C5DA6AE56DF146043955
     PATCH_COMMAND ${CMAKE_COMMAND} -P
-        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch-ngtcp2.cmake <SOURCE_DIR>
+        ${CMAKE_CURRENT_SOURCE_DIR}/Scripts/PatchNgtcp2.cmake <SOURCE_DIR>
 )
 FetchContent_MakeAvailable(ngtcp2)# ngtcp2 Release 下禁用 assert（避免 Windows 断言弹窗阻塞）
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -472,7 +474,7 @@ FetchContent_Declare(
     URL https://github.com/ngtcp2/nghttp3/releases/download/v1.18.0/nghttp3-1.18.0.tar.gz
     URL_HASH SHA256=2812E9C06583FA24C8DC46BDB5291310A69196352CEACA8FBE98106FF36AE7D8
     PATCH_COMMAND ${CMAKE_COMMAND} -P
-        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch-nghttp3.cmake <SOURCE_DIR>
+        ${CMAKE_CURRENT_SOURCE_DIR}/Scripts/PatchNghttp3.cmake <SOURCE_DIR>
 )
 FetchContent_MakeAvailable(nghttp3)
 

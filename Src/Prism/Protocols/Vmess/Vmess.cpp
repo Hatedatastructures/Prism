@@ -1,6 +1,6 @@
 /** @file Vmess.cpp @brief VMess 连接工厂握手实现。 */
 #include <Prism/Protocols/Vmess/Vmess.hpp>
-#include <Prism/Protocols/Vmess/DatagramSession.hpp>
+#include <Prism/Protocols/Vmess/Datagram/Session.hpp>
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
 
 #include <exception>

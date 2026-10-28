@@ -1,7 +1,7 @@
 /** @file Transmission.hpp @brief 唯一 typed I/O 前门、真实操作预约和原 executor 控制交付。 */
 #pragma once
 #include <Prism/Contract/Io/CarrierCloseReceipt.hpp>
-#include <Prism/Transport/Detail/TrackedCompletion.hpp>
+#include <Prism/Transport/Activity/TrackedCompletion.hpp>
 
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/awaitable.hpp>

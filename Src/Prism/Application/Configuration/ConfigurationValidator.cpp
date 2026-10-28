@@ -1,8 +1,8 @@
 /** @file ConfigurationValidator.cpp @brief 调度内部校验流水线并返回 typed 结果。 */
 
 #include <Prism/Application/Configuration/ConfigurationValidator.hpp>
-#include <Prism/Application/Configuration/Validation/CapabilityValidation.hpp>
-#include <Prism/Application/Configuration/Validation/ConfigurationValidation.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Capability.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Configuration.hpp>
 
 namespace Prism::Application::Configuration
 {

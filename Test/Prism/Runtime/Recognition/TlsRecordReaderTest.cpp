@@ -3,7 +3,7 @@
  * @brief TLS 记录读取在终态下的字节与错误契约。
  */
 
-#include "TlsReassemblyTestSupport.hpp"
+#include "ReassemblySupport.hpp"
 
 #include <cstdint>
 #include <memory>

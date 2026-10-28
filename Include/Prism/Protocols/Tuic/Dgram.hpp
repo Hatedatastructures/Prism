@@ -36,7 +36,7 @@
 #include <Prism/Foundation/Memory/Container.hpp>
 #include <Prism/Foundation/Memory/Pointer.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Protocols/Tuic/Detail/DatagramPackets.hpp>
+#include <Prism/Protocols/Tuic/Datagram/Packets.hpp>
 #include <Prism/Protocols/Tuic/DgramPacketReceiver.hpp>
 #include <Prism/Protocols/Tuic/Codec.hpp>
 #include <Prism/Protocols/Tuic/Types.hpp>

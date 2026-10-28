@@ -10,7 +10,7 @@
 
 进程入口是 `Src/Prism/Application/Main/PrismMain.cpp`。入口从命令行第一个参数取得配置路径；没有参数时，读取可执行文件同目录的 `PrismConfiguration.json`。入口还设置环境变量密钥解析器和默认 Web 资源目录。
 
-公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`。启动流程构造并校验配置代次，准备进程服务、协议 provider 与承载绑定，启动网络入口和 Operations 服务，最后发布 readiness。`StartupTransaction` 位于 `Src/Prism/Application/Startup/StartupTransaction.hpp`，是 Application 的私有启动回滚实现；启动中途失败时由该事务回滚已创建的资源。
+公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`。启动流程构造并校验配置代次，准备进程服务、协议 provider 与承载绑定，启动网络入口和 Operations 服务，最后发布 readiness。`StartupTransaction` 位于 `Src/Prism/Application/Startup/Detail/Transaction.hpp`，是 Application 的私有启动回滚实现；启动中途失败时由该事务回滚已创建的资源。
 
 可执行 target 名为 `Prism`，输出到 `build/src/`。构建后默认配置会复制到可执行文件旁。
 

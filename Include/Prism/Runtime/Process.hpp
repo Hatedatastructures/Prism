@@ -11,7 +11,7 @@
 #include <Prism/Resource/ProcessResources.hpp>
 #include <Prism/Runtime/Worker.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
-#include <Prism/Runtime/SessionTraceModel.hpp>
+#include <Prism/Runtime/Session/Trace/Model.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Net/Dns/Config.hpp>
 

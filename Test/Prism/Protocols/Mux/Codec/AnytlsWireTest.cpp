@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <Prism/Protocols/Mux/Detail/SingMux/Codec.hpp>
-#include <Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Smux/Wire/Codec.hpp>
 #include <Prism/Protocols/Mux/Smux/Types.hpp>
 
 #include <cstddef>

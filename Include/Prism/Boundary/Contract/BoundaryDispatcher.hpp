@@ -5,7 +5,7 @@
 #pragma once
 
 #include <Prism/Boundary/Quic/QuicPacketGateway.hpp>
-#include <Prism/Contract/Ingress/DatagramIngressSelection.hpp>
+#include <Prism/Contract/Ingress/Datagram/Selection.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 
 #include <atomic>

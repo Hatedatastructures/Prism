@@ -4,7 +4,7 @@
  */
 #include <Prism/Protocols/Hysteria2/Binding.hpp>
 
-#include <Prism/Protocols/Hysteria2/NativeSession.hpp>
+#include <Prism/Protocols/Hysteria2/Detail/Session.hpp>
 
 #include <string>
 #include <utility>

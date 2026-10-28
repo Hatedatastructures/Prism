@@ -1,6 +1,6 @@
 /** @file UsagePersistenceTest.cpp @brief 真实 SQLite 账本的预约、幂等、崩溃恢复和精确余额行为。 */
 #include "StorageTestSupport.hpp"
-#include <Prism/Application/Storage/SqliteUsagePersistence.hpp>
+#include <Prism/Application/Storage/Sqlite/Detail/Usage.hpp>
 #include <limits>
 
 namespace Prism::StorageTests

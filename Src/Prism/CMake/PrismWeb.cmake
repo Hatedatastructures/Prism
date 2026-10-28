@@ -15,7 +15,7 @@ endif()
 add_custom_command(
     OUTPUT "${CMAKE_BINARY_DIR}/Web/catalog.json"
     COMMAND "${PrismNpmExecutable}" --prefix "${PROJECT_SOURCE_DIR}/Web" run build -- --outDir "${CMAKE_BINARY_DIR}/Web"
-    COMMAND "${PrismNodeExecutable}" "${PROJECT_SOURCE_DIR}/scripts/build_prism_web_catalog.mjs" "${CMAKE_BINARY_DIR}/Web" "${CMAKE_BINARY_DIR}"
+    COMMAND "${PrismNodeExecutable}" "${PROJECT_SOURCE_DIR}/Scripts/BuildPrismWebCatalog.mjs" "${CMAKE_BINARY_DIR}/Web" "${CMAKE_BINARY_DIR}"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     DEPENDS
         "${PROJECT_SOURCE_DIR}/Web/index.html"
@@ -46,7 +46,7 @@ add_custom_command(
         "${PROJECT_SOURCE_DIR}/Web/README.md"
         "${PROJECT_SOURCE_DIR}/Web/tsconfig.json"
         "${PROJECT_SOURCE_DIR}/Web/vite.config.ts"
-        "${PROJECT_SOURCE_DIR}/scripts/build_prism_web_catalog.mjs"
+        "${PROJECT_SOURCE_DIR}/Scripts/BuildPrismWebCatalog.mjs"
     VERBATIM
 )
 add_custom_target(PrismWeb DEPENDS "${CMAKE_BINARY_DIR}/Web/catalog.json")

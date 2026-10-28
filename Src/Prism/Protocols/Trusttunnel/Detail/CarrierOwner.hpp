@@ -10,8 +10,8 @@
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Executor/ExecutorReclaimer.hpp>
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/Http2Transport.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/Http2WireWriter.hpp>
+#include <Prism/Protocols/Trusttunnel/Detail/Http2/Transport.hpp>
+#include <Prism/Protocols/Trusttunnel/Detail/Http2/WireWriter.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Transport/Encrypted.hpp>
 

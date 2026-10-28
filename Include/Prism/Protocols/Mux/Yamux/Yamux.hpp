@@ -10,7 +10,7 @@
 #include <utility>
 
 // clang-format off
-#include <Prism/Protocols/Mux/Yamux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Yamux/Wire/Codec.hpp>
 #include <Prism/Protocols/Mux/Client.hpp>
 #include <Prism/Protocols/Mux/Server.hpp>
 #include <Prism/Protocols/Mux/Session.hpp>

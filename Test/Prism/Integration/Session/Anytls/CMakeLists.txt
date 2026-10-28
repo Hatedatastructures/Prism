@@ -1,8 +1,8 @@
-AddPrismTest(AnytlsShutdownTest.cpp)
+AddPrismTest(ShutdownTest.cpp AnytlsShutdownTest)
 target_link_libraries(AnytlsShutdownTest PRIVATE
     PrismFoundation PrismProtocolAnytls PrismRuntime PrismTransport)
 
-AddPrismTest(AnytlsAdmissionOwnerTest.cpp)
+AddPrismTest(AdmissionOwnerTest.cpp AnytlsAdmissionOwnerTest)
 target_link_libraries(AnytlsAdmissionOwnerTest PRIVATE
     PrismAccount
     PrismFoundation

@@ -282,6 +282,23 @@ namespace Prism::Operations::RequestParserDetail
         {
             return HeaderStatus;
         }
+
+        // Pre-check authorization BEFORE reserving body budget to prevent DoS
+        // Critical fix: Reject unauthorized requests with non-zero Content-Length early
+        if (Request.ContentLength != 0U)
+        {
+            const auto QueryStart = Request.Target.find('?');
+            const auto Path = Request.Target.substr(0, QueryStart);
+
+            // Only allow POST /Operations/Reload/application/json for requests with body
+            if (Request.Method != "POST" || Path != "/Operations/Reload" ||
+                Request.ContentType != "application/json")
+            {
+                // Early rejection prevents resource exhaustion from large Content-Length
+                return ParseStatus::Malformed;
+            }
+        }
+
         const auto ExpectedSize = Request.HeaderEnd + Request.ContentLength;
         if (Raw.size() < ExpectedSize)
         {
@@ -290,16 +307,6 @@ namespace Prism::Operations::RequestParserDetail
         if (Raw.size() != ExpectedSize)
         {
             return ParseStatus::Malformed;
-        }
-        if (Request.ContentLength != 0U)
-        {
-            const auto QueryStart = Request.Target.find('?');
-            const auto Path = Request.Target.substr(0, QueryStart);
-            if (Request.Method != "POST" || Path != "/Operations/Reload" ||
-                Request.ContentType != "application/json")
-            {
-                return ParseStatus::Malformed;
-            }
         }
         Request.Body = Raw.substr(Request.HeaderEnd, Request.ContentLength);
         return ParseStatus::Complete;

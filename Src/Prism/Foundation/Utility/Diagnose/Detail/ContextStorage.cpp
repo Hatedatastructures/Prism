@@ -1,5 +1,5 @@
 /** @file ContextStorage.cpp @brief 有界诊断上下文存储池实现。 */
-#include <Prism/Foundation/Utility/Diagnose/Detail/ContextStorage.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Context/Storage.hpp>
 #include <Prism/Foundation/Utility/Text/Redaction.hpp>
 #include <Prism/Foundation/Utility/Text/Truncate.hpp>
 

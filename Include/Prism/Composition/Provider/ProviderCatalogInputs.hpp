@@ -4,7 +4,7 @@
 #include <Prism/Contract/Ingress/ProtocolConfiguration.hpp>
 #include <Prism/Contract/Services/Authentication.hpp>
 #include <Prism/Contract/Services/Datagram.hpp>
-#include <Prism/Contract/Services/DatagramEgress.hpp>
+#include <Prism/Contract/Services/Datagram/Egress.hpp>
 #include <Prism/Contract/Services/Quic.hpp>
 #include <Prism/Contract/Services/Stream.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>

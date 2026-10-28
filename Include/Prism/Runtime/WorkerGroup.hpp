@@ -10,7 +10,7 @@
 #include <Prism/Runtime/GenerationPublication.hpp>
 #include <Prism/Runtime/Worker.hpp>
 #include <Prism/Runtime/WorkerDispatchResult.hpp>
-#include <Prism/Runtime/SessionTraceModel.hpp>
+#include <Prism/Runtime/Session/Trace/Model.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Identifier/Id.hpp>

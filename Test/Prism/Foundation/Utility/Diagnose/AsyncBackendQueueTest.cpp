@@ -6,7 +6,7 @@
 
 #include <Prism/Foundation/Utility/Diagnose/Detail/AsyncSubmission.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/Record.hpp>
-#include <TestSupport/Prism/DiagnoseTestEnvironment.hpp>
+#include <TestSupport/Prism/Diagnose/Environment.hpp>
 
 #include <chrono>
 #include <cstdio>

@@ -2,7 +2,7 @@
 #include <Prism/Resource/WorkerResources.hpp>
 
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
-#include <Prism/Resource/Detail/WorkerMemoryResourceService.hpp>
+#include <Prism/Resource/WorkerMemory/Detail/Service.hpp>
 
 #include <memory>
 

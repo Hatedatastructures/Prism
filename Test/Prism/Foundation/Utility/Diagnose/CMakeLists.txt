@@ -18,7 +18,7 @@ AddPrismTest(SessionAuditTest.cpp)
 target_link_libraries(SessionAuditTest PRIVATE
         PrismFoundation PrismTransport PrismRuntime PrismLifecycle PrismTestSupport)
 
-AddPrismTest(DiagnoseFacadeTest.cpp)
+AddPrismTest(FacadeTest.cpp DiagnoseFacadeTest)
 target_link_libraries(DiagnoseFacadeTest PRIVATE
         PrismFoundation PrismTestSupport)
 
@@ -30,15 +30,15 @@ AddPrismTest(AsyncBackendQueueTest.cpp)
 target_link_libraries(AsyncBackendQueueTest PRIVATE
         PrismFoundation PrismTestSupport)
 
-AddPrismTest(AsyncBackendFallbackTest.cpp)
+AddPrismTest(BackendFallbackTest.cpp AsyncBackendFallbackTest)
 target_link_libraries(AsyncBackendFallbackTest PRIVATE
         PrismFoundation PrismTestSupport)
 
-AddPrismTest(AsyncBackendRotationTest.cpp)
+AddPrismTest(BackendRotationTest.cpp AsyncBackendRotationTest)
 target_link_libraries(AsyncBackendRotationTest PRIVATE
         PrismFoundation PrismTestSupport)
 
-AddPrismTest(AsyncBackendShutdownTest.cpp)
+AddPrismTest(BackendShutdownTest.cpp AsyncBackendShutdownTest)
 target_link_libraries(AsyncBackendShutdownTest PRIVATE
         PrismFoundation PrismTestSupport)
 

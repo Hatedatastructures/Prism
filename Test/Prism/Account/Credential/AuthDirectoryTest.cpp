@@ -1,5 +1,5 @@
 /**
- * @file AuthDirectoryTest.cpp
+ * @file DirectoryTest.cpp
  * @brief typed AccountStore pure inspect、认证租约和 middleware 接入测试。
  */
 

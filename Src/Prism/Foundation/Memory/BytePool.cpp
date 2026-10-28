@@ -4,7 +4,7 @@
  */
 #include <Prism/Foundation/Memory/BytePool.hpp>
 
-#include <Prism/Foundation/Memory/Detail/BytePoolState.hpp>
+#include <Prism/Foundation/Memory/BytePool/State.hpp>
 
 #include <memory>
 #include <utility>

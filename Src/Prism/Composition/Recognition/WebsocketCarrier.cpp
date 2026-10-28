@@ -1,7 +1,7 @@
 /** @file WebsocketCarrier.cpp @brief WebSocket server carrier adapter 实现。 */
 
-#include <Prism/Composition/Recognition/TlsCarrierRunners.hpp>
-#include <Prism/Composition/Recognition/TlsCarrierFailure.hpp>
+#include <Prism/Composition/Recognition/Detail/CarrierRunners.hpp>
+#include <Prism/Composition/Recognition/Detail/CarrierFailure.hpp>
 
 #include <Prism/Protocols/Native/Native.hpp>
 #include <Prism/Protocols/Ws/Ws.hpp>

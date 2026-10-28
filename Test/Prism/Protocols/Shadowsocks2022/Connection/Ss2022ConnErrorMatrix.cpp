@@ -26,7 +26,7 @@
 #include <Prism/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 
 namespace

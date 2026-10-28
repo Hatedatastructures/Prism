@@ -94,9 +94,11 @@ namespace Prism::Runtime::Detail
         if (SessionState_ && SessionState_->Drained.load(std::memory_order_acquire)) return;
         if (SessionState_)
         {
-            SessionState_->TerminalFailure.TrySet(Error);
+            if (!SessionState_->TerminalFailure.TrySet(Error))
+            {
+                Error = SessionState_->TerminalFailure.Load();
+            }
             SessionState_->Terminal.store(true, std::memory_order_release);
-            Error = SessionState_->TerminalFailure.Load();
         }
         Storage_->Retain(shared_from_this());
         StartOwner();
@@ -272,7 +274,7 @@ namespace Prism::Runtime::Detail
     auto ListenerConnectionDrain::Block(Prism::Fault::Failure Error) noexcept -> void
     {
         if (Reservation_) Reservation_->BlockDrain();
-        Failure_.TrySet(Error);
+        Failure_.Record(Error);
         Completed_.store(false, std::memory_order_release);
         Blocked_.store(true, std::memory_order_release);
         Started_.store(false, std::memory_order_release);

@@ -2,7 +2,7 @@
  * @file VmessCarrierErrorTest.cpp
  * @brief VMess Conn 错误与结束块测试。
  */
-#include "CarrierErrorFixture.hpp"
+#include "ErrorFixture.hpp"
 
 namespace
 {

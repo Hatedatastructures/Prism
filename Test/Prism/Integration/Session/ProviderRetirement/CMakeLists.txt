@@ -17,9 +17,9 @@ if(DEFINED BindingLifetimeTest_TESTS AND BindingLifetimeTest_TESTS)
 endif()
 ]=])
 set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${_binding_lifetime_labels_file}")
-AddPrismTest(ProviderDrainHoldTest.cpp)
+AddPrismTest(DrainHoldTest.cpp ProviderDrainHoldTest)
 target_link_libraries(ProviderDrainHoldTest PRIVATE
     PrismFoundation PrismIngressContract PrismProtocolProviderLifecycle
     PrismProtocolsCommon PrismTestSupport PrismTransport)
-AddPrismTest(ProviderDrainCoordTest.cpp)
+AddPrismTest(DrainCoordTest.cpp ProviderDrainCoordTest)
 target_link_libraries(ProviderDrainCoordTest PRIVATE PrismProtocolsCommon PrismTestSupport)

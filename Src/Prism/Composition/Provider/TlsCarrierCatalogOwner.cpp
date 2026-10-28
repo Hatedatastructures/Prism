@@ -1,7 +1,7 @@
 /** @file TlsCarrierCatalogOwner.cpp @brief generation-owned carrier callback 生命周期实现。 */
 
 #include <Prism/Composition/Provider/TlsCarrierCatalogOwner.hpp>
-#include <Prism/Composition/Detail/TlsCarrierCatalogInvocation.hpp>
+#include <Prism/Composition/Recognition/Detail/CarrierCatalog.hpp>
 
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/this_coro.hpp>

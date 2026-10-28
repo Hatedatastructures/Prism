@@ -1,5 +1,5 @@
 /** @file ConfigOutcomeHttpTest.cpp @brief 配置冲突与首因经真实HTTP编码保留。 */
-#include <Prism/Application/ConfigurationCommandOutcome.hpp>
+#include <Prism/Application/Configuration/Command/Detail/Outcome.hpp>
 #include <Prism/Operations/Routes/HttpJson.hpp>
 #include <gtest/gtest.h>
 #include <string>

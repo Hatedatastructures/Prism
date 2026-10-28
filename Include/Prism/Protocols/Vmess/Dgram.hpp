@@ -26,7 +26,7 @@
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Contract/Io/PacketTransferResult.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Protocols/Vmess/Conn.hpp>
+#include <Prism/Protocols/Vmess/Connection/Connection.hpp>
 
 namespace Prism::Vmess
 {

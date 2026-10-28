@@ -229,7 +229,7 @@ namespace Prism::Runtime::Detail
     auto ListenerConnectionGate::Reservation::Block(Prism::Fault::Failure Error) noexcept -> void
     {
         BlockDrain();
-        Failure_.TrySet(Error);
+        Failure_.Record(Error);
         Completed_.store(false, std::memory_order_release);
         Blocked_.store(true, std::memory_order_release);
         Started_.store(false, std::memory_order_release);

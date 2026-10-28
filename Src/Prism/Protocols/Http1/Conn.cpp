@@ -4,8 +4,8 @@
  */
 
 #include <Prism/Protocols/Http1/Conn.hpp>
-#include <Prism/Protocols/Http1/ForwardRequest.hpp>
-#include <Prism/Protocols/Http1/ForwardRequestTransport.hpp>
+#include <Prism/Protocols/Http1/Forward/Request.hpp>
+#include <Prism/Protocols/Http1/Forward/Request/Transport.hpp>
 #include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Transport/Preview.hpp>
 

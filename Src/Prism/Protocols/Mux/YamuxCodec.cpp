@@ -1,5 +1,5 @@
 /** @file YamuxCodec.cpp @brief Yamux wire 帧编解码实现。 */
-#include <Prism/Protocols/Mux/Yamux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Yamux/Wire/Codec.hpp>
 
 #include <cstring>
 #include <limits>

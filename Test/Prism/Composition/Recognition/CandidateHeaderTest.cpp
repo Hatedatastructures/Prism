@@ -7,12 +7,12 @@
 
 #include <utility>
 
-#include <Prism/Composition/Recognition/CandidateFactoryHelpers.hpp>
+#include <Prism/Composition/Recognition/Detail/CandidateFactory.hpp>
 #include <Prism/Composition/Recognition/CandidateModel.hpp>
 #include <Prism/Composition/Recognition/TlsCandidateFactory.hpp>
 #include <Prism/Composition/Recognition/TlsCandidateModel.hpp>
 #include <Prism/Composition/Recognition/TlsCarrierHelpers.hpp>
-#include <Prism/Composition/Recognition/TlsRecognitionHelpers.hpp>
+#include <Prism/Composition/Recognition/Detail/Helpers.hpp>
 
 namespace
 {

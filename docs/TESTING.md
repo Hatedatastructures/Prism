@@ -45,16 +45,16 @@ ctest --test-dir build --output-on-failure -j 1 --timeout 30
 | `PRISM_ENABLE_COVERAGE` | GCC/Clang 覆盖率编译 | `OFF` |
 | `PRISM_ENABLE_ASAN` | GCC/Clang AddressSanitizer | `OFF` |
 
-互操作矩阵由 `scripts/interop/Run-Matrix.ps1` 驱动；仅打开 CMake 选项不会代替实际运行和结果检查。性能、压力、互操作、Linux 和全量测试应分别记录命令、配置、源码版本、退出码与输出。
+互操作矩阵由 `Scripts/Interop/RunMatrix.ps1` 驱动；仅打开 CMake 选项不会代替实际运行和结果检查。性能、压力、互操作、Linux 和全量测试应分别记录命令、配置、源码版本、退出码与输出。
 
 `Test/Prism/Performance` 与 `Test/Prism/Stress` 源码保留，但两个完整目录都未加入 `Test/Prism/CMakeLists.txt`。`PRISM_ENABLE_BENCHMARK` 单独控制已接线的协议基准及 `Integration/Layering` 承载基准；`PRISM_ENABLE_STRESS` 单独控制已接线的协议压力目标。这两个选项都不会把对应的完整目录接入构建。`Test/Experiments/Prism/Performance` 是独立实验路径，先由 `PRISM_ENABLE_EXPERIMENT_TESTS` 接入；其性能目标还要求 `PRISM_ENABLE_BENCHMARK=ON`。
 
 `perf` 与 `stress` 标签按测试源文件名规则设置，不是可选 benchmark/stress 目标的完整清单；要确认实际注册目标，请以当前构建树的 CTest discovery 结果为准。
 
-`Test/Prism/Integration/Matrix/RunCurrentMihomoCase.ps1`、`RunCurrentMihomoUdpCase.ps1` 和 `RunCurrentMihomoQuicCase.ps1` 是手动本机入口，目前没有注册为 CTest 用例，也不由 `Run-Matrix.ps1` 调用。它们要求 PowerShell 7.4 或更新版本；Windows PowerShell 5.1 和 PowerShell 7.0–7.3 不支持这些脚本使用的 `Start-Process -Environment` 参数。
+`Test/Prism/Integration/Matrix/RunCurrentMihomoCase.ps1`、`MihomoUdp.ps1` 和 `MihomoQuic.ps1` 是手动本机入口，目前没有注册为 CTest 用例，也不由 `RunMatrix.ps1` 调用。它们要求 PowerShell 7.4 或更新版本；Windows PowerShell 5.1 和 PowerShell 7.0–7.3 不支持这些脚本使用的 `Start-Process -Environment` 参数。
 
 实跑前可先执行 `Test/Prism/Integration/Matrix/RunnerContractTest.ps1 -StaticOnly` 与
-`Test/Prism/Integration/Matrix/RunnerContractQuicTest.ps1`。前者校验 runner
+`Test/Prism/Integration/Matrix/QuicRunnerTest.ps1`。前者校验 runner
 的回环、随机端口、NoProxy、controller 证据与受控清理约束，后者只使用合成结果验证
 QUIC 契约正反例；两者都不启动 Mihomo、Prism 或网络服务。
 

@@ -4,11 +4,11 @@
  */
 #include <gtest/gtest.h>
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
-#include <Prism/Protocols/Trojan/DatagramSession.hpp>
+#include <Prism/Protocols/Trojan/Datagram/Session.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
-#include "TrojanDatagramTestSupport.hpp"
+#include <TestSupport/Prism/MockTransport.hpp>
+#include "DatagramTestSupport.hpp"
 #include <boost/asio/io_context.hpp>
 #include <expected>
 #include <memory>

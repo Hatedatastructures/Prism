@@ -1,6 +1,6 @@
 /** @file Hysteria2FactoryTest.cpp @brief Hysteria2 实际 provider/native 消费、独立 owner 与正式 TCP wire 应答。 */
 #include "QuicFixture.hpp"
-#include <TestSupport/Prism/QuicStreamProviderActivity.hpp>
+#include <TestSupport/Prism/Quic/StreamActivity.hpp>
 #include <Prism/Protocols/Hysteria2/StreamSession.hpp>
 #include <gtest/gtest.h>
 #include <boost/asio/co_spawn.hpp>

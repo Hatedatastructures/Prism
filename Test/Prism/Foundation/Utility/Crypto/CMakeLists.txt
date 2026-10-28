@@ -1,9 +1,9 @@
 # crypto 子模块测试
 AddPrismTest(CoreAead.cpp)
 target_link_libraries(CoreAead PRIVATE PrismFoundation PrismTestSupport)
-AddPrismTest(CryptoPrimitiveCoverage.cpp)
+AddPrismTest(PrimitiveCoverage.cpp CryptoPrimitiveCoverage)
 AddPrismTest(ExceptionCoverage.cpp)
 target_link_libraries(CryptoPrimitiveCoverage PRIVATE PrismFoundation PrismTestSupport)
-target_sources(CryptoPrimitiveCoverage PRIVATE CryptoExceptionTestSupport.hpp)
+target_sources(CryptoPrimitiveCoverage PRIVATE ExceptionTestSupport.hpp)
 target_link_libraries(ExceptionCoverage PRIVATE PrismFoundation PrismTestSupport)
-target_sources(ExceptionCoverage PRIVATE CryptoExceptionTestSupport.hpp)
+target_sources(ExceptionCoverage PRIVATE ExceptionTestSupport.hpp)

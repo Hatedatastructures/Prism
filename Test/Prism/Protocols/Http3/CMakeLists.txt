@@ -9,16 +9,16 @@ target_link_libraries(QpackInteropTest PRIVATE PrismFoundation PrismProtocolHttp
 AddPrismTest(Connection/NativeHttp3Session.cpp)
 target_link_libraries(NativeHttp3Session PRIVATE PrismFoundation PrismIoContracts PrismLifecycle
     PrismProtocolHttp3 PrismProtocolQuic PrismProtocolQuicNative)
-AddPrismTest(Connection/NativeHttp3ReadLoopTest.cpp)
+AddPrismTest(Connection/ReadLoopTest.cpp NativeHttp3ReadLoopTest)
 target_include_directories(NativeHttp3ReadLoopTest PRIVATE
     ${PROJECT_SOURCE_DIR}/Src
     "${nghttp3_SOURCE_DIR}/lib/includes")
 target_link_libraries(NativeHttp3ReadLoopTest PRIVATE PrismFoundation PrismIoContracts PrismLifecycle
     PrismProtocolHttp3 PrismProtocolQuic PrismProtocolQuicNative)
-AddPrismTest(Connection/SessionHeaderContractTest.cpp)
+AddPrismTest(Connection/HeaderContractTest.cpp SessionHeaderContractTest)
 target_include_directories(SessionHeaderContractTest PRIVATE
     ${PROJECT_SOURCE_DIR}/Src
     "${nghttp3_SOURCE_DIR}/lib/includes")
 target_link_libraries(SessionHeaderContractTest PRIVATE PrismFoundation PrismProtocolHttp3)
-AddPrismTest(Codec/Http3QpackFuzzTest.cpp)
+AddPrismTest(Codec/QpackFuzzTest.cpp Http3QpackFuzzTest)
 target_link_libraries(Http3QpackFuzzTest PRIVATE PrismProtocolHttp3Core PrismProtocolHttpCompression)

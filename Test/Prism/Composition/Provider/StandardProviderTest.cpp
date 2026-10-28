@@ -5,7 +5,7 @@
 #include <Prism/Net/Datagram/Egress.hpp>
 #include <Prism/Net/Dns/Config.hpp>
 #include <Prism/Net/Dns/Resolver.hpp>
-#include <Prism/Composition/Provider/ProtocolCredentialPreparation.hpp>
+#include <Prism/Composition/Provider/Credential/Preparation.hpp>
 namespace
 {
     namespace P=Prism::Composition::Provider;

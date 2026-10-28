@@ -6,7 +6,7 @@
 #include <Prism/Protocols/Http3/NativeServer.hpp>
 #include <Prism/Protocols/Http3/NativeClient.hpp>
 #include <Prism/Protocols/Quic/QuicConnectionLifecycle.hpp>
-#include <TestSupport/Prism/QuicStreamProviderActivity.hpp>
+#include <TestSupport/Prism/Quic/StreamActivity.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/channel.hpp>

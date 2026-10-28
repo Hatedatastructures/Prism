@@ -5,9 +5,9 @@
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
-#include <TestSupport/Prism/DiagnoseTestEnvironment.hpp>
+#include <TestSupport/Prism/Diagnose/Environment.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <expected>
 #include <fstream>

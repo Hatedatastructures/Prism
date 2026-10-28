@@ -2,7 +2,7 @@
  * @file BytePoolState.cpp
  * @brief 字节池位图与租约指标实现。
  */
-#include <Prism/Foundation/Memory/Detail/BytePoolState.hpp>
+#include <Prism/Foundation/Memory/BytePool/State.hpp>
 
 #include <bit>
 

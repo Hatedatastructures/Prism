@@ -4,7 +4,7 @@
 #include <Prism/Protocols/Anytls/Detail/Session/Retirement.hpp>
 #include <Prism/Protocols/Anytls/Detail/Session/Session.hpp>
 #include <Prism/Protocols/Anytls/Detail/Session/State.hpp>
-#include <Prism/Contract/Ingress/AdmissionTransportRetirement.hpp>
+#include <Prism/Contract/Ingress/Admission/Transport/Retirement.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 
 #include <boost/asio/this_coro.hpp>

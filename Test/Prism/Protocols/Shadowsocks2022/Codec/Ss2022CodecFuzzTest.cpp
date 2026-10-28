@@ -56,6 +56,5 @@ TEST(CodecFuzz, Ss2022ParseNeverCrashes)
                 (void)Codec.OpenLen(std::span<const std::uint8_t>(Data).first(18));
             }
         }
-        SUCCEED();
     }
 
