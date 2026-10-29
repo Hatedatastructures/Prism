@@ -14,7 +14,7 @@ test('所有工作区可渲染，字号与滚动范围符合合同', async ({ pa
     for (const [Path, Name] of Pages) {
         await page.goto(`${Path}?source=demo`);
         await expect(page.locator('main h1')).toHaveText(Name);
-        await expect(page.locator('.source-banner')).toContainText('演示预览');
+        await expect(page.getByText('演示模式', { exact: true })).toBeVisible();
         await expect(page.getByText('页面显示异常', { exact: true })).toHaveCount(0);
         await expect(page.locator('.page-loading')).toHaveCount(0);
         await page.evaluate(() => document.fonts.ready);
@@ -41,35 +41,51 @@ test('所有工作区可渲染，字号与滚动范围符合合同', async ({ pa
         contentType: 'application/json',
     });
 });
-test('概览采用真实任务分区，事件不会推迟账户区域', async ({ page }) => {
+test('概览按运行、代理资源、诊断任务分区并保持中间宽度', async ({ page }) => {
     await page.goto('/?source=demo');
-    await expect(page.locator('.overview-account-v2')).toBeVisible();
+    await expect(page.getByRole('tab', { name: /实时运行/ })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('.overview-traffic-v2 .history-plot')).toBeVisible();
-    await expect(page.locator('.overview-latency-v2 .history-plot')).toBeVisible();
+    await expect(page.locator('.overview-connections-v2')).toBeVisible();
+    await expect(page.locator('.overview-runtime-v2')).toBeVisible();
+    await expect(page.locator('.overview-ingress-v2')).toBeVisible();
     const Width = await page.evaluate(() => innerWidth);
+    await page.screenshot({ path: `../build/WebQa/overview-${Width}.png`, fullPage: true });
+    if (Width < 768) await expect(page.locator('.overview-view-tabs small').first()).toBeHidden();
+
+    await page.getByRole('tab', { name: /代理资源/ }).click();
+    await expect(page.locator('.overview-worker-v2')).toBeVisible();
+    await expect(page.locator('.overview-account-v2')).toBeVisible();
+    await expect(page.locator('.overview-protocol-v2')).toBeVisible();
+    if (Width >= 1800) await page.screenshot({ path: `../build/WebQa/overview-fleet-${Width}.png`, fullPage: true });
     if (Width >= 1800) {
         const Worker = await page.locator('.overview-worker-v2').boundingBox(), Account = await page.locator('.overview-account-v2').boundingBox();
         expect(Worker).not.toBeNull(); expect(Account).not.toBeNull();
-        expect(Account!.y - (Worker!.y + Worker!.height)).toBeLessThan(80);
+        expect(Math.abs(Account!.y - Worker!.y)).toBeLessThanOrEqual(1);
+        expect(Worker!.x + Worker!.width).toBeLessThanOrEqual(Account!.x + 1);
     }
     if (Width < 1200) {
-        const Columns = await page.locator('.overview-grid-v2').evaluate(Element => getComputedStyle(Element).gridTemplateColumns.split(' ').length);
+        const Fleet = page.locator('.overview-grid-fleet');
+        const Columns = await Fleet.evaluate(Element => getComputedStyle(Element).gridTemplateColumns.split(' ').length);
         expect(Columns).toBe(Width < 768 ? 1 : 2);
     }
     if (Width < 768) {
-        const Grid = await page.locator('.overview-grid-v2').boundingBox();
+        const Grid = await page.locator('.overview-grid-fleet').boundingBox();
         expect(Grid).not.toBeNull();
-        for (const Class of ['traffic', 'latency', 'runtime', 'worker', 'ingress', 'account', 'protocol', 'events', 'resource']) {
+        for (const Class of ['worker', 'account', 'protocol']) {
             const Panel = await page.locator(`.overview-${Class}-v2`).boundingBox();
             expect(Panel).not.toBeNull();
             expect(Math.abs(Panel!.width - Grid!.width)).toBeLessThanOrEqual(1);
         }
     }
-    await page.screenshot({ path: `../build/WebQa/overview-${Width}.png`, fullPage: true });
+    await page.getByRole('tab', { name: /诊断记录/ }).click();
+    await expect(page.locator('.overview-latency-v2')).toBeVisible();
+    await expect(page.locator('.overview-events-v2')).toBeVisible();
+    await expect(page.locator('.overview-resource-v2')).toBeVisible();
     await page.goto('/?source=demo&range=custom&from=invalid&to=2026-10-16');
     await expect(page.locator('.overview-traffic-v2').getByRole('alert')).toContainText('时间无效');
     await expect(page.locator('.overview-traffic-v2 .query-state')).toHaveCount(0);
-    await page.getByLabel('分析时间范围').selectOption('15m');
+    await page.getByRole('combobox', { name: '分析时间范围', exact: true }).click();
+    await page.getByRole('option', { name: '最近 15 分钟', exact: true }).click();
     await expect(page.locator('.overview-traffic-v2 .history-plot')).toBeVisible();
 });
 test('深链不命中保持目标，事件暂停固定内容', async ({ page }) => {
@@ -96,25 +112,27 @@ test('默认真实模式无法连接时不会显示演示数值', async ({ page 
     await page.route('**/Operations/**', Route => Route.abort('connectionrefused'));
     await page.goto('/?source=live');
     await expect(page.getByRole('link', { name: '打开演示预览' })).toBeVisible();
-    await expect(page.locator('.source-banner')).not.toContainText('演示夹具');
+    await expect(page.locator('header')).not.toContainText('演示夹具');
     await expect(page.locator('.runtime-summary')).toHaveCount(0);
 });
 test('概览资源跳转保留时间并在刷新后保持演示与原目标', async ({ page }) => {
     await page.goto('/?source=demo&range=1h');
+    await page.getByRole('tab', { name: /代理资源/ }).click();
     await page.locator('.overview-worker-v2').getByRole('link', { name: 'worker-01', exact: true }).click();
     await expect(page.locator('.worker-inspector')).toContainText('worker-01');
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
     expect(new URL(page.url()).searchParams.get('worker')).toBe('worker-01');
     await page.reload();
-    await expect(page.locator('.source-banner')).toContainText('演示预览');
+    await expect(page.getByText('演示模式', { exact: true })).toBeVisible();
     await expect(page.locator('.worker-inspector')).toContainText('worker-01');
     await page.goto('/?source=demo&range=1h');
+    await page.getByRole('tab', { name: /代理资源/ }).click();
     await page.locator('.overview-account-v2').getByRole('link', { name: /northstar/ }).click();
     await expect(page.locator('.account-inspector')).toContainText('northstar');
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
     expect(new URL(page.url()).searchParams.get('account')).toBe('acct-northstar');
     await page.reload();
-    await expect(page.locator('.source-banner')).toContainText('演示预览');
+    await expect(page.getByText('演示模式', { exact: true })).toBeVisible();
     await expect(page.locator('.account-inspector')).toContainText('northstar');
     const MobileMenu = page.getByRole('button', { name: '打开导航', exact: true });
     if (await MobileMenu.isVisible()) await MobileMenu.click();

@@ -40,6 +40,7 @@ export function useAdminInfiniteQuery<Page extends CursorPage<unknown>>(
     const FilteredCollection = ['accounts', 'workers', 'sessions', 'groups', 'ingresses', 'protocols'].includes(Name);
     const Filter = FilteredCollection ? { Query: Params.get('q') ?? '', State: Params.get('state') ?? '',
         WorkerId: Name === 'sessions' ? Params.get('worker') ?? '' : '', AccountId: Name === 'sessions' ? Params.get('account') ?? '' : '',
+        ProcessId: Name === 'sessions' ? Params.get('process') ?? '' : '', GenerationId: Name === 'sessions' ? Params.get('generation') ?? '' : '',
         Protocol: Name === 'sessions' ? Params.get('protocol') ?? '' : '', Sort: Params.get('sort') ?? '',
         GroupId: Name === 'accounts' ? Params.get('group') ?? '' : '' } : {};
     return useInfiniteQuery({

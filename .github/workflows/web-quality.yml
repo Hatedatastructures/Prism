@@ -1,0 +1,71 @@
+name: Web Quality
+
+on:
+  pull_request:
+    paths: ['Web/**', '.github/workflows/web-quality.yml']
+  push:
+    branches: [main]
+    paths: ['Web/**', '.github/workflows/web-quality.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prism-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: Web
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.14.1'
+          cache: npm
+          cache-dependency-path: Web/package-lock.json
+      - name: 安装锁定依赖
+        run: npm ci --ignore-scripts
+      - name: 检查类型
+        run: npm run check
+      - name: 核对依赖树
+        run: npm ls --depth=0
+      - name: 检查行为与颜色合同
+        run: npm test
+      - name: 检查依赖通告
+        run: npm audit --audit-level=high
+      - name: 安装隔离测试浏览器
+        run: npx playwright install --with-deps chromium
+      - name: 构建 Web 生产资源
+        run: npm run build
+      - name: 验证生产预览的交互与可访问性
+        shell: bash
+        env:
+          PRISM_WEB_URL: http://127.0.0.1:4173
+        run: |
+          mkdir -p ../build/WebQa
+          node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strictPort > ../build/WebQa/preview.log 2>&1 &
+          PreviewPid=$!
+          trap 'kill "$PreviewPid" 2>/dev/null || true' EXIT
+          for Attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:4173/ > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --silent --fail http://127.0.0.1:4173/ > /dev/null
+          npm run test:e2e -- --project=chromium-1440 --project=chromium-390 --forbid-only
+      - name: 保留验证证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-quality-evidence
+          path: |
+            build/WebQa/
+            build/Web/.vite/manifest.json
+          retention-days: 14

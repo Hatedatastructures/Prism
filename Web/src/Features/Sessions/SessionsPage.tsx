@@ -1,442 +1,133 @@
-import { TimeLink as Link } from '../TimeLink';
-import { FilterScopeNotice } from '../FilterScopeNotice';
-import { useEffect, useMemo, useState } from 'react';
+/** @file 基于 shadcn-admin 数据表工作台重建的 Session 追踪页。 */
+import { Children, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import * as Tabs from '@radix-ui/react-tabs';
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { Activity, RefreshCw, Search } from 'lucide-react';
+import { Ban, CircleAlert, Pause, Play, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
 import { useSearchParams } from 'react-router';
-import { ConfirmAction } from '../../Components/ConfirmAction';
-import {
-    EmptyState, FormatBytes, FormatCount, FormatTime, LoadMoreButton, PageHeader, Panel,
-    QueryState, StatusBadge, ToneForState,
-} from '../../Components/Ui';
-import type {
-    SessionIdentity, SessionRecord, SessionTraceSpan, StreamIdentity, StreamRecord, TaskIdentity, TaskRecord,
-} from '../../Services/AdminDataSource';
-import { useAdminInfiniteQuery, useAdminMutation, useAdminQuery, useAdminServices } from '../UseOperations';
-import { ActionFeedback } from '../ActionFeedback';
+import { Alert, AlertDescription, AlertTitle } from '@/Components/ui/alert';
+import { Button } from '@/Components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
+import { Input } from '@/Components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { EmptyState, FormatBytes, FormatCount, FormatTime, LoadMoreButton, PageHeader, QueryState, StatusBadge, ToneForState } from '../../Components/Ui';
+import type { AdminActionResult, CursorPage, EventPage, EventRecord, SessionIdentity, SessionRecord, SessionTraceSpan, StreamRecord, TaskRecord, TracePage } from '../../Services/AdminDataSource';
+import { ReconcileSessionSnapshot, type SessionSnapshotLedger } from './SessionSnapshotLedger';
+import { useAdminInfiniteQuery, useAdminMutation, useAdminQuery, useAdminServices, useBootstrapIdentity } from '../UseOperations';
+
+type FilterState = 'all' | 'active' | 'draining' | 'closed';
+type PendingAction = Readonly<{ Title: string; Description: string; Confirm: string; Run: () => Promise<unknown> }>;
+type TraceResult = CursorPage<SessionTraceSpan> & Partial<Omit<TracePage, keyof CursorPage<SessionTraceSpan>>>;
+type RelationState = Readonly<{ Pending: boolean; Error: Error | null; HasData: boolean; HasMore: boolean; Fetching: boolean; FetchingMore: boolean; Retry: () => void; LoadMore: () => void }>;
+
+function RelationStatus(Query: Readonly<{ isPending: boolean; error: Error | null; data: unknown; hasNextPage: boolean; isFetching: boolean; isFetchingNextPage: boolean; refetch: () => Promise<unknown>; fetchNextPage: () => Promise<unknown> }>): RelationState {
+    return { Pending: Query.isPending, Error: Query.error, HasData: Query.data !== undefined, HasMore: Query.hasNextPage, Fetching: Query.isFetching, FetchingMore: Query.isFetchingNextPage,
+        Retry: () => void Query.refetch(), LoadMore: () => void Query.fetchNextPage() };
+}
 
 export default function SessionsPage(): ReactNode {
-    const Services = useAdminServices();
+    const Services = useAdminServices(), Bootstrap = useBootstrapIdentity();
     const [Params, SetParams] = useSearchParams();
-    const SearchText = Params.get('q') ?? '';
-    const Protocol = Params.get('protocol') ?? 'all';
-    const Account = Params.get('account') ?? '';
-    const Worker = Params.get('worker') ?? '';
-    const WorkerProcess = Worker ? Params.get('process') ?? '' : '';
-    const WorkerGeneration = Worker ? Params.get('generation') ?? '' : '';
-    const State = Params.get('state') ?? 'all';
-    const Query = useAdminInfiniteQuery('sessions', (Source, Page) => Source.GetSessions(Page), [WorkerProcess, WorkerGeneration]);
-    const SelectedIdentity = ReadIdentity(Params);
-    const [Pinned, SetPinned] = useState<SessionRecord | null>(null);
-    const [PinnedAt, SetPinnedAt] = useState(0);
+    const [Paused, SetPaused] = useState(false);
+    const [Ledger, SetLedger] = useState<SessionSnapshotLedger | null>(null);
+    const [Action, SetAction] = useState<PendingAction | null>(null);
+    const Search = Params.get('q') ?? '', Protocol = Params.get('protocol') ?? 'all', Account = Params.get('account') ?? '', Worker = Params.get('worker') ?? '';
+    const RequestedState = Params.get('state') ?? 'all';
+    const State: FilterState = RequestedState === 'active' || RequestedState === 'draining' || RequestedState === 'closed' ? RequestedState : 'all';
+    const WorkerProcess = Worker ? Params.get('process') ?? '' : '', WorkerGeneration = Worker ? Params.get('generation') ?? '' : '';
+    const Query = useAdminInfiniteQuery('sessions', (Source, Page) => Source.GetSessions(Page), [WorkerProcess, WorkerGeneration], { Refresh: !Paused });
     const Sessions = Query.data?.pages.flatMap(Page => Page.Items) ?? [];
-    const Filtered = useMemo(() => Sessions.filter(Session => {
-        const Searchable = `${Session.Id} ${Session.Identity} ${Session.SourceAddress} ${Session.Target} ${Session.Protocol} ${Session.AccountId} ${Session.WorkerId}`.toLowerCase();
-        return (!SearchText || Searchable.includes(SearchText.toLowerCase())) &&
-            (Protocol === 'all' || Session.Protocol.toLowerCase() === Protocol.toLowerCase()) && (!Account || Session.AccountId === Account) &&
-            (!Worker || Session.WorkerId === Worker) && (!WorkerProcess || Session.ProcessId === WorkerProcess) &&
-            (!WorkerGeneration || Session.GenerationId === WorkerGeneration) &&
-            (State === 'all' || State === 'active' && Session.Active || State === 'draining' && Session.Draining || State === 'closed' && !Session.Active && !Session.Draining);
-    }), [Sessions, SearchText, Protocol, Account, Worker, WorkerProcess, WorkerGeneration, State]);
-    const MatchIdentity = (Session: SessionRecord, Identity: SessionIdentity): boolean => Session.Id === Identity.Id &&
-        Session.ProcessId === Identity.ProcessId && Session.WorkerId === Identity.WorkerId &&
-        Session.GenerationId === Identity.GenerationId;
-    const RequestedSessionId = Params.get('session') ?? '';
-    const Exact = useAdminQuery('session-target', Source => Source.GetSessions({ Cursor: '0', Limit: 1, Id: RequestedSessionId }),
-        { Enabled: !!RequestedSessionId && !!SelectedIdentity,
-            Scope: [RequestedSessionId, Params.get('process'), Params.get('identity_worker'), Params.get('generation')] });
-    const FromList = SelectedIdentity ? Sessions.find(Session => MatchIdentity(Session, SelectedIdentity)) : null;
-    const ExactItems = Exact.data?.Items ?? [];
-    const ExactMatch = Exact.isSuccess && !Exact.isFetching && SelectedIdentity
-        ? ExactItems.find(Session => Session.Id === RequestedSessionId && (!SelectedIdentity || MatchIdentity(Session, SelectedIdentity)))
-        : undefined;
-    const ExactHasSameIdDifferentIdentity = !!SelectedIdentity && Exact.isSuccess && !Exact.isFetching && !ExactMatch && ExactItems.some(Session => Session.Id === RequestedSessionId);
-    const ExactRetired = !!SelectedIdentity && Exact.isSuccess && !Exact.isFetching && ExactItems.length === 0;
-    const LastExactMatch = SelectedIdentity ? ExactItems.find(Session => MatchIdentity(Session, SelectedIdentity)) : undefined;
-    const PinnedMatch = Pinned && SelectedIdentity && MatchIdentity(Pinned, SelectedIdentity) ? Pinned : null;
-    const LastObservedAt = LastExactMatch ? Exact.dataUpdatedAt : FromList ? Query.dataUpdatedAt : PinnedAt;
-    const ExactRefreshing = !!SelectedIdentity && Exact.isFetching && !!LastExactMatch;
-    const ExactEvidence: 'verified' | 'refreshing' | 'retired' | 'identity-mismatch' | 'pending' | 'error' | 'incomplete' | 'snapshot' = RequestedSessionId && !SelectedIdentity ? 'incomplete'
-        : ExactRefreshing ? 'refreshing' : ExactMatch ? 'verified'
-        : ExactRetired ? 'retired' : ExactHasSameIdDifferentIdentity ? 'identity-mismatch'
-            : Exact.error ? 'error' : (Exact.isPending || Exact.isFetching) && SelectedIdentity ? 'pending' : 'snapshot';
-    const Selected = ExactMatch ?? (ExactRetired && PinnedMatch ? { ...PinnedMatch, Active: false, Draining: false } : null)
-        ?? ((ExactEvidence === 'refreshing' || ExactEvidence === 'pending' || ExactEvidence === 'error' || ExactEvidence === 'identity-mismatch')
-            ? LastExactMatch ?? FromList ?? PinnedMatch : null)
-        ?? (!RequestedSessionId ? Filtered[0] ?? null : null);
-    const RelationsUnverified = !Selected || (ExactEvidence !== 'verified' && ExactEvidence !== 'refreshing');
-    const RelationTarget = RelationsUnverified ? null : Selected;
-    const TraceTarget = Selected ?? SelectedIdentity;
-    const IdentityScope = TraceTarget ? [TraceTarget.ProcessId, TraceTarget.Id, TraceTarget.WorkerId, TraceTarget.GenerationId] : [];
-    const TraceQuery = useAdminInfiniteQuery('session-trace', (Source, Page) => TraceTarget
-        ? Source.GetSessionTrace(TraceTarget, Page) : Promise.resolve(EmptyPage<SessionTraceSpan>()), IdentityScope);
-    const RelationScope = RelationTarget
-        ? [RelationTarget.ProcessId, RelationTarget.Id, RelationTarget.WorkerId, RelationTarget.GenerationId]
-        : ['unverified', RequestedSessionId, Params.get('process') ?? '', Params.get('identity_worker') ?? '', Params.get('generation') ?? ''];
-    const StreamsQuery = useInfiniteQuery({ queryKey: ['operations', 'session-streams', ...RelationScope],
-        enabled: RelationTarget !== null, initialPageParam: '0',
-        queryFn: ({ pageParam }) => { const Target = RelationTarget;
-            if (!Target) throw new Error('Session identity must be verified before reading Streams.');
-            return Services.Data.GetStreams(Target, { Cursor: pageParam, Limit: 50 }); },
-        getNextPageParam: Page => Page.HasMore ? Page.NextCursor : undefined, retry: false, staleTime: 2_000,
-        refetchInterval: RelationTarget && Services.Mode === 'live' ? 5_000 : false,
-        refetchIntervalInBackground: false, refetchOnWindowFocus: RelationTarget !== null });
-    const TasksQuery = useInfiniteQuery({ queryKey: ['operations', 'session-tasks', ...RelationScope],
-        enabled: RelationTarget !== null, initialPageParam: '0',
-        queryFn: ({ pageParam }) => { const Target = RelationTarget;
-            if (!Target) throw new Error('Session identity must be verified before reading Tasks.');
-            return Services.Data.GetTasks(Target, { Cursor: pageParam, Limit: 50 }); },
-        getNextPageParam: Page => Page.HasMore ? Page.NextCursor : undefined, retry: false, staleTime: 2_000,
-        refetchInterval: RelationTarget && Services.Mode === 'live' ? 5_000 : false,
-        refetchIntervalInBackground: false, refetchOnWindowFocus: RelationTarget !== null });
-    const EventsQuery = useAdminInfiniteQuery('events', (Source, Page) => Source.GetEvents(Page,
-        TraceTarget ? { SessionId: TraceTarget.Id, ProcessId: TraceTarget.ProcessId, GenerationId: TraceTarget.GenerationId } : {}), IdentityScope);
-    const Cancel = useAdminMutation((Source, Identity: SessionIdentity) => Source.CancelSession(Identity));
-    const ResetStream = useAdminMutation((Source, Identity: StreamIdentity) => Source.ResetStream(Identity));
-    const CancelTask = useAdminMutation((Source, Identity: TaskIdentity) => Source.CancelTask(Identity));
-    const Trace = (TraceQuery.data?.pages.flatMap(Page => Page.Items) ?? []).sort((A, B) => Date.parse(A.StartTime) - Date.parse(B.StartTime) || (BigInt(A.Sequence) < BigInt(B.Sequence) ? -1 : 1));
-    const TraceLost = TraceQuery.data?.pages.some(Page => 'Lost' in Page && Page.Lost === true) ?? false;
-    const TraceLoss = (TraceQuery.data?.pages.flatMap(Page => (Page as { Loss?: readonly SessionTraceLoss[] }).Loss ?? []) ?? [])
-        .filter((Loss, Index, Items) => Items.findIndex(Value => Value.WorkerId === Loss.WorkerId && Value.Overwritten === Loss.Overwritten &&
-            Value.LostSinceCursor === Loss.LostSinceCursor && Value.ConcurrentReadSkips === Loss.ConcurrentReadSkips) === Index);
-    const Streams = StreamsQuery.data?.pages.flatMap(Page => Page.Items) ?? [];
-    const Tasks = TasksQuery.data?.pages.flatMap(Page => Page.Items) ?? [];
-    const Events = (EventsQuery.data?.pages.flatMap(Page => Page.Items) ?? []).filter(Event => !TraceTarget ||
-        Event.SessionId === TraceTarget.Id && Event.ProcessId === TraceTarget.ProcessId && Event.GenerationId === TraceTarget.GenerationId &&
-        (!Event.WorkerId || Event.WorkerId === TraceTarget.WorkerId));
-    const Protocols = [...new Set(Sessions.map(Session => Session.Protocol))];
-    const Active = Sessions.filter(Session => Session.Active).length;
-    const Draining = Sessions.filter(Session => Session.Draining).length;
-
+    const Filtered = useMemo(() => Sessions.filter(Value => Matches(Value, { Search, Protocol, Account, Worker, WorkerProcess, WorkerGeneration, State })), [Sessions, Search, Protocol, Account, Worker, WorkerProcess, WorkerGeneration, State]);
+    const Identity = ReadIdentity(Params), RequestedId = Params.get('session') ?? '';
+    const Exact = useAdminQuery('session-target', Source => Source.GetSessions({ Cursor: '0', Limit: 1, Id: RequestedId }), { Enabled: !!Identity, Scope: [RequestedId, Identity?.ProcessId ?? '', Identity?.WorkerId ?? '', Identity?.GenerationId ?? ''] });
+    const ExactMatch = (Identity && Exact.data?.Items.find(Value => IsSameIdentity(Value, Identity))) ?? null;
+    const Selected = RequestedId ? ExactMatch : null;
+    const RelationsEnabled = Selected !== null && (!RequestedId || ExactMatch !== null);
+    const RelationScope = Selected ? [Selected.ProcessId, Selected.Id, Selected.WorkerId, Selected.GenerationId] : ['unselected'];
+    const TraceQuery = useAdminInfiniteQuery<TraceResult>('session-trace', (Source, Page) => Selected && RelationsEnabled ? Source.GetSessionTrace(Selected, Page) : Promise.resolve(EmptyCursorPage<SessionTraceSpan>()), RelationScope, { Refresh: RelationsEnabled });
+    const StreamsQuery = useAdminInfiniteQuery<CursorPage<StreamRecord>>('session-streams', (Source, Page) => Selected && RelationsEnabled ? Source.GetStreams(Selected, Page) : Promise.resolve(EmptyCursorPage<StreamRecord>()), RelationScope, { Refresh: RelationsEnabled });
+    const TasksQuery = useAdminInfiniteQuery<CursorPage<TaskRecord>>('session-tasks', (Source, Page) => Selected && RelationsEnabled ? Source.GetTasks(Selected, Page) : Promise.resolve(EmptyCursorPage<TaskRecord>()), RelationScope, { Refresh: RelationsEnabled });
+    const EventsQuery = useAdminInfiniteQuery<EventPage>('session-events', (Source, Page) => Selected && RelationsEnabled ? Source.GetEvents(Page, { SessionId: Selected.Id, ProcessId: Selected.ProcessId, GenerationId: Selected.GenerationId }) : Promise.resolve(EmptyEventPage()), RelationScope, { Refresh: RelationsEnabled });
+    const Cancel = useAdminMutation((Source, Value: SessionIdentity) => Source.CancelSession(Value));
+    const ResetStream = useAdminMutation((Source, Value: StreamRecord) => Source.ResetStream(Value));
+    const CancelTask = useAdminMutation((Source, Value: TaskRecord) => Source.CancelTask(Value));
+    const FilterScope = JSON.stringify([Search, Protocol, Account, Worker, WorkerProcess, WorkerGeneration, State]);
+    const SourceScope = Services.Mode === 'live' ? `${Services.Mode}:${Bootstrap.data?.ProcessId ?? 'unverified'}:${Bootstrap.data?.Incarnation ?? 'unverified'}` : Services.Mode;
     useEffect(() => {
-        if (SelectedIdentity || RequestedSessionId || Filtered.length === 0) return;
-        const First = Filtered[0];
-        if (!First) return;
-        SetPinned(First);
-        SetPinnedAt(Query.dataUpdatedAt || Date.now());
-        SetParams(IdentityParams(First, Params), { replace: true });
-    }, [SelectedIdentity, Filtered, Params, RequestedSessionId, SetParams]);
-
-    const Select = (Session: SessionRecord): void => {
-        SetPinned(Session);
-        SetPinnedAt(Query.dataUpdatedAt || Date.now());
-        SetParams(IdentityParams(Session, Params));
-    };
-    const UpdateFilter = (Key: string, Value: string): void => {
-        const Next = new URLSearchParams(Params);
-        if (Value && Value !== 'all') Next.set(Key, Value); else Next.delete(Key);
-        ClearIdentity(Next);
-        SetPinned(null);
-        SetPinnedAt(0);
-        SetParams(Next, { replace: true });
-    };
-    const Refresh = (): void => { void Query.refetch(); };
-
-    return <div className="resource-workspace sessions-workspace">
-        <PageHeader Title="Session 追踪"
-            Description="当前活动连接快照；选择 Session 查看实际记录阶段、子资源与关联事件。"
-            Actions={<button className="button button-secondary" type="button" onClick={Refresh} disabled={Query.isFetching}>
-                <RefreshCw size={14} />{Query.isFetching ? '刷新中' : '刷新列表'}</button>} />
-        <p className="table-footnote">列表、Trace 和关联事件按数据源快照与游标查询，不受全局时间范围设置筛选。</p>
-        <div className="page-metric-strip" aria-label="Session 列表状态">
-            <SessionMetric Label="已载入 Session" Value={FormatCount(Sessions.length)} Hint={Query.hasNextPage ? '还有更多游标记录' : '当前列表快照'} />
-            <SessionMetric Label="活动中" Value={FormatCount(Active)} Hint="TCP Session 状态" />
-            <SessionMetric Label="排空中" Value={FormatCount(Draining)} Hint="正在收尾的连接" />
-            <SessionMetric Label="关联事件" Value={ResourceCount(StateOf(EventsQuery), Events.length)} Hint="选中 Session 的已载入事件样本" />
-        </div>
-        <Panel Title="连接清单" Action={<span className="list-scope">TCP Session · 已载入快照</span>}>
-            <div className="toolbar">
-                <label className="search-field"><Search size={15} aria-hidden="true" /><input aria-label="搜索 Session" placeholder="搜索 Session、来源、目标、账户或 Worker"
-                    value={SearchText} onChange={Event => UpdateFilter('q', Event.target.value)} /></label>
-                <select className="filter-select" aria-label="按协议筛选" value={Protocol} onChange={Event => UpdateFilter('protocol', Event.target.value)}>
-                    <option value="all">全部协议</option>{Protocols.map(Value => <option value={Value} key={Value}>{Value}</option>)}
-                </select>
-                <select className="filter-select" aria-label="按 Session 状态筛选" value={State} onChange={Event => UpdateFilter('state', Event.target.value)}>
-                    <option value="all">全部状态</option><option value="active">活动中</option><option value="draining">排空中</option><option value="closed">已结束</option>
-                </select>
-            </div>
-            {(Account || Worker) && <div className="active-filter-strip"><span>资源过滤</span>{Account && <code>Account {Account}</code>}
-                {Worker && <code>Worker {Worker}</code>}{WorkerProcess && <code>Process {WorkerProcess}</code>}{WorkerGeneration && <code>Generation {WorkerGeneration}</code>}
-                <button className="button button-quiet" type="button"
-                    onClick={() => { const Next = new URLSearchParams(Params); Next.delete('account'); Next.delete('worker'); ClearIdentity(Next); SetParams(Next); SetPinned(null); SetPinnedAt(0); }}>清除过滤</button></div>}
-            <FilterScopeNotice Collection="sessions" />
-            <QueryState Pending={Query.isPending} Error={Query.error} Label="Session 列表" HasData={Query.data !== undefined}
-                Children={Filtered.length === 0 ? <><EmptyState Title={Worker && (WorkerProcess || WorkerGeneration) ? '当前已载入样本没有该 Worker 代际的活动 Session' : '没有匹配的 Session'}
-                    Detail={Worker && (WorkerProcess || WorkerGeneration) ? Query.hasNextPage
-                        ? '此列表只包含活动 Session；继续载入其他页查找该范围，空结果不验证 Worker slot 状态。'
-                        : '此列表只包含活动 Session；没有匹配记录不验证 Worker slot 状态。'
-                        : '更改筛选条件，或载入下一页连接记录。'} />
-                    <LoadMoreButton HasMore={Query.hasNextPage ?? false} Busy={Query.isFetchingNextPage} OnLoad={() => void Query.fetchNextPage()} />
-                </> : <>
-                    <div className="session-page-grid">
-                        <div className="session-list" role="listbox" aria-label="Session 连接列表">
-                            {Filtered.map(Session => <SessionItem key={[Session.ProcessId, Session.GenerationId, Session.WorkerId, Session.AccountId, Session.Id].join(':')}
-                                Value={Session} Selected={Selected !== null && MatchIdentity(Session, Selected)} OnSelect={() => Select(Session)} />)}
-                            <LoadMoreButton HasMore={Query.hasNextPage ?? false} Busy={Query.isFetchingNextPage}
-                                OnLoad={() => void Query.fetchNextPage()} />
-                        </div>
-                        {Selected ? <SessionInspector Value={Selected} StatusEvidence={ExactEvidence} RelationsUnverified={RelationsUnverified} StatusError={Exact.error}
-                            StatusReadAt={Exact.dataUpdatedAt} LastObservedAt={LastObservedAt} StatusFetching={Exact.isFetching} OnRefreshStatus={() => { void Exact.refetch(); }}
-                            Trace={Trace} Streams={Streams} Tasks={Tasks} Events={Events}
-                            TraceState={StateOf(TraceQuery)} StreamsState={StateOf(StreamsQuery)} TasksState={StateOf(TasksQuery)} EventsState={StateOf(EventsQuery)}
-                            Busy={Cancel.isPending || ResetStream.isPending || CancelTask.isPending}
-                            OnCancel={() => Cancel.mutateAsync(Selected)}
-                            OnResetStream={Identity => ResetStream.mutateAsync(Identity)}
-                            OnCancelTask={Identity => CancelTask.mutateAsync(Identity)} /> : null}
-                    </div>
-                </>} />
-        </Panel>
-        {TraceLost && <div className="notice notice-warning" role="status"><strong>Trace 记录存在覆盖或并发读取缺口；不会补造缺失阶段或耗时。</strong>
-            {TraceLoss.length > 0 ? <ul>{TraceLoss.map((Loss, Index) => <li key={Loss.WorkerId + ':' + Index}>Worker {Loss.WorkerId} · 覆盖 {FormatCount(Loss.Overwritten)} · 游标后丢失 {FormatCount(Loss.LostSinceCursor)} · 并发读取跳过 {FormatCount(Loss.ConcurrentReadSkips)}</li>)}</ul>
-                : <p>数据源报告缺口，但没有提供可分解的 Worker 丢失计数。</p>}</div>}
-        {RequestedSessionId && !Selected && <QueryState Pending={!!SelectedIdentity && (Exact.isPending || Exact.isFetching)} Error={SelectedIdentity ? Exact.error : null} HasData={Exact.data !== undefined} Label="指定 Session" Children={<>
-            {!SelectedIdentity ? <EmptyState Title="Session 身份字段不足" Detail="需要 Process、Generation 和 Worker 才能精确定位；不会仅凭 Session ID 选择当前清单中的其他记录。" />
-                : ExactRetired ? <EmptyState Title="Session 已退出当前活动清单" Detail="本次精确查询成功但未返回该 Session；保留原始身份，仍可查询留存 Trace。" />
-                : ExactHasSameIdDifferentIdentity ? <EmptyState Title="当前清单中的同 ID 记录身份不同" Detail="不会将它替换成 URL 指定的连接；原目标的当前状态无法确认。" />
-                    : Exact.error ? <EmptyState Title="无法核实指定 Session 状态" Detail="查询失败不能证明连接已结束；保留原始身份，可重试精确查询或查看留存 Trace。" />
-                        : <EmptyState Title="正在核实指定 Session" Detail="精确查询完成前不推断连接已结束，也不会选择其他连接。" />}
-            {SelectedIdentity && <button className="button button-secondary" type="button" disabled={Exact.isFetching} onClick={() => { void Exact.refetch(); }}>
-                <RefreshCw size={14} />{Exact.isFetching ? '核对中…' : '重新核对此 Session'}</button>}
-            {TraceTarget && <ResourceContent State={StateOf(TraceQuery)} Label="Session Trace"><TraceWaterfall Spans={Trace} /></ResourceContent>}
-        </>} />}
-        <ActionFeedback Result={Cancel.data} /><ActionFeedback Result={ResetStream.data} /><ActionFeedback Result={CancelTask.data} />
+        if (Services.Mode !== 'live' || !Query.isSuccess || Query.error || !Query.data) return;
+        SetLedger(Previous => ReconcileSessionSnapshot({ Previous, Current: Sessions, SourceScope, FilterScope, SampledAt: Query.dataUpdatedAt || Date.now(), RetentionMs: 300_000, Limit: 20 }));
+    }, [Services.Mode, Query.isSuccess, Query.error, Query.data, Query.dataUpdatedAt, Sessions, SourceScope, FilterScope]);
+    const Recent = Ledger?.SourceScope === SourceScope && Ledger.FilterScope === FilterScope ? Ledger.Recent : [];
+    const Snapshot = Services.Mode === 'live' && Params.get('snapshot') === 'recent' ? 'recent' : 'current';
+    const DisplayRows = Snapshot === 'recent' ? Recent.map(Value => Value.Session) : Filtered;
+    const Protocols = [...new Set(Sessions.map(Value => Value.Protocol))].sort();
+    const Update = (Key: string, Value: string): void => { const Next = new URLSearchParams(Params); if (Value && Value !== 'all') Next.set(Key, Value); else Next.delete(Key); ClearIdentity(Next); SetParams(Next, { replace: Key === 'q' }); };
+    const SelectSession = (Value: SessionRecord): void => SetParams(IsSameIdentity(Value, Selected) ? ClearSelection(Params) : IdentityParameters(Value, Params));
+    const CurrentActionResult = Cancel.data ?? ResetStream.data ?? CancelTask.data;
+    const CurrentActionError = Cancel.error ?? ResetStream.error ?? CancelTask.error;
+    const Busy = Cancel.isPending || ResetStream.isPending || CancelTask.isPending;
+    const Active = Sessions.filter(Value => Value.Active).length, Draining = Sessions.filter(Value => Value.Draining).length;
+    return <div className="space-y-4"><PageHeader Title="连接" Description="按账户、Worker、协议和状态扫描活动连接；选中一行后在列表下方检查 Trace、Stream、Task 与关联事件。" Actions={<div className="flex gap-2">{Services.Mode === 'live' && <Button type="button" variant="outline" onClick={() => SetPaused(Value => !Value)}>{Paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}{Paused ? '继续刷新' : '暂停刷新'}</Button>}<Button type="button" variant="outline" disabled={Query.isFetching} onClick={() => void Query.refetch()}><RefreshCw className={Query.isFetching ? 'animate-spin' : ''} aria-hidden="true" />刷新列表</Button></div>} />
+        {Paused && <Alert><Pause aria-hidden="true" /><AlertTitle>自动刷新已暂停</AlertTitle><AlertDescription>当前清单保持最后一次成功快照；恢复后才会查询新状态。</AlertDescription></Alert>}
+        <dl className="grid grid-cols-2 gap-x-5 border-y py-2 sm:grid-cols-3" aria-label="连接快照汇总"><Reading Label="已载入连接" Value={Query.data ? `${FormatCount(Sessions.length)}${Query.hasNextPage ? '+' : ''}` : '—'} /><Reading Label="活动中" Value={Query.data ? FormatCount(Active) : '—'} /><Reading Label="排空中" Value={Query.data ? FormatCount(Draining) : '—'} /></dl>
+        <Tabs value={Snapshot} onValueChange={Value => { const Next = new URLSearchParams(Params); if (Value === 'recent') Next.set('snapshot', 'recent'); else Next.delete('snapshot'); SetParams(Next); }}><TabsList variant="line" className={Services.Mode === 'demo' ? 'hidden' : undefined}><TabsTrigger value="current">当前活动 {FormatCount(Filtered.length)}</TabsTrigger>{Services.Mode === 'live' && <TabsTrigger value="recent">最近离开 {FormatCount(Recent.length)}</TabsTrigger>}</TabsList>
+            <TabsContent value={Snapshot} className="mt-5"><div className="space-y-3"><Card><CardHeader className="gap-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle>连接清单</CardTitle><CardDescription>用 Protocol、状态或任意连接字段筛选当前已读取范围。</CardDescription></div><span className="text-xs text-muted-foreground">{DisplayRows.length} 条匹配</span></div><div className="grid gap-3 grid-cols-2 [&>input]:col-span-2"><Input aria-label="搜索 Session" value={Search} onChange={Event => Update('q', Event.target.value)} placeholder="搜索 Session、来源、目标、账户或 Worker" /><Select value={Protocol} onValueChange={Value => Update('protocol', Value)}><SelectTrigger aria-label="按协议筛选"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部协议</SelectItem>{Protocols.map(Value => <SelectItem key={Value} value={Value}>{Value}</SelectItem>)}</SelectContent></Select><Select value={State} onValueChange={Value => Update('state', Value)}><SelectTrigger aria-label="按状态筛选"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="active">活动中</SelectItem>{Services.Mode === 'demo' && <><SelectItem value="draining">排空中</SelectItem><SelectItem value="closed">已结束</SelectItem></>}</SelectContent></Select></div></CardHeader><CardContent><QueryState Pending={Query.isPending} Error={Query.error} Label="Session 列表" HasData={Query.data !== undefined} Retry={() => void Query.refetch()} Retrying={Query.isFetching} Children={DisplayRows.length === 0 ? <EmptyState Title="当前范围没有 Session" Detail="调整筛选条件或载入更多分页记录。" /> : <SessionTable Rows={DisplayRows} Selected={Selected} OnSelect={SelectSession} />} />{Snapshot === 'current' && Query.hasNextPage && <div className="mt-4 flex justify-center"><Button variant="outline" disabled={Query.isFetchingNextPage} onClick={() => void Query.fetchNextPage()}>{Query.isFetchingNextPage ? '正在载入…' : '载入更多 Session'}</Button></div>}</CardContent></Card><SessionInspector Session={Selected} Requested={!!RequestedId} ExactPending={!!RequestedId && Exact.isPending} ExactError={Exact.error} RelationsEnabled={RelationsEnabled} Trace={TraceQuery.data?.pages.flatMap(Page => Page.Items) ?? []} Streams={StreamsQuery.data?.pages.flatMap(Page => Page.Items) ?? []} Tasks={TasksQuery.data?.pages.flatMap(Page => Page.Items) ?? []} Events={(EventsQuery.data?.pages.flatMap(Page => Page.Items) ?? []).filter(Event => Selected && Event.ProcessId === Selected.ProcessId && Event.GenerationId === Selected.GenerationId && Event.SessionId === Selected.Id)} TraceState={RelationStatus(TraceQuery)} StreamState={RelationStatus(StreamsQuery)} TaskState={RelationStatus(TasksQuery)} EventState={RelationStatus(EventsQuery)} TracePages={TraceQuery.data?.pages ?? []} EventPages={EventsQuery.data?.pages ?? []} Capabilities={Bootstrap.error ? [] : Bootstrap.data?.Capabilities ?? []} OnRequestAction={SetAction} OnCancel={Value => Cancel.mutateAsync(Value)} OnReset={Value => ResetStream.mutateAsync(Value)} OnCancelTask={Value => CancelTask.mutateAsync(Value)} /></div></TabsContent></Tabs>
+        {CurrentActionError && <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertTitle>管理操作尚未确认</AlertTitle><AlertDescription>{CurrentActionError.message}</AlertDescription></Alert>}{CurrentActionResult && <ActionResult Value={CurrentActionResult} />}
+        <Dialog open={Action !== null} onOpenChange={Open => !Open && SetAction(null)}><DialogContent><DialogHeader><DialogTitle>{Action?.Title}</DialogTitle><DialogDescription>{Action?.Description}</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => SetAction(null)}>取消</Button><Button variant="destructive" disabled={Busy} onClick={() => void Action?.Run().then(() => SetAction(null)).catch(() => undefined)}>{Busy ? '正在提交…' : Action?.Confirm}</Button></DialogFooter></DialogContent></Dialog>
     </div>;
 }
 
-type ResourceState = Readonly<{ Pending: boolean; Error: Error | null; HasData: boolean; HasMore: boolean; Busy: boolean; LoadMore: () => void }>;
-type SessionTraceLoss = Readonly<{ WorkerId: string; Overwritten: string; LostSinceCursor: string; ConcurrentReadSkips: string }>;
-/** @brief 子资源各自保留加载、失败与分页状态，失败或未载入不显示成零条。 */
-function StateOf(Query: Readonly<{
-    isPending: boolean; error: Error | null; data: unknown; hasNextPage: boolean; isFetchingNextPage: boolean; fetchNextPage: () => Promise<unknown>;
-}>): ResourceState {
-    return { Pending: Query.isPending, Error: Query.error, HasData: Query.data !== undefined, HasMore: Query.hasNextPage,
-        Busy: Query.isFetchingNextPage, LoadMore: () => { void Query.fetchNextPage(); } };
+function SessionTable(Input: Readonly<{ Rows: readonly SessionRecord[]; Selected: SessionRecord | null; OnSelect: (Value: SessionRecord) => void }>): ReactNode {
+    return <Table className="min-w-[1100px]"><TableHeader><TableRow><TableHead>连接 / 协议</TableHead><TableHead>账户</TableHead><TableHead>Worker</TableHead><TableHead>活动任务</TableHead><TableHead>累计上行</TableHead><TableHead>累计下行</TableHead><TableHead>来源</TableHead><TableHead>目标</TableHead><TableHead>状态</TableHead></TableRow></TableHeader><TableBody>{Input.Rows.map(Value => <TableRow key={IdentityKey(Value)} data-state={IsSameIdentity(Value, Input.Selected) ? 'selected' : undefined} className="cursor-pointer" onClick={() => Input.OnSelect(Value)}>
+        <TableCell><button type="button" className="text-left font-mono text-sm font-medium underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2" onClick={Event => { Event.stopPropagation(); Input.OnSelect(Value); }}>{Value.Id}</button><span className="block text-xs text-muted-foreground">{Value.Transport.toUpperCase()} / {Value.Protocol}</span></TableCell>
+        <TableCell className="font-mono text-xs">{Value.AccountId}</TableCell><TableCell className="font-mono text-xs">{Value.WorkerId}<span className="block text-muted-foreground">Gen {Value.GenerationId}</span></TableCell>
+        <TableCell>{FormatCount(Value.ActiveTasks)}</TableCell><TableCell>{FormatBytes(Value.Traffic?.Up)}</TableCell><TableCell>{FormatBytes(Value.Traffic?.Down)}</TableCell>
+        <TableCell className="max-w-48 truncate font-mono text-xs" title={Value.SourceAddress}>{Value.SourceAddress || '未提供'}</TableCell><TableCell className="max-w-56 truncate font-mono text-xs" title={Value.Target}>{Value.Target || '未提供'}</TableCell>
+        <TableCell><StatusBadge Label={Value.Draining ? '排空中' : Value.Active ? '活动中' : '已结束'} Tone={Value.Draining ? 'warning' : Value.Active ? 'good' : 'neutral'} /></TableCell>
+    </TableRow>)}</TableBody></Table>;
 }
 
-function ResourceContent(Input: Readonly<{ State: ResourceState; Label: string; children: ReactNode }>): ReactNode {
-    return <QueryState Pending={Input.State.Pending} Error={Input.State.Error} HasData={Input.State.HasData} Label={Input.Label}
-        Children={<>{Input.children}<LoadMoreButton HasMore={Input.State.HasMore} Busy={Input.State.Busy} OnLoad={Input.State.LoadMore} /></>} />;
+function SessionInspector(Input: Readonly<{ Session: SessionRecord | null; Requested: boolean; ExactPending: boolean; ExactError: Error | null; RelationsEnabled: boolean; Trace: readonly SessionTraceSpan[]; Streams: readonly StreamRecord[]; Tasks: readonly TaskRecord[]; Events: readonly EventRecord[]; TraceState: RelationState; StreamState: RelationState; TaskState: RelationState; EventState: RelationState; TracePages: readonly TraceResult[]; EventPages: readonly EventPage[]; Capabilities: readonly string[]; OnRequestAction: (Value: PendingAction) => void; OnCancel: (Value: SessionIdentity) => Promise<unknown>; OnReset: (Value: StreamRecord) => Promise<unknown>; OnCancelTask: (Value: TaskRecord) => Promise<unknown> }>): ReactNode {
+    if (Input.ExactPending) return <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">正在根据完整身份核验指定 Session…</CardContent></Card>;
+    if (!Input.Session) return Input.Requested ? <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertTitle>连接身份未核验</AlertTitle><AlertDescription>{Input.ExactError?.message ?? "当前数据源没有返回与链接身份完全匹配的 Session。为避免显示或操作错误对象，请从列表重新选择连接。"}</AlertDescription></Alert> : null;
+    const Session = Input.Session;
+    return <Card><CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle className="font-mono text-base">{Session.Id}</CardTitle><CardDescription className="mt-1">Process {Session.ProcessId} · Generation {Session.GenerationId}</CardDescription></div><StatusBadge Label={Session.Draining ? '排空中' : Session.Active ? '活动中' : '已结束'} /></div></CardHeader><CardContent><Tabs defaultValue="summary"><TabsList variant="line" className="max-w-full overflow-x-auto"><TabsTrigger value="summary">概览</TabsTrigger><TabsTrigger value="trace">阶段 {RelationCount(Input.TraceState, Input.Trace.length)}</TabsTrigger><TabsTrigger value="streams">Streams {RelationCount(Input.StreamState, Input.Streams.length)}</TabsTrigger><TabsTrigger value="tasks">Tasks {RelationCount(Input.TaskState, Input.Tasks.length)}</TabsTrigger><TabsTrigger value="events">事件 {RelationCount(Input.EventState, Input.Events.length)}</TabsTrigger></TabsList>
+        <TabsContent value="summary" className="mt-5 space-y-5"><section aria-label="连接路径" className="rounded-lg border p-3"><h3 className="text-xs font-medium text-muted-foreground">连接路径 · {Session.Transport.toUpperCase()} / {Session.Protocol}</h3><div className="mt-2 grid gap-2 font-mono text-sm sm:grid-cols-2"><p className="break-all">{Session.SourceAddress || '来源未提供'}</p><p className="break-all">→ {Session.Target || '目标未提供'}</p></div></section><dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm min-[1920px]:grid-cols-3"><Fact Label="协议" Value={`${Session.Transport.toUpperCase()} / ${Session.Protocol}`} /><Fact Label="账户" Value={Session.AccountId} /><Fact Label="Worker" Value={Session.WorkerId} /><Fact Label="活动任务" Value={FormatCount(Session.ActiveTasks)} /><Fact Label="认证身份" Value={Session.Identity || '未提供'} /><Fact Label="开始时间" Value={FormatTime(Session.StartedAt, true)} /><Fact Label="累计上行" Value={FormatBytes(Session.Traffic?.Up)} /><Fact Label="累计下行" Value={FormatBytes(Session.Traffic?.Down)} /><Fact Label="传输终态" Value={FormatCount(Session.Traffic?.Events)} /><Fact Label="传输失败" Value={FormatCount(Session.Traffic?.Errors)} /></dl>{Input.RelationsEnabled ? <Button variant="destructive" type="button" disabled={!Session.Active || Session.Draining || !Input.Capabilities.includes('sessions.cancel')} title={!Input.Capabilities.includes('sessions.cancel') ? '当前实例未提供 Session 取消能力' : undefined} onClick={() => Input.OnRequestAction({ Title: `取消 ${Session.Id}？`, Description: '请求会进入 Prism 的实际关闭链路；受理不等于资源已经释放。', Confirm: '确认取消 Session', Run: () => Input.OnCancel(Session) })}><Ban aria-hidden="true" />取消 Session</Button> : <Alert><CircleAlert aria-hidden="true" /><AlertTitle>身份尚未核验</AlertTitle><AlertDescription>当前深链没有通过完整身份核验，不读取子资源也不显示可操作按钮。</AlertDescription></Alert>}</TabsContent>
+        <TabsContent value="trace" className="mt-4"><RelationView State={Input.TraceState} Label="阶段记录">
+            {Input.TracePages.some(Page => Page.Lost) && <Alert variant="destructive" className="mb-3"><CircleAlert aria-hidden="true" /><AlertTitle>阶段记录存在缺口</AlertTitle><AlertDescription>后端报告了缓冲覆盖或并发读取跳过；已载入记录不代表完整链路。</AlertDescription></Alert>}
+            <TraceTable Rows={Input.Trace} />
+        </RelationView></TabsContent>
+        <TabsContent value="streams" className="mt-4"><RelationView State={Input.StreamState} Label="Stream">
+            <ResourceList Title="Streams" Empty="当前已载入范围没有 Stream。">{Input.Streams.map(Value => <div key={Value.Id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2"><div><p className="font-mono text-sm">{Value.Id}</p><p className="text-xs text-muted-foreground">{Value.Protocol} · Task {Value.TaskId} · 父 Task {Value.ParentTaskId ?? '未提供'} · {Value.State}</p></div><div className="text-right text-xs text-muted-foreground">↑ {FormatBytes(Value.Traffic?.Up)}<br />↓ {FormatBytes(Value.Traffic?.Down)}</div>{Value.State === 'active' && <Button variant="outline" size="sm" disabled={!Input.Capabilities.includes('streams.reset') || !Value.ParentTaskId} title={!Input.Capabilities.includes('streams.reset') ? '当前实例未提供 Stream 重置能力' : !Value.ParentTaskId ? '缺少父任务身份' : undefined} onClick={() => Input.OnRequestAction({ Title: `重置 Stream ${Value.Id}？`, Description: '该 Stream 将进入关闭流程。', Confirm: '确认重置', Run: () => Input.OnReset(Value) })}><RotateCcw aria-hidden="true" />重置</Button>}</div>)}</ResourceList>
+        </RelationView></TabsContent>
+        <TabsContent value="tasks" className="mt-4"><RelationView State={Input.TaskState} Label="Task">
+            <ResourceList Title="Tasks" Empty="当前已载入范围没有 Task。">{Input.Tasks.map(Value => <div key={Value.Id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2"><div><p className="font-mono text-sm">{Value.Id}</p><p className="text-xs text-muted-foreground">{Value.Status} · Stream {Value.StreamId} · 父 Task {Value.ParentTaskId ?? '未提供'}{Value.Failure ? ` · ${Value.Failure}` : ''}</p><p className="text-xs text-muted-foreground">取消请求 {Value.CancelRequested ? '是' : '否'} · 排空受阻 {Value.DrainBlocked ? '是' : '否'}{Value.DrainFailure ? ` · ${Value.DrainFailure}` : ''}</p></div>{Value.Cancellable && !Value.CancelRequested && <Button variant="outline" size="sm" disabled={!Input.Capabilities.includes('tasks.cancel')} title={!Input.Capabilities.includes('tasks.cancel') ? '当前实例未提供 Task 取消能力' : undefined} onClick={() => Input.OnRequestAction({ Title: `取消 Task ${Value.Id}？`, Description: '请求已受理不代表 Task 已退出，需要随后核验状态。', Confirm: '确认取消', Run: () => Input.OnCancelTask(Value) })}>取消 Task</Button>}</div>)}</ResourceList>
+        </RelationView></TabsContent>
+        <TabsContent value="events" className="mt-4"><RelationView State={Input.EventState} Label="关联事件">
+            {Input.EventPages.some(Page => Page.Lost) && <Alert variant="destructive" className="mb-3"><CircleAlert aria-hidden="true" /><AlertTitle>事件窗口存在缺口</AlertTitle><AlertDescription>服务端报告记录已覆盖；当前已载入事件不能代表完整历史。</AlertDescription></Alert>}
+            <ResourceList Title="关联事件" Empty="当前已载入范围没有关联事件。">{Input.Events.map(Value => <div key={`${Value.ProcessId}:${Value.Id}`} className="px-3 py-2"><div className="flex items-center justify-between gap-3"><StatusBadge Label={SeverityLabel(Value.Severity)} Tone={ToneForState(Value.Severity)} /><time className="text-xs text-muted-foreground">{FormatTime(Value.Time, true)}</time></div><p className="mt-1 text-sm font-medium">{Value.Message}</p><p className="text-xs text-muted-foreground">{Value.Detail || Value.Kind}</p></div>)}</ResourceList>
+        </RelationView></TabsContent>
+    </Tabs></CardContent></Card>;
 }
 
-function ResourceCount(State: ResourceState, Count: number): string {
-    return !State.HasData ? State.Pending ? '…' : '不可用' : `${Count}${State.HasMore ? '+' : ''}`;
+function RelationCount(State: RelationState, Count: number): string { return State.HasData ? `${Count}${State.HasMore ? '+' : ''}` : '—'; }
+function RelationView(Input: Readonly<{ State: RelationState; Label: string; children: ReactNode }>): ReactNode {
+    return <><QueryState Pending={Input.State.Pending} Error={Input.State.Error} Label={Input.Label} HasData={Input.State.HasData} Retry={Input.State.Retry} Retrying={Input.State.Fetching} Children={Input.children} />
+        {Input.State.HasData && <LoadMoreButton HasMore={Input.State.HasMore} Busy={Input.State.FetchingMore} OnLoad={Input.State.LoadMore} />}</>;
 }
-
-function EmptyPage<Value>(): Readonly<{ Items: readonly Value[]; NextCursor: string; HasMore: boolean }> {
-    return { Items: [], NextCursor: '0', HasMore: false };
-}
-
-function ReadIdentity(Params: URLSearchParams): SessionIdentity | null {
-    const Id = Params.get('session');
-    const ProcessId = Params.get('process');
-    const WorkerId = Params.get('identity_worker');
-    const AccountId = Params.get('identity_account');
-    const GenerationId = Params.get('generation');
-    return Id && ProcessId && WorkerId && GenerationId
-        ? { Id, ProcessId, WorkerId, AccountId: AccountId ?? '0', GenerationId } : null;
-}
-
-function IdentityParams(Session: SessionRecord, Current: URLSearchParams): URLSearchParams {
-    const Next = new URLSearchParams(Current);
-    Next.set('session', Session.Id); Next.set('process', Session.ProcessId); Next.set('identity_worker', Session.WorkerId);
-    Next.set('identity_account', Session.AccountId); Next.set('generation', Session.GenerationId);
-    return Next;
-}
-
-function ClearIdentity(Params: URLSearchParams): void {
-    for (const Key of ['session', 'process', 'identity_worker', 'identity_account', 'generation']) Params.delete(Key);
-}
-
-function SessionMetric(Input: Readonly<{ Label: string; Value: string; Hint: string }>): ReactNode {
-    return <div className="page-metric" title={Input.Hint}><span>{Input.Label}</span><strong>{Input.Value}</strong></div>;
-}
-
-function SessionItem(Input: Readonly<{ Value: SessionRecord; Selected: boolean; OnSelect: () => void }>): ReactNode {
-    const Session = Input.Value;
-    const State = Session.Draining ? '排空中' : Session.Active ? '活动中' : '已结束';
-    return <button className={`session-item ${Input.Selected ? 'is-selected' : ''}`} type="button"
-        role="option" aria-selected={Input.Selected} onClick={Input.OnSelect}>
-        <span className="session-item-head"><strong>{Session.Id}</strong><StatusBadge Label={State} Tone={ToneForState(State)} /></span>
-        <span className="session-item-grid"><span>{Session.Protocol} · {Session.Identity || Session.AccountId}</span><span>{Session.WorkerId}</span></span>
-        <span className="session-item-target" title={`${Session.SourceAddress || '来源未提供'} → ${Session.Target}`}>→ {Session.Target || '目标未提供'}</span>
-    </button>;
-}
-
-function SessionInspector(Input: Readonly<{
-    Value: SessionRecord; StatusEvidence: 'verified' | 'refreshing' | 'retired' | 'identity-mismatch' | 'pending' | 'error' | 'incomplete' | 'snapshot';
-    RelationsUnverified: boolean;
-    StatusError: Error | null; StatusReadAt: number; LastObservedAt: number; StatusFetching: boolean; OnRefreshStatus: () => void;
-    Trace: readonly SessionTraceSpan[]; Streams: readonly StreamRecord[];
-    Tasks: readonly TaskRecord[]; Events: readonly import('../../Services/AdminDataSource').EventRecord[];
-    TraceState: ResourceState; StreamsState: ResourceState; TasksState: ResourceState; EventsState: ResourceState; Busy: boolean;
-    OnCancel: () => Promise<unknown>; OnResetStream: (Value: StreamIdentity) => Promise<unknown>;
-    OnCancelTask: (Value: TaskIdentity) => Promise<unknown>;
-}>): ReactNode {
-    const Session = Input.Value;
-    const State = Session.Draining ? '排空中' : Session.Active ? '活动中' : '已结束';
-    const StateLabel = Input.StatusEvidence === 'verified' ? State
-        : Input.StatusEvidence === 'refreshing' ? '正在复核'
-        : Input.StatusEvidence === 'retired' ? '已退出当前活动清单' : '当前状态未知';
-    const MutationsAllowed = Input.StatusEvidence === 'verified' && (Session.Active || Session.Draining);
-    const [Tab, SetTab] = useState('trace');
-    const Blocked = Input.Tasks.filter(Task => Task.DrainBlocked || Task.Failure || Task.Status === 'failed' || Task.Status === 'quarantined');
-    return <section className="session-inspector" aria-label={`Session ${Session.Id} 详情`}>
-        <div className="session-inspector-head"><div><h2>{Session.Id}</h2><p>{Session.SourceAddress || '来源地址未提供'} → {Session.Target}</p></div>
-            <div><StatusBadge Label={StateLabel} Tone={Input.StatusEvidence === 'verified' ? ToneForState(State)
-                : Input.StatusEvidence === 'refreshing' ? 'neutral' : ToneForState('unknown')} />
-                {Input.StatusEvidence === 'verified' && Session.Active && !Session.Draining && <ConfirmAction Label="取消 Session" Title="取消此 Session？"
-                    Description={`${Session.Id} 将请求取消并等待所属任务和传输实际关闭；已受理不等于资源已释放。`} ConfirmLabel="确认取消"
-                    Tone="danger" Busy={Input.Busy} OnConfirm={Input.OnCancel} />}</div>
-        </div>
-        {Input.StatusEvidence === 'refreshing' && <div className="notice notice-info" role="status">
-            <strong>正在复核 Session</strong>
-            <p>最近成功核验：{State} · 读取时间 {Input.StatusReadAt > 0 ? FormatTime(new Date(Input.StatusReadAt).toISOString(), true) : '未提供'}。核对完成前，取消和子资源操作暂不可用。</p>
-        </div>}
-        {Input.StatusEvidence !== 'verified' && Input.StatusEvidence !== 'refreshing' && Input.StatusEvidence !== 'retired' && <div className="notice notice-warning" role="status">
-            <strong>当前 Session 状态无法确认</strong>
-            <p>最后观察到的状态：{State} · 读取时间 {Input.LastObservedAt > 0 ? FormatTime(new Date(Input.LastObservedAt).toISOString(), true) : '未提供'}。{Input.StatusEvidence === 'identity-mismatch' ? '当前查询返回了同 ID 但完整身份不同的记录，不会替换所选目标。'
-                : Input.StatusError ? '精确查询失败：' + Input.StatusError.message : '精确查询尚未成功；这不表示连接已结束。'} 取消和子资源操作暂不可用。</p>
-            <button className="button button-secondary" type="button" disabled={Input.StatusFetching} onClick={Input.OnRefreshStatus}>
-                <RefreshCw size={14} />{Input.StatusFetching ? '核对中…' : '重新核对此 Session'}</button>
-        </div>}
-        {Input.StatusEvidence === 'retired' && <p className="field-hint">精确查询于 {Input.StatusReadAt > 0 ? FormatTime(new Date(Input.StatusReadAt).toISOString(), true) : '未知时间'} 成功且活动清单未返回该 Session；下面的 Trace 查询仍受有界留存和覆盖范围限制。</p>}
-        <div className="session-primary-facts">
-            <span>{Session.Transport.toUpperCase()} / <strong>{Session.Protocol}</strong></span>
-            <span>账户 <Link to={`/accounts?account=${encodeURIComponent(Session.AccountId)}`}>查看当前账户 {Session.Identity || Session.AccountId}</Link></span>
-            <span>Worker <Link to={WorkerPath(Session)}>{Session.WorkerId}</Link></span>
-            <span>活动任务 <strong>{Session.ActiveTasks === null ? '未提供' : FormatCount(Session.ActiveTasks)}</strong></span>
-        </div>
-        <div className="session-stat-row"><span>累计上行 <strong>{Session.Traffic ? FormatBytes(Session.Traffic.Up) : '未采集'}</strong></span>
-            <span>累计下行 <strong>{Session.Traffic ? FormatBytes(Session.Traffic.Down) : '未采集'}</strong></span></div>
-        <div className="session-context-line"><span>Process {Session.ProcessId} · G{Session.GenerationId}</span><span>开始 {FormatTime(Session.StartedAt, true)}</span>
-            <Link to={SessionEventsPath(Session)}>关联事件</Link>
-            <details className="session-full-identity"><summary>完整身份</summary><div><span>Account {Session.AccountId}</span><span>Worker {Session.WorkerId}</span>
-                <span>Process {Session.ProcessId}</span><span>Generation {Session.GenerationId}</span><span>Session {Session.Id}</span></div></details>
-        </div>
-        {Blocked.length > 0 && <div className="session-task-alert" role="status"><strong>{Blocked.length} 个已载入 Task 存在失败或排空受阻</strong>
-            <button className="button button-quiet" type="button" onClick={() => SetTab('tasks')}>查看 Tasks</button></div>}
-
-        <Tabs.Root value={Tab} onValueChange={SetTab} className="session-detail-tabs">
-        <Tabs.List className="detail-tabs" aria-label="连接详情视图">
-            <Tabs.Trigger value="trace">连接阶段</Tabs.Trigger>
-            <Tabs.Trigger value="streams">Streams {Input.RelationsUnverified ? '待核实' : ResourceCount(Input.StreamsState, Input.Streams.length)}</Tabs.Trigger>
-            <Tabs.Trigger value="tasks">Tasks {Input.RelationsUnverified ? '待核实' : ResourceCount(Input.TasksState, Input.Tasks.length)}</Tabs.Trigger>
-            <Tabs.Trigger value="events">关联事件 {ResourceCount(Input.EventsState, Input.Events.length)}</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="trace"><div className="trace-block">
-            <div className="trace-block-heading"><h3>Session Trace</h3><span>{Input.Trace.length} 个实际记录阶段</span></div>
-            <p className="field-hint">时间线按事件时间排列；相对时间是自接入偏移，不代表阶段耗时。服务端未提供 DurationMs 时不推算耗时。</p>
-            <ResourceContent State={Input.TraceState} Label="Session Trace">
-                {Input.Trace.length === 0 ? <EmptyState Title="该 Session 暂无阶段事件" Detail="记录可能尚未产生或已被覆盖；可查询事件、Task 和 Stream。" />
-                    : <TraceWaterfall Spans={Input.Trace} />}</ResourceContent>
-            {Input.Trace.length > 0 && <details className="trace-raw-events"><summary>阶段明细 · {Input.Trace.length} 条</summary>
-                <div className="trace-event-list">
-                {Input.Trace.map(Span => <TraceEvent key={Span.SpanId} Value={Span} />)}
-                </div></details>}
-        </div></Tabs.Content>
-
-        <Tabs.Content value="streams"><div className="trace-block"><div className="trace-block-heading"><h3>Streams</h3><span>{Input.RelationsUnverified ? '待核实' : `${ResourceCount(Input.StreamsState, Input.Streams.length)} 条`}</span></div>
-            {Input.RelationsUnverified ? <p className="field-hint">精确核实 Session 身份后才会请求 Streams；当前没有把未核实状态表示成空结果。</p>
-                : <ResourceContent State={Input.StreamsState} Label="Streams">
-            {Input.Streams.length === 0 ? <p className="field-hint">当前数据源没有返回 Stream 记录。</p> : <div className="resource-sublist">
-                {Input.Streams.map(Stream => <StreamResource key={`${Stream.Id}-${Stream.TaskId}`} Session={Session} Value={Stream} CanMutate={MutationsAllowed}
-                    Busy={Input.Busy} OnReset={() => Input.OnResetStream(Stream)} />)}</div>}
-            </ResourceContent>}</div></Tabs.Content>
-        <Tabs.Content value="tasks"><div className="trace-block"><div className="trace-block-heading"><h3>Tasks</h3><span>{Input.RelationsUnverified ? '待核实' : `${ResourceCount(Input.TasksState, Input.Tasks.length)} 条`}</span></div>
-            {Input.RelationsUnverified ? <p className="field-hint">精确核实 Session 身份后才会请求 Tasks；当前没有把未核实状态表示成空结果。</p>
-                : <ResourceContent State={Input.TasksState} Label="Tasks">
-            {Input.Tasks.length === 0 ? <p className="field-hint">当前数据源没有返回 Task 记录。</p> : <div className="resource-sublist">
-                {Input.Tasks.map(Task => <TaskResource key={Task.Id} Value={Task} CanMutate={MutationsAllowed} Busy={Input.Busy}
-                    OnCancel={() => Input.OnCancelTask(Task)} />)}</div>}
-            </ResourceContent>}</div></Tabs.Content>
-        <Tabs.Content value="events"><div className="trace-block"><div className="trace-block-heading"><h3>关联事件</h3><span>{ResourceCount(Input.EventsState, Input.Events.length)} 条已载入</span></div>
-            <ResourceContent State={Input.EventsState} Label="关联事件">
-            {Input.Events.length === 0 ? <p className="field-hint">当前事件样本没有 Session ID 关联。</p> : <div className="resource-sublist">
-                {Input.Events.map(Event => <Link className="related-row" key={Event.ProcessId + ':' + Event.Id} to={`/events?session=${encodeURIComponent(Session.Id)}`}>
-                    <strong>{Event.Message}</strong><small>{FormatTime(Event.Time)} · {Event.CorrelationId}</small>
-                </Link>)}</div>}
-            </ResourceContent></div></Tabs.Content>
-        </Tabs.Root>
-        <p className="session-snapshot-note"><Activity size={13} />此连接身份已固定；刷新列表和新连接不会替换所选记录。</p>
-    </section>;
-}
-
-function TraceWaterfall(Input: Readonly<{ Spans: readonly SessionTraceSpan[] }>): ReactNode {
-    if (!Input.Spans.length) return <EmptyState Title="没有留存阶段事件" Detail="历史连接的 Trace 可能已被环形缓冲覆盖。" />;
-    return <div className="trace-timeline" role="list" aria-label="Session 实际阶段时间线">
-        {Input.Spans.map(Span => <div className="trace-timeline-item" role="listitem" key={Span.SpanId}>
-            <div className="trace-timeline-time"><time dateTime={Span.StartTime}>{FormatTime(Span.StartTime)}</time>
-                <small>{Elapsed(Span.Attributes.elapsed_ns)}</small></div>
-            <div className="trace-timeline-content"><strong>{Span.Name}</strong><StatusBadge Label={Span.Status} Tone={ToneForState(Span.Status)} />
-                <p>{Span.DurationMs === null ? '阶段事件 · 未提供独立 span 耗时' : FormatDuration(Span.DurationMs)}</p>
-                {Span.Attributes.failure_code && <p>失败代码 {String(Span.Attributes.failure_code)}</p>}
-            </div>
-        </div>)}
-    </div>;
-}
-function Elapsed(Value: string | boolean | null | undefined): string {
-    if (typeof Value !== 'string' || !/^\d+$/.test(Value)) return '相对时间未提供';
-    return '+' + (Number(BigInt(Value)) / 1_000_000).toFixed(2) + ' ms 自接入';
-}
-
-function TraceEvent(Input: Readonly<{ Value: SessionTraceSpan }>): ReactNode {
-    const Span = Input.Value;
-    return <details className="trace-event">
-        <summary><time dateTime={Span.StartTime}>{FormatTime(Span.StartTime)}</time><strong>{Span.Name}</strong>
-            <StatusBadge Label={Span.Status} Tone={ToneForState(Span.Status)} />
-            <span>{Span.DurationMs === null ? '阶段事件' : FormatDuration(Span.DurationMs)}</span></summary>
-        <div className="trace-attributes">
-            <span>Span <code>{Span.SpanId}</code></span><span>Parent <code>{Span.ParentSpanId ?? '—'}</code></span>
-            {Span.WorkerId && <span>Worker <code>{Span.WorkerId}</code></span>}
-            {Span.AccountId && <span>Account <code>{Span.AccountId}</code></span>}
-            {Span.StreamId && <span>Stream <code>{Span.StreamId}</code></span>}
-            {Span.TaskId && <span>Task <code>{Span.TaskId}</code></span>}
-            {Object.entries(Span.Attributes).map(([Key, Value]) => <span key={Key}>{Key} <code>{String(Value)}</code></span>)}
-        </div>
-    </details>;
-}
-
-function WorkerPath(Identity: Pick<SessionIdentity, 'WorkerId' | 'ProcessId' | 'GenerationId'>): string {
-    const Params = new URLSearchParams({ worker: Identity.WorkerId, process: Identity.ProcessId, generation: Identity.GenerationId });
-    return '/workers?' + Params.toString();
-}
-
-function SessionEventsPath(Session: SessionRecord): string {
-    const Params = new URLSearchParams({ session: Session.Id, process: Session.ProcessId, generation: Session.GenerationId,
-        worker: Session.WorkerId });
-    return '/events?' + Params.toString();
-}
-
-function FormatDuration(Value: string | number | null): string {
-    if (Value === null) return '未提供';
-    const Duration = Number(Value);
-    return Number.isFinite(Duration)
-        ? `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Duration)} ms`
-        : '耗时不可用';
-}
-
-function StreamResource(Input: Readonly<{ Session: SessionRecord; Value: StreamRecord; CanMutate: boolean; Busy: boolean; OnReset: () => Promise<unknown> }>): ReactNode {
-    const Value = Input.Value;
-    return <div className="resource-item"><span><strong>{Value.Id}</strong><small> · {Value.Protocol} · {Value.State}</small>
-        <small> · Task {Value.TaskId} · Parent {Value.ParentTaskId ?? '—'}</small></span>
-        <span>{Value.Traffic ? `${FormatBytes(Value.Traffic.Up)} ↑ / ${FormatBytes(Value.Traffic.Down)} ↓` : '流量未提供'}</span>
-        {Input.CanMutate && Value.State === 'active' && Value.ParentTaskId !== null && <ConfirmAction Label="重置" Title="重置此 Stream？"
-            Description={`Stream ${Value.Id} 将进入关闭流程。`} ConfirmLabel="确认重置" Tone="danger" Busy={Input.Busy} OnConfirm={Input.OnReset} />}
-    </div>;
-}
-
-function TaskResource(Input: Readonly<{ Value: TaskRecord; CanMutate: boolean; Busy: boolean; OnCancel: () => Promise<unknown> }>): ReactNode {
-    const Task = Input.Value;
-    const CanCancel = Input.CanMutate && Task.Cancellable && !Task.CancelRequested && (Task.Status === 'running' || Task.Status === 'pending');
-    const HasOutcome = Task.Status === 'succeeded' || Task.Status === 'failed' || Task.Status === 'canceled' || Task.Status === 'quarantined';
-    return <div className="resource-item"><span><strong>{Task.Id}</strong><small> · {Task.Status} · Stream {Task.StreamId} · Parent {Task.ParentTaskId ?? '—'}</small>
-        {Task.CancelRequested && <small> · 已请求取消；仍在 Task 清单中，资源退休尚未确认</small>}
-        {HasOutcome && <small> · 已记录任务结果；当前仍在资源清单中，退休状态未确认</small>}
-        {Task.Failure && <small> · 失败：{Task.Failure}</small>}</span>
-        <span>{Task.DrainBlocked ? `排空受阻：${Task.DrainFailure ?? '等待资源关闭'}` : Task.StartedAt ? FormatTime(Task.StartedAt) : '开始时间未提供'}</span>
-        {CanCancel && <ConfirmAction Label="取消 Task" Title="取消此 Task？" Description={`Task ${Task.Id} 将请求取消；受理请求不等于资源已退出，需以任务结果与排空状态复核。`}
-            ConfirmLabel="确认取消" Tone="danger" Busy={Input.Busy} OnConfirm={Input.OnCancel} />}
-    </div>;
-}
+function TraceTable(Input: Readonly<{ Rows: readonly SessionTraceSpan[] }>): ReactNode { if (!Input.Rows.length) return <EmptyState Title="没有留存阶段" Detail="阶段记录可能尚未写入，或已经被有限缓冲覆盖。" />; return <Table><TableHeader><TableRow><TableHead>时间</TableHead><TableHead>阶段 / Span</TableHead><TableHead>状态 / 错误</TableHead><TableHead>耗时</TableHead><TableHead>关联资源</TableHead></TableRow></TableHeader><TableBody>{Input.Rows.map(Value => <TableRow key={Value.SpanId}><TableCell>{FormatTime(Value.StartTime, true)}</TableCell><TableCell className="font-mono text-xs">{Value.Name}<p className="mt-1 text-muted-foreground">{Value.SpanId}</p></TableCell><TableCell><StatusBadge Label={Value.Status} Tone={ToneForState(Value.Status)} />{Value.Attributes.failure_code && <p className="mt-1 text-xs text-muted-foreground">{String(Value.Attributes.failure_code)}</p>}</TableCell><TableCell>{Value.DurationMs === null ? '未提供' : `${FormatCount(Value.DurationMs)} ms`}</TableCell><TableCell className="text-xs text-muted-foreground">Task {Value.TaskId ?? '—'}<br />Stream {Value.StreamId ?? '—'}</TableCell></TableRow>)}</TableBody></Table>; }
+function ResourceList(Input: Readonly<{ Title: string; Empty: string; children: ReactNode }>): ReactNode { return <section><h3 className="mb-2 text-sm font-medium">{Input.Title}</h3><div className="divide-y rounded-lg border">{Children.count(Input.children) > 0 ? Input.children : <p className="p-4 text-sm text-muted-foreground">{Input.Empty}</p>}</div></section>; }
+function ActionResult(Input: Readonly<{ Value: AdminActionResult }>): ReactNode { return <Alert><ShieldCheck aria-hidden="true" /><AlertTitle>{Input.Value.Status === 'accepted' ? '操作请求已受理' : Input.Value.Ok ? '操作已完成' : '操作结果待核验'}</AlertTitle><AlertDescription>{Input.Value.Message}</AlertDescription></Alert>; }
+function Fact(Input: Readonly<{ Label: string; Value: string }>): ReactNode { return <div className="min-w-0 border-b py-2"><dt className="text-xs text-muted-foreground">{Input.Label}</dt><dd className="mt-1 break-all font-medium">{Input.Value}</dd></div>; }
+function Reading(Input: Readonly<{ Label: string; Value: string }>): ReactNode { return <div className="py-1.5"><dt className="text-xs text-muted-foreground">{Input.Label}</dt><dd className="mt-0.5 text-sm font-semibold tabular-nums">{Input.Value}</dd></div>; }
+function Matches(Value: SessionRecord, Filter: Readonly<{ Search: string; Protocol: string; Account: string; Worker: string; WorkerProcess: string; WorkerGeneration: string; State: FilterState }>): boolean { const Text = `${Value.Id} ${Value.Identity} ${Value.SourceAddress} ${Value.Target} ${Value.Protocol} ${Value.AccountId} ${Value.WorkerId}`.toLocaleLowerCase(); return (!Filter.Search || Text.includes(Filter.Search.toLocaleLowerCase())) && (Filter.Protocol === 'all' || Value.Protocol.toLocaleLowerCase() === Filter.Protocol.toLocaleLowerCase()) && (!Filter.Account || Value.AccountId === Filter.Account) && (!Filter.Worker || Value.WorkerId === Filter.Worker) && (!Filter.WorkerProcess || Value.ProcessId === Filter.WorkerProcess) && (!Filter.WorkerGeneration || Value.GenerationId === Filter.WorkerGeneration) && (Filter.State === 'all' || Filter.State === 'active' && Value.Active || Filter.State === 'draining' && Value.Draining || Filter.State === 'closed' && !Value.Active && !Value.Draining); }
+function ReadIdentity(Params: URLSearchParams): SessionIdentity | null { const Id = Params.get('session') ?? '', ProcessId = Params.get('process') ?? '', WorkerId = Params.get('identity_worker') ?? '', AccountId = Params.get('identity_account') ?? '', GenerationId = Params.get('generation') ?? ''; return Id && ProcessId && WorkerId && AccountId && GenerationId ? { Id, ProcessId, WorkerId, AccountId, GenerationId } : null; }
+function IsSameIdentity(Value: SessionRecord | null, Identity: SessionIdentity | null): boolean { return !!Value && !!Identity && Value.Id === Identity.Id && Value.ProcessId === Identity.ProcessId && Value.WorkerId === Identity.WorkerId && Value.AccountId === Identity.AccountId && Value.GenerationId === Identity.GenerationId; }
+function IdentityParameters(Value: SessionRecord, Current: URLSearchParams): URLSearchParams { const Next = new URLSearchParams(Current); Next.set('session', Value.Id); Next.set('process', Value.ProcessId); Next.set('identity_worker', Value.WorkerId); Next.set('identity_account', Value.AccountId); Next.set('generation', Value.GenerationId); return Next; }
+function ClearSelection(Current: URLSearchParams): URLSearchParams { const Next = new URLSearchParams(Current); for (const Key of ['session', 'identity_worker', 'identity_account']) Next.delete(Key); if (!Next.get('worker')) { Next.delete('process'); Next.delete('generation'); } return Next; }
+function ClearIdentity(Params: URLSearchParams): void { for (const Key of ['session', 'process', 'identity_worker', 'identity_account', 'generation']) Params.delete(Key); }
+function IdentityKey(Value: SessionRecord): string { return [Value.ProcessId, Value.GenerationId, Value.WorkerId, Value.AccountId, Value.Id].join(':'); }
+function EmptyCursorPage<Value>(): CursorPage<Value> { return { Items: [], NextCursor: '0', HasMore: false }; }
+function EmptyEventPage(): EventPage { return { ...EmptyCursorPage<EventRecord>(), EarliestCursor: '0', Lost: false, LostRanges: [], Dropped: '0', TerminalDropped: '0', Overwritten: '0', SeverityFilterSupported: false }; }
+function SeverityLabel(Value: EventRecord['Severity']): string { return Value === 'error' ? '错误' : Value === 'warning' ? '警告' : Value === 'debug' ? '调试' : '信息'; }

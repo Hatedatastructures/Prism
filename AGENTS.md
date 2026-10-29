@@ -232,7 +232,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 - **数据面与热路径**：`std::expected<T, Prism::Fault::Failure>` 或 `Prism::Fault::Code`（`Include/Prism/Foundation/Fault/Code.hpp`），不抛异常。
 - **协议编解码错误**：`Prism::Error`（`Include/Prism/Foundation/Error.hpp`）在边界经 `Fault::FromNative()` 单次映射为领域 `Code`，映射表在 `Include/Prism/Foundation/Fault/Handling.hpp`。
-- **启动与致命阶段**：基类为 `Prism::Exception::Deviant`（`Include/Prism/Foundation/Exception/Deviant.hpp`）。当前真实子类只有 `BytePoolError`、`RuleConfigurationError`、`QueryIdConfigurationError`、`CounterCapacityError`；分类中间类 `Network` / `Protocol` / `Security` 无任何调用点，`SqliteError` 绕过基类直接继承 `std::runtime_error`。缺口与处置见 `logs/issues.md` 的 E-1。
+- **启动与致命阶段**：基类为 `Prism::Exception::Deviant`（`Include/Prism/Foundation/Exception/Deviant.hpp`）。当前真实子类只有 `BytePoolError`、`RuleConfigurationError`、`QueryIdConfigurationError`、`CounterCapacityError`；分类中间类 `Network` / `Protocol` / `Security` 无任何调用点，`SqliteError` 绕过基类直接继承 `std::runtime_error`。缺口与处置见 `logs/issues.md` 的 E-48。
 - 旧版小写名 `fault::code`、`exception::deviant` 属退役命名，不再作为当前接口。
 
 ## 命名与编码规范
@@ -278,6 +278,31 @@ scheme_executor::execute → {transport, detected, preread}
 - **格式**：`=` 两侧各一个空格；`Include/Prism/Application/Reload/RestartPolicy.hpp:8` 现缺空格。
 - **限定深度**：同一文件内禁止混用两种深度（2026-10-29 实测 36 个文件混用）。存量按模块批次收敛，不做全仓一次性替换，也不单独为消除可省略的 `Prism::` 前缀（实测约 1.5 万处）开批——收益只是字符数，代价是无法审查的 diff。
 - **异常基类的限定深度**：`Exception::Deviant`（3 处）与 `Prism::Exception::Deviant`（1 处）并存，按上文统一到保留 owner 段的写法。
+
+### 函数签名与条件排版（2026-10-29 规范 v3，项目所有者选定）
+
+- **参数排版按宽度 bin-pack**：一行装得下就不折，装不下按 `ContinuationIndentWidth: 4` 续行（namespace 内视觉 8 格），不要求每参数独占一行，也不手工凑对齐。判据以 `clang-format --style=file` 的输出为准——**手工排版不作为验收依据**；`.clang-format` 的 `BinPackParameters: true`、`AlignAfterOpenBracket: DontAlign`、`ColumnLimit: 110` 正是本条配置，需开始实际执行（现状：抽样 40 个未改动文件有 36 个不符合，存量 3442 行竖排属待迁移）。
+- **参数个数**：沿用通常 ≤2、复杂边界 ≤3；第 4 个参数出现时改 options struct，而不是继续换行。
+- **`-> T` 一律独立一行**，不受长度豁免：
+
+  ```cpp
+  [[nodiscard]] auto Failed() const noexcept
+      -> bool;
+
+  auto Retire(Fault::Failure Cause) noexcept
+      -> void;
+  ```
+
+  `const`、`noexcept` 紧跟参数表留在上一行，不下移到 `->` 之后；`-> void` 保留并同样独立成行（现状 2882 处显式 `-> void`）。lambda 的显式尾置返回类型同规则；函数指针与成员指针的类型定义没有 `->` 位置可言，不受本条约束。存量约 8969 处同行短签名按模块批次迁移，**禁止全仓一次性机械改写**，每批以构建与 ctest 验收。
+- **复合条件一律提取命名谓词**（项目所有者选定，比现状更严）：
+  - 触发判据：`if` / `while` 条件含 **≥2 个子表达式**（按 `&&`、`||` 计），或含一次及以上跨 owner 状态读取。
+  - 单一原子判断可直接写：`if (Failed())`、`if (!Ptr)`、`if (Code == Fault::Code::Eof)`。
+  - 谓词形状：`[[nodiscard]]`、尽量 `noexcept`、前缀取 `Is` / `Has` / `Can` / `Should` / `Requires` / `Within`、带中文 `@brief` 说明判的是什么。
+  - 谓词归属：判自身状态用类的私有成员函数；跨类判定放所属模块的 `Detail/` 头。不建全局万能谓词库。
+  - 谓词同样受函数体 ≤120 行、参数 ≤3 约束，不得借「提取谓词」变相塞参数包。
+  - 禁止前置 `&&` / `||` 续行（全仓仅 2 处，随迁移清零）。
+  - 与既有「嵌套 >4 层需早返回」配合：guard clause 的复合条件同样走谓词。
+- **类型别名不开新口子（默认维持上文 v3，项目所有者未选此项）**：签名里写真实类型名，只允许命名空间别名缩短 owner 段。若某个长返回类型在多处重复，须先在此节登记「唯一 owner 头 + 短名」才可用结果别名，未经登记的就地别名按违规处理。
 
 ## 旧版 PascalCase 迁移记录（历史，不代表当前迁移顺序）
 

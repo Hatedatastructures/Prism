@@ -5,6 +5,7 @@ import { Bool, DecodeBootstrap, DecodeCommand, DecodeOperation, DecodePage, Deco
 import { DecodeAccount, DecodeEvents, DecodeGroup, DecodeHistory, DecodeIngress, DecodeOverview, DecodeProtocol, DecodeSession, DecodeStream, DecodeTask, DecodeUsage, DecodeWorker } from '../Api/ResourceDecoders.ts';
 import { ParseJsonDocument, FormatJsonDocument } from '../Api/JsonDocument.ts';
 import { ChangeConfiguration } from '../Api/ConfigurationMutations.ts';
+import { DecodeMetrics } from '../Api/MetricsDecoder.ts';
 
 export class OperationsError extends Error {
     public Status: number;
@@ -52,6 +53,7 @@ export class LiveAdminDataSource implements AdminDataSource {
         return RequestSequence < this.#AppliedBootstrapSequence ? this.#Bootstrap ?? Snapshot : Snapshot;
     }
     public async GetOverview() { return DecodeOverview(await this.Query('/Overview')); }
+    public async GetMetrics() { await this.Require('metrics.read'); return DecodeMetrics(await this.Query('/Metrics')); }
     public async GetIngresses(Page: PageRequest) { return this.Collection('Ingresses', Page, DecodeIngress); }
     public async GetWorkers(Page: PageRequest) { return this.Collection('Workers', Page, DecodeWorker); }
     public async GetAccounts(Page: PageRequest) { return this.Collection('Accounts', Page, DecodeAccount); }

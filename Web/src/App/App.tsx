@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router';
 import { EmptyState } from '../Components/Ui';
+import { Alert, AlertDescription, AlertTitle } from '../Components/ui/alert';
+import { Button } from '../Components/ui/button';
 import { DemoAdminDataSource } from '../Services/DemoAdminDataSource';
 import { LiveAdminDataSource } from '../Services/LiveAdminDataSource';
 import type { AdminServices } from './AdminServices';
@@ -52,7 +54,7 @@ export function App(): ReactNode {
 
 function LazyPage(Input: Readonly<{ children: ReactNode }>): ReactNode {
     const Location = useLocation();
-    return <PageErrorBoundary key={Location.pathname}><Suspense fallback={<div className="page-loading" role="status">正在打开页面…</div>}>
+    return <PageErrorBoundary key={Location.pathname}><Suspense fallback={<div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground" role="status">正在打开页面…</div>}>
         {Input.children}
     </Suspense></PageErrorBoundary>;
 }
@@ -68,10 +70,7 @@ class PageErrorBoundary extends Component<Readonly<{ children: ReactNode }>, Pag
     public static getDerivedStateFromError(Failure: unknown): PageErrorState { return { Failed: true, Message: Failure instanceof Error ? Failure.message : '页面渲染失败' }; }
 
     public override render(): ReactNode {
-        if (this.state.Failed) return <section className="notice notice-danger" role="alert">
-            <div><strong>页面显示异常</strong><p>数据解析或页面渲染失败，可以切换页面后重试。</p>{import.meta.env.DEV && <details><summary>开发诊断</summary><code>{this.state.Message}</code></details>}</div>
-            <button className="button button-secondary" type="button" onClick={() => window.location.reload()}>重新加载</button>
-        </section>;
+        if (this.state.Failed) return <Alert variant="destructive"><AlertTitle>页面显示异常</AlertTitle><AlertDescription className="space-y-3">数据解析或页面渲染失败，可以切换页面后重试。{import.meta.env.DEV && <details><summary>开发诊断</summary><code className="mt-2 block whitespace-pre-wrap break-all rounded-md bg-background/60 p-2 text-xs">{this.state.Message}</code></details>}<Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>重新加载</Button></AlertDescription></Alert>;
         return this.props.children;
     }
 }

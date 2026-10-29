@@ -1,0 +1,52 @@
+/**
+ * @file Prism 对 Shadcn Admin 主题契约的适配。
+ * @brief 保留 Prism 的唯一 Palette 所有权，将参考项目的语义色名映射到代理运维界面。
+ * @note 主题结构参考 satnaing/shadcn-admin（MIT）：src/styles/theme.css。
+ */
+@theme inline {
+    --color-background: var(--canvas);
+    --color-foreground: var(--ink);
+    --color-card: var(--surface);
+    --color-card-foreground: var(--ink);
+    --color-popover: var(--surface-raised);
+    --color-popover-foreground: var(--ink);
+    --color-primary: var(--accent);
+    --color-primary-foreground: var(--on-accent);
+    --color-secondary: var(--surface-subtle);
+    --color-secondary-foreground: var(--ink-soft);
+    --color-muted: var(--surface-subtle);
+    --color-muted-foreground: var(--muted);
+    --color-accent: var(--surface-selected);
+    --color-accent-foreground: var(--ink);
+    --color-destructive: var(--danger-action);
+    --color-border: var(--line);
+    --color-input: var(--control-border);
+    --color-ring: var(--focus);
+    --color-sidebar: var(--nav-bg);
+    --color-sidebar-foreground: var(--nav-ink);
+    --color-sidebar-accent: var(--nav-hover);
+    --color-sidebar-accent-foreground: var(--nav-active-ink);
+    --color-sidebar-border: var(--nav-line);
+    --radius-sm: var(--radius-small);
+    --radius-md: var(--radius-control);
+    --radius-lg: var(--radius);
+    --radius-xl: var(--radius-dialog);
+}
+
+/** @brief Prism 沿用 data-theme；让 Shadcn Admin 的 dark: 变体与其同一主题来源同步。 */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/** @brief 为资源监控的键盘可操作时序图提供尺寸、坐标轴及读数样式。 */
+.time-series-chart { position: relative; width: 100%; height: 100%; touch-action: pan-y; user-select: none; }
+.time-series-chart:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.time-series-chart__svg { display: block; overflow: visible; }
+.time-series-chart__grid line { stroke: var(--plot-grid); stroke-dasharray: 2 7; }
+.time-series-chart__axis text { fill: var(--plot-axis); font-family: var(--font-mono); font-size: 11px; }
+.time-series-chart__line { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.time-series-chart__highlight { fill: none; stroke-width: 2.8; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.time-series-chart__area { stroke: none; }
+.time-series-chart__crosshair rect, .time-series-chart__dot { pointer-events: none; }
+.time-series-chart__tooltip { position: absolute; z-index: 3; top: 8px; min-width: 150px; transform: translateX(-50%); pointer-events: none; border: 1px solid var(--line-strong); border-radius: var(--radius-small); background: var(--surface); color: var(--ink); padding: 8px; box-shadow: var(--shadow-card); font-size: 12px; }
+.chart-tooltip__time { display: block; margin-bottom: 4px; color: var(--muted); }
+.chart-tooltip__row { display: flex; justify-content: space-between; gap: 12px; }
+.chart-tooltip__row i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; }
