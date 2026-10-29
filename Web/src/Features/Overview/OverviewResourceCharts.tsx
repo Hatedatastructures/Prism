@@ -11,14 +11,15 @@ import { WithTime } from '../TimeRange';
 import { useAdminQuery, useAdminServices } from '../UseOperations';
 
 /** @brief 仅连接已核验实例的概览快照；页面离开后丢弃本地采样。 */
-export function OverviewResourceCharts(Input: Readonly<{ Params: URLSearchParams }>): ReactNode {
+export function OverviewResourceCharts(Input: Readonly<{ Params: URLSearchParams; Process: Readonly<{ Id: string; GenerationId: string }> }>): ReactNode {
     const Services = useAdminServices();
     const Query = useAdminQuery('overview-resource-sample', ReadResourceSample, { Scope: [Services.Mode] });
     const [History, SetHistory] = useState<ResourceHistory | null>(null);
     const Last = useRef<{ Scope: string; Time: number } | null>(null);
     const Gap = useRef(false);
     const Data = Query.data;
-    const Scope = Data ? JSON.stringify([Data.Identity.InstanceKey, Data.Identity.Incarnation, Data.Snapshot.Process.Id, Data.Snapshot.Process.GenerationId]) : null;
+    const MatchesOverview = !!Data && Data.Snapshot.Process.Id === Input.Process.Id && Data.Snapshot.Process.GenerationId === Input.Process.GenerationId;
+    const Scope = Data && MatchesOverview ? JSON.stringify([Data.Identity.InstanceKey, Data.Identity.Incarnation, Data.Snapshot.Process.Id, Data.Snapshot.Process.GenerationId]) : null;
     useEffect(() => {
         if (Services.Mode !== 'demo') return;
         const Timer = window.setInterval(() => { void Query.refetch(); }, 5000);
@@ -35,12 +36,13 @@ export function OverviewResourceCharts(Input: Readonly<{ Params: URLSearchParams
         Gap.current = false;
     }, [Data, Query.error, Scope]);
     const Current = History?.Scope === Scope ? History : null;
-    const Snapshot = Data?.Snapshot;
+    const Snapshot = MatchesOverview ? Data?.Snapshot : undefined;
     const Latency = Snapshot?.Latency.RecognitionAdmission;
     const P95 = Latency?.Available && Latency.P95Ms !== null ? `${FormatCount(Latency.P95Ms)} ms` : '未采集';
     const Rss = Snapshot?.Memory.ProcessAvailable && Snapshot.Memory.ProcessRssBytes !== null ? FormatBytes(Snapshot.Memory.ProcessRssBytes) : '未采集';
-    const State = Query.error ? Data ? '读取失败，显示上次成功采样' : '采样读取失败' : Query.isPending ? '正在读取采样' : `本页采样 ${Current?.Samples.length ?? 0} 次`;
+    const State = !MatchesOverview && Data ? '指标与资源快照的进程或代次不同，已隐藏这些指标' : Query.error ? Data ? '读取失败，显示上次成功采样' : '采样读取失败' : Query.isPending ? '正在读取采样' : `本页采样 ${Current?.Samples.length ?? 0} 次`;
     return <>
+        {!MatchesOverview && Data && <p role="status">指标与资源快照的进程或代次不同，已隐藏这些指标。</p>}
         <TrendCard Title="延迟趋势" Value={P95} Detail={Latency?.Available ? `识别准入 P95 桶下界 · ${FormatCount(Latency.SampleCount)} 个累计样本` : '识别准入暂无可用样本'}
             State={State} Points={Current?.Points ?? []} Samples={Current?.Samples.length ?? 0} Kind="latency" Params={Input.Params} />
         <TrendCard Title="进程 RSS" Value={Rss} Detail="当前进程驻留内存" State={State} Points={Current?.Points ?? []}

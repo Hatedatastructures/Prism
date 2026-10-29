@@ -3,65 +3,71 @@ import { expect, test, type Page } from '@playwright/test';
 const Timestamp = '2026-10-17T00:00:00.000Z';
 const TrafficZero = { up_bytes: '0', down_bytes: '0', events: '0', errors: '0' };
 
-test('入口流量选择与协议趋势选择保留桌面工作区上下文', async ({ page }) => {
+test('入口与协议历史保留选择身份和时间范围', async ({ page }) => {
     await page.goto('/ingresses?source=demo&range=1h');
-    const Entry = page.getByRole('button', { name: '查看 tcp-main 流量', exact: true }).filter({ visible: true });
+    const Entry = page.getByRole('button', { name: /tcp-main/ });
     await Entry.click();
-    await expect(Entry).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('heading', { name: 'tcp-main 接入流量历史', exact: true })).toBeVisible();
+    const EntryDetails = page.getByRole('region', { name: 'tcp-main 入口详情', exact: true });
+    await expect(EntryDetails).toBeVisible();
+    await expect(EntryDetails.getByText('TCP 上下行速率', { exact: true })).toBeVisible();
+    await expect(EntryDetails.getByText('识别准入延迟', { exact: true })).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('ingress')).toBe('tcp-main');
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
     await Entry.click();
     expect(new URL(page.url()).searchParams.has('ingress')).toBe(false);
     expect(new URL(page.url()).searchParams.get('source')).toBe('demo');
 
     await page.goto('/protocols?source=demo&range=1h');
-    await page.getByRole('tab', { name: '流量趋势', exact: true }).click();
-    await page.getByRole('combobox', { name: '选择趋势协议', exact: true }).click();
-    await page.getByRole('option', { name: 'VLESS · vless', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'VLESS 类型流量', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'vless 实例流量', exact: true })).toBeVisible();
-    expect(new URL(page.url()).searchParams.get('protocol_view')).toBe('trends');
+    const ProtocolTable = page.getByRole('table', { name: '协议类型运行明细表', exact: true });
+    await ProtocolTable.getByRole('row').filter({ hasText: 'VLESS' }).getByRole('button').click();
+    const ProtocolDetails = page.getByRole('region', { name: 'VLESS 协议详情', exact: true });
+    await expect(ProtocolDetails.getByText('VLESS 上下行速率', { exact: true })).toBeVisible();
+    await expect(ProtocolDetails.getByText('VLESS 识别准入延迟', { exact: true })).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('protocol')).toBe('vless');
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
     await page.reload();
-    await expect(page.getByRole('combobox', { name: '选择趋势协议', exact: true })).toContainText('VLESS');
+    await expect(page.getByRole('region', { name: 'VLESS 协议详情', exact: true })).toBeVisible();
 });
 
-test('用户组趋势在所选组内查看，身份说明弹层关闭后恢复焦点', async ({ page }) => {
+test('用户组活动范围限于已载入关系，Session 深链按完整身份核验', async ({ page }) => {
     await page.goto('/user-groups?source=demo&group=group-core&mobile_view=detail');
-    await page.getByRole('tab', { name: '组趋势', exact: true }).click();
-    await expect(page.getByRole('heading', { name: '核心线路 · group-core 流量历史', exact: true })).toBeVisible();
-    await page.getByRole('tab', { name: '概览 / 成员', exact: true }).click();
-    await expect(page.locator('.group-member')).toContainText('northstar');
+    const GroupInspector = page.getByRole('region', { name: '用户组详情', exact: true });
+    await GroupInspector.getByRole('tab', { name: '活动范围', exact: true }).click();
+    await expect(GroupInspector).toContainText('历史期间的组归属不由当前接口追溯');
+    await GroupInspector.getByRole('tab', { name: /成员/ }).click();
+    await expect(GroupInspector.getByRole('table')).toContainText('northstar');
     await page.goto('/sessions?source=demo&session=session-1001&process=PRISM-DEMO-01&identity_worker=worker-01&identity_account=acct-northstar&generation=42');
-    const Identity = page.getByRole('button', { name: '完整身份', exact: true });
-    await Identity.click();
-    await expect(page.getByRole('dialog', { name: '完整身份', exact: true })).toContainText('acct-northstar');
-    await page.keyboard.press('Escape');
-    await expect(Identity).toBeFocused();
-    await expect(page.getByRole('dialog', { name: '完整身份', exact: true })).toHaveCount(0);
+    const SessionDetails = page.getByRole('region', { name: 'Session session-1001 详情', exact: true });
+    await expect(SessionDetails).toContainText('认证身份');
+    await expect(SessionDetails).toContainText('northstar');
+    await expect(SessionDetails).toContainText('acct-northstar');
+    await expect(SessionDetails).toContainText('worker-01');
+    await expect(SessionDetails).toContainText('Generation 42');
 });
 
-test('配置长文档行号跟随滚动，编辑仍产生准确差异', async ({ page }) => {
+test('配置长文档可滚动，编辑会显示准确差异', async ({ page }) => {
     await page.goto('/configuration?source=demo');
     const Editor = page.getByRole('textbox', { name: '配置 JSON', exact: true });
     await expect(Editor).toContainText('WorkerCount');
     await Editor.focus();
     await page.keyboard.press('Control+End');
     await expect.poll(async () => Editor.evaluate(Element => (Element as HTMLTextAreaElement).scrollTop)).toBeGreaterThan(0);
-    await expect.poll(async () => page.locator('.configuration-code-body').evaluate(Element => Math.abs(
-        Element.querySelector('textarea')!.scrollTop - Element.querySelector('.configuration-line-numbers')!.scrollTop))).toBeLessThanOrEqual(1);
     await Editor.fill((await Editor.inputValue()).replace('"WorkerCount": 4', '"WorkerCount": 5'));
-    const Difference = page.locator('.configuration-change').filter({ hasText: 'Runtime' });
-    await Difference.locator('summary').click();
-    await expect(Difference.locator('pre').first()).toContainText('"WorkerCount": 4');
-    await expect(Difference.locator('pre').last()).toContainText('"WorkerCount": 5');
+    const Difference = page.getByRole('table').getByRole('row').filter({ hasText: 'Runtime' });
+    await expect(Difference).toContainText('"WorkerCount": 4');
+    await expect(Difference).toContainText('"WorkerCount": 5');
     await expect(page.getByRole('button', { name: '应用配置', exact: true })).toBeDisabled();
 });
 
 test('低计数任务趋势使用不重复的整数刻度', async ({ page }) => {
     await page.goto('/workers?source=demo');
-    if ((page.viewportSize()?.width ?? 0) <= 767) await page.locator('.worker-mobile-card .table-link').first().click();
-    const Labels = page.locator('.history-plot-active .time-series-chart__axis > text[text-anchor="end"]');
+    const WorkerDirectory = page.getByRole('region', { name: 'Worker 清单', exact: true });
+    const WorkerTable = WorkerDirectory.getByRole('table', { name: 'Worker 列表', exact: true });
+    if ((page.viewportSize()?.width ?? 0) <= 767) await WorkerTable.getByRole('row').nth(1).click();
+    const WorkerDetail = page.getByRole('region', { name: 'Worker 详情', exact: true });
+    await WorkerDetail.getByRole('tab', { name: '连接与账户', exact: true }).click();
+    const WorkerChart = page.getByRole('group', { name: /演示模拟的 Worker 活动连接与唯一账户趋势/ });
+    const Labels = WorkerChart.locator('.time-series-chart__axis > text[text-anchor="end"]');
     await expect(Labels.nth(0)).toHaveText('0');
     await expect(Labels.nth(1)).toHaveText('1');
     await expect(Labels.nth(2)).toHaveText('2');
@@ -72,21 +78,22 @@ test('错误 JSON 不会显示为零差异且修复后恢复比较', async ({ pa
     const Editor = page.getByRole('textbox', { name: '配置 JSON', exact: true });
     const Original = await Editor.inputValue();
     await Editor.fill('{ invalid');
-    await expect(page.locator('.configuration-status-bar')).toContainText('JSON 格式错误');
-    await expect(page.locator('.configuration-diff-panel')).toContainText('暂时无法比较差异');
-    await expect(page.locator('.configuration-diff-panel')).not.toContainText('暂无字段差异');
+    await expect(page.getByRole('alert').filter({ hasText: 'JSON 格式错误' })).toBeVisible();
+    await expect(page.getByText('修正 JSON 后查看差异', { exact: true })).toBeVisible();
+    await expect(page.getByText('草稿格式有误；校验与应用已暂停。', { exact: true })).toBeVisible();
+    await expect(page.getByText(/暂无字段差异/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: '校验草稿', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: '应用配置', exact: true })).toBeDisabled();
     await Editor.fill(Original);
-    await expect(page.locator('.configuration-status-bar')).toContainText('与快照一致');
-    await expect(page.locator('.configuration-diff-panel')).toContainText('暂无字段差异');
+    await expect(page.getByText('与运行配置一致', { exact: true })).toBeVisible();
+    await expect(page.getByText(/暂无字段差异/)).toBeVisible();
 });
 
 test('清除入口定位只移除定位参数并保留演示与时间范围', async ({ page }) => {
-    await page.goto('/ingresses?source=demo&range=1h&ingress=ingress-tcp&transport=tcp');
-    await expect(page.getByRole('button', { name: '清除定位', exact: true })).toBeVisible();
-
-    await page.getByRole('button', { name: '清除定位', exact: true }).click();
+    await page.goto('/ingresses?source=demo&range=1h&ingress=tcp-main&transport=tcp');
+    const Selected = page.getByRole('button', { name: /tcp-main/ });
+    await expect(Selected).toBeVisible();
+    await Selected.click();
 
     const CurrentUrl = new URL(page.url());
     expect(CurrentUrl.searchParams.get('ingress')).toBeNull();
@@ -99,43 +106,30 @@ test('入口身份、承载与协议集中在单一记录，不重复展示能�
     await page.goto('/ingresses?source=demo');
     const Width = page.viewportSize()?.width ?? 0;
     await expect(page.getByRole('heading', { name: '配置覆盖', exact: true })).toHaveCount(0);
-    if (Width > 767) {
-        await expect(page.getByRole('columnheader', { name: '入口', exact: true })).toBeVisible();
-        await expect(page.getByRole('columnheader', { name: '承载 / 协议', exact: true })).toBeVisible();
-        await expect(page.locator('.ingress-table tbody tr').first().getByText('tcp-main', { exact: true })).toBeVisible();
-    } else {
-        const FirstIngress = page.locator('.ingress-mobile-list .ingress-mobile-card').first();
-        await expect(FirstIngress.getByText('承载方式', { exact: true })).toBeVisible();
-        await expect(FirstIngress.getByText('tcp-main', { exact: true })).toBeVisible();
-    }
+    const IngressTable = page.getByRole('table');
+    await expect(IngressTable.getByRole('columnheader', { name: '传输 / 入口 ID', exact: true })).toBeVisible();
+    await expect(IngressTable.getByRole('columnheader', { name: '承载方式', exact: true })).toBeVisible();
+    const FirstIngress = IngressTable.getByRole('row').filter({ hasText: 'tcp-main' });
+    await expect(FirstIngress).toContainText('TCP');
+    await expect(FirstIngress).toContainText('tcp-main');
+    const PageWidth = await page.locator('body').evaluate(Element => Element.scrollWidth);
+    expect(PageWidth).toBeLessThanOrEqual(Width);
     await page.screenshot({ path: `../build/WebQa/ingresses-${Width}.png`, fullPage: true });
 });
 
 test('概览按工作目标分组，并从运行状态开始', async ({ page }) => {
     await page.goto('/?source=demo');
 
-    await expect(page.getByRole('tab', { name: /实时运行/ })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('heading', { name: '网络流量', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '运行概览', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: '运行趋势', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: '连接活动', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Worker 运行面', exact: true })).toHaveCount(0);
-
-    const EvidenceButton = page.getByRole('button', { name: '查看依据', exact: true });
-    await EvidenceButton.click();
-    const Evidence = page.getByRole('dialog', { name: '查看依据', exact: true });
-    await expect(Evidence).toContainText('接入状态依据');
-    await expect(Evidence).toContainText('诊断记录');
-    await page.keyboard.press('Escape');
-    await expect(Evidence).toHaveCount(0);
-    await expect(EvidenceButton).toBeFocused();
-
-    await page.getByRole('tab', { name: /代理资源/ }).click();
-    await expect(page.getByRole('heading', { name: 'Worker 运行面', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '协议分布', exact: true })).toBeVisible();
-
-    await page.getByRole('tab', { name: /诊断记录/ }).click();
-    await expect(page.getByRole('heading', { name: '事件首批样本', exact: true })).toBeVisible();
-    await expect(page.getByText('事件游标从较早序号开始；此处不代表最新事件')).toBeVisible();
-    await expect(page.getByRole('heading', { name: '观测质量', exact: true })).toBeVisible();
+    const IngressAndScheduling = page.getByRole('region', { name: '入口和调度', exact: true });
+    await expect(IngressAndScheduling.getByRole('heading', { name: '监听端口', exact: true })).toBeVisible();
+    await expect(IngressAndScheduling.getByRole('heading', { name: 'Worker 调度', exact: true })).toBeVisible();
+    const AccountsAndProtocols = page.getByRole('region', { name: '账户和协议', exact: true });
+    await expect(AccountsAndProtocols.getByRole('heading', { name: '账户使用', exact: true })).toBeVisible();
+    await expect(AccountsAndProtocols.getByRole('heading', { name: '协议使用', exact: true })).toBeVisible();
 });
 
 test('实时 Session 可暂停列表轮询并说明活动快照的游标范围', async ({ page }) => {
@@ -144,10 +138,11 @@ test('实时 Session 可暂停列表轮询并说明活动快照的游标范围',
 
     await expect(page.getByText('当前接口按 ID 从早到晚分页；已结束的短连接不在活动清单中，较新的活动连接需继续载入。')).toBeVisible();
     await page.screenshot({ path: `../build/WebQa/sessions-live-${page.viewportSize()?.width ?? 0}.png`, fullPage: true });
-    await expect(page.getByRole('button', { name: '暂停列表更新' })).toHaveAttribute('aria-pressed', 'false');
-    await page.getByRole('button', { name: '暂停列表更新' }).click();
-    await expect(page.getByRole('button', { name: '恢复自动更新' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.session-refresh-status')).toContainText('自动刷新已暂停');
+    const Pause = page.getByRole('button', { name: '暂停刷新', exact: true });
+    await expect(Pause).toHaveAttribute('aria-pressed', 'false');
+    await Pause.click();
+    await expect(page.getByRole('button', { name: '继续刷新', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('alert')).toContainText('自动刷新已暂停');
     expect(Mock.Unexpected).toEqual([]);
     expect(Mock.Mutations).toEqual([]);
 });
@@ -155,89 +150,72 @@ test('实时 Session 可暂停列表轮询并说明活动快照的游标范围',
 test('实时资源页不请求未开放的历史接口', async ({ page }) => {
     const Mock = await InstallSessionOperationsMock(page);
     await page.goto('/resources?source=live');
-    await expect(page.getByText('当前接口未提供 RSS、PMR 或 BytePool 的历史采样；页面只展示本次快照、峰值和累计计数。', { exact: true })).toBeVisible();
+    await expect(page.getByText('实时资源采样', { exact: true })).toBeVisible();
+    await expect(page.getByText('本页已采集 1 个快照；断线不连接曲线。', { exact: true })).toBeVisible();
     await expect(page.getByText('此实例未开放窗口历史')).toHaveCount(0);
     await expect(page.getByRole('combobox', { name: '分析时间范围', exact: true })).toHaveCount(0);
     await expect(page.locator('.resource-snapshot-meta')).toContainText(/采样间隔\s*5,000 ms/);
-    await expect(page.locator('.resource-quality-section').first()).toContainText('BytePool 分配 / 释放');
+    await expect(page.getByText('BytePool 容量', { exact: true }).locator('xpath=../..'))
+        .toContainText('分配 / 释放');
     await page.screenshot({ path: '../build/WebQa/resources-live-unsupported.png', fullPage: true });
     expect(Mock.Unexpected).toEqual([]);
 });
 
 test('Worker 分配口径在区块内统一说明，不重复占用每一行', async ({ page }) => {
     await page.goto('/resources?source=demo');
-    await expect(page.locator('.resource-worker-table thead th')).toHaveText(['Worker', '当前', '峰值', '分配次数', '释放次数']);
-    const Scope = page.getByRole('button', { name: '统计范围', exact: true });
-    await expect(Scope).toHaveCount(1);
-    await Scope.click();
-    await expect(page.getByRole('dialog', { name: '统计范围', exact: true }))
-        .toContainText('仅计通过 WorkerResources TrackingResource');
+    const WorkerRegion = page.getByRole('region', { name: 'Worker 受追踪分配表', exact: true });
+    const WorkerTable = WorkerRegion.getByRole('table', { name: 'Worker 受追踪分配表', exact: true });
+    await expect(WorkerTable.locator('thead th')).toHaveText(['Worker', '当前请求量', '峰值请求量', '成功分配次数', '释放次数', '统计范围']);
+    await expect(WorkerRegion.getByRole('button', { name: '统计范围', exact: true })).toHaveCount(0);
+    const RowScope = WorkerTable.locator('tbody tr').first().getByText('范围', { exact: true });
+    await RowScope.click();
+    await expect(WorkerTable.locator('tbody tr').first()).toContainText('仅计通过 WorkerResources TrackingResource');
+    const ProcessScope = page.getByText('Process PMR 调用与统计范围', { exact: true });
+    await ProcessScope.click();
+    await expect(ProcessScope.locator('xpath=..')).toContainText('峰值');
 });
 
-test('桌面 Worker 工作区并列显示目录与详情，对比表独立切换', async ({ page }, TestInfo) => {
+test('桌面 Worker 清单与选中详情保持身份对应', async ({ page }, TestInfo) => {
     const Width = page.viewportSize()?.width ?? 0;
     test.skip(Width <= 1180, '桌面主从布局只在桌面断点验收。');
     await page.goto('/workers?source=demo');
 
-    const Workspace = page.locator('.worker-desktop-workspace');
-    const Directory = page.locator('.worker-list-responsive');
-    const Inspector = page.locator('.worker-detail-responsive');
-    await expect(page.getByRole('tab', { name: '工作区', exact: true })).toHaveAttribute('aria-selected', 'true');
+    const Directory = page.getByRole('region', { name: 'Worker 清单', exact: true });
+    const Inspector = page.getByRole('region', { name: 'Worker 详情', exact: true });
     await expect(Directory).toBeVisible();
     await expect(Inspector).toBeVisible();
-    await expect(Directory.locator('.worker-directory-card')).toHaveCount(4);
-    await expect(page.locator('.worker-mobile-list')).toBeHidden();
-    await expect(Inspector.locator('.worker-inspector')).toContainText('worker-01');
+    const WorkerTable = Directory.getByRole('table', { name: 'Worker 列表', exact: true });
+    await expect(WorkerTable.locator('tbody tr')).toHaveCount(4);
+    await expect(Inspector.getByRole('heading', { name: 'worker-01', exact: true })).toBeVisible();
 
     const DirectoryBounds = await Directory.boundingBox();
     const InspectorBounds = await Inspector.boundingBox();
     expect(DirectoryBounds).not.toBeNull();
     expect(InspectorBounds).not.toBeNull();
-    expect(DirectoryBounds!.x).toBeLessThan(InspectorBounds!.x);
-    expect(Math.abs(DirectoryBounds!.y - InspectorBounds!.y)).toBeLessThanOrEqual(1);
     expect(DirectoryBounds!.width).toBeGreaterThanOrEqual(300);
-    expect(InspectorBounds!.width).toBeGreaterThan(DirectoryBounds!.width);
-    const ChartColumns = await Inspector.locator('.analysis-split').evaluate(Element =>
-        getComputedStyle(Element).gridTemplateColumns.trim().split(/\s+/).length);
-    expect(ChartColumns).toBe(Width <= 1320 ? 1 : 2);
+    expect(InspectorBounds!.width).toBeGreaterThanOrEqual(300);
+    expect(DirectoryBounds!.x + DirectoryBounds!.width).toBeLessThanOrEqual(Width + 1);
+    expect(InspectorBounds!.x + InspectorBounds!.width).toBeLessThanOrEqual(Width + 1);
 
     await page.screenshot({ path: TestInfo.outputPath(`worker-workspace-${Width}.png`), fullPage: true, animations: 'disabled' });
-    await page.getByRole('tab', { name: '完整对比', exact: true }).click();
-    await expect(page.locator('.worker-comparison-table-scroll')).toBeVisible();
-    expect(new URL(page.url()).searchParams.get('worker_view')).toBe('compare');
-
-    await page.locator('.worker-comparison-table tbody tr').nth(1).getByRole('button').click();
-    await expect(page.getByRole('tab', { name: '工作区', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await WorkerTable.getByRole('row').filter({ hasText: 'worker-02' }).click();
     await expect(page.getByRole('heading', { name: 'worker-02', exact: true })).toBeVisible();
-    expect(new URL(page.url()).searchParams.has('worker_view')).toBe(false);
-
-    await page.getByRole('tab', { name: '完整对比', exact: true }).click();
-    await page.getByRole('tab', { name: '工作区', exact: true }).click();
-    await expect(Directory).toBeVisible();
-    await expect(Inspector).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'worker-02', exact: true })).toBeVisible();
-    expect(new URL(page.url()).searchParams.has('worker_view')).toBe(false);
+    expect(new URL(page.url()).searchParams.get('worker')).toBe('worker-02');
 });
 
 test('Session 阶段按紧凑可展开行呈现，身份和真实证据仍可核对', async ({ page }, TestInfo) => {
     test.skip((page.viewportSize()?.width ?? 0) <= 767, 'Session 时间线只在桌面详情视图中展示。');
     await page.goto('/sessions?source=demo');
-    const Stages = page.locator('.trace-event');
-    await expect(Stages).toHaveCount(6);
-    await expect(Stages.first().locator('summary')).toBeVisible();
-    await expect(Stages.first()).not.toHaveAttribute('open', '');
-    await expect(Stages.first()).toContainText('入口接收');
-    await expect(Stages.first().locator('.trace-event-offset')).toContainText('自 TCP 接入');
-    await expect(Stages.first()).toContainText('耗时未提供');
+    const SessionTable = page.getByRole('table', { name: 'Session 列表', exact: true });
+    await SessionTable.getByRole('row').nth(1).getByRole('button').click();
+    const Inspector = page.getByRole('region', { name: /^Session .* 详情$/ });
+    await Inspector.getByRole('tab', { name: /阶段/ }).click();
+    const TraceTable = Inspector.getByRole('table');
+    await expect(TraceTable.locator('tbody tr')).toHaveCount(6);
+    await expect(TraceTable.locator('tbody tr').first()).toContainText('入口接收');
+    await expect(TraceTable.getByRole('columnheader', { name: '阶段 / Span', exact: true })).toBeVisible();
+    await expect(TraceTable.getByRole('columnheader', { name: '关联资源', exact: true })).toBeVisible();
     await page.screenshot({ path: TestInfo.outputPath('session-trace-compact.png'), fullPage: true, animations: 'disabled' });
-
-    const FirstSummary = Stages.first().locator('summary');
-    await FirstSummary.focus();
-    await page.keyboard.press('Enter');
-    await expect(Stages.first()).toHaveAttribute('open', '');
-    await expect(Stages.first()).toContainText('Span');
-    await expect(Stages.first()).toContainText('事件序号');
-    await expect(Stages.first()).toContainText('Worker');
 });
 
 test('全局资源搜索先核对能力，不向未开放的接口发送请求', async ({ page }) => {
@@ -246,58 +224,62 @@ test('全局资源搜索先核对能力，不向未开放的接口发送请求',
     await page.keyboard.press('Control+k');
     await expect(page.getByRole('dialog', { name: '搜索资源' })).toBeVisible();
     await page.getByRole('combobox', { name: '资源搜索关键字' }).fill('northstar');
-    await expect(page.getByText('此实例未开放全局资源搜索；可以尝试页面名称。', { exact: true })).toBeVisible();
-    await expect(page.getByText('当前实例未开放全局资源搜索；可搜索页面名称', { exact: true })).toBeVisible();
+    await expect(page.getByText('服务端未开放全局搜索；请尝试页面名称。', { exact: true })).toBeVisible();
+    await expect(page.getByText('当前实例未开放全局资源搜索；仍可搜索页面', { exact: true })).toBeVisible();
     expect(Mock.Unexpected).toEqual([]);
 });
 
 test('协议类型运行表同时显示绑定、活动数、累计流量与覆盖范围', async ({ page }, TestInfo) => {
     await page.goto('/protocols?source=demo');
-    await expect(page.getByRole('heading', { name: '协议类型运行明细', exact: true })).toBeVisible();
+    await expect(page.getByText('协议与配置', { exact: true })).toBeVisible();
     const TypeTable = page.getByRole('region', { name: '协议类型运行明细表，可横向滚动查看覆盖范围', exact: true });
     await expect(TypeTable.locator('tbody tr')).toHaveCount(4);
-    await expect(TypeTable).toContainText('配置绑定');
-    await expect(TypeTable).toContainText('活动 TCP Session');
+    await expect(TypeTable).toContainText('绑定数');
+    await expect(TypeTable).toContainText('活动 Session');
     await expect(TypeTable).toContainText('累计上行');
     await expect(TypeTable).toContainText('统计覆盖');
     await expect(TypeTable).toContainText('按已接受 TCP Session 归属');
     await expect(page.getByRole('tab', { name: /配置实例/ })).toHaveCount(0);
     await page.screenshot({ path: TestInfo.outputPath('protocol-overview-desktop.png'), animations: 'disabled' });
-    const PreviewSearch = page.getByRole('searchbox', { name: '搜索协议类型' });
+    const PreviewSearch = page.getByRole('textbox', { name: '搜索协议', exact: true });
     await PreviewSearch.fill('VLESS');
     await expect(TypeTable.locator('tbody tr')).toHaveCount(1);
     await expect(TypeTable.locator('tbody tr')).toContainText('VLESS');
     expect(new URL(page.url()).searchParams.get('protocol_q')).toBe('VLESS');
     await PreviewSearch.fill('没有这个协议');
-    await expect(page.getByText('当前已载入范围没有匹配的协议类型', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '清除搜索协议类型' }).click();
+    await expect(page.getByText('当前范围没有协议', { exact: true })).toBeVisible();
+    await PreviewSearch.fill('');
     await expect(PreviewSearch).toBeFocused();
     await expect(TypeTable.locator('tbody tr')).toHaveCount(4);
-    await page.getByRole('tab', { name: '流量趋势' }).click();
-    await expect(page.locator('.analysis-split')).toBeVisible();
-    await expect(page.locator('.history-plot-traffic .time-series-chart__axis text')
-        .filter({ hasText: /\/s$/ }).first()).toBeVisible();
+    await TypeTable.getByRole('row').filter({ hasText: 'VLESS' }).getByRole('button').click();
+    const VlessDetails = page.getByRole('region', { name: 'VLESS 协议详情', exact: true });
+    await expect(VlessDetails.getByText('VLESS 上下行速率', { exact: true })).toBeVisible();
+    await expect(VlessDetails.getByText('VLESS 识别准入延迟', { exact: true })).toBeVisible();
 });
 
 test('手机端事件、Worker、资源和协议使用完整记录组件', async ({ page }) => {
     test.skip((page.viewportSize()?.width ?? 0) > 767, '记录卡片只替代窄屏下的横向数据表。');
     await page.goto('/events?source=demo');
-    await expect(page.locator('.event-desktop-table')).toBeHidden();
-    await expect(page.locator('.event-mobile-list')).toBeVisible();
-    await expect(page.locator('.event-mobile-card')).toHaveCount(5);
-    const EventDetails = page.locator('.event-mobile-detail-button').first();
+    const EventTable = page.getByRole('table');
+    await expect(EventTable).toBeVisible();
+    await expect(EventTable.locator('tbody tr')).toHaveCount(5);
+    const EventDetails = EventTable.getByRole('button', { name: '详情', exact: true }).first();
     await EventDetails.click();
-    await expect(EventDetails).toHaveAttribute('aria-expanded', 'true');
+    const ExpandedEvent = EventTable.getByRole('button', { name: '收起', exact: true }).first();
+    await expect(ExpandedEvent).toHaveAttribute('aria-expanded', 'true');
+    await expect(EventTable).toContainText('类型 / 范围');
 
     await page.goto('/workers?source=demo');
-    await expect(page.locator('.worker-comparison-table-scroll')).toBeHidden();
-    await expect(page.locator('.worker-mobile-list')).toBeVisible();
-    await expect(page.locator('.worker-mobile-card')).toHaveCount(4);
+    const WorkerDirectory = page.getByRole('region', { name: 'Worker 清单', exact: true });
+    await expect(WorkerDirectory.getByRole('table', { name: 'Worker 列表', exact: true }).locator('tbody tr')).toHaveCount(4);
+    await expect(page.getByRole('region', { name: 'Worker 详情', exact: true })).toBeHidden();
 
     await page.goto('/resources?source=demo');
-    await expect(page.locator('.resource-worker-table')).toBeHidden();
-    await expect(page.locator('.resource-worker-cards')).toBeVisible();
-    await expect(page.locator('.resource-worker-card')).toHaveCount(4);
+    const ResourceWorkers = page.getByRole('region', { name: 'Worker 受追踪分配表', exact: true });
+    await expect(ResourceWorkers).toBeVisible();
+    await expect(ResourceWorkers.getByRole('table', { name: 'Worker 受追踪分配表', exact: true })).toBeVisible();
+    const ResourcePageWidth = await page.locator('body').evaluate(Element => Element.scrollWidth);
+    expect(ResourcePageWidth).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
     await expect(page.locator('.detail-kv dt', { hasText: '进程工作集' })).toHaveCount(0);
 
     await page.goto('/protocols?source=demo');
@@ -312,91 +294,97 @@ test('手机端主从页面切换视图时保留当前对象与列表筛选', as
     test.skip((page.viewportSize()?.width ?? 0) > 767, '主从视图切换只在窄屏下替代并排布局。');
 
     await page.goto('/accounts?source=demo&q=northstar');
-    await expect(page.locator('.account-layout[data-mobile-view="list"] .account-inspector')).toBeHidden();
-    await page.locator('.account-directory-table tbody tr').first().getByRole('button').click();
-    await expect(page.locator('.account-inspector')).toBeVisible();
-    await expect(page.locator('.account-directory-column')).toBeHidden();
-    await expect(page.locator('.mobile-master-back')).toBeFocused();
+    const AccountDirectory = page.getByRole('region', { name: '账户目录', exact: true });
+    const AccountInspector = page.getByRole('region', { name: '账户详情', exact: true });
+    await expect(AccountInspector).toBeHidden();
+    await page.getByRole('list', { name: '账户列表', exact: true }).getByRole('listitem').first().getByRole('button').click();
+    await expect(AccountInspector).toBeVisible();
+    await expect(AccountDirectory).toBeHidden();
+    await expect(page.getByRole('button', { name: '返回账户目录', exact: true })).toBeFocused();
     await page.getByRole('button', { name: '返回账户目录' }).click();
-    await expect(page.locator('.account-directory-column')).toBeVisible();
+    await expect(AccountDirectory).toBeVisible();
     await expect(page.locator('[data-mobile-master-list]')).toBeFocused();
     expect(new URL(page.url()).searchParams.get('q')).toBe('northstar');
     expect(new URL(page.url()).searchParams.get('account')).toBeTruthy();
 
     await page.goto('/sessions?source=demo');
-    await expect(page.locator('.session-inspector')).toBeHidden();
-    await page.locator('.session-item').first().click();
-    await expect(page.locator('.session-inspector')).toBeVisible();
-    await expect(page.locator('.mobile-master-back')).toBeFocused();
-    await expect(page.locator('.session-directory')).toBeHidden();
-    await expect(page.locator('.session-list-controls')).toBeHidden();
+    const SessionDirectory = page.getByRole('region', { name: 'Session 连接列表', exact: true });
+    const SessionInspector = page.getByRole('region', { name: /^Session .* 详情$/ });
+    await expect(SessionInspector).toBeHidden();
+    await SessionDirectory.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr').first().click();
+    await expect(SessionInspector).toBeVisible();
+    await expect(page.getByRole('button', { name: '返回连接列表', exact: true })).toBeFocused();
+    await expect(SessionDirectory).toBeHidden();
+    await expect(SessionDirectory.getByRole('searchbox', { name: '搜索 Session', exact: true })).toBeHidden();
     const SessionId = new URL(page.url()).searchParams.get('session');
     await page.getByRole('button', { name: '返回连接列表' }).click();
-    await expect(page.locator('.session-directory')).toBeVisible();
+    await expect(SessionDirectory).toBeVisible();
     await expect(page.locator('[data-mobile-master-list]')).toBeFocused();
     expect(new URL(page.url()).searchParams.get('session')).toBe(SessionId);
 
     await page.goto('/user-groups?source=demo');
-    await expect(page.locator('.group-inspector')).toBeHidden();
-    await page.locator('.group-select').first().click();
-    await expect(page.locator('.group-inspector')).toBeVisible();
-    await expect(page.locator('.group-directory-column')).toBeHidden();
-    await expect(page.locator('.mobile-master-back')).toBeFocused();
+    const GroupDirectory = page.getByRole('region', { name: '用户组目录', exact: true });
+    const GroupInspector = page.getByRole('region', { name: '用户组详情', exact: true });
+    await expect(GroupInspector).toBeHidden();
+    await GroupDirectory.getByRole('list', { name: '用户组列表', exact: true }).getByRole('listitem').first().getByRole('button').click();
+    await expect(GroupInspector).toBeVisible();
+    await expect(GroupDirectory).toBeHidden();
+    await expect(page.getByRole('button', { name: '返回分组目录', exact: true })).toBeFocused();
     const GroupId = new URL(page.url()).searchParams.get('group');
     await page.getByRole('button', { name: '返回分组目录' }).click();
-    await expect(page.locator('.group-directory-column')).toBeVisible();
+    await expect(GroupDirectory).toBeVisible();
     await expect(page.locator('[data-mobile-master-list]')).toBeFocused();
     expect(new URL(page.url()).searchParams.get('group')).toBe(GroupId);
 
     await page.goto('/workers?source=demo');
-    await expect(page.locator('.worker-detail-responsive')).toBeHidden();
-    await page.locator('.worker-mobile-card .table-link').first().click();
-    await expect(page.locator('.worker-detail-responsive')).toBeVisible();
-    await expect(page.locator('.worker-list-responsive')).toBeHidden();
-    await expect(page.locator('.mobile-master-back')).toBeFocused();
+    const WorkerDirectory = page.getByRole('region', { name: 'Worker 清单', exact: true });
+    const WorkerDetail = page.getByRole('region', { name: 'Worker 详情', exact: true });
+    await expect(WorkerDetail).toBeHidden();
+    await WorkerDirectory.getByRole('table', { name: 'Worker 列表', exact: true }).locator('tbody tr').first().click();
+    await expect(WorkerDetail).toBeVisible();
+    await expect(WorkerDirectory).toBeHidden();
+    await expect(page.getByRole('button', { name: '返回 Worker 列表', exact: true })).toBeFocused();
     const WorkerId = new URL(page.url()).searchParams.get('worker');
     await page.getByRole('button', { name: '返回 Worker 列表' }).click();
-    await expect(page.locator('.worker-list-responsive')).toBeVisible();
+    await expect(WorkerDirectory).toBeVisible();
     await expect(page.locator('[data-mobile-master-list]')).toBeFocused();
     expect(new URL(page.url()).searchParams.get('worker')).toBe(WorkerId);
 
     await page.goto('/operations?source=demo');
-    await expect(page.locator('.operation-layout[data-mobile-view="list"] .operation-list')).toBeVisible();
-    await page.locator('.operation-record').first().click();
-    await expect(page.locator('.operation-layout[data-mobile-view="detail"] .operation-list')).toBeHidden();
-    await expect(page.locator('.operation-inspector')).toBeVisible();
-    await expect(page.locator('.mobile-master-back')).toBeFocused();
-    await expect(page.locator('.operation-mobile-detail-nav')).toBeVisible();
-    await expect(page.locator('.operation-list-actions .button-quiet')).toBeHidden();
-    const OperationId = new URL(page.url()).searchParams.get('operation');
-    await page.getByRole('button', { name: '返回操作列表' }).click();
-    await expect(page.locator('.operation-list')).toBeVisible();
-    await expect(page.locator('[data-mobile-master-list]')).toBeFocused();
-    expect(new URL(page.url()).searchParams.get('operation')).toBe(OperationId);
+    const Operations = page.getByText('近期操作', { exact: true });
+    await expect(Operations.last()).toBeVisible();
+    const OperationTable = page.getByRole('table');
+    const OperationButton = OperationTable.getByRole('button').first();
+    const OperationName = (await OperationButton.innerText()).split('\n')[0];
+    await OperationButton.click();
+    expect(new URL(page.url()).searchParams.get('operation')).toBeTruthy();
+    await expect(page.getByText(OperationName, { exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: '结果', exact: true })).toBeVisible();
+    await expect(page.getByRole('tab', { name: '作用范围', exact: true })).toBeVisible();
 });
 
 test('Session 详情在列表缺页、刷新失败与空搜索时保持可见', async ({ page }) => {
     const Mock = await InstallSessionOperationsMock(page);
-    await page.goto('/sessions?session=55&process=42&identity_worker=7&identity_account=8&generation=6');
+    await page.goto('/sessions?source=live&session=55&process=42&identity_worker=7&identity_account=8&generation=6');
 
-    const Inspector = page.locator('.session-inspector');
-    await expect(Inspector.locator('h2')).toHaveText('55');
-    await expect(page.locator('.session-item .session-item-head strong')).toHaveText(['56']);
-    await expect(Inspector.locator('.session-selection-context')).toContainText('不在当前列表结果中');
+    const Width = page.viewportSize()?.width ?? 0;
+    const Inspector = page.getByRole('region', { name: /^Session .* 详情$/ });
+    await expect(Inspector.getByRole('heading', { level: 2 })).toHaveText('55');
+    await expect(Inspector.getByRole('note')).toContainText('不在当前列表结果中');
+    if (Width <= 767) await page.getByRole('button', { name: '返回连接列表', exact: true }).click();
+
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr').first().getByRole('button')).toHaveText(['56']);
 
     Mock.SetListUnavailable(true);
     await page.getByRole('button', { name: '刷新列表', exact: true }).click();
-    const StaleError = 'Session 列表查询刷新失败，当前仍显示上次成功读取的数据。';
-    const Width = page.viewportSize()?.width ?? 0;
-    if (Width <= 767) await expect(page.locator('.session-mobile-list-status')).toContainText('当前仍显示上次成功读取的 Session 快照。');
-    else await expect(page.getByText(StaleError, { exact: true })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: '当前仍显示上次成功读取的数据' })).toBeVisible();
     const RetrySessions = page.getByRole('button', { name: '重试读取', exact: true });
     await expect(RetrySessions).toBeVisible();
-    const Directory = page.locator('.session-directory');
-    await expect(Directory.locator('.session-item .session-item-head strong')).toHaveText(['56']);
-    await expect(Inspector.locator('h2')).toHaveText('55');
+    const Directory = page.getByRole('region', { name: 'Session 连接列表', exact: true });
+    await expect(Directory.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr').first().getByRole('button')).toHaveText(['56']);
 
     if (Width > 900) {
+        await expect(Inspector.getByRole('heading', { level: 2 })).toHaveText('55');
         const DirectoryBounds = await Directory.boundingBox();
         const InspectorBounds = await Inspector.boundingBox();
         expect(DirectoryBounds).not.toBeNull();
@@ -413,20 +401,20 @@ test('Session 详情在列表缺页、刷新失败与空搜索时保持可见', 
 
     Mock.SetListUnavailable(false);
     await RetrySessions.click();
-    await expect(page.getByText(StaleError, { exact: true })).toHaveCount(0);
-    await expect(Directory.locator('.session-item .session-item-head strong')).toHaveText(['56']);
+    await expect(page.getByRole('alert').filter({ hasText: '当前仍显示上次成功读取的数据' })).toHaveCount(0);
+    await expect(Directory.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr').first().getByRole('button')).toHaveText(['56']);
     const FilteredUrl = new URL(page.url());
     FilteredUrl.searchParams.set('q', 'no-session-matches-this');
     await page.goto(FilteredUrl.pathname + FilteredUrl.search);
 
-    await expect(Inspector.locator('h2')).toHaveText('55');
-    await expect(Inspector.locator('.session-selection-context')).toContainText('不在当前列表结果中');
+    await expect(Inspector.getByRole('heading', { level: 2 })).toHaveText('55');
+    await expect(Inspector.getByRole('note')).toContainText('不在当前列表结果中');
     if (Width <= 767) {
         await page.getByRole('button', { name: '返回连接列表' }).click();
-        await expect(page.getByText('没有匹配的 Session', { exact: true })).toBeVisible();
+        await expect(page.getByText('当前范围没有 Session', { exact: true })).toBeVisible();
         await expect(Inspector).toBeHidden();
     } else {
-        await expect(page.getByText('没有匹配的 Session', { exact: true })).toBeVisible();
+        await expect(page.getByText('当前范围没有 Session', { exact: true })).toBeVisible();
     }
     expect(Mock.Unexpected).toEqual([]);
     expect(Mock.Mutations).toEqual([]);

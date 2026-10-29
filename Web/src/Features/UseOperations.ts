@@ -20,11 +20,11 @@ export function useBootstrapIdentity(): UseQueryResult<BootstrapSnapshot, Error>
 export function useAdminQuery<Value>(
     Name: string,
     Load: (Source: AdminDataSource) => Promise<Value>,
-    Options: Readonly<{ Enabled?: boolean; Scope?: readonly unknown[] }> = {},
+    Options: Readonly<{ Enabled?: boolean; Scope?: readonly unknown[]; StaleTime?: number }> = {},
 ): UseQueryResult<Value, Error> {
     const Services = useAdminServices();
     return useQuery({ queryKey: ['operations', Name, ...(Options.Scope ?? [])], queryFn: () => Load(Services.Data),
-        enabled: Options.Enabled ?? true, retry: false, staleTime: 2_000,
+        enabled: Options.Enabled ?? true, retry: false, staleTime: Options.StaleTime ?? 2_000,
         refetchInterval: Services.Mode === 'live' ? 5_000 : false, refetchIntervalInBackground: false,
         refetchOnWindowFocus: true });
 }

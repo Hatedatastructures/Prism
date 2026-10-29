@@ -1,5 +1,5 @@
 /** @file 基于 Shadcn CommandDialog 的 Prism 全局资源搜索。 */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight, Cpu, LayoutDashboard, Network, Search, Users } from 'lucide-react';
@@ -30,13 +30,27 @@ export function ResourceSearch(Input: Readonly<{ Services: AdminServices }>): Re
     const [Open, SetOpen] = useState(false);
     const [Text, SetText] = useState('');
     const [Debounced, SetDebounced] = useState('');
+    const Trigger = useRef<HTMLButtonElement>(null);
+    const FocusRestore = useRef<HTMLElement | null>(null);
     const Navigate = useNavigate();
     const [Params] = useSearchParams();
+    const CaptureFocus = (): void => {
+        const Active = document.activeElement;
+        FocusRestore.current = Active instanceof HTMLElement && Active !== document.body ? Active : Trigger.current;
+    };
+    const SetDialogOpen = (Value: boolean): void => {
+        if (Value) CaptureFocus();
+        SetOpen(Value);
+    };
     useEffect(() => { const Timer = window.setTimeout(() => SetDebounced(Text.trim()), 250); return () => window.clearTimeout(Timer); }, [Text]);
     useEffect(() => {
         const Shortcut = (Event: KeyboardEvent): void => {
             if (Event.key.toLowerCase() !== 'k' || !(Event.ctrlKey || Event.metaKey)) return;
-            Event.preventDefault(); SetOpen(Value => !Value);
+            Event.preventDefault();
+            SetOpen(Value => {
+                if (!Value) CaptureFocus();
+                return !Value;
+            });
         };
         document.addEventListener('keydown', Shortcut);
         return () => document.removeEventListener('keydown', Shortcut);
@@ -55,10 +69,14 @@ export function ResourceSearch(Input: Readonly<{ Services: AdminServices }>): Re
         Detail: Entry.Kind === 'worker' ? `${Entry.Detail} · 当前 Worker 槽位` : Entry.Kind === 'account' ? `${Entry.Detail} · 查看当前账户` : Entry.Detail,
         Icon: Entry.Kind === 'worker' ? Cpu : Entry.Kind === 'account' ? Users : Network })) ?? [];
     const Status = !Debounced ? '输入关键字搜索页面和资源' : Bootstrap.error ? '无法确认服务端搜索能力；仍可搜索页面' : !SearchAvailable ? '当前实例未开放全局资源搜索；仍可搜索页面' : Query.isError ? Query.error.message : Query.isFetching ? '正在搜索服务端资源…' : `${Resources.length} 条服务端结果`;
-    return <><Button type="button" variant="outline" className="w-full justify-between text-muted-foreground" onClick={() => SetOpen(true)} aria-label="搜索资源">
-        <span className="flex items-center gap-2"><Search aria-hidden="true" />搜索资源…</span><CommandShortcut>Ctrl K</CommandShortcut>
+    return <><Button ref={Trigger} type="button" variant="outline" className="w-full justify-center px-0 text-muted-foreground xl:justify-between xl:px-3" onClick={() => SetDialogOpen(true)} aria-label="搜索资源">
+        <span className="flex items-center gap-2"><Search aria-hidden="true" /><span className="hidden xl:inline">搜索资源…</span></span><CommandShortcut className="hidden xl:inline">Ctrl K</CommandShortcut>
     </Button>
-        <CommandDialog open={Open} onOpenChange={SetOpen} title="搜索资源" description="搜索 Prism 页面和服务端资源。">
+        <CommandDialog open={Open} onOpenChange={SetDialogOpen} onCloseAutoFocus={Event => {
+            Event.preventDefault();
+            FocusRestore.current?.focus();
+            FocusRestore.current = null;
+        }} title="搜索资源" description="搜索 Prism 页面和服务端资源。">
             <Command loop label="资源搜索关键字" shouldFilter={false}><CommandInput value={Text} onValueChange={SetText} placeholder="搜索账户、Worker、Session 或页面…" aria-label="资源搜索关键字" />
                 <CommandList><CommandEmpty>{Debounced && !SearchAvailable ? '服务端未开放全局搜索；请尝试页面名称。' : '没有匹配资源，尝试名称、ID、来源或目标地址。'}</CommandEmpty>
                     {PageMatches.length > 0 && <CommandGroup heading="页面">{PageMatches.map(Entry => <SearchItem Value={Entry} OnSelect={Select} key={Entry.Id} />)}</CommandGroup>}

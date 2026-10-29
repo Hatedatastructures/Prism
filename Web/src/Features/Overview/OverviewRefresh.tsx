@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AlertCircle, Check, RefreshCw } from 'lucide-react';
+import { Button } from '@/Components/ui/button';
 
 type RefreshState = 'idle' | 'pending' | 'success' | 'error';
 
@@ -32,11 +33,11 @@ export function OverviewRefresh(Input: Readonly<{
     const StatusMessage = State === 'success' ? '刷新成功'
         : State === 'error' ? '刷新失败，请重试。' : '';
     return <>
-        <button type="button" className="button button-secondary overview-refresh-button"
+        <Button type="button" variant="outline" className="overview-refresh-button"
             data-refresh-state={State} disabled={Input.Busy || State === 'pending'}
             onClick={() => { void HandleRefresh(); }}>
-            <Icon size={15} className={State === 'pending' ? 'spin' : ''} aria-hidden="true" />{Label}
-        </button>
+            <Icon size={15} className={State === 'pending' ? 'animate-spin' : ''} aria-hidden="true" />{Label}
+        </Button>
         <span className="sr-only overview-refresh-feedback" role="status" aria-live="polite"
             aria-atomic="true">{StatusMessage}</span>
     </>;

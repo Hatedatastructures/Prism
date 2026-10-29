@@ -68,7 +68,13 @@ function SidebarProvider({
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
-  const [_open, _setOpen] = React.useState(defaultOpen)
+  const [_open, _setOpen] = React.useState(() => {
+    if (typeof document === "undefined") return defaultOpen
+    const SidebarCookie = document.cookie
+      .split("; ")
+      .find((Value) => Value.startsWith(`${SIDEBAR_COOKIE_NAME}=`))
+    return SidebarCookie ? SidebarCookie.endsWith("=true") : defaultOpen
+  })
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
@@ -184,6 +190,11 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
+          aria-modal="true"
+          onCloseAutoFocus={(Event) => {
+            Event.preventDefault()
+            document.querySelector<HTMLButtonElement>('[data-sidebar="trigger"]')?.focus()
+          }}
           className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
           style={
             {
@@ -193,8 +204,8 @@ function Sidebar({
           side={side}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            <SheetTitle>主导航</SheetTitle>
+            <SheetDescription>浏览 Prism 管理页面。</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>

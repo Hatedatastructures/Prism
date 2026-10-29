@@ -14,6 +14,7 @@ target_sources(ListenerLifecycleTest PRIVATE Listener/ListenerTestSupport.hpp)
 target_link_libraries(ListenerCapacityTest PRIVATE PrismFoundation PrismTransport PrismNet PrismRuntime PrismTestSupport)
 target_sources(ListenerCapacityTest PRIVATE Listener/ListenerTestSupport.hpp)
 target_link_libraries(ListenerAcceptRecoveryTest PRIVATE PrismFoundation PrismRuntime PrismTestSupport)
+target_include_directories(ListenerAcceptRecoveryTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(ListenerMuxShutdownTest PRIVATE
     PrismFoundation PrismIngressContract PrismIoContracts PrismNet PrismRuntime PrismTestSupport
     PrismTransport)

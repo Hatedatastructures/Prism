@@ -12,7 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/Components/ui/popover
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { Badge, EmptyState, FormatBytes, FormatCount, LoadMoreButton, PageHeader, QueryState, StatusBadge, ToneForState } from '../../Components/Ui';
+import { Badge, EmptyState, FormatBytes, FormatCount, LoadMoreButton, MobileMasterBack, PageHeader, QueryState, StatusBadge, ToneForState, useMobileMasterFocus } from '../../Components/Ui';
 import type { HistoryMetric, SessionRecord, WorkerRecord } from '../../Services/AdminDataSource';
 import { HistoryPanel } from '../HistoryPanel';
 import { TimeRangeControl, WithTime } from '../TimeRange';
@@ -26,6 +26,8 @@ type DelayMetric = Exclude<HistoryMetric, 'traffic'>;
 
 export default function WorkersPage(): ReactNode {
     const [Params, SetParams] = useSearchParams();
+    const [MobileView, SetMobileView] = useState<'list' | 'detail'>(() => Params.has('worker') ? 'detail' : 'list');
+    useMobileMasterFocus(MobileView);
     const [DrainDialogOpen, SetDrainDialogOpen] = useState(false);
     const Services = useAdminServices();
     const Bootstrap = useBootstrapIdentity();
@@ -75,6 +77,7 @@ export default function WorkersPage(): ReactNode {
         Next.set('process', Worker.ProcessId);
         Next.set('generation', Worker.GenerationId);
         SetParams(Next);
+        SetMobileView('detail');
     };
     const Refresh = async (): Promise<void> => { await Promise.all([Query.refetch(), Sessions.refetch(), Exact.refetch()]); };
     const ExecuteDrain = async (): Promise<void> => {
@@ -99,7 +102,7 @@ export default function WorkersPage(): ReactNode {
             <CompactReading Label="命令失败 · 累计" Value={Query.data ? FormatCount(Failures) : '—'} />
         </dl>
 
-        <Card className="min-w-0">
+        <div role="region" aria-label="Worker 清单" className={MobileView === 'detail' ? 'hidden md:block' : ''} data-mobile-master-list tabIndex={-1}><Card className="min-w-0">
             <CardHeader className="gap-3 pb-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div><CardTitle>Worker 清单</CardTitle><CardDescription>选择任一行；下面的会话和趋势会按该槽位的完整身份读取。</CardDescription></div>
@@ -121,8 +124,10 @@ export default function WorkersPage(): ReactNode {
                         <LoadMoreButton HasMore={Query.hasNextPage ?? false} Busy={Query.isFetchingNextPage} OnLoad={() => void Query.fetchNextPage()} />
                     </>} />
             </CardContent>
-        </Card>
+        </Card></div>
 
+        <div role="region" aria-label="Worker 详情" className={MobileView === 'list' ? 'hidden md:block' : ''}>
+        <div className="px-4 pt-4 md:hidden"><MobileMasterBack Label="返回 Worker 列表" OnClick={() => SetMobileView('list')} /></div>
         {Selected && <WorkerWorkspace key={`${Selected.ProcessId}:${Selected.GenerationId}:${Selected.Id}`} Worker={Selected} Identity={Identity} ExactPending={!!SelectedId && Exact.isPending}
             DemoMode={Services.Mode === 'demo'}
             Sessions={RelatedSessions} SessionPending={Sessions.isPending} SessionError={Sessions.error} SessionPartial={SessionPartial}
@@ -135,11 +140,12 @@ export default function WorkersPage(): ReactNode {
             OnDrain={ExecuteDrain} ResultError={Drain.error?.message} ResultMessage={Drain.data?.Message ?? null}
             QueryReady={Query.isSuccess && !Query.isFetching} BootstrapError={Bootstrap.error} />}
         {!Selected && <Card><CardContent className="py-10"><EmptyState Title="没有可显示的 Worker" Detail={Identity === 'verified' ? '先载入 Worker 清单。' : '深链目标未通过身份核验，不会用同号槽位代替原目标。'} /></CardContent></Card>}
+        </div>
     </div>;
 }
 
 function WorkerTable(Input: Readonly<{ Rows: readonly WorkerRecord[]; Selected: WorkerRecord | null; OnSelect: (Worker: WorkerRecord) => void }>): ReactNode {
-    return <Table className="min-w-[940px]"><TableHeader><TableRow>
+    return <Table aria-label="Worker 列表" className="min-w-[940px]"><TableHeader><TableRow>
         <TableHead>Worker</TableHead><TableHead>状态</TableHead><TableHead>活动任务</TableHead><TableHead>命令邮箱</TableHead>
         <TableHead>累计上行</TableHead><TableHead>累计下行</TableHead><TableHead>派发拒绝</TableHead><TableHead>命令失败</TableHead><TableHead>事件丢弃</TableHead>
     </TableRow></TableHeader><TableBody>{Input.Rows.map(Worker => <TableRow key={`${Worker.ProcessId}-${Worker.GenerationId}-${Worker.Id}`}
@@ -202,7 +208,9 @@ function WorkerWorkspace(Input: Readonly<{
             <Reading Label="活动任务" Value={FormatCount(Worker.ActiveTasks)} />
             <Reading Label={Input.SessionPartial ? '已载入活动连接' : '活动连接'} Value={Input.SessionPending ? '读取中' : Input.SessionError ? '读取失败' : `${CountPrefix}${FormatCount(Active.length)}`} />
             <Reading Label={Input.SessionPartial ? '已载入唯一账户' : '唯一活动账户'} Value={Input.SessionPending ? '读取中' : Input.SessionError ? '读取失败' : `${CountPrefix}${FormatCount(Accounts)}`} />
-            <Reading Label="命令邮箱" Value={`${FormatCount(Worker.QueueDepth)} / ${FormatCount(Worker.QueueCapacity)}`} Detail={QueueRatio === null ? '容量未提供' : `${QueueRatio}% 占用`} />
+            <Reading Label="命令邮箱" Value={`${FormatCount(Worker.QueueDepth)} / ${FormatCount(Worker.QueueCapacity)}`} Detail={QueueRatio === null
+                ? Worker.QueueCapacity == null ? '容量未提供' : '容量为 0，无法计算使用率。'
+                : `${QueueRatio}% 占用`} />
             <Reading Label="累计上行" Value={FormatBytes(Worker.Traffic?.Up)} />
             <Reading Label="累计下行" Value={FormatBytes(Worker.Traffic?.Down)} />
         </dl>

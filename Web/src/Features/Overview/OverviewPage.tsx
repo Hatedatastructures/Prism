@@ -3,20 +3,21 @@
  * @brief 只改变呈现层；所有统计仍来自 AdminDataSource 的真实概览、入口、Worker、账户和事件查询。
  */
 import type { ReactNode } from 'react';
-import { ArrowRight, Gauge, RefreshCw } from 'lucide-react';
+import { ArrowRight, Gauge } from 'lucide-react';
 import { useSearchParams } from 'react-router';
 import { NavLink } from 'react-router';
-import { Button } from '@/Components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { useQueryClient } from '@tanstack/react-query';
 import { EmptyState, FormatBytes, FormatCount, FormatTime, PageHeader, Panel, QueryState, StatusBadge } from '../../Components/Ui';
 import type { AccountRecord, IngressRecord, ProtocolRecord, WorkerRecord } from '../../Services/AdminDataSource';
-import { WithTime } from '../TimeRange';
+import { TimeRangeControl, WithTime } from '../TimeRange';
 import { useAdminQuery } from '../UseOperations';
 import { OverviewChart } from './OverviewChart';
 import { OverviewReadingsPanel } from './OverviewReadingsPanel';
 import { OverviewResourceCharts } from './OverviewResourceCharts';
 import { OverviewConnectionsChart } from './OverviewConnectionsChart';
+import { OverviewRefresh } from './OverviewRefresh';
+import { OverviewStatus } from './OverviewStatus';
 import { DecideIngressRowPresentation, PresentIngressRows } from '../Ingresses/IngressPresentation';
 
 type PageLink = Readonly<{ Path: string; Params: URLSearchParams; Label: string }>;
@@ -35,24 +36,37 @@ export default function OverviewPage(): ReactNode {
     const Workers = useAdminQuery('overview-workers', Source => Source.GetWorkers({ Cursor: '0', Limit: 12 }));
     const Ingresses = useAdminQuery('overview-ingresses', Source => Source.GetIngresses({ Cursor: '0', Limit: 12 }));
     const Accounts = useAdminQuery('overview-accounts', Source => Source.GetAccounts({ Cursor: '0', Limit: 8 }));
+    const Events = useAdminQuery('overview-events', Source => Source.GetEvents({ Cursor: '0', Limit: 50 }));
     const Snapshot = Overview.data;
-    const Refresh = async (): Promise<void> => {
-        await Promise.all([Overview.refetch(), Workers.refetch(), Ingresses.refetch(), Accounts.refetch(), QueryClient.invalidateQueries({ queryKey: ['operations', 'overview-resource-sample'] })]);
+    const Refresh = async (): Promise<boolean> => {
+        const Results = await Promise.all([Overview.refetch(), Workers.refetch(), Ingresses.refetch(), Accounts.refetch(), Events.refetch()]);
+        try {
+            await Promise.all([
+                QueryClient.invalidateQueries({ queryKey: ['operations', 'overview-resource-sample'] }, { throwOnError: true }),
+                QueryClient.invalidateQueries({ queryKey: ['operations', 'history'] }, { throwOnError: true }),
+            ]);
+        } catch {
+            return false;
+        }
+        return Results.every(Result => !Result.isError);
     };
+    const Busy = Overview.isFetching || Workers.isFetching || Ingresses.isFetching || Accounts.isFetching || Events.isFetching;
 
     return <div className="space-y-4">
         <PageHeader Title="运行概览" Description={Snapshot ? `最近采样 ${FormatTime(Snapshot.SampledAt)} · 当前实例的代理接入、流量与资源` : '当前实例的代理接入、流量与资源。'}
-            Actions={<Button type="button" variant="outline" onClick={() => void Refresh()} disabled={Overview.isFetching || Workers.isFetching || Ingresses.isFetching || Accounts.isFetching}>
-                <RefreshCw className={Overview.isFetching ? 'animate-spin' : ''} aria-hidden="true" />刷新数据
-            </Button>} />
+            Actions={<div className="flex flex-wrap items-center gap-2"><TimeRangeControl /><OverviewRefresh OnRefresh={Refresh} Busy={Busy} /></div>} />
         <QueryState Pending={Overview.isPending} Error={Overview.error} HasData={Snapshot !== undefined} Label="运行概览"
-            Retry={() => void Refresh()} Retrying={Overview.isFetching} Children={Snapshot ? <>
+            Retry={() => { void Refresh(); }} Retrying={Busy} Children={Snapshot ? <>
+                <OverviewStatus Snapshot={Snapshot} Ingresses={Ingresses.data ?? null} Events={Events.data ?? null}
+                    OverviewState={Overview.isError ? 'error' : Overview.isPending ? 'pending' : 'success'}
+                    IngressState={Ingresses.isError ? 'error' : Ingresses.isPending ? 'pending' : 'success'}
+                    EventState={Events.isError ? 'error' : Events.isPending ? 'pending' : 'success'} Params={Params} />
                 <OverviewReadingsPanel Snapshot={Snapshot} />
-                <OverviewConnectionsChart Snapshot={Snapshot} Params={Params} />
                 <section className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label="运行趋势">
                     <OverviewChart History={Snapshot.History} ClassName="md:col-span-2" />
-                    <OverviewResourceCharts Params={Params} />
+                    <OverviewResourceCharts Params={Params} Process={Snapshot.Process} />
                 </section>
+                <OverviewConnectionsChart Snapshot={Snapshot} Params={Params} />
                 <section className="grid min-w-0 items-start gap-4 xl:grid-cols-2" aria-label="入口和调度">
                     <Panel HeadingLevel={2} Title="监听端口" Subtitle="配置地址与实际绑定" Action={<DetailLink Path="/ingresses" Params={Params} Label="查看入口" />}>
                         <IngressTable Rows={Ingresses.data?.Items ?? []} Pending={Ingresses.isPending} Error={Ingresses.error} Params={Params} />

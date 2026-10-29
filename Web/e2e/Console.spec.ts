@@ -41,62 +41,34 @@ test('所有工作区可渲染，字号与滚动范围符合合同', async ({ pa
         contentType: 'application/json',
     });
 });
-test('概览按运行、代理资源、诊断任务分区并保持中间宽度', async ({ page }) => {
+test('概览呈现运行读数、连接活动和代理资源，并按宽度排列区块', async ({ page }) => {
     await page.goto('/?source=demo');
-    await expect(page.getByRole('tab', { name: /实时运行/ })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('.overview-traffic-v2 .history-plot')).toBeVisible();
-    await expect(page.locator('.overview-connections-v2')).toBeVisible();
-    await expect(page.locator('.overview-runtime-v2')).toBeVisible();
-    await expect(page.locator('.overview-ingress-v2')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '运行概览', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: '运行指标', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '连接活动', exact: true })).toBeVisible();
+    await expect(page.getByText('流量趋势', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '监听端口', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Worker 调度', exact: true })).toBeVisible();
     const Width = await page.evaluate(() => innerWidth);
     await page.screenshot({ path: `../build/WebQa/overview-${Width}.png`, fullPage: true });
-    if (Width < 768) await expect(page.locator('.overview-view-tabs small').first()).toBeHidden();
-
-    await page.getByRole('tab', { name: /代理资源/ }).click();
-    await expect(page.locator('.overview-worker-v2')).toBeVisible();
-    await expect(page.locator('.overview-account-v2')).toBeVisible();
-    await expect(page.locator('.overview-protocol-v2')).toBeVisible();
-    if (Width >= 1800) await page.screenshot({ path: `../build/WebQa/overview-fleet-${Width}.png`, fullPage: true });
-    if (Width >= 1800) {
-        const Worker = await page.locator('.overview-worker-v2').boundingBox(), Account = await page.locator('.overview-account-v2').boundingBox();
-        expect(Worker).not.toBeNull(); expect(Account).not.toBeNull();
-        expect(Math.abs(Account!.y - Worker!.y)).toBeLessThanOrEqual(1);
-        expect(Worker!.x + Worker!.width).toBeLessThanOrEqual(Account!.x + 1);
-    }
-    if (Width < 1200) {
-        const Fleet = page.locator('.overview-grid-fleet');
-        const Columns = await Fleet.evaluate(Element => getComputedStyle(Element).gridTemplateColumns.split(' ').length);
-        expect(Columns).toBe(Width < 768 ? 1 : 2);
-    }
-    if (Width < 768) {
-        const Grid = await page.locator('.overview-grid-fleet').boundingBox();
-        expect(Grid).not.toBeNull();
-        for (const Class of ['worker', 'account', 'protocol']) {
-            const Panel = await page.locator(`.overview-${Class}-v2`).boundingBox();
-            expect(Panel).not.toBeNull();
-            expect(Math.abs(Panel!.width - Grid!.width)).toBeLessThanOrEqual(1);
-        }
-    }
-    await page.getByRole('tab', { name: /诊断记录/ }).click();
-    await expect(page.locator('.overview-latency-v2')).toBeVisible();
-    await expect(page.locator('.overview-events-v2')).toBeVisible();
-    await expect(page.locator('.overview-resource-v2')).toBeVisible();
-    await page.goto('/?source=demo&range=custom&from=invalid&to=2026-10-16');
-    await expect(page.locator('.overview-traffic-v2').getByRole('alert')).toContainText('时间无效');
-    await expect(page.locator('.overview-traffic-v2 .query-state')).toHaveCount(0);
-    await page.getByRole('combobox', { name: '分析时间范围', exact: true }).click();
-    await page.getByRole('option', { name: '最近 15 分钟', exact: true }).click();
-    await expect(page.locator('.overview-traffic-v2 .history-plot')).toBeVisible();
+    const IngressAndDispatch = page.getByRole('region', { name: '入口和调度', exact: true });
+    const Columns = await IngressAndDispatch.evaluate(Element => getComputedStyle(Element).gridTemplateColumns.split(' ').length);
+    expect(Columns).toBe(Width >= 1280 ? 2 : 1);
+    await expect(page.getByRole('heading', { name: '账户使用', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '协议使用', exact: true })).toBeVisible();
 });
 test('深链不命中保持目标，事件暂停固定内容', async ({ page }) => {
     await page.goto('/accounts?source=demo&account=not-existing');
-    await expect(page.getByText('指定账户已不在当前快照', { exact: true })).toBeVisible();
-    await expect(page.locator('.account-inspector')).toHaveCount(0);
+    await expect(page.getByText('指定账户不在当前快照', { exact: true })).toBeVisible();
+    const AccountDetails = page.getByRole('region', { name: '账户详情', exact: true });
+    await expect(AccountDetails).toBeVisible();
+    await expect(AccountDetails).toContainText('选择一个账户');
+    await expect(AccountDetails).not.toContainText('acct-northstar');
     await page.goto('/events?source=demo');
     await page.getByRole('button', { name: '暂停追随', exact: true }).click();
     await expect(page.getByRole('button', { name: '继续追随', exact: true })).toBeVisible();
-    const PauseStatus = page.getByRole('status').filter({ hasText: '已暂停：固定显示暂停时已载入' });
-    await expect(PauseStatus).toContainText('服务端仍继续采集；恢复追随后读取新窗口。');
+    const PauseAlert = page.getByRole('alert').filter({ hasText: '事件追随已暂停' });
+    await expect(PauseAlert).toContainText('固定显示暂停时已载入的 5 条记录；恢复后才会读取新的服务端窗口。');
 });
 test('搜索可由键盘操作并带时间范围跳转', async ({ page }) => {
     await page.goto('/?source=demo&range=1h');
@@ -106,7 +78,7 @@ test('搜索可由键盘操作并带时间范围跳转', async ({ page }) => {
     await expect(page.getByRole('option').filter({ hasText: 'northstar' }).first()).toBeVisible();
     await page.getByRole('option').filter({ hasText: 'northstar' }).first().click();
     await expect(page).toHaveURL(/accounts\?.*range=1h/);
-    await expect(page.locator('.account-inspector')).toContainText('northstar');
+    await expect(page.getByText(/acct-northstar · Generation 42/)).toBeVisible();
 });
 test('默认真实模式无法连接时不会显示演示数值', async ({ page }) => {
     await page.route('**/Operations/**', Route => Route.abort('connectionrefused'));
@@ -117,26 +89,24 @@ test('默认真实模式无法连接时不会显示演示数值', async ({ page 
 });
 test('概览资源跳转保留时间并在刷新后保持演示与原目标', async ({ page }) => {
     await page.goto('/?source=demo&range=1h');
-    await page.getByRole('tab', { name: /代理资源/ }).click();
-    await page.locator('.overview-worker-v2').getByRole('link', { name: 'worker-01', exact: true }).click();
-    await expect(page.locator('.worker-inspector')).toContainText('worker-01');
+    await page.getByRole('link', { name: 'worker-01', exact: true }).click();
+    await expect(page.getByRole('button', { name: '查看 Worker 实例身份', exact: true })).toBeVisible();
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
     expect(new URL(page.url()).searchParams.get('worker')).toBe('worker-01');
     await page.reload();
     await expect(page.getByText('演示模式', { exact: true })).toBeVisible();
-    await expect(page.locator('.worker-inspector')).toContainText('worker-01');
+    await expect(page.getByRole('button', { name: '查看 Worker 实例身份', exact: true })).toBeVisible();
     await page.goto('/?source=demo&range=1h');
-    await page.getByRole('tab', { name: /代理资源/ }).click();
-    await page.locator('.overview-account-v2').getByRole('link', { name: /northstar/ }).click();
-    await expect(page.locator('.account-inspector')).toContainText('northstar');
+    await page.getByRole('link', { name: 'northstar', exact: true }).click();
+    await expect(page.getByText(/acct-northstar · Generation 42/)).toBeVisible();
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
     expect(new URL(page.url()).searchParams.get('account')).toBe('acct-northstar');
     await page.reload();
     await expect(page.getByText('演示模式', { exact: true })).toBeVisible();
-    await expect(page.locator('.account-inspector')).toContainText('northstar');
-    const MobileMenu = page.getByRole('button', { name: '打开导航', exact: true });
+    await expect(page.getByText(/acct-northstar · Generation 42/)).toBeVisible();
+    const MobileMenu = page.getByRole('button', { name: '展开或收起导航', exact: true });
     if (await MobileMenu.isVisible()) await MobileMenu.click();
-    await page.getByRole('link', { name: 'Prism 运行概览', exact: true }).click();
+    await page.getByRole('link', { name: '运行概览', exact: true }).click();
     await expect(page.locator('main h1')).toHaveText('运行概览');
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
     expect(new URL(page.url()).searchParams.get('source')).toBe('demo');

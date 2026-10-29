@@ -31,7 +31,14 @@ export function AppShell(Input: Readonly<{ Services: AdminServices }>): ReactNod
     const Search = useMemo(() => new URLSearchParams(Location.search), [Location.search]);
     const Overview = useQuery({ queryKey: ['operations', 'overview'], queryFn: () => Input.Services.Data.GetOverview(), retry: false, staleTime: 1_000, refetchInterval: 5_000, refetchOnWindowFocus: true, refetchIntervalInBackground: false });
     const Health = Overview.isError ? 'sampling-failed' : Overview.data?.Health.Status ?? 'waiting';
-    useEffect(() => { const Root = document.documentElement; Root.classList.toggle('dark', Theme === 'dark'); Root.dataset.theme = Theme; Root.style.colorScheme = Theme; }, [Theme]);
+    useEffect(() => {
+        const Root = document.documentElement;
+        Root.classList.toggle('dark', Theme === 'dark');
+        Root.dataset.theme = Theme;
+        Root.style.colorScheme = Theme;
+        const ThemeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+        if (ThemeColor) ThemeColor.content = getComputedStyle(Root).getPropertyValue('--canvas').trim() || '#ffffff';
+    }, [Theme]);
     useEffect(() => { document.title = `${PageNames[Location.pathname] ?? 'Prism'} · Prism Control Plane`; }, [Location.pathname]);
     useEffect(() => { try { window.localStorage.setItem(ThemeKey, Theme); } catch { /* 私有模式下仅保持当前会话主题。 */ } }, [Theme]);
     useEffect(() => { if (Input.Services.Mode !== 'demo') return; const Next = new URLSearchParams(Location.search); if (Next.get('source') !== 'demo') { Next.set('source', 'demo'); Navigate({ pathname: Location.pathname, search: Next.toString() }, { replace: true }); } }, [Input.Services.Mode, Location.pathname, Location.search, Navigate]);

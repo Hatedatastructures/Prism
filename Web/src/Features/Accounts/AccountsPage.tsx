@@ -1,7 +1,7 @@
 /** @file Shadcn UI 代理账户管理页。 */
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowRight, CircleAlert, RefreshCw, ShieldBan, UsersRound } from 'lucide-react';
+import { ArrowRight, CircleAlert, RefreshCw, ShieldBan } from 'lucide-react';
 import { NavLink, useSearchParams } from 'react-router';
 import { Alert, AlertDescription, AlertTitle } from '@/Components/ui/alert';
 import { Button } from '@/Components/ui/button';
@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/Components/ui/dialog';
 import { Input } from '@/Components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
-import { OverviewStat } from '../../Components/OverviewStat';
 import { Switch } from '@/Components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import { Badge, EmptyState, FormatBytes, FormatCount, FormatRate, MobileMasterBack, PageHeader, QueryState, StatusBadge, useMobileMasterFocus } from '../../Components/Ui';
@@ -22,7 +21,7 @@ type AccountFilter = 'all' | 'active' | 'revoked';
 
 export default function AccountsPage(): ReactNode {
     const [Params, SetParams] = useSearchParams();
-    const [MobileView, SetMobileView] = useState<'list' | 'detail'>(() => Params.has('account') ? 'detail' : 'list');
+    const [MobileView, SetMobileView] = useState<'list' | 'detail'>(() => Params.has('account') || Params.get('mobile_view') === 'detail' ? 'detail' : 'list');
     useMobileMasterFocus(MobileView);
     const [RevokeOpen, SetRevokeOpen] = useState(false);
     const [CloseSessions, SetCloseSessions] = useState(true);
@@ -62,14 +61,17 @@ export default function AccountsPage(): ReactNode {
     return <div className="space-y-6">
         <PageHeader Title="代理账户" Description="认证身份、权限来源、活动连接与累计流量。"
             Actions={<Button type="button" variant="outline" onClick={() => void Refresh()} disabled={AccountsQuery.isFetching || GroupsQuery.isFetching || SessionsQuery.isFetching}><RefreshCw className={AccountsQuery.isFetching ? 'animate-spin' : ''} aria-hidden="true" />刷新快照</Button>} />
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="账户摘要">
-            <OverviewStat Label="有效账户" Value={FormatCount(Active)} Detail="可用于认证" Icon={<UsersRound aria-hidden="true" />} />
-            <OverviewStat Label="有活动连接" Value={FormatCount(InUse)} Detail="存在根连接租约" Icon={<UsersRound aria-hidden="true" />} />
-            <OverviewStat Label="已撤销" Value={FormatCount(Revoked)} Detail="拒绝后续认证" Icon={<ShieldBan aria-hidden="true" />} />
+        <section className="rounded-xl border bg-card px-3 py-2" role="group" aria-label="账户状态汇总">
+            <dl className="grid grid-cols-2 gap-y-2 sm:grid-cols-4">
+                <AccountSummaryItem Label="有效账户" Value={FormatCount(Active)} Detail={`不含已撤销账户 · 有活动连接 ${FormatCount(InUse)} · 已撤销 ${FormatCount(Revoked)}`} />
+                <AccountSummaryItem Label="当前已载入账户" Value={`${FormatCount(Accounts.length)}${AccountsQuery.hasNextPage ? '+' : ''}`} Detail="服务端已返回的账户记录" />
+                <AccountSummaryItem Label="当前已载入范围" Value={FormatCount(Filtered.length)} Detail={Search || Filter !== 'all' ? '符合当前搜索和状态筛选' : '当前列表筛选结果'} />
+                <AccountSummaryItem Label="用户组" Value={GroupsQuery.data ? FormatCount(Groups.length) : '—'} Detail="当前已载入范围" />
+            </dl>
         </section>
         <div className="grid min-w-0 overflow-hidden rounded-xl border bg-card md:items-start md:grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)]">
-            <div className={MobileView === 'detail' ? 'hidden md:block' : ''} data-mobile-master-list tabIndex={-1}><Card className="rounded-none border-r py-4 ring-0"><CardHeader className="gap-4"><div className="flex items-start justify-between gap-3"><div><CardTitle>账户目录</CardTitle><CardDescription>选择账户查看详情。</CardDescription></div><Badge Tone="neutral">{Accounts.length}{AccountsQuery.hasNextPage ? '+' : ''}</Badge></div>
-                <div className="flex flex-col gap-3"><Input value={Search} onChange={Event => Update('q', Event.target.value)} aria-label="搜索账户" placeholder="搜索账户 ID、名称或用户组" />
+            <div role="region" aria-label="账户目录" className={MobileView === 'detail' ? 'hidden md:block' : ''} data-mobile-master-list tabIndex={-1}><Card className="rounded-none border-r py-4 ring-0"><CardHeader className="gap-4"><div className="flex items-start justify-between gap-3"><div><CardTitle>账户目录</CardTitle><CardDescription>选择账户查看详情。</CardDescription></div><Badge Tone="neutral">{Accounts.length}{AccountsQuery.hasNextPage ? '+' : ''}</Badge></div>
+                <div className="flex flex-col gap-3"><Input type="search" value={Search} onChange={Event => Update('q', Event.target.value)} aria-label="搜索账户" placeholder="搜索账户 ID、名称或用户组" />
                     <div className="flex shrink-0 flex-wrap gap-2" role="group" aria-label="账户状态筛选">{(['all', 'active', 'revoked'] as const).map(Value => <Button key={Value} type="button" size="sm" variant={Filter === Value ? 'default' : 'outline'} onClick={() => Update('state', Value)}>{AccountFilterLabel(Value)}</Button>)}</div>
                 </div></CardHeader>
                 <CardContent><QueryState Pending={AccountsQuery.isPending} Error={AccountsQuery.error} Label="账户目录" HasData={AccountsQuery.data !== undefined} Retry={() => void AccountsQuery.refetch()} Retrying={AccountsQuery.isFetching}
@@ -78,7 +80,7 @@ export default function AccountsPage(): ReactNode {
                         {AccountsQuery.hasNextPage && <div className="mt-4 flex justify-center"><Button variant="outline" disabled={AccountsQuery.isFetchingNextPage} onClick={() => void AccountsQuery.fetchNextPage()}>{AccountsQuery.isFetchingNextPage ? '正在载入…' : '载入更多账户'}</Button></div>}</>} />
                 </CardContent>
             </Card></div>
-            <div className={MobileView === 'list' ? 'hidden md:block' : ''}><div className="px-4 pt-4 md:hidden"><MobileMasterBack Label="返回账户目录" OnClick={() => SetMobileView('list')} /></div>
+            <div role="region" aria-label="账户详情" className={MobileView === 'list' ? 'hidden md:block' : ''}><div className="px-4 pt-4 md:hidden"><MobileMasterBack Label="返回账户目录" OnClick={() => SetMobileView('list')} /></div>
             <AccountInspector Account={Selected} ExactPending={!!SelectedId && Exact.isPending} Sessions={Sessions} SessionsPending={SessionsQuery.isPending} SessionsError={SessionsQuery.error} SessionsHasMore={SessionsQuery.hasNextPage ?? false} Params={Params} GroupName={Groups.find(Group => Group.Id === Selected?.GroupId)?.Name}
                 RevokeOpen={RevokeOpen} SetRevokeOpen={SetRevokeOpen} CloseSessions={CloseSessions} SetCloseSessions={SetCloseSessions} Busy={Revoke.isPending} OnRevoke={ExecuteRevoke} ResultMessage={Revoke.data?.Message ?? null} ResultError={Revoke.error?.message} /></div>
         </div>
@@ -87,10 +89,19 @@ export default function AccountsPage(): ReactNode {
 }
 
 function AccountTable(Input: Readonly<{ Rows: readonly AccountRecord[]; Selected: AccountRecord | null; Groups: readonly Readonly<{ Id: string; Name: string }>[]; OnSelect: (Account: AccountRecord) => void }>): ReactNode {
-    return <ul className="space-y-0.5" aria-label="账户列表">{Input.Rows.map(Account => <li key={Account.Id}><button type="button" aria-pressed={Account.Id === Input.Selected?.Id} onClick={() => Input.OnSelect(Account)} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-pressed:bg-muted">
+    return <ul className="space-y-0.5" aria-label="账户列表">{Input.Rows.map(Account => {
+        const Group = Account.GroupId === null ? '未分组' : Input.Groups.find(Value => Value.Id === Account.GroupId)?.Name ?? Account.GroupId ?? '未提供';
+        const Usage = FormatCount(Account.ActiveSessions);
+        const Status = Account.Revoked ? '已撤销' : BigInt(Account.ActiveSessions) > 0n ? '使用中' : '未使用';
+        return <li key={Account.Id}><button type="button" aria-label={`${Account.Label} ${Account.Id}`} aria-description={`${Group} · ${Usage} 根连接租约 ${Status}`} aria-pressed={Account.Id === Input.Selected?.Id} onClick={() => Input.OnSelect(Account)} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-pressed:bg-muted">
         <span className="flex items-center justify-between gap-2"><span className="truncate font-medium">{Account.Label}</span><span className="shrink-0 text-xs text-muted-foreground">{Account.Revoked ? '已撤销' : BigInt(Account.ActiveSessions) > 0n ? '活动中' : '有效'}</span></span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{Account.GroupId === null ? '未分组' : Input.Groups.find(Group => Group.Id === Account.GroupId)?.Name ?? Account.GroupId ?? '未提供'} · {FormatCount(Account.ActiveSessions)} 个根连接</span>
-    </button></li>)}</ul>;
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{Group} · {Usage} 个根连接</span>
+    </button></li>;
+    })}</ul>;
+}
+
+function AccountSummaryItem(Input: Readonly<{ Label: string; Value: string; Detail: string }>): ReactNode {
+    return <div className="min-w-0 px-2 first:pl-0"><dt className="text-xs text-muted-foreground">{Input.Label}</dt><dd className="mt-0.5 font-semibold tabular-nums">{Input.Value}</dd><dd className="mt-0.5 text-xs text-muted-foreground">{Input.Detail}</dd></div>;
 }
 
 function AccountInspector(Input: Readonly<{
@@ -102,22 +113,25 @@ function AccountInspector(Input: Readonly<{
     const Account = Input.Account;
     const AccountSessions = Input.Sessions.filter(Session => Session.AccountId === Account.Id);
     const Policy = Account.EffectivePolicy;
-    return <Card className="rounded-none ring-0"><CardHeader><div className="flex items-start justify-between gap-3"><div><CardTitle>{Account.Label}</CardTitle><CardDescription className="mt-1 font-mono">{Account.Id} · Generation {Account.GenerationId}</CardDescription></div><div className="flex flex-wrap items-center justify-end gap-2"><StatusBadge Label={Account.Revoked ? '已撤销' : '有效'} Tone={Account.Revoked ? 'danger' : 'good'} />{!Account.Revoked && <Dialog open={Input.RevokeOpen} onOpenChange={Input.SetRevokeOpen}><DialogTrigger asChild><Button variant="destructive" type="button"><ShieldBan aria-hidden="true" />撤销账户</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>撤销 {Account.Label}？</DialogTitle><DialogDescription>此请求会拒绝账户后续认证。可选择同时关闭当前活动连接。</DialogDescription></DialogHeader><label className="flex items-center justify-between gap-4 rounded-lg border p-3 text-sm"><span><strong className="block">关闭活动连接</strong><span className="text-muted-foreground">要求关联 Session 进入关闭流程。</span></span><Switch checked={Input.CloseSessions} onCheckedChange={Input.SetCloseSessions} aria-label="撤销时关闭活动连接" /></label><DialogFooter><Button variant="outline" onClick={() => Input.SetRevokeOpen(false)}>取消</Button><Button variant="destructive" disabled={Input.Busy} onClick={() => void Input.OnRevoke()}>{Input.Busy ? '正在提交…' : '确认撤销'}</Button></DialogFooter></DialogContent></Dialog>}</div></div></CardHeader>
+    return <Card className="rounded-none ring-0"><CardHeader><div className="flex items-start justify-between gap-3"><div><h2 className="font-heading text-base font-semibold leading-none">{Account.Label}</h2><CardDescription className="mt-1 font-mono">{Account.Id} · Generation {Account.GenerationId}</CardDescription></div><div className="flex flex-wrap items-center justify-end gap-2"><StatusBadge Label={Account.Revoked ? '已撤销' : '有效'} Tone={Account.Revoked ? 'danger' : 'good'} />{!Account.Revoked && <Dialog open={Input.RevokeOpen} onOpenChange={Input.SetRevokeOpen}><DialogTrigger asChild><Button variant="destructive" type="button"><ShieldBan aria-hidden="true" />撤销账户</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>撤销 {Account.Label}？</DialogTitle><DialogDescription>此请求会拒绝账户后续认证。可选择同时关闭当前活动连接。</DialogDescription></DialogHeader><label className="flex items-center justify-between gap-4 rounded-lg border p-3 text-sm"><span><strong className="block">关闭活动连接</strong><span className="text-muted-foreground">要求关联 Session 进入关闭流程。</span></span><Switch checked={Input.CloseSessions} onCheckedChange={Input.SetCloseSessions} aria-label="撤销时关闭活动连接" /></label><DialogFooter><Button variant="outline" onClick={() => Input.SetRevokeOpen(false)}>取消</Button><Button variant="destructive" disabled={Input.Busy} onClick={() => void Input.OnRevoke()}>{Input.Busy ? '正在提交…' : '确认撤销'}</Button></DialogFooter></DialogContent></Dialog>}</div></div></CardHeader>
         <CardContent className="space-y-5"><Tabs defaultValue="overview"><TabsList variant="line" className="max-w-full overflow-x-auto"><TabsTrigger value="overview">身份与流量</TabsTrigger><TabsTrigger value="usage">周期额度</TabsTrigger><TabsTrigger value="sessions">关联 Session</TabsTrigger><TabsTrigger value="policy">策略来源</TabsTrigger></TabsList>
             <TabsContent value="overview" className="mt-5 space-y-5">
-                <dl className="grid grid-cols-2 gap-x-5 gap-y-4 border-b pb-5 sm:grid-cols-4">
+                <dl aria-label="账户维度流量计数" className="grid grid-cols-2 gap-x-5 gap-y-4 border-b pb-5 sm:grid-cols-4">
                     <Fact Label="用户组" Value={Account.GroupId === null ? '未分组' : Input.GroupName ?? Account.GroupId ?? '未提供'} />
                     <Fact Label="根连接" Value={FormatCount(Account.ActiveSessions)} />
                     <Fact Label="累计上行" Value={FormatBytes(Account.Traffic?.Up)} />
                     <Fact Label="累计下行" Value={FormatBytes(Account.Traffic?.Down)} />
+                    {Account.Traffic?.Events != null && <Fact Label="完成传输事件" Value={FormatCount(Account.Traffic.Events)} />}
+                    {Account.Traffic?.Errors != null && <Fact Label="失败传输事件" Value={FormatCount(Account.Traffic.Errors)} />}
                     {Account.ActiveStreams != null && <Fact Label="活动子流" Value={FormatCount(Account.ActiveStreams)} />}
                     {Account.ActiveConnections != null && <Fact Label="活动连接" Value={FormatCount(Account.ActiveConnections)} />}
                     {Account.UploadBytesPerSecond != null && <Fact Label="上行速率" Value={FormatRate(Account.UploadBytesPerSecond)} />}
                     {Account.DownloadBytesPerSecond != null && <Fact Label="下行速率" Value={FormatRate(Account.DownloadBytesPerSecond)} />}
                 </dl>
-                <section><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">关联 Session</h3><NavLink className="inline-flex items-center gap-1 text-sm font-medium hover:underline" to={WithTime(`/sessions?account=${encodeURIComponent(Account.Id)}`, Input.Params)}>查看会话<ArrowRight className="size-3" aria-hidden="true" /></NavLink></div>
+                <p className="text-xs text-muted-foreground">周期账本中的已结算量分开计算。</p>
+                <section role="region" aria-label="账户当前关联 Session"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">关联 Session</h3><NavLink className="inline-flex items-center gap-1 text-sm font-medium hover:underline" to={WithTime(`/sessions?account=${encodeURIComponent(Account.Id)}`, Input.Params)}>查看会话<ArrowRight className="size-3" aria-hidden="true" /></NavLink></div>
                     <p className="mt-1 text-xs text-muted-foreground">{Input.SessionsPending ? '正在读取会话' : Input.SessionsError ? `会话读取失败：${Input.SessionsError.message}` : `已载入 ${AccountSessions.length} 条关联会话${Input.SessionsHasMore ? '，列表仍有更多分页' : ''}`}</p>
-                    {!Input.SessionsPending && !Input.SessionsError && AccountSessions.length > 0 && <Table><TableHeader><TableRow><TableHead>Session</TableHead><TableHead>协议</TableHead><TableHead>目标</TableHead><TableHead>状态</TableHead></TableRow></TableHeader><TableBody>{AccountSessions.slice(0, 3).map(Session => <TableRow key={`${Session.ProcessId}-${Session.Id}`}><TableCell className="font-mono">{Session.Id}</TableCell><TableCell>{Session.Protocol}</TableCell><TableCell className="max-w-48 truncate" title={Session.Target}>{Session.Target || '未提供'}</TableCell><TableCell><StatusBadge Label={Session.Draining ? '排空中' : Session.Active ? '活动中' : '已结束'} /></TableCell></TableRow>)}</TableBody></Table>}
+                    {!Input.SessionsPending && !Input.SessionsError && AccountSessions.length > 0 && <Table aria-label="账户关联 Session 摘要" className="min-w-[760px]"><TableHeader><TableRow><TableHead>Session / 协议</TableHead><TableHead>Worker / 任务</TableHead><TableHead>来源 / 目标</TableHead><TableHead>累计流量</TableHead><TableHead>状态</TableHead></TableRow></TableHeader><TableBody>{AccountSessions.slice(0, 3).map(Session => <TableRow key={`${Session.ProcessId}-${Session.Id}`}><TableCell className="whitespace-normal"><span className="block font-mono">{Session.Id}</span><span className="text-xs text-muted-foreground">{Session.Transport.toUpperCase()} / {Session.Protocol}</span></TableCell><TableCell className="whitespace-normal"><span className="block font-mono">{Session.WorkerId}</span><span className="text-xs text-muted-foreground">活动任务 {FormatCount(Session.ActiveTasks)}</span></TableCell><TableCell className="max-w-56 whitespace-normal"><span className="block font-mono">{Session.SourceAddress || '来源未提供'}</span><span className="block truncate font-mono" title={Session.Target}>→ {Session.Target || '目标未提供'}</span></TableCell><TableCell className="whitespace-normal"><span className="block">↑ {FormatBytes(Session.Traffic?.Up)}</span><span className="block">↓ {FormatBytes(Session.Traffic?.Down)}</span></TableCell><TableCell><StatusBadge Label={Session.Draining ? '排空中' : Session.Active ? '活动中' : '已结束'} /></TableCell></TableRow>)}</TableBody></Table>}
                 </section>
                 {Input.ResultError && <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertTitle>撤销结果尚未确认</AlertTitle><AlertDescription>{Input.ResultError}</AlertDescription></Alert>}
                 {Input.ResultMessage && <Alert><ShieldBan aria-hidden="true" /><AlertTitle>撤销请求已提交</AlertTitle><AlertDescription>{Input.ResultMessage} 请刷新快照确认最终状态。</AlertDescription></Alert>}

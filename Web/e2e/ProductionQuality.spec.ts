@@ -112,9 +112,10 @@ function PublicConfiguration(HistoryMaxBytes: number): Readonly<Record<string, u
         Storage: { Directory: 'data', HistoryMaxBytes } };
 }
 async function NavigatePrimary(Page: Page, Name: string): Promise<void> {
-    const MobileNavigation = Page.getByRole('button', { name: '打开导航', exact: true });
-    if (await MobileNavigation.isVisible()) await MobileNavigation.click();
-    await Page.locator('.primary-nav').getByRole('link', { name: Name, exact: true }).click();
+    const MobileNavigation = Page.getByRole('button', { name: '展开或收起导航', exact: true });
+    if ((Page.viewportSize()?.width ?? 0) < 768 && await MobileNavigation.isVisible()) await MobileNavigation.click();
+    const NavigationName = Name === '事件流' ? '事件' : Name;
+    await Page.getByRole('link', { name: NavigationName, exact: true }).click();
 }
 
 async function InstallOperationsGetMock(Page: Page, Handler: FixtureHandler, PostHandler?: FixturePostHandler): Promise<MockLog> {
@@ -174,7 +175,7 @@ function AccountRelatedReply(Url: URL): FixtureReply | null {
     return null;
 }
 function SessionRelatedReply(Url: URL): FixtureReply | null {
-    if (Url.pathname === '/Operations/Bootstrap') return { Body: Bootstrap(['events.filter.process', 'events.filter.generation']) };
+    if (Url.pathname === '/Operations/Bootstrap') return { Body: Bootstrap(['sessions.filter', 'events.filter.process', 'events.filter.generation']) };
     if (Url.pathname === '/Operations/Events') return { Body: Ok(EventPageWire()) };
     if (Url.pathname.endsWith('/Trace')) return { Body: Ok(TracePageWire()) };
     if (Url.pathname.endsWith('/Streams')) return { Body: Ok(PageWire([StreamWire()])) };
@@ -196,6 +197,13 @@ test('Session relations show failures, recover and paginate without inventing an
         throw new Error(`No Session fixture for ${Url.pathname}.`);
     });
     await page.goto('/sessions?source=live');
+    await page.getByRole('button', { name: '暂停刷新', exact: true }).click();
+    await page.getByRole('row').filter({ has: page.getByRole('button', { name: '55', exact: true }) })
+        .click({ position: { x: 300, y: 10 } });
+    await expect(page).toHaveURL(/session=55.*process=42.*identity_worker=7.*identity_account=8.*generation=6/);
+    const SessionDetail = page.getByRole('region', { name: 'Session 55 详情', exact: true });
+    await expect(SessionDetail).toBeVisible();
+    await expect(SessionDetail.getByRole('tab', { name: /^阶段/ })).toBeVisible();
     await page.getByRole('tab', { name: /^阶段/ }).click();
     await expect(page.getByText('阶段记录暂时无法载入')).toBeVisible();
     await expect(page.getByText('没有留存阶段')).toHaveCount(0);
@@ -221,21 +229,21 @@ test('Events pause freezes its loaded window, then severity and Back/Forward cle
         throw new Error('No Events fixture for this endpoint.');
     });
     await page.goto('/events?source=live&range=15m&severity=warning');
-    const VisibleEventList = page.locator((page.viewportSize()?.width ?? 0) <= 767 ? '.event-mobile-list' : '.event-desktop-table');
+    const VisibleEventList = page.getByRole('table');
     await expect(VisibleEventList.getByText('warning-row', { exact: true })).toBeVisible();
-    const WorkerLink = page.locator('.event-resource-links a[href^="/workers"]').first();
+    const WorkerLink = VisibleEventList.getByRole('link', { name: '7', exact: true }).first();
     const WorkerHref = await WorkerLink.getAttribute('href');
     const WorkerTarget = new URL(WorkerHref ?? '', page.url());
     expect(WorkerTarget.searchParams.get('worker')).toBe('7');
     expect(WorkerTarget.searchParams.get('process')).toBe('42');
     expect(WorkerTarget.searchParams.get('generation')).toBe('6');
     await page.getByRole('button', { name: '暂停追随', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: '已暂停：固定显示暂停时已载入' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: '事件追随已暂停' })).toBeVisible();
 
-    await page.locator('.state-filters').getByRole('button', { name: '错误', exact: true }).click();
+    await page.getByRole('group', { name: '按严重级别筛选', exact: true }).getByRole('button', { name: '错误', exact: true }).click();
     await expect(page).toHaveURL(/source=live.*range=15m.*severity=error/);
     await expect(VisibleEventList.getByText('error-row', { exact: true })).toBeVisible();
-    await expect(page.getByRole('status').filter({ hasText: '已暂停：固定显示暂停时已载入' })).toHaveCount(0);
+    await expect(page.getByRole('alert').filter({ hasText: '事件追随已暂停' })).toHaveCount(0);
     await page.goBack();
     await expect(page).toHaveURL(/source=live.*range=15m.*severity=warning/);
     await expect(VisibleEventList.getByText('warning-row', { exact: true })).toBeVisible();
@@ -267,24 +275,27 @@ test('invalid user-group ID stays pinned across pages and partial metrics do not
     });
     const IsMobile = (page.viewportSize()?.width ?? 0) <= 767;
     await page.goto(`/user-groups?source=live&range=1h&group=target-late${IsMobile ? '&mobile_view=list' : ''}`);
+    const Directory = page.getByRole('region', { name: '用户组目录', exact: true });
+    const Inspector = page.getByRole('region', { name: '用户组详情', exact: true });
     if (!IsMobile) {
         await expect(page.getByText('未在当前已载入范围找到指定组', { exact: true })).toBeVisible();
-        await expect(page.locator('.group-inspector')).not.toContainText('用户组默认策略');
-        await expect(page.locator('.group-inspector')).not.toContainText('目标晚到组');
-        await expect(page.getByText('部分缺测', { exact: true }).first()).toBeVisible();
+        await expect(Inspector).toContainText('选择一个用户组');
+        await expect(Inspector).not.toContainText('目标晚到组');
+        await expect(page.getByText('已载入组中 1 / 2 提供计数', { exact: true }).first()).toBeVisible();
     } else {
-        await expect(page.locator('.group-layout[data-mobile-view="list"] .group-directory-column')).toBeVisible();
-        await expect(page.locator('.group-inspector')).toBeHidden();
+        await expect(Directory).toBeVisible();
+        await expect(Inspector).toBeHidden();
     }
     expect(new URL(page.url()).searchParams.get('group')).toBe('target-late');
     expect(new URL(page.url()).searchParams.get('range')).toBe('1h');
 
-    await page.getByRole('button', { name: '载入更多', exact: true }).click();
-    if (IsMobile) await page.locator('.group-rail .group-select').filter({ hasText: '目标晚到组' }).click();
-    await expect(page.locator('.group-inspector')).toContainText('目标晚到组');
-    await expect(page.locator('.group-inspector .group-summary-row')).toContainText('根连接租约');
-    await expect(page.locator('.group-inspector .group-summary-row')).toContainText('0');
-    if (!IsMobile) await expect(page.getByText('部分缺测', { exact: true }).first()).toBeVisible();
+    await Directory.getByRole('button', { name: '载入更多用户组', exact: true }).click();
+    if (IsMobile) await Directory.getByRole('button', { name: /目标晚到组/ }).click();
+    await expect(Inspector).toContainText('目标晚到组');
+    await Inspector.getByRole('tab', { name: '活动范围', exact: true }).click();
+    await expect(Inspector).toContainText('组快照根连接');
+    await expect(Inspector).toContainText('0');
+    await expect(page.getByText('已载入组中 2 / 3 提供计数', { exact: true }).first()).toBeVisible();
     await expect(page).toHaveURL(/source=live.*range=1h.*group=target-late/);
     ExpectMockWasReadOnly(Log);
 });
@@ -311,12 +322,13 @@ test('account query error differs from a successful empty search and clearing q 
     await expect(page.getByText('没有匹配账户', { exact: true })).toBeVisible();
     await expect(page.getByText('账户目录暂时无法载入', { exact: true })).toHaveCount(0);
     await page.getByRole('searchbox', { name: '搜索账户' }).fill('northstar');
-    await expect(page.locator('.account-table tbody tr')).toHaveCount(1);
+    const AccountRows = page.getByRole('list', { name: '账户列表', exact: true }).getByRole('listitem');
+    await expect(AccountRows).toHaveCount(1);
     await expect(page).toHaveURL(/source=live.*q=northstar/);
     await page.getByRole('searchbox', { name: '搜索账户' }).fill('');
     await expect(page).toHaveURL(/source=live/);
     expect(new URL(page.url()).searchParams.has('q')).toBe(false);
-    await expect(page.locator('.account-table tbody tr')).toHaveCount(2);
+    await expect(AccountRows).toHaveCount(2);
     ExpectMockWasReadOnly(Log);
 });
 
@@ -331,11 +343,9 @@ test('account without live usage/history capability issues neither ledger nor hi
         throw new Error('No account-capability fixture for this endpoint.');
     });
     await page.goto(`/accounts?source=live&range=15m&account=8${(page.viewportSize()?.width ?? 0) <= 767 ? '&mobile_view=detail' : ''}`);
-    await expect(page.locator('.account-inspector')).toContainText('northstar');
+    await expect(page.getByRole('region', { name: '账户详情', exact: true })).toContainText('northstar');
+    await page.getByRole('tab', { name: '周期额度', exact: true }).click();
     await expect(page.locator('.usage-section')).toContainText('accounts.usage.read');
-    await expect(page.getByRole('tab', { name: '趋势', exact: true })).toBeVisible();
-    await page.getByRole('tab', { name: '趋势', exact: true }).click();
-    await expect(page.locator('.account-inspector')).toContainText('当前管理接口未提供历史查询');
     expect(Log.Requests.filter(Request => Request.Path === '/Operations/AccountUsage')).toHaveLength(0);
     expect(Log.Requests.filter(Request => Request.Path === '/Operations/History')).toHaveLength(0);
     ExpectMockWasReadOnly(Log);
@@ -356,14 +366,17 @@ test('账户余额缺测与零额度不伪装成满额使用率', async ({ page 
         throw new Error('Unexpected account usage endpoint');
     });
     await page.goto('/accounts?source=live&account=8&mobile_view=detail');
+    await page.getByRole('tab', { name: '周期额度', exact: true }).click();
     await expect(page.getByText('余额未提供，无法计算占用比例。', { exact: true })).toBeVisible();
-    await expect(page.getByRole('progressbar', { name: '可用额度比例', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('progressbar', { name: '额度已占用比例', exact: true })).toHaveCount(0);
     Limit = '0'; Remaining = '0';
     await page.reload();
+    await page.getByRole('tab', { name: '周期额度', exact: true }).click();
     await expect(page.getByText('周期额度为 0，不计算占用比例。', { exact: true })).toBeVisible();
-    await expect(page.getByRole('progressbar', { name: '可用额度比例', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('progressbar', { name: '额度已占用比例', exact: true })).toHaveCount(0);
     Limit = '100'; Remaining = '90';
     await page.reload();
+    await page.getByRole('tab', { name: '周期额度', exact: true }).click();
     await expect(page.getByRole('progressbar', { name: '额度已占用比例', exact: true })).toHaveAttribute('aria-valuenow', '10');
     ExpectMockWasReadOnly(Log);
 });
@@ -441,7 +454,7 @@ test('configuration draft is source-bound, rebase rechecks Generation, and an un
     await Editor.fill(DraftText);
     await expect(page.getByRole('button', { name: '校验草稿', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: '校验草稿', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
     await expect(page.getByRole('button', { name: '应用配置', exact: true })).toBeEnabled();
     expect(CommandBodies).toHaveLength(1);
     expect(CommandBodies[0]).toMatchObject({ mode: 'validate_only', base_generation: 'generation-old' });
@@ -471,14 +484,15 @@ test('configuration draft is source-bound, rebase rechecks Generation, and an un
 
     const PreparationStart = Log.Requests.length;
     await page.getByRole('button', { name: '读取当前基线并准备重基线', exact: true }).click();
-    await expect(page.locator('.configuration-stale-draft')).toContainText('已读取目标实例配置；请核对下方来源与 Generation 后确认重基线。');
+    const StaleNotice = page.getByRole('alert').filter({ has: page.getByRole('textbox', { name: '旧来源草稿，只读', exact: true }) });
+    await expect(StaleNotice).toContainText('已读取目标实例配置；请核对下方来源与 Generation 后确认重基线。');
     const PreparationReads = Log.Requests.slice(PreparationStart).filter(Request => Request.Method === 'GET' &&
         ['/Operations/Bootstrap', '/Operations/Configuration'].includes(Request.Path)).map(Request => Request.Path);
     const ConfigurationReadIndex = PreparationReads.lastIndexOf('/Operations/Configuration');
     expect(ConfigurationReadIndex).toBeGreaterThan(0);
     expect(PreparationReads[ConfigurationReadIndex - 1]).toBe('/Operations/Bootstrap');
     expect(PreparationReads[ConfigurationReadIndex + 1]).toBe('/Operations/Bootstrap');
-    await expect(page.locator('.configuration-stale-draft')).toContainText('Generation generation-candidate');
+    await expect(StaleNotice).toContainText('Generation generation-candidate');
     if (TestInfo.project.name === 'chromium-1920')
         await page.screenshot({ path: TestInfo.outputPath('configuration-stale-candidate.png'), fullPage: true });
 
@@ -486,33 +500,33 @@ test('configuration draft is source-bound, rebase rechecks Generation, and an un
     ConfigurationGeneration = 'generation-current';
     ConfigurationValue = PublicConfiguration(4_000);
     const ConfirmRebase = async (): Promise<void> => {
-        await page.getByRole('button', { name: '确认以该基线重建草稿', exact: true }).click();
+        await page.getByRole('button', { name: '确认以该基线重建', exact: true }).click();
         await page.getByRole('dialog').getByRole('button', { name: '确认重建并重新校验', exact: true }).click();
     };
     await ConfirmRebase();
     await expect(page.getByText('目标配置在确认期间已变化；已刷新候选基线，请再次核对新 Generation 并确认。', { exact: true })).toBeVisible();
-    await expect(page.locator('.configuration-stale-draft')).toContainText('Generation generation-current');
+    await expect(StaleNotice).toContainText('Generation generation-current');
     await expect(StaleDraft).toHaveValue(DraftText);
     if (TestInfo.project.name === 'chromium-1920')
         await page.screenshot({ path: TestInfo.outputPath('configuration-generation-conflict.png'), fullPage: true });
     expect(CandidatePrepared).toBe(true);
 
     await ConfirmRebase();
-    await expect(page.locator('.configuration-stale-draft')).toHaveCount(0);
+    await expect(StaleNotice).toHaveCount(0);
     await expect(Editor).toHaveValue(DraftText);
     await expect(page.getByRole('button', { name: '校验草稿', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: '应用配置', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: '校验草稿', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
     await expect(page.getByRole('button', { name: '应用配置', exact: true })).toBeEnabled();
     expect(CommandBodies).toHaveLength(2);
     expect(CommandBodies[1]).toMatchObject({ mode: 'validate_only', base_generation: 'generation-current' });
 
     await page.getByRole('button', { name: '应用配置', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: '确认发布', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: '操作结果待核对' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Apply 已受理或结果未核实' })).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('status').filter({ hasText: '请求结果未确认' })).toHaveCount(2);
+    await expect(page.getByRole('alert').filter({ hasText: '请求结果未确认' })).toHaveCount(2);
     if (TestInfo.project.name === 'chromium-1920')
         await page.screenshot({ path: TestInfo.outputPath('configuration-apply-unknown.png'), fullPage: true });
     await expect(Editor).toHaveAttribute('readonly', '');
@@ -527,6 +541,7 @@ test('configuration draft is source-bound, rebase rechecks Generation, and an un
 test('Session snapshots retain observed exits for review without treating a missed session as closed', async ({ page }, TestInfo) => {
     let ListReads = 0;
     let ExactReads = 0;
+    let RefreshRequested = false;
     let SessionNoLongerActive = false;
     const FirstSession = SessionWire();
     const NextSession = { ...SessionWire(), id: '56', started_at: OtherTimestamp,
@@ -540,30 +555,41 @@ test('Session snapshots retain observed exits for review without treating a miss
                 return { Body: Ok(PageWire(SessionNoLongerActive ? [] : [FirstSession])) };
             }
             ListReads += 1;
-            if (ListReads > 1) SessionNoLongerActive = true;
-            return { Body: Ok(PageWire(ListReads === 1 ? [FirstSession] : [NextSession])) };
+            if (RefreshRequested) SessionNoLongerActive = true;
+            return { Body: Ok(PageWire(RefreshRequested ? [NextSession] : [FirstSession])) };
         }
         throw new Error('No Session snapshot fixture for this endpoint.');
     });
     await page.goto('/sessions?source=live');
-    await expect(page.locator('.session-item')).toHaveCount(1);
-    await expect(page.locator('.session-inspector')).toContainText('活动中');
+    await page.getByRole('button', { name: '暂停刷新', exact: true }).click();
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toHaveCount(1);
+    await page.getByRole('row').filter({ has: page.getByRole('button', { name: '55', exact: true }) })
+        .click({ position: { x: 300, y: 10 } });
+    const SelectedDetail = page.getByRole('region', { name: 'Session 55 详情', exact: true });
+    await expect(SelectedDetail).toContainText('Process 42 · Generation 6');
+    await expect(SelectedDetail).toContainText('活动中');
 
-    await page.locator('.session-refresh-actions').getByRole('button', { name: '刷新列表', exact: true }).click();
-    await expect(page.locator('.session-item')).toContainText('56');
-    const RecentTab = page.getByRole('tab', { name: /本页最近离开.*1/ });
-    await expect(RecentTab).toBeVisible();
-    await RecentTab.click();
-    await expect(page.locator('.session-item')).toHaveCount(1);
-    await expect(page.locator('.session-item')).toContainText('55');
-    await expect(page.locator('.session-item')).toContainText('未见于最新快照');
     const Width = page.viewportSize()?.width ?? 0;
     if (Width <= 767) {
-        await page.locator('.session-list-recent .session-item').click();
-        await expect(page.locator('.session-inspector')).toBeVisible();
+        await page.getByRole('button', { name: '返回连接列表', exact: true }).click();
+        await page.getByRole('button', { name: '55', exact: true }).click();
     }
-    await expect(page.locator('.session-inspector')).toContainText('已退出当前活动清单');
-    await expect(page.locator('.session-inspector').getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
+    RefreshRequested = true;
+    await page.getByRole('button', { name: '刷新列表', exact: true }).click();
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toContainText('56');
+    const RecentTab = page.getByRole('tab', { name: /最近离开.*1/ });
+    await expect(RecentTab).toBeVisible();
+    await RecentTab.click();
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toHaveCount(1);
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toContainText('55');
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toContainText('未见于最新快照');
+    if (Width <= 767) {
+        await page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')
+            .filter({ has: page.getByRole('button', { name: '55', exact: true }) }).click();
+        await expect(page.getByRole('region', { name: 'Session 55 详情', exact: true })).toBeVisible();
+    }
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('已退出当前活动清单');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ }).getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
     await page.screenshot({ path: TestInfo.outputPath('session-observed-exit.png'), animations: 'disabled' });
     if (Width <= 767) {
         await page.getByRole('button', { name: '返回连接列表', exact: true }).click();
@@ -583,19 +609,19 @@ test('Session snapshots retain observed exits for review without treating a miss
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(ScopeButton).toBeFocused();
-    await expect(page.locator('.session-item')).not.toContainText('已结束');
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).not.toContainText('已结束');
     await page.getByRole('button', { name: '清空本页留存', exact: true }).click();
-    await expect(page.locator('.session-item')).toHaveCount(0);
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toHaveCount(0);
     await expect(page.getByText('本页暂无最近离开的连接', { exact: true })).toBeVisible();
-    await page.locator('.session-refresh-actions').getByRole('button', { name: '刷新列表', exact: true }).click();
-    await expect(page.getByRole('tab', { name: /本页最近离开.*0/ })).toBeVisible();
-    await expect(page.locator('.session-item')).toHaveCount(0);
-    expect(ListReads).toBe(3);
+    await page.getByRole('button', { name: '刷新列表', exact: true }).click();
+    await expect(page.getByRole('tab', { name: /最近离开.*0/ })).toBeVisible();
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toHaveCount(0);
+    expect(ListReads).toBe(4);
     expect(ExactReads).toBeGreaterThan(Width <= 767 ? 0 : 1);
     ExpectMockWasReadOnly(Log);
 });
 
-test('incomplete Session identity cannot select a same-ID row; exact empty lookup preserves retired target and reads Trace', async ({ page }) => {
+test('incomplete Session identity cannot select a same-ID row or read child resources', async ({ page }) => {
     let ExactSessionReads = 0;
     let TraceReads = 0;
     const Collision = SessionWire({ Process: '41', Generation: '5' });
@@ -623,18 +649,15 @@ test('incomplete Session identity cannot select a same-ID row; exact empty looku
 
     await page.goto('/sessions?source=live&range=1h&session=55&process=42&identity_worker=7&identity_account=8&generation=6');
     await expect(page.getByText('Session 已退出当前活动清单', { exact: true })).toBeVisible();
-    await expect(page.getByText(/留存 Trace/)).toBeVisible();
-    await expect(page.locator('.session-inspector')).toHaveCount(0);
-    await page.getByRole('tab', { name: /事件缓冲样本/ }).click();
-    await expect(page.getByText('流量观测', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: /流量观测/ }).click();
-    await expect(page.getByText('留存事件详情', { exact: true })).toBeVisible();
+    const Detail = page.getByRole('region', { name: 'Session 55 详情', exact: true });
+    await expect(Detail).toBeVisible();
+    await expect(Detail).toContainText('没有精确身份匹配的活动 Session');
+    await expect(Detail.getByRole('button', { name: '重新核对此 Session', exact: true })).toBeVisible();
     await expect(page).toHaveURL(/session=55.*process=42.*identity_worker=7.*identity_account=8.*generation=6/);
     expect(ExactSessionReads).toBeGreaterThan(0);
-    expect(TraceReads).toBeGreaterThan(0);
-    expect(Log.Requests.some(Request => Request.Path === '/Operations/Events' && Request.Search.includes('session_id=55') &&
-        Request.Search.includes('process_id=42') && Request.Search.includes('generation_id=6'))).toBe(true);
+    expect(TraceReads).toBe(0);
     expect(Log.Requests.filter(Request => Request.Path.endsWith('/Streams') || Request.Path.endsWith('/Tasks'))).toEqual([]);
+    expect(Log.Requests.filter(Request => Request.Path.endsWith('/Trace'))).toEqual([]);
     ExpectMockWasReadOnly(Log);
 });
 
@@ -675,13 +698,14 @@ test('verified active Session exposes guarded actions, keeps last success during
     await page.goto('/sessions?source=live&session=55&process=42&identity_worker=7&identity_account=8&generation=6');
     await InitialReadStarted;
     expect(Log.Requests.filter(Request => Request.Path.endsWith('/Streams') || Request.Path.endsWith('/Tasks'))).toEqual([]);
-    await expect(page.locator('.session-inspector').getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ }).getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
     ReleaseInitialRead?.({ Body: Ok(PageWire([ActiveSession])) });
-    await page.locator('.session-inspector').waitFor();
-    await expect(page.locator('.session-inspector')).toContainText('活动中');
-    await expect(page.locator('.session-inspector').getByRole('button', { name: '取消 Session', exact: true })).toBeVisible();
-    const Tabs = page.locator('.session-detail-tabs [role=tab]');
-    await Tabs.nth(1).click();
+    await page.getByRole('region', { name: /^Session .* 详情$/ }).waitFor();
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('活动中');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ }).getByRole('button', { name: '取消 Session', exact: true })).toBeVisible();
+    const Detail = page.getByRole('region', { name: /^Session .* 详情$/ });
+    const Tabs = Detail.getByRole('tablist').getByRole('tab');
+    await Tabs.nth(2).click();
     const StreamReads = Log.Requests.filter(Request => Request.Path.endsWith('/Streams')).length;
     expect.soft(StreamReads, `Verified Session should load its exact Streams fixture; observed requests: ${JSON.stringify(Log.Requests)}`).toBeGreaterThan(0);
     if (StreamReads > 0) {
@@ -689,10 +713,10 @@ test('verified active Session exposes guarded actions, keeps last success during
             Method: 'GET', Path: '/Operations/Processes/42/Sessions/55/Streams',
             Search: '?cursor=0&limit=50&generation=6&worker=7',
         });
-        await expect(page.locator('.session-detail-tabs')).toContainText('Streams 1');
+        await expect(Detail.getByRole('tablist')).toContainText('Streams 1');
         await expect(page.getByRole('button', { name: '重置', exact: true })).toBeVisible();
     }
-    await Tabs.nth(2).click();
+    await Tabs.nth(3).click();
     const TaskReads = Log.Requests.filter(Request => Request.Path.endsWith('/Tasks')).length;
     expect.soft(TaskReads, `Verified Session should load its exact Tasks fixture; observed requests: ${JSON.stringify(Log.Requests)}`).toBeGreaterThan(0);
     if (TaskReads > 0) {
@@ -700,31 +724,31 @@ test('verified active Session exposes guarded actions, keeps last success during
             Method: 'GET', Path: '/Operations/Processes/42/Workers/7/Sessions/55/Tasks',
             Search: '?cursor=0&limit=50&generation=6',
         });
-        await expect(page.locator('.session-detail-tabs')).toContainText('Tasks 1');
+        await expect(Detail.getByRole('tablist')).toContainText('Tasks 1');
         await expect(page.getByRole('button', { name: '取消 Task', exact: true })).toBeVisible();
     }
 
     await SecondReadStarted;
     try {
-        await expect(page.locator('.session-inspector')).toContainText('活动中');
-        await expect(page.locator('.session-inspector').getByText('正在复核 Session', { exact: true })).toBeVisible({ timeout: 1_500 });
+        await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('活动中');
+        await expect(page.getByRole('region', { name: /^Session .* 详情$/ }).getByText('正在复核 Session', { exact: true })).toBeVisible({ timeout: 1_500 });
         await expect(page.getByText('当前 Session 状态无法确认', { exact: true })).toHaveCount(0);
-        await expect(page.locator('.session-inspector').getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('region', { name: /^Session .* 详情$/ }).getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: '重置', exact: true })).toHaveCount(0);
-        await expect(page.getByRole('button', { name: '取消 Task', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: '取消 Task', exact: true })).toBeDisabled();
         if (TestInfo.project.name === 'chromium-1920')
             await page.screenshot({ path: TestInfo.outputPath('session-refreshing.png'), fullPage: true });
     } finally {
         ReleaseSecondRead?.({ Status: 503, Body: { status: 'error', message: 'Fixture status revalidation failed.' } });
     }
-    await expect(page.locator('.session-inspector')).toContainText('当前 Session 状态无法确认');
-    await expect(page.locator('.session-inspector')).toContainText('精确查询失败');
-    await expect(page.locator('.session-inspector')).toContainText('最后观察到的状态：活动中');
-    await expect(page.locator('.session-inspector')).toContainText('读取时间');
-    await expect(page.locator('.session-inspector')).toContainText('Streams 待核实');
-    await expect(page.locator('.session-inspector')).toContainText('Tasks 待核实');
-    await expect(page.locator('.session-inspector').getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '取消 Task', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('当前 Session 状态无法确认');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('精确查询失败');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('最后观察到的状态：活动中');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('读取时间');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('Streams 待核实');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ })).toContainText('Tasks 待核实');
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ }).getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '取消 Task', exact: true })).toBeDisabled();
     if (TestInfo.project.name === 'chromium-1920')
         await page.screenshot({ path: TestInfo.outputPath('session-status-unknown.png'), fullPage: true });
     expect(Log.Requests.filter(Request => Request.Path.endsWith('/Streams')).length).toBeGreaterThan(0);
@@ -742,16 +766,18 @@ test('old Worker generation is not selected until user opens current generation;
         throw new Error('No Worker target fixture for this endpoint.');
     });
     await page.goto('/workers?source=live&range=1h&worker=7&process=42&generation=5');
-    await expect(page.getByText('Worker 目标已变更', { exact: true })).toBeVisible();
-    await expect(page.locator('.worker-inspector')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: '打开当前代次的 Worker', exact: true })).toBeVisible();
+    const Directory = page.getByRole('region', { name: 'Worker 清单', exact: true });
+    const Inspector = page.getByRole('region', { name: 'Worker 详情', exact: true });
+    await expect(Inspector).toContainText('深链目标未通过身份核验，不会用同号槽位代替原目标。');
+    if ((page.viewportSize()?.width ?? 0) <= 767)
+        await Inspector.getByRole('button', { name: '返回 Worker 列表', exact: true }).click();
+    await expect(Directory.getByRole('button', { name: /Worker 7.*Gen 6/ })).toBeVisible();
     expect(new URL(page.url()).searchParams.get('generation')).toBe('5');
 
-    await page.getByRole('link', { name: '打开当前代次的 Worker', exact: true }).click();
+    await Directory.getByRole('button', { name: /Worker 7.*Gen 6/ }).click();
     await expect(page).toHaveURL(/worker=7.*process=42.*generation=6/);
-    await expect(page.locator('.worker-inspector')).toBeVisible();
-    await expect(page.locator('.worker-inspector').getByText('容量为 0，使用率不可计算。', { exact: true })).toBeVisible();
-    await expect(page.locator('.worker-comparison-table .progress-bar')).toHaveCount(0);
+    await expect(Inspector.getByText('容量为 0，无法计算使用率。', { exact: true })).toBeVisible();
+    await expect(Inspector.getByRole('progressbar')).toHaveCount(0);
     ExpectMockWasReadOnly(Log);
 });
 
@@ -769,19 +795,17 @@ test('operation from a previous incarnation is not queried in the current proces
         await page.locator('details summary').filter({ hasText: '开发诊断' }).click();
         throw new Error('Operations page render failed: ' + await page.locator('details code').innerText());
     }
-    await expect(page.getByText('来源实例已变，未查询同号操作', { exact: true })).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('操作来源实例已变化或链接范围不完整');
     expect(StatusReads).toBe(0);
     expect(new URL(page.url()).searchParams.get('incarnation')).toBe(PreviousIncarnation);
 
-    await page.getByRole('link', { name: '查看当前实例操作列表' }).click();
-    const IsMobile = (page.viewportSize()?.width ?? 0) <= 767;
-    if (IsMobile) {
-        await expect(page).not.toHaveURL(/operation=17/);
-        await page.locator('.operation-list').getByRole('button', { name: /DrainWorker/ }).click();
-    }
+    await page.goto('/operations?source=live&range=1h');
+    await page.getByRole('button', { name: /DrainWorker/ }).click();
     await expect(page).toHaveURL(new RegExp(`operation=17.*process=42.*incarnation=${CurrentIncarnation}`));
-    await expect(page.locator('.operation-inspector')).toBeVisible();
-    await expect(page.locator('.operation-inspector')).toContainText('当前状态 · 最近成功读取');
+    const SelectedOperation = page.getByRole('row').filter({ has: page.getByRole('button', { name: 'DrainWorker 17', exact: true }) });
+    await expect(SelectedOperation).toContainText('已接收');
+    await expect(page.getByRole('tabpanel', { name: '结果', exact: true })).toContainText('Mock operation record');
+    await expect(page.getByRole('tab', { name: '结果', exact: true })).toBeVisible();
     expect(StatusReads).toBeGreaterThan(0);
     ExpectMockWasReadOnly(Log);
 });
@@ -843,9 +867,10 @@ test('overview shows scoped backend readings and marks stale samples', async ({ 
     await expect(Status).toContainText('识别样本 未提供');
     await expect(Status).toContainText('进程 RSS 未提供');
     const Metrics = page.getByRole('region', { name: '运行指标' });
-    await expect(Metrics).toContainText('0 B/s');
-    await expect(Metrics).toContainText('累计下行 0 B');
-    await expect(Metrics).toContainText('UDP — · QUIC —');
+    const DownRate = Metrics.getByText('下行速率', { exact: true }).locator('..').locator('dd');
+    await expect(DownRate.nth(0)).toHaveText('0 B/s');
+    await expect(DownRate.nth(1)).toHaveText('累计 0 B');
+    await expect(Metrics).toContainText('UDP 未提供 · QUIC 未提供');
     await expect(page.getByRole('columnheader', { name: '派发队列满（累计）' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: '命令失败（累计）' })).toBeVisible();
     const Overview = OverviewWire() as { [Key: string]: unknown; traffic: Record<string, unknown> };
@@ -854,7 +879,12 @@ test('overview shows scoped backend readings and marks stale samples', async ({ 
         await Route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(Ok(Value)) });
     });
     await page.reload();
-    await expect(page.getByRole('region', { name: '运行指标' }).getByText('流量采样尚未提供')).toHaveCount(2);
+    await expect(DownRate.nth(0)).toHaveText('—');
+    await expect(DownRate.nth(1)).toHaveText('累计 未提供');
+    const UpRate = page.getByRole('region', { name: '运行指标' })
+        .getByText('上行速率', { exact: true }).locator('..').locator('dd');
+    await expect(UpRate.nth(0)).toHaveText('—');
+    await expect(UpRate.nth(1)).toHaveText('累计 未提供');
     await expect(page.getByRole('region', { name: '运行指标' })).not.toContainText('456 B/s');
     ExpectMockWasReadOnly(Log);
 });
@@ -879,8 +909,11 @@ test('resource charts use verified live samples for allocator rates and admissio
         await Route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(Ok(Value)) });
     });
     await page.goto('/resources?source=live');
-    await expect(page.getByText('内存分配耗时：未采集')).toBeVisible();
-    await expect(page.getByText('Worker TrackingResource')).toBeVisible();
+    await expect(page.getByText('内存分配耗时未采集；分位值为整数毫秒桶下界。')).toBeVisible();
+    const WorkerCoverage = page.locator('details').filter({ hasText: 'Worker TrackingResource' });
+    await WorkerCoverage.locator('summary').click();
+    await expect(WorkerCoverage).toContainText('Worker TrackingResource');
+    await page.locator('details').filter({ hasText: '诊断明细' }).locator('summary').click();
     await expect(page.getByText('32 µs', { exact: true })).toHaveCount(2);
     await expect(page.getByRole('list', { name: '近期识别准入样本（新到旧）' })).toContainText('55 µs');
     await expect(page.getByText('其中识别延迟丢弃', { exact: true })).toBeVisible();
@@ -912,6 +945,7 @@ test('resource metrics do not display a different generation', async ({ page }) 
         throw new Error(`No resource fixture for ${Url.pathname}.`);
     });
     await page.goto('/resources?source=live');
+    await page.locator('details').filter({ has: page.getByText('诊断明细', { exact: false }) }).locator('summary').click();
     await expect(page.getByText('指标与资源快照的进程或代次不同', { exact: false })).toBeVisible();
     await expect(page.getByRole('list', { name: '近期识别准入样本（新到旧）' })).toHaveCount(0);
     ExpectMockWasReadOnly(Log);
@@ -950,27 +984,18 @@ test('unavailable Overview traffic stays unknown in live rate and resource readi
 
     await page.goto('/?source=live&range=1h');
     await expect(page.locator('main h1')).toHaveText('运行概览');
-    await expect(page.locator('.overview-live-rates dd')).toHaveText(['未采集', '未采集']);
-    const ResourceValues = page.locator('.overview-runtime-v2 .runtime-metric strong');
-    await expect(ResourceValues).toHaveText(['未采集', '未采集', '未采集']);
-    await page.getByRole('tab', { name: /代理资源/ }).click();
-    await page.getByRole('tab', { name: /代理资源/ }).click();
-    await page.getByRole('button', { name: '网格视图', exact: true }).click();
-    const QueueReading = page.getByRole('img', { name: /队列使用率不可用/ });
-    await expect(QueueReading).toBeVisible();
-    await expect(QueueReading).toHaveText('—');
-    await expect(QueueReading.locator('.mini-ring__value')).toHaveCount(0);
-    const WorkerSearch = page.getByRole('textbox', { name: '搜索概览 Worker', exact: true });
-    await WorkerSearch.fill('no-such-worker');
-    await expect(page.getByText('没有匹配的 Worker', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '清除 Worker 搜索', exact: true }).click();
-    await expect(WorkerSearch).toBeFocused();
-    await expect(QueueReading).toBeVisible();
+    const Readings = page.getByRole('region', { name: '运行指标', exact: true });
+    await expect(Readings.getByText('下行速率', { exact: true }).locator('..').locator('dd').first()).toHaveText('—');
+    await expect(Readings.getByText('上行速率', { exact: true }).locator('..').locator('dd').first()).toHaveText('—');
+    const Trends = page.getByRole('region', { name: '运行趋势', exact: true });
+    await expect(Trends.getByText('延迟趋势', { exact: true })).toBeVisible();
+    await expect(Trends.getByText('进程 RSS', { exact: true })).toBeVisible();
+    await expect(Trends).toContainText('未采集');
     expect(Log.Requests.filter(Request => Request.Path === '/Operations/Overview').length).toBeGreaterThan(0);
     ExpectMockWasReadOnly(Log);
 });
 
-test('failed account association reads stay unknown and each directory has its own retry action', async ({ page }) => {
+test('failed account association reads stay unknown and recover within their current read scopes', async ({ page }) => {
     let GroupsUnavailable = true;
     let SessionsUnavailable = true;
     const Log = await InstallOperationsGetMock(page, Url => {
@@ -992,30 +1017,30 @@ test('failed account association reads stay unknown and each directory has its o
         throw new Error(`No account association fixture for ${Url.pathname}.`);
     });
 
+    const InitialGroupsRead = page.waitForResponse(Response => new URL(Response.url()).pathname === '/Operations/Groups');
     await page.goto(`/accounts?source=live&account=8${(page.viewportSize()?.width ?? 0) <= 767 ? '&mobile_view=detail' : ''}`);
-    await expect(page.locator('.account-inspector')).toContainText('northstar');
-    const GroupCount = page.locator('.account-summary-line .account-summary-item').nth(3).locator('strong');
+    await InitialGroupsRead;
+    await expect(page.getByRole('region', { name: '账户详情', exact: true })).toContainText('northstar');
+    const GroupCount = page.getByRole('group', { name: '账户状态汇总', exact: true })
+        .locator('dt').filter({ hasText: '用户组' }).locator('xpath=..').locator('dd').first();
     await expect(GroupCount).toHaveText('—');
-    const GroupLoadError = page.getByRole('alert').filter({ hasText: '用户组目录暂时无法载入' });
-    await expect(GroupLoadError).toBeVisible();
-    await expect(page.locator('.account-row-context').first()).toContainText('用户组目录读取失败 · 99');
-    await expect(page.locator('.account-context')).toContainText('用户组目录读取失败 · 99');
+    const Details = page.getByRole('region', { name: '账户详情', exact: true });
+    const GroupIdentity = Details.locator('dl[aria-label="账户维度流量计数"] dd').first();
+    await expect(GroupIdentity).toHaveText('99');
+    await expect(Details).toContainText('会话读取失败：HTTP 503 · Fixture Session directory unavailable.');
 
     GroupsUnavailable = false;
-    await GroupLoadError.getByRole('button', { name: '重试读取', exact: true }).click();
+    await page.getByRole('button', { name: '刷新快照', exact: true }).click();
     await expect(GroupCount).toHaveText('1');
-    await expect(page.locator('.account-row-context').first()).toContainText('核心线路');
-    await expect(page.locator('.account-context')).toContainText('核心线路');
+    await expect(GroupIdentity).toHaveText('核心线路');
 
-    await page.getByRole('tab', { name: '连接', exact: true }).click();
+    await page.getByRole('tab', { name: '关联 Session', exact: true }).click();
     const SessionLoadError = page.getByRole('alert').filter({ hasText: '账户关联 Session暂时无法载入' });
     await expect(SessionLoadError).toBeVisible();
-    const RetrySessions = SessionLoadError.getByRole('button', { name: '重试读取', exact: true });
-    await expect(RetrySessions).toBeVisible();
     await expect(page.getByText('当前已载入 Session 样本中没有关联记录。', { exact: true })).toHaveCount(0);
 
     SessionsUnavailable = false;
-    await RetrySessions.click();
+    await page.getByRole('button', { name: '刷新快照', exact: true }).click();
     await expect(page.getByRole('link', { name: /55/ })).toBeVisible();
     expect(Log.Unexpected).toEqual([]);
     expect(Log.NonGet).toEqual([]);
@@ -1067,7 +1092,7 @@ test('configuration Apply stays locked through terminal status and unlocks only 
     await expect(Editor).toBeVisible();
     await Editor.fill(DraftText);
     await page.getByRole('button', { name: '校验草稿', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
     await page.getByRole('button', { name: '应用配置', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: '确认发布', exact: true }).click();
 
@@ -1083,7 +1108,7 @@ test('configuration Apply stays locked through terminal status and unlocks only 
     await expect(Editor).toHaveValue(JSON.stringify(DraftConfiguration, null, 2));
     await expect(Editor).not.toHaveAttribute('readonly', '');
     await expect(page.locator('.configuration-workflow-step.is-complete')).toHaveCount(3);
-    await expect(page.locator('.configuration-publish-section')).toContainText('基于 Generation 7');
+    await expect(page.getByText('基于 Generation 7；已有连接继续持有其所属版本。', { exact: true })).toBeVisible();
     expect(CommandBodies).toHaveLength(2);
     expect(CommandBodies[0]).toMatchObject({ mode: 'validate_only', base_generation: '6', configuration: DraftConfiguration });
     expect(CommandBodies[1]).toMatchObject({ mode: 'apply', base_generation: '6', configuration: DraftConfiguration });
@@ -1092,7 +1117,7 @@ test('configuration Apply stays locked through terminal status and unlocks only 
     await Editor.fill(NextDraftText);
     await expect(Editor).toHaveValue(NextDraftText);
     await expect(page.locator('.configuration-workflow-step').filter({ hasText: '应用配置' })).not.toHaveClass(/is-complete/);
-    await expect(page.locator('.configuration-workflow')).not.toContainText('本次准确文本已通过校验并应用。');
+    await expect(page.getByText('本次准确文本已通过校验并应用。', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '校验草稿', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: '应用配置', exact: true })).toBeDisabled();
     expect(Log.NonGet).toEqual(['POST /Operations/Reload', 'POST /Operations/Reload']);
@@ -1136,16 +1161,15 @@ test('configuration Apply preserves its draft when completed-operation readback 
     await expect(Editor).toBeVisible();
     await Editor.fill(DraftText);
     await page.getByRole('button', { name: '校验草稿', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
     await page.getByRole('button', { name: '应用配置', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: '确认发布', exact: true }).click();
 
-    await expect(page.locator('.configuration-publish-caution')).toContainText('草稿已保留');
+    const PublishConflict = page.getByRole('alert').filter({ hasText: '运行配置已更新到 Generation 8' });
+    await expect(PublishConflict).toContainText('当前草稿仍基于 6');
     await expect(Editor).toHaveValue(DraftText);
-    await expect(page.locator('.configuration-workflow-step').filter({ hasText: '应用配置' })).not.toHaveClass(/is-complete/);
-    await expect(page.locator('.configuration-workflow-step').filter({
-        hasText: '本次文本已应用并作为当前配置读回',
-    })).toHaveCount(0);
+    await expect(page.getByRole('alert').filter({ hasText: '草稿已保留' }).first()).toBeVisible();
+    await expect(page.getByText('本次准确文本已通过校验并应用。', { exact: true })).toHaveCount(0);
     expect(CommandBodies).toHaveLength(2);
     expect(CommandBodies[1]).toMatchObject({ mode: 'apply', base_generation: '6', configuration: DraftConfiguration });
     expect(Log.NonGet).toEqual(['POST /Operations/Reload', 'POST /Operations/Reload']);
@@ -1206,7 +1230,7 @@ test('late readback from an older incarnation preserves the rebased draft and it
         await expect(Editor).toBeVisible();
         await Editor.fill(AppliedText);
         await page.getByRole('button', { name: '校验草稿', exact: true }).click();
-        await expect(page.getByRole('status').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
+        await expect(page.getByRole('alert').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
         await page.getByRole('button', { name: '应用配置', exact: true }).click();
         await page.getByRole('dialog').getByRole('button', { name: '确认发布', exact: true }).click();
         await ReadbackStarted;
@@ -1219,19 +1243,19 @@ test('late readback from an older incarnation preserves the rebased draft and it
         });
         await expect.poll(() => Log.Requests.filter(Request => Request.Method === 'GET' && Request.Path === '/Operations/Bootstrap').length,
             { timeout: 8_000 }).toBeGreaterThan(PreviousBootstrapReads);
-        const StaleDraft = page.locator('.configuration-stale-draft');
+        const StaleDraft = page.getByRole('alert').filter({ has: page.getByRole('textbox', { name: '旧来源草稿，只读', exact: true }) });
         await expect(StaleDraft).toContainText('存在来自其他来源的未保存草稿');
-        await expect(page.locator('.configuration-status-bar')).toContainText('generation-b');
+        await expect(page.getByText('生效配置 · Generation generation-b', { exact: true })).toBeVisible();
         await page.getByRole('button', { name: '读取当前基线并准备重基线', exact: true }).click();
         await expect(StaleDraft).toContainText('已读取目标实例配置；请核对下方来源与 Generation 后确认重基线。');
-        await page.getByRole('button', { name: '确认以该基线重建草稿', exact: true }).click();
+        await page.getByRole('button', { name: '确认以该基线重建', exact: true }).click();
         await page.getByRole('dialog').getByRole('button', { name: '确认重建并重新校验', exact: true }).click();
         await expect(StaleDraft).toHaveCount(0);
         await expect(Editor).toHaveValue(AppliedText);
 
         await Editor.fill(NewDraftText);
         await page.getByRole('button', { name: '校验草稿', exact: true }).click();
-        await expect(page.getByRole('status').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
+        await expect(page.getByRole('alert').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
         const ApplyButton = page.getByRole('button', { name: '应用配置', exact: true });
         await expect(ApplyButton).toBeDisabled();
 
@@ -1239,7 +1263,7 @@ test('late readback from an older incarnation preserves the rebased draft and it
         await page.waitForTimeout(200);
         await expect(ApplyButton).toBeEnabled();
         await expect(Editor).toHaveValue(NewDraftText);
-        await expect(page.getByRole('status').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
+        await expect(page.getByRole('alert').filter({ hasText: 'Validate Only 通过' })).toBeVisible();
         expect(Log.NonGet).toEqual(['POST /Operations/Reload', 'POST /Operations/Reload', 'POST /Operations/Reload']);
         expect(Log.Unexpected).toEqual([]);
     } finally { ReleaseReadback(); }
@@ -1262,21 +1286,28 @@ test('accepted user-group edits lock all mutation controls until matching operat
         { Body: OperationWire('completed', '17', '42', '7') },
     ];
     let OperationStatusReads = 0;
+    let Operation19StatusReads = 0;
+    let ApplyCount = 0;
     const PendingStatusReleases: Array<() => void> = [];
     const CommandBodies: Array<Readonly<{ mode?: string; base_generation?: string; configuration?: unknown }>> = [];
+    let ReleaseApply: ((Reply: FixtureReply) => void) | null = null;
+    let NotifyApplyStarted: (() => void) | null = null;
+    const ApplyStarted = new Promise<void>(Resolve => { NotifyApplyStarted = Resolve; });
+    const ApplyGate = new Promise<FixtureReply>(Resolve => { ReleaseApply = Resolve; });
     const Log = await InstallOperationsGetMock(page, async Url => {
         if (Url.pathname === '/Operations/Bootstrap')
             return { Body: Bootstrap(['configuration.reload.validate', 'configuration.reload.persist']) };
-        if (Url.pathname === '/Operations/Groups') return { Body: Ok(PageWire([
-            GroupWire('core', '核心组', '0', TrafficZero), GroupWire('spare', '备用组', '0', TrafficZero),
-        ])) };
-        if (Url.pathname === '/Operations/Accounts') return { Body: Ok(PageWire([
-            AccountWire('8', '核心账户', 'core'), AccountWire('9', '备用账户', 'spare'),
-        ])) };
+        if (Url.pathname === '/Operations/Groups')
+            return { Body: Ok(PageWire([
+                GroupWire('core', '核心组', '1', TrafficZero), GroupWire('spare', '备用组', '0', TrafficZero),
+            ])) };
+        if (Url.pathname === '/Operations/Accounts')
+            return { Body: Ok(PageWire([
+                AccountWire('8', '核心账户', 'core'), AccountWire('9', '备用账户', 'spare'),
+            ])) };
         if (Url.pathname === '/Operations/Sessions') return { Body: Ok(EmptyCollection) };
         if (Url.pathname === '/Operations/Configuration')
             return { Body: Ok({ configuration: Configuration, generation: '6', reloadable: true }) };
-        if (Url.pathname === '/Operations/History') return { Body: Ok(HistoryWire()) };
         if (Url.pathname === '/Operations/Operations/17') {
             const ReadIndex = OperationStatusReads;
             const Reply = StatusReplies[Math.min(ReadIndex, StatusReplies.length - 1)]!;
@@ -1284,112 +1315,151 @@ test('accepted user-group edits lock all mutation controls until matching operat
             if (ReadIndex > 0) await new Promise<void>(Resolve => PendingStatusReleases.push(Resolve));
             return Reply;
         }
-        throw new Error(`No user-group mutation fixture for ${Url.pathname}.`);
-    }, (Url, Body) => {
-        if (Url.pathname !== '/Operations/Reload') throw new Error('Only the explicit Reload mock may receive a POST.');
+        if (Url.pathname === '/Operations/Operations/19') {
+            Operation19StatusReads += 1;
+            const State = Operation19StatusReads === 1 ? 'accepted' : 'completed';
+            return { Body: OperationWire(State, '19', '42', '8') };
+        }
+        throw new Error('No user-group edit fixture for ' + Url.pathname + '.');
+    }, async (Url, Body) => {
+        if (Url.pathname !== '/Operations/Reload') throw new Error('Only configuration reload is expected.');
         const Request = Body as Readonly<{ mode?: string; base_generation?: string; configuration?: unknown }>;
         CommandBodies.push(Request);
         if (Request.mode === 'validate_only')
             return { Body: { status: 'completed', operation: '0', message: 'Mock group validation passed.' } };
         if (Request.mode === 'apply_and_persist') {
-            const Operation = OperationWire('accepted', '17', '42', '7') as Record<string, unknown>;
-            return { Body: { ...Operation, command: 'Reload', operation: '17', message: 'Mock group update accepted.' } };
+            ApplyCount += 1;
+            if (ApplyCount === 1) {
+                NotifyApplyStarted?.();
+                return ApplyGate;
+            }
+            const RenameOperation = OperationWire('accepted', '19', '42', '8') as Record<string, unknown>;
+            return { Body: { ...RenameOperation, command: 'Reload', operation: '19', message: 'Mock rename accepted.' } };
         }
-        throw new Error(`Unexpected mocked Reload mode: ${Request.mode}`);
+        throw new Error('Unexpected mocked Reload mode: ' + Request.mode);
     });
 
-    await page.goto('/user-groups?source=live&range=1h&group=core');
-    await expect(page.locator('.group-inspector')).toContainText('核心组');
-    await page.getByRole('tab', { name: '策略与设置', exact: true }).click();
-    const RenameInput = page.locator('#group-name');
-    await RenameInput.fill('核心组改名草稿');
-    await expect(page.getByRole('button', { name: '更新名称', exact: true })).toBeEnabled();
-    await page.getByRole('tab', { name: '概览 / 成员', exact: true }).click();
-
-    const AssignmentSelect = page.getByRole('combobox', { name: '调整 核心账户 的用户组', exact: true });
-    await page.locator('.group-member-editor > summary').first().click();
-    await AssignmentSelect.click();
-    await page.getByRole('option', { name: '备用组', exact: true }).click();
-    const SaveAssignment = page.getByRole('button', { name: '保存分组', exact: true });
-    await expect(SaveAssignment).toBeEnabled();
-    const AddAccountSelect = page.getByRole('combobox', { name: '添加其他账户到此组', exact: true });
-    await AddAccountSelect.click();
-    await page.getByRole('option', { name: '备用账户 · 9', exact: true }).click();
-    const AddAccount = page.getByRole('button', { name: '添加账户', exact: true });
-    await expect(AddAccount).toBeEnabled();
-
-    const CreateAction = page.getByRole('button', { name: '新建用户组', exact: true });
-    await CreateAction.click();
-    const CreateName = page.getByRole('textbox', { name: '新用户组名称', exact: true });
-    await CreateName.fill('新建组');
-    await page.getByRole('button', { name: '创建用户组', exact: true }).click();
-    await expect.poll(() => OperationStatusReads).toBeGreaterThan(0);
-
-    const ExpectMutationControlsLocked = async (): Promise<void> => {
-        await expect(CreateAction).toBeDisabled();
-        await page.getByRole('tab', { name: '策略与设置', exact: true }).click();
-        await expect(RenameInput).toBeDisabled();
-        await expect(page.getByRole('button', { name: '更新名称', exact: true })).toBeDisabled();
-        await page.getByRole('tab', { name: '概览 / 成员', exact: true }).click();
-        await page.locator('.group-member-editor > summary').first().click();
-        await expect(AssignmentSelect).toBeDisabled();
-        await expect(SaveAssignment).toBeDisabled();
-        await expect(AddAccountSelect).toBeDisabled();
-        await expect(AddAccount).toBeDisabled();
-    };
-    const ExpectNeedsReviewLocked = async (): Promise<void> => {
-        await expect(page.getByRole('status').filter({ hasText: '用户组配置结果尚未核实' }).first()).toBeVisible();
-        await expect(page.getByRole('status').filter({ hasText: '操作已完成' })).toHaveCount(0);
-        await ExpectMutationControlsLocked();
-    };
-    await ExpectNeedsReviewLocked();
-
-    const WaitForNextStatus = async (PreviousReadCount: number): Promise<void> => {
-        await expect.poll(() => OperationStatusReads).toBeGreaterThan(PreviousReadCount);
-        const Release = PendingStatusReleases.shift();
-        expect(Release).toBeDefined();
-        const NextResponse = page.waitForResponse(Response => {
-            const Url = new URL(Response.url());
-            return Url.pathname === '/Operations/Operations/17' && Response.request().method() === 'GET';
+    try {
+        await page.goto('/user-groups?source=live&range=1h&group=core');
+        const Details = page.getByRole('region', { name: '用户组详情', exact: true });
+        const CreateAction = page.getByRole('button', { name: '新建用户组', exact: true });
+        const RenameAction = Details.getByRole('button', { name: '改名', exact: true });
+        const AddAccountAction = Details.getByRole('button', { name: '添加账户', exact: true });
+        await expect(Details).toContainText('核心组');
+        await expect(RenameAction).toBeEnabled();
+        await expect(AddAccountAction).toBeEnabled();
+        await CreateAction.click();
+        const Dialog = page.getByRole('dialog');
+        await Dialog.getByRole('textbox', { name: '新用户组名称', exact: true }).fill('新建组');
+        const Create = Dialog.getByRole('button', { name: /创建用户组|正在创建/ });
+        await Create.click();
+        await ApplyStarted;
+        await expect(Create).toBeDisabled();
+        await expect.poll(() => CommandBodies.length).toBe(2);
+        expect(CommandBodies.map(Value => Value.mode)).toEqual(['validate_only', 'apply_and_persist']);
+        expect(CommandBodies[0]?.base_generation).toBe('6');
+        expect(CommandBodies[1]?.base_generation).toBe('6');
+        expect(CommandBodies[1]?.configuration).toMatchObject({
+            AccountGroups: expect.arrayContaining([expect.objectContaining({ Name: '新建组' })]),
         });
-        Release?.();
-        await NextResponse;
-    };
-    await WaitForNextStatus(1);
-    await ExpectNeedsReviewLocked();
 
-    await WaitForNextStatus(2);
-    await ExpectNeedsReviewLocked();
+        const Operation = OperationWire('accepted', '17', '42', '7') as Record<string, unknown>;
+        ReleaseApply?.({ Body: { ...Operation, command: 'Reload', operation: '17', message: 'Mock group update accepted.' } });
+        const Accepted = page.getByRole('alert').filter({ hasText: '操作已受理，等待核验' });
+        await expect(Accepted).toContainText('Mock group update accepted.');
+        await expect(page.getByText('操作已完成', { exact: true })).toHaveCount(0);
+        await expect(Dialog).toHaveCount(0);
+        await expect.poll(() => OperationStatusReads).toBeGreaterThan(0);
 
-    const IsMobile = (page.viewportSize()?.width ?? 0) <= 767;
-    if (IsMobile) await page.getByRole('button', { name: '返回分组目录', exact: true }).click();
-    const SpareGroup = page.locator('.group-rail button.group-select').filter({ hasText: '备用组' });
-    await expect(SpareGroup).toBeEnabled();
-    await SpareGroup.click();
-    await expect(page).toHaveURL(/group=spare/);
-    if (IsMobile) await page.getByRole('button', { name: '返回分组目录', exact: true }).click();
-    const CoreGroup = page.locator('.group-rail button.group-select').filter({ hasText: '核心组' });
-    await expect(CoreGroup).toBeEnabled();
-    await CoreGroup.click();
-    await expect(page).toHaveURL(/group=core/);
-    await ExpectMutationControlsLocked();
+        const ExpectMutationControlsLocked = async (): Promise<void> => {
+            await expect(CreateAction).toBeDisabled();
+            await expect(Details.getByRole('button', { name: '改名', exact: true })).toBeDisabled();
+            await expect(Details.getByRole('button', { name: '添加账户', exact: true })).toBeDisabled();
+            await expect(Details.getByRole('table').getByRole('button', { name: '移出', exact: true })).toBeDisabled();
+        };
+        const ExpectNeedsReviewLocked = async (): Promise<void> => {
+            await expect(page.getByRole('status').filter({ hasText: '用户组配置结果尚未核实' })).toBeVisible();
+            await expect(page.getByRole('alert').filter({ hasText: '操作已完成' })).toHaveCount(0);
+            await ExpectMutationControlsLocked();
+        };
+        const WaitForNextStatus = async (PreviousReadCount: number): Promise<void> => {
+            await expect.poll(() => OperationStatusReads).toBeGreaterThan(PreviousReadCount);
+            const Release = PendingStatusReleases.shift();
+            expect(Release).toBeDefined();
+            const NextResponse = page.waitForResponse(Response => {
+                const Url = new URL(Response.url());
+                return Url.pathname === '/Operations/Operations/17' && Response.request().method() === 'GET';
+            });
+            Release?.();
+            await NextResponse;
+        };
+        await ExpectNeedsReviewLocked();
+        await WaitForNextStatus(1);
+        await ExpectNeedsReviewLocked();
+        await WaitForNextStatus(2);
+        await ExpectNeedsReviewLocked();
 
-    await WaitForNextStatus(3);
-    await expect(page.getByRole('status').filter({ hasText: '用户组配置命令正在处理' }).first()).toBeVisible();
-    await ExpectMutationControlsLocked();
-    await WaitForNextStatus(4);
-    await expect(page.getByRole('status').filter({ hasText: '操作已完成' }).first()).toBeVisible();
-    await expect(CreateAction).toBeEnabled();
-    await page.getByRole('tab', { name: '策略与设置', exact: true }).click();
-    await expect(RenameInput).toBeEnabled();
-    await page.getByRole('tab', { name: '概览 / 成员', exact: true }).click();
-    await page.locator('.group-member-editor > summary').first().click();
-    await expect(AssignmentSelect).toBeEnabled();
-    await expect(AddAccountSelect).toBeEnabled();
+        const Directory = page.getByRole('region', { name: '用户组目录', exact: true });
+        const IsMobile = (page.viewportSize()?.width ?? 0) <= 767;
+        if (IsMobile) await Details.getByRole('button', { name: '返回分组目录', exact: true }).click();
+        const SpareGroup = Directory.getByRole('button', { name: /备用组/ });
+        await expect(SpareGroup).toBeEnabled();
+        await SpareGroup.click();
+        await expect(page).toHaveURL(/group=spare/);
+        if (IsMobile) await page.getByRole('region', { name: '用户组详情', exact: true })
+            .getByRole('button', { name: '返回分组目录', exact: true }).click();
+        const CoreGroup = Directory.getByRole('button', { name: /核心组/ });
+        await expect(CoreGroup).toBeEnabled();
+        await CoreGroup.click();
+        await expect(page).toHaveURL(/group=core/);
+        await ExpectMutationControlsLocked();
 
-    expect(OperationStatusReads).toBe(5);
-    expect(CommandBodies.map(Request => Request.mode)).toEqual(['validate_only', 'apply_and_persist']);
-    expect(CommandBodies[1]).toMatchObject({ base_generation: '6' });
-    expect(Log.NonGet).toEqual(['POST /Operations/Reload', 'POST /Operations/Reload']);
-    expect(Log.Unexpected).toEqual([]);
+        await WaitForNextStatus(3);
+        await expect(page.getByRole('status').filter({ hasText: '用户组配置命令正在处理' })).toBeVisible();
+        await ExpectMutationControlsLocked();
+        await WaitForNextStatus(4);
+        await expect(page.getByRole('alert').filter({ hasText: '操作已完成' })).toBeVisible();
+        await expect(CreateAction).toBeEnabled();
+        await expect(RenameAction).toBeEnabled();
+        await expect(AddAccountAction).toBeEnabled();
+        await expect(Details.getByRole('table').getByRole('button', { name: '移出', exact: true })).toBeEnabled();
+
+        await RenameAction.click();
+        const RenameDialog = page.getByRole('dialog', { name: '重命名 核心组', exact: true });
+        const RenameInput = RenameDialog.getByRole('textbox', { name: '新用户组名称', exact: true });
+        await expect(RenameInput).toBeEnabled();
+        await RenameInput.fill('核心组改名草稿');
+        const ConfirmRename = RenameDialog.getByRole('button', { name: '确认改名', exact: true });
+        await expect(ConfirmRename).toBeEnabled();
+        await ConfirmRename.click();
+        await expect.poll(() => CommandBodies.length).toBe(4);
+        await expect.poll(() => Operation19StatusReads).toBeGreaterThan(0);
+        await expect(page.getByRole('status').filter({ hasText: '用户组配置命令正在处理' })).toBeVisible();
+        await ExpectMutationControlsLocked();
+        await expect.poll(() => Operation19StatusReads).toBeGreaterThan(1);
+        await expect(page.getByRole('alert').filter({ hasText: '操作已完成' })).toBeVisible();
+        await expect(CreateAction).toBeEnabled();
+        await expect(RenameAction).toBeEnabled();
+        await expect(AddAccountAction).toBeEnabled();
+        await AddAccountAction.click();
+        const AddAccountDialog = page.getByRole('dialog', { name: '添加账户到 核心组', exact: true });
+        await expect(AddAccountDialog.getByRole('combobox', { name: '选择账户', exact: true })).toBeEnabled();
+        await expect(AddAccountDialog.getByRole('button', { name: '确认分配', exact: true })).toBeDisabled();
+
+        expect(OperationStatusReads).toBe(5);
+        expect(Operation19StatusReads).toBe(2);
+        expect(CommandBodies.map(Request => Request.mode)).toEqual([
+            'validate_only', 'apply_and_persist', 'validate_only', 'apply_and_persist',
+        ]);
+        expect(CommandBodies[1]).toMatchObject({ base_generation: '6' });
+        expect(CommandBodies[3]).toMatchObject({ base_generation: '6' });
+        expect(Log.NonGet).toEqual([
+            'POST /Operations/Reload', 'POST /Operations/Reload',
+            'POST /Operations/Reload', 'POST /Operations/Reload',
+        ]);
+        expect(Log.Unexpected).toEqual([]);
+    } finally {
+        ReleaseApply?.({ Body: { status: 'accepted', operation: '17', command: 'Reload', message: 'Fixture released.' } });
+        for (const Release of PendingStatusReleases) Release();
+    }
 });

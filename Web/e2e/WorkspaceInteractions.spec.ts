@@ -3,24 +3,22 @@ import { expect, test } from '@playwright/test';
 test('桌面导航折叠可持久化，移动端导航仍可打开与关闭', async ({ page }) => {
     const Width = page.viewportSize()?.width ?? 0;
     await page.goto('/?source=demo&range=1h');
-    const Sidebar = page.locator('#primary-navigation');
-
     if (Width > 900) {
-        const Frame = page.locator('.app-frame');
-        const ExpandedWidth = await Sidebar.evaluate(Element => Element.getBoundingClientRect().width);
-        await page.getByRole('button', { name: '收起导航', exact: true }).click();
-        await expect(Frame).toHaveClass(/sidebar-collapsed/);
-        await expect.poll(() => Sidebar.evaluate(Element => Element.getBoundingClientRect().width))
+        const Sidebar = page.locator('[data-slot="sidebar"][data-side="left"]');
+        const ExpandedWidth = await page.locator('[data-slot="sidebar-container"]').evaluate(Element => Element.getBoundingClientRect().width);
+        const ToggleNavigation = page.getByRole('button', { name: '展开或收起导航', exact: true });
+        await ToggleNavigation.click();
+        await expect(Sidebar).toHaveAttribute('data-state', 'collapsed');
+        await expect(Sidebar).toHaveAttribute('data-collapsible', 'icon');
+        await expect.poll(() => page.locator('[data-slot="sidebar-container"]').evaluate(Element => Element.getBoundingClientRect().width))
             .toBeLessThan(ExpandedWidth - 24);
-        await expect.poll(() => page.evaluate(() => localStorage.getItem('prism-navigation-collapsed:v1')))
-            .toBe('true');
+        await expect.poll(() => page.context().cookies(page.url()).then(Cookies => Cookies.find(Cookie => Cookie.name === 'sidebar_state')?.value))
+            .toBe('false');
 
         await page.reload();
-        await expect(Frame).toHaveClass(/sidebar-collapsed/);
-        const EventLink = Sidebar.getByRole('link', { name: '事件流', exact: true });
+        await expect(Sidebar).toHaveAttribute('data-state', 'collapsed');
+        const EventLink = Sidebar.getByRole('link', { name: '事件', exact: true });
         await expect(EventLink).toBeVisible();
-        await expect(EventLink).toHaveAttribute('aria-label', '事件流');
-        await expect(EventLink.locator('.nav-label')).toBeHidden();
         await EventLink.click();
         await expect(page.locator('main h1')).toHaveText('事件流');
         const EventsUrl = new URL(page.url());
@@ -28,22 +26,23 @@ test('桌面导航折叠可持久化，移动端导航仍可打开与关闭', as
         expect(EventsUrl.searchParams.get('range')).toBe('1h');
         await expect(page.getByText('演示模式', { exact: true })).toBeVisible();
 
-        const CollapsedWidth = await Sidebar.evaluate(Element => Element.getBoundingClientRect().width);
-        await page.getByRole('button', { name: '展开导航', exact: true }).click();
-        await expect(Frame).not.toHaveClass(/sidebar-collapsed/);
-        await expect.poll(() => Sidebar.evaluate(Element => Element.getBoundingClientRect().width))
+        const CollapsedWidth = await page.locator('[data-slot="sidebar-container"]').evaluate(Element => Element.getBoundingClientRect().width);
+        await ToggleNavigation.click();
+        await expect(Sidebar).toHaveAttribute('data-state', 'expanded');
+        await expect.poll(() => page.locator('[data-slot="sidebar-container"]').evaluate(Element => Element.getBoundingClientRect().width))
             .toBeGreaterThan(CollapsedWidth + 24);
-        await expect.poll(() => page.evaluate(() => localStorage.getItem('prism-navigation-collapsed:v1')))
-            .toBe('false');
+        await expect.poll(() => page.context().cookies(page.url()).then(Cookies => Cookies.find(Cookie => Cookie.name === 'sidebar_state')?.value))
+            .toBe('true');
         return;
     }
 
-    await expect(page.locator('.sidebar-collapse')).toBeHidden();
-    const OpenNavigation = page.getByRole('button', { name: '打开导航', exact: true });
+    const OpenNavigation = page.getByRole('button', { name: '展开或收起导航', exact: true });
+    const SidebarDialog = page.getByRole('dialog', { name: '主导航', exact: true });
     await OpenNavigation.click();
-    await expect(Sidebar).toHaveClass(/sidebar-mobile-open/);
-    await page.getByRole('button', { name: '关闭导航', exact: true }).click();
-    await expect(Sidebar).not.toHaveClass(/sidebar-mobile-open/);
+    await expect(SidebarDialog).toBeVisible();
+    await expect(SidebarDialog.getByRole('link', { name: '运行概览', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(SidebarDialog).toBeHidden();
     await expect(OpenNavigation).toBeFocused();
 });
 
@@ -65,13 +64,11 @@ test('搜索对话框与移动导航各自处理 Escape 并恢复焦点', async 
         return;
     }
 
-    const OpenNavigation = page.getByRole('button', { name: '打开导航', exact: true });
-    const Sidebar = page.locator('#primary-navigation');
-    const Workspace = page.locator('.workspace');
+    const OpenNavigation = page.getByRole('button', { name: '展开或收起导航', exact: true });
+    const Sidebar = page.getByRole('dialog', { name: '主导航', exact: true });
     await OpenNavigation.click();
-    await expect(Sidebar).toHaveAttribute('role', 'dialog');
+    await expect(Sidebar).toBeVisible();
     await expect(Sidebar).toHaveAttribute('aria-modal', 'true');
-    await expect(Workspace).toHaveAttribute('inert', '');
 
     const Focusable = Sidebar.locator('a[href]:visible, button:not([disabled]):visible');
     const First = Focusable.first();
@@ -82,19 +79,16 @@ test('搜索对话框与移动导航各自处理 Escape 并恢复焦点', async 
     await page.keyboard.press('Tab');
     await expect(First).toBeFocused();
 
+    await page.keyboard.press('Escape');
+    await expect(Sidebar).toBeHidden();
+    await expect(OpenNavigation).toBeFocused();
+
     await SearchTrigger.click();
     await expect(SearchDialog).toBeVisible();
     await expect(SearchInput).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(SearchDialog).toBeHidden();
     await expect(SearchTrigger).toBeFocused();
-    await expect(Sidebar).toHaveClass(/sidebar-mobile-open/);
-    await expect(Workspace).toHaveAttribute('inert', '');
-
-    await page.keyboard.press('Escape');
-    await expect(Sidebar).not.toHaveClass(/sidebar-mobile-open/);
-    await expect(Workspace).not.toHaveAttribute('inert');
-    await expect(OpenNavigation).toBeFocused();
 });
 
 test('自定义时间输入清空后保留无效状态并能直接修复', async ({ page }) => {
@@ -161,7 +155,7 @@ test('监测概览区分即时速率与历史区间并保留资源跳转上下�
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/?source=demo');
     expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
-    const Motion = await page.locator('.overview-toolbar, .sidebar, .overview-traffic-v2').evaluateAll(Elements =>
+    const Motion = await page.locator('.page-header, .sidebar, .overview-traffic-v2').evaluateAll(Elements =>
         Elements.map(Element => ({ Animation: getComputedStyle(Element).animationDuration, Transition: getComputedStyle(Element).transitionDuration })));
     for (const Value of Motion) {
         expect(Value.Animation.split(',').every(Duration => parseFloat(Duration) <= 0.01)).toBe(true);
@@ -169,10 +163,10 @@ test('监测概览区分即时速率与历史区间并保留资源跳转上下�
     }
 
     await expect(page.getByRole('navigation', { name: '概览分区' })).toHaveCount(0);
-    const LiveRates = page.locator('.overview-live-rates');
-    await expect(LiveRates.locator('dt')).toHaveText(['下行速率', '上行速率']);
-    await expect(LiveRates.locator('.snapshot-rate > span')).toHaveText(['当前快照 · 有效载荷', '当前快照 · 有效载荷']);
-    const SnapshotTime = page.locator('.overview-intro time[datetime]');
+    const LiveRates = page.getByRole('region', { name: '运行指标', exact: true });
+    await expect(LiveRates.getByText('下行速率', { exact: true }).locator('..').locator('dd').first()).toBeVisible();
+    await expect(LiveRates.getByText('上行速率', { exact: true }).locator('..').locator('dd').first()).toBeVisible();
+    const SnapshotTime = page.getByRole('region', { name: '运行状态与数据质量', exact: true }).locator('time[datetime]');
     await expect(SnapshotTime).toHaveCount(1);
     await expect(SnapshotTime).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
 
@@ -184,15 +178,10 @@ test('监测概览区分即时速率与历史区间并保留资源跳转上下�
     expect(CurrentUrl.searchParams.get('range')).toBe('1h');
     await expect(page.locator('.overview-traffic-v2 .time-series-chart[tabindex="0"]')).toBeVisible();
 
-    const Connections = page.locator('.overview-connections-v2');
-    await expect(Connections.getByRole('heading', { name: '连接活动', exact: true })).toBeVisible();
-    await expect(Connections.locator('.connection-reading')).toContainText('TCP Session');
-    await expect(Connections.locator('dl dt')).toHaveText(['UDP', 'QUIC']);
-    await expect(Connections.locator('dl dd')).toHaveText(['未采集', '未采集']);
-    await Connections.getByRole('link', { name: '查看连接', exact: true }).click();
-    await expect(page.locator('main h1')).toHaveText('Session 追踪');
-    await expect(page.locator('.route-announcement')).toContainText('Session 追踪');
-    await expect(page).toHaveTitle('Session 追踪 · Prism');
+    await expect(page.getByRole('heading', { name: '连接活动', exact: true })).toBeVisible();
+    await page.getByRole('link', { name: '查看会话', exact: true }).click();
+    await expect(page.locator('main h1')).toHaveText('连接');
+    await expect(page).toHaveTitle('连接 · Prism Control Plane');
     CurrentUrl = new URL(page.url());
     expect(CurrentUrl.pathname).toBe('/sessions');
     expect(CurrentUrl.searchParams.get('source')).toBe('demo');
@@ -218,9 +207,9 @@ test('账户详情保持可读宽度且连接列表各行不会相互遮挡', as
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/accounts?source=demo');
     await page.getByRole('button', { name: 'blue-hour acct-blue-hour', exact: true }).click();
-    const Inspector = page.locator('.account-inspector');
-    await expect(Inspector.locator('.account-profile')).toContainText('blue-hour');
-    await Inspector.getByRole('tab', { name: '连接', exact: true }).click();
+    const Inspector = page.getByRole('region', { name: '账户详情', exact: true });
+    await expect(Inspector).toContainText('blue-hour');
+    await Inspector.getByRole('tab', { name: '关联 Session', exact: true }).click();
     await expect(Inspector.getByRole('tabpanel')).toBeVisible();
     const DetailBounds = await Inspector.boundingBox();
     const Viewport = page.viewportSize()!;
@@ -230,14 +219,14 @@ test('账户详情保持可读宽度且连接列表各行不会相互遮挡', as
     expect(DetailBounds!.x + DetailBounds!.width).toBeLessThanOrEqual(Viewport.width + 1);
 
     await page.goto('/sessions?source=demo');
-    await expect(page.locator('.session-item')).toHaveCount(5);
+    await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr')).toHaveCount(5);
     await page.evaluate(() => document.fonts.ready);
-    const Rows = await page.locator('.session-item').evaluateAll(Elements => Elements.map(Element => {
+    const Rows = await page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr').evaluateAll(Elements => Elements.map(Element => {
         const Bounds = Element.getBoundingClientRect();
         return { Top: Bounds.top, Bottom: Bounds.bottom };
     }));
     for (let Index = 1; Index < Rows.length; Index++)
         expect(Rows[Index]!.Top).toBeGreaterThanOrEqual(Rows[Index - 1]!.Bottom - 1);
-    await page.locator('.session-item').last().click();
-    await expect(page.locator('.session-inspector h2')).toHaveText('session-0998');
+    await page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr').last().click();
+    await expect(page.getByRole('region', { name: /^Session .* 详情$/ }).getByRole('heading', { level: 2 })).toHaveText('session-0998');
 });

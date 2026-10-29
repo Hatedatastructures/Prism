@@ -24,7 +24,7 @@ export function OverviewStatus(Input: Readonly<{
             </div>
             <div className="min-w-0 border-r px-4 py-3"><p className="text-sm font-semibold">实例身份</p>
                 <p className="mt-1 break-all font-mono text-xs">Process {Input.Snapshot.Process.Id} · G{Input.Snapshot.Process.GenerationId}</p>
-                <p className="mt-1 text-xs text-muted-foreground">阶段 {Input.Snapshot.Process.Phase} · 采样 {FormatTime(Input.Snapshot.SampledAt)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">阶段 {Input.Snapshot.Process.Phase} · 采样 <time dateTime={Input.Snapshot.SampledAt}>{FormatTime(Input.Snapshot.SampledAt)}</time></p>
             </div>
             <div className="min-w-0 px-4 py-3"><p className="text-sm font-semibold">观测质量</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">{Decision.Observation.Detail}</p>

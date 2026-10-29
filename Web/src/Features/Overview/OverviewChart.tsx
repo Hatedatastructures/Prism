@@ -1,34 +1,71 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
+import { TimeSeriesChart } from '../../Components/TimeSeriesChart';
 import { FormatRate, FormatTime } from '../../Components/Ui';
+import { HistoryChartPoints } from '../../Api/Analysis';
 import type { TrafficSample } from '../../Services/AdminDataSource';
 import { BuildTrafficSeries } from './TrafficChart';
+import { useHistory, useTimeRange } from '../TimeRange';
+import { useAdminServices, useBootstrapIdentity } from '../UseOperations';
 
-/** @brief 按累计计数的相邻采样展示速率，缺失和回退保持断线。 */
+type TrafficPoint = Readonly<{ Time: number; Up: number | null; Down: number | null }>;
+
+/** @brief 优先读取受能力控制的窗口历史；未开放时只用概览随附的真实采样。 */
 export function OverviewChart(Input: Readonly<{ History: readonly TrafficSample[]; ClassName?: string }>): ReactNode {
-    const Points = useMemo(() => BuildTrafficSeries(Input.History), [Input.History]);
+    const Services = useAdminServices();
+    const Bootstrap = useBootstrapIdentity();
+    const Range = useTimeRange();
+    const HasHistory = Services.Mode === 'demo' || Bootstrap.data?.Capabilities.includes('history.read') === true;
+    const CanReadHistory = HasHistory && !Bootstrap.error;
+    const Window = useHistory('process', '', 'traffic', CanReadHistory);
+    const SnapshotPoints = useMemo(() => SnapshotTrafficPoints(Input.History, Range.From, Range.To, Range.Valid),
+        [Input.History, Range.From, Range.To, Range.Valid]);
+    const WindowPoints = useMemo(() => Window.data
+        ? HistoryChartPoints(Window.data.Items, Window.data.ResolutionMs, Window.data.Gaps) : [],
+    [Window.data]);
+    const Points = CanReadHistory ? WindowPoints : SnapshotPoints;
     const HasValues = Points.some(Point => Point.Up !== null || Point.Down !== null);
-    return <Card className={`min-w-0 ${Input.ClassName ?? ''}`}>
-        <CardHeader className="px-5"><CardTitle>流量趋势</CardTitle><CardDescription>根据相邻累计采样计算的上行与下行速率</CardDescription></CardHeader>
+    const Loading = CanReadHistory && Window.isPending;
+    const Failed = CanReadHistory && Window.isError;
+    const Description = CanReadHistory
+        ? '有效载荷 · 当前时间窗口的采样范围'
+        : '有效载荷 · 仅使用概览随附的真实采样，不请求窗口历史';
+    const Series = [
+        { Key: 'Down', Label: '下行', Color: 'var(--chart-down)', Value: (Point: TrafficPoint) => Point.Down, Format: FormatRate },
+        { Key: 'Up', Label: '上行', Color: 'var(--chart-up)', Dash: '6 4', Value: (Point: TrafficPoint) => Point.Up, Format: FormatRate },
+    ];
+    return <Card className={`overview-traffic-v2 min-w-0 ${Input.ClassName ?? ''}`}>
+        <CardHeader className="px-5"><CardTitle>流量趋势</CardTitle><CardDescription>{Description}</CardDescription></CardHeader>
         <CardContent className="px-5">
-            {HasValues ? <>
-                <div className="flex flex-wrap gap-5 pb-3 text-xs text-muted-foreground" aria-label="图例">
-                    <span className="flex items-center gap-2"><span className="h-0.5 w-4 bg-[var(--chart-down)]" />下行</span>
-                    <span className="flex items-center gap-2"><span className="h-0.5 w-4 bg-[var(--chart-up)]" />上行</span>
-                </div>
-                <div className="h-48 min-w-0" role="img" aria-label="历史流量速率图，显示下行及上行采样">
-                    <ResponsiveContainer width="100%" height="100%"><LineChart data={Points} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
-                        <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="Time" tickFormatter={Value => FormatTime(String(Value))} tick={{ fill: 'var(--plot-axis)', fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={28} />
-                        <YAxis width={90} tickFormatter={Value => FormatRate(Math.round(Number(Value)))} tick={{ fill: 'var(--plot-axis)', fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <Tooltip labelFormatter={Value => FormatTime(String(Value), true)} formatter={(Value, Name) => [typeof Value === 'number' ? FormatRate(Math.round(Value)) : '—', Name === 'Down' ? '下行' : '上行']} contentStyle={{ background: 'var(--surface)', borderColor: 'var(--line)', borderRadius: 'var(--radius)', color: 'var(--ink)' }} />
-                        <Line type="monotone" dataKey="Down" stroke="var(--chart-down)" strokeWidth={2} dot={false} connectNulls={false} />
-                        <Line type="monotone" dataKey="Up" stroke="var(--chart-up)" strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} />
-                    </LineChart></ResponsiveContainer>
-                </div>
-            </> : <div className="flex h-48 items-center justify-center text-center text-sm text-muted-foreground">需要至少两次有效采样才能显示流量趋势。</div>}
+            <div className="mb-3 flex flex-wrap gap-5 text-xs text-muted-foreground" aria-label="图例">
+                <span className="flex items-center gap-2"><span className="h-0.5 w-4 bg-[var(--chart-down)]" />下行</span>
+                <span className="flex items-center gap-2"><span className="h-0.5 w-4 border-t-2 border-dashed border-[var(--chart-up)]" />上行</span>
+            </div>
+            <div className="h-48 min-w-0">
+                {Loading ? <div className="flex h-full items-center justify-center text-sm text-muted-foreground">正在读取窗口流量样本…</div>
+                    : Failed ? <div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground">窗口流量样本读取失败；请重试刷新。</div>
+                        : HasValues ? <TimeSeriesChart Points={Points} Series={Series} AriaLabel="历史流量速率趋势，显示下行与上行采样"
+                            FormatTime={Value => FormatTime(new Date(Value).toISOString())} FormatAxis={FormatRate} />
+                            : <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
+                                {Range.InvalidReason ?? (CanReadHistory ? '当前区间没有有效流量样本。' : '概览快照没有足够的流量样本。')}
+                            </div>}
+            </div>
+            {CanReadHistory && Window.data && <p className="mt-2 text-xs text-muted-foreground">
+                采样 {FormatTime(Window.data.SampledAt)} · 分辨率 {Number(Window.data.ResolutionMs) / 1000}s · {Window.data.Coverage}
+            </p>}
+            {CanReadHistory && (Window.data?.Gaps.length ?? 0) > 0 && <p role="status" className="mt-2 text-xs text-muted-foreground">
+                区间包含 {Window.data!.Gaps.length} 段缺测；曲线保留断点。
+            </p>}
         </CardContent>
     </Card>;
+}
+
+function SnapshotTrafficPoints(History: readonly TrafficSample[], From: string, To: string, Valid: boolean): TrafficPoint[] {
+    if (!Valid) return [];
+    const Begin = Date.parse(From), End = Date.parse(To);
+    return BuildTrafficSeries(History).flatMap(Point => {
+        const Time = Date.parse(Point.Time);
+        return Number.isFinite(Time) && Time >= Begin && Time <= End ? [{ Time, Up: Point.Up, Down: Point.Down }] : [];
+    });
 }

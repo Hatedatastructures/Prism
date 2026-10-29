@@ -19,12 +19,12 @@ test('账户目录保留选择、详情和撤销确认', async ({ page }, info) 
 
 test('Worker 选择保持完整实例身份和操作确认', async ({ page }) => {
     await page.goto('/workers?source=demo');
+    await expect(page.getByRole('columnheader', { name: '命令失败', exact: true })).toBeVisible();
     await page.getByRole('button', { name: /worker-02/ }).click();
     await expect(page).toHaveURL(/worker=worker-02/);
     await page.getByRole('button', { name: '查看 Worker 实例身份' }).click();
     await expect(page.getByText('Process PRISM-DEMO-01 · Generation 42 · Worker worker-02', { exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('columnheader', { name: '事件丢弃' })).toBeVisible();
     await page.getByRole('button', { name: '排空 Worker' }).click();
     await expect(page.getByRole('dialog')).toContainText('Process PRISM-DEMO-01 · Generation 42 · Worker worker-02');
     await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -39,15 +39,16 @@ test('入口、协议、用户组和 Session 展示选中对象的真实范围',
 
     await page.goto('/protocols?source=demo');
     await page.getByRole('button', { name: /VLESS/ }).click();
-    await page.getByText('查看选中协议的覆盖与延迟', { exact: false }).click();
-    await expect(page.getByText('TCP Session 可关联；QUIC admission 未关联').last()).toBeVisible();
+    const ProtocolDetails = page.getByRole('region', { name: 'VLESS 协议详情', exact: true });
+    await expect(ProtocolDetails).toContainText('TCP Session 可关联；QUIC admission 未关联');
+    await expect(ProtocolDetails.getByRole('link', { name: '查看关联连接', exact: true })).toBeVisible();
 
     await page.goto('/user-groups?source=demo');
     await page.getByRole('button', { name: /标准用户/ }).click();
     await expect(page.getByText('Group ID · group-standard')).toBeVisible();
 
     await page.goto('/sessions?source=demo');
-    await expect(page.getByRole('textbox', { name: '搜索 Session' })).toBeVisible();
+    await expect(page.getByRole('searchbox', { name: '搜索 Session' })).toBeVisible();
     await page.getByRole('button', { name: 'session-1002' }).click();
     await expect(page.getByText('session-1002', { exact: true }).last()).toBeVisible();
     await expect(page.getByLabel('连接路径')).toContainText('192.0.2.41:8443');

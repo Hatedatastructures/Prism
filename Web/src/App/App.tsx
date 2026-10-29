@@ -26,7 +26,8 @@ const ResourcesPage = lazy(() => import('../Features/Resources/ResourcesPage'));
 const QueryClientValue = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 2_000 } },
 });
-const Demo = new URLSearchParams(window.location.search).get('source') === 'demo' || import.meta.env.VITE_OPERATIONS_MODE === 'demo';
+const RequestedSource = new URLSearchParams(window.location.search).get('source');
+const Demo = RequestedSource === 'demo' || (RequestedSource !== 'live' && import.meta.env.VITE_OPERATIONS_MODE === 'demo');
 const Services: AdminServices = { Data: Demo ? new DemoAdminDataSource() : new LiveAdminDataSource(), Mode: Demo ? 'demo' : 'live' };
 
 export function App(): ReactNode {

@@ -64,10 +64,10 @@ export function AccountUsagePanel(Input: Readonly<{ Account: AccountRecord; Rela
                 {CanAdjustUsage ? <details className="usage-adjustment rounded-lg border">
                     <summary className="cursor-pointer px-4 py-3 text-sm font-medium">调整本周期额度</summary>
                     <div className="space-y-4 border-t p-4">
-                        <fieldset className="space-y-2"><legend className="text-sm font-medium">调整类型</legend>
+                        <fieldset role="radiogroup" aria-label="调整类型" className="space-y-2"><legend className="text-sm font-medium">调整类型</legend>
                             <div className="grid gap-2 sm:grid-cols-2">{([{ Value: 'add_allowance', Label: '增加本周期额度' }, { Value: 'release_uncertain', Label: '释放异常占额' }] as const).map(Option =>
                                 <label key={Option.Value} className="flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm has-checked:bg-muted">
-                                    <input type="radio" name="usage-kind" value={Option.Value} checked={Kind === Option.Value} onChange={() => SetKind(Option.Value)} disabled={Adjust.isPending} className="accent-primary" />{Option.Label}
+                                    <input type="radio" name="usage-kind" value={Option.Value} checked={Kind === Option.Value} onChange={() => SetKind(Option.Value)} disabled={Adjust.isPending} className="accent-primary" /><span><span className="block">{Option.Label}</span><span className="block text-xs text-muted-foreground">{Option.Value === 'add_allowance' ? '提高当前周期可用上限' : '核对后释放未结清占额'}</span></span>
                                 </label>)}</div>
                         </fieldset>
                         <div className="space-y-2"><label className="text-sm font-medium" htmlFor="usage-bytes">字节量</label><TextInput id="usage-bytes" value={Bytes} onChange={Event => SetBytes(Event.target.value)} inputMode="numeric" placeholder="例如 1073741824" disabled={Adjust.isPending} /></div>

@@ -91,15 +91,15 @@ for (const ThemeCase of Themes) {
         await page.keyboard.press('Escape');
         await expect(SearchDialog).toHaveCount(0);
 
-        const MobileNavigation = page.getByRole('button', { name: '打开导航', exact: true });
-        if (await MobileNavigation.isVisible()) {
+        const MobileNavigation = page.getByRole('button', { name: '展开或收起导航', exact: true });
+        if ((page.viewportSize()?.width ?? 0) < 768 && await MobileNavigation.isVisible()) {
             await MobileNavigation.click();
-            const NavigationDrawer = page.locator('#primary-navigation');
-            await expect(NavigationDrawer).toHaveAttribute('role', 'dialog');
+            const NavigationDrawer = page.getByRole('dialog', { name: '主导航', exact: true });
+            await expect(NavigationDrawer).toBeVisible();
             await expect(NavigationDrawer).toHaveAttribute('aria-modal', 'true');
             await AssertNoAxeViolations(page, TestInfo, `axe-navigation-drawer-${ThemeCase.Id}`);
             await page.keyboard.press('Escape');
-            await expect(NavigationDrawer).not.toHaveAttribute('role', 'dialog');
+            await expect(NavigationDrawer).toBeHidden();
         }
 
         await page.goto('/configuration?source=demo');
@@ -123,8 +123,8 @@ for (const ThemeCase of Themes) {
         }
         await page.getByRole('tab', { name: '周期额度', exact: true }).click();
         await page.locator('details.usage-adjustment > summary').click();
-        await expect(page.getByRole('group', { name: '调整类型', exact: true })).toBeVisible();
-        await page.getByRole('radio', { name: '释放异常占额', exact: true }).check();
+        await expect(page.getByRole('radiogroup', { name: '调整类型', exact: true })).toBeVisible();
+        await page.getByRole('radio', { name: /释放异常占额/ }).check();
         await AssertNoAxeViolations(page, TestInfo, `axe-account-adjustment-choice-${ThemeCase.Id}`);
     });
 }

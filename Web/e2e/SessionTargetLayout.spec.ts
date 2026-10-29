@@ -22,11 +22,11 @@ for (const Target of TargetCases) {
         await page.goto(`/sessions?source=demo&${Target.Query}`);
         const Inspector = page.getByRole('region', { name: `Session ${Target.Id} 详情`, exact: true });
         await expect(Inspector.getByText(Target.Message, { exact: true })).toBeVisible();
-        await expect(page.locator('.session-item[aria-pressed="true"]')).toHaveCount(0);
+        await expect(page.getByRole('table', { name: 'Session 列表', exact: true }).locator('tbody tr[data-state="selected"]')).toHaveCount(0);
         await expect(page.getByRole('button', { name: '取消 Session', exact: true })).toHaveCount(0);
 
         if (Target.HasIdentity) {
-            const Identity = Inspector.getByRole('group', { name: '指定 Session 身份', exact: true });
+            const Identity = Inspector.locator('dl[aria-label="指定 Session 身份"]');
             await expect(Identity).toContainText(Target.Id);
             await expect(Identity).toContainText('PRISM-DEMO-01');
             await expect(Identity).toContainText('worker-01');

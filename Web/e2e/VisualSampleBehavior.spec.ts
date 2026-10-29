@@ -2,13 +2,15 @@ import { expect, test } from '@playwright/test';
 
 test('Worker 默认聚焦当前状态，累计数据按需展示', async ({ page }) => {
     await page.goto('/workers?source=demo');
-    await expect(page.getByRole('tab', { name: '概览', exact: true })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByText('命令邮箱', { exact: true }).last()).toBeVisible();
-    await expect(page.getByText('拒绝合计', { exact: true })).toBeHidden();
-    await page.getByRole('tab', { name: '任务与派发', exact: true }).click();
-    await expect(page.getByText('拒绝合计', { exact: true })).toBeVisible();
-    await page.getByRole('tab', { name: '关联 Session', exact: true }).click();
-    await expect(page.getByText('session-1001', { exact: true }).last()).toBeVisible();
+    await page.getByRole('button', { name: /worker-01/ }).click();
+    const Detail = page.getByRole('region', { name: 'Worker 详情', exact: true });
+    await expect(Detail.getByRole('tab', { name: '趋势', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(Detail.getByText('命令邮箱', { exact: true })).toBeVisible();
+    await expect(Detail.getByText('累计事件丢弃', { exact: true })).toBeHidden();
+    await Detail.getByRole('tab', { name: '任务与派发', exact: true }).click();
+    await expect(Detail.getByText('队列满', { exact: true })).toBeVisible();
+    await Detail.getByRole('tab', { name: '关联连接', exact: false }).click();
+    await expect(Detail.getByText('session-1001', { exact: true })).toBeVisible();
 });
 
 test('资源诊断默认收起，采样足够后显示真实曲线', async ({ page }) => {

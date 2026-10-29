@@ -73,7 +73,7 @@ export default function ProtocolsPage(): ReactNode {
             </div>
         </CardHeader><CardContent className="pt-0"><QueryState Pending={Query.isPending} Error={Query.error} Label="协议记录" HasData={Query.data !== undefined} Retry={() => void Query.refetch()} Retrying={Query.isFetching}
             Children={Filtered.length === 0 ? <EmptyState Title="当前范围没有协议" Detail="调整搜索或范围筛选，也可以载入更多分页记录。" /> : <>
-                <div className="overflow-x-auto"><ProtocolTable Rows={Filtered} SelectedId={SelectedId} OnSelect={SelectProtocol} /></div>
+                <div role="region" aria-label="协议类型运行明细表，可横向滚动查看覆盖范围" className="min-w-0 overflow-x-auto"><ProtocolTable Rows={Filtered} SelectedId={SelectedId} OnSelect={SelectProtocol} /></div>
                 <p className="mt-2 text-xs text-muted-foreground">流量为累计字节；延迟摘要为服务端返回的累计分位桶下界。窗口趋势会显示独立的采样范围。</p>
                 {Query.hasNextPage && <Button className="mt-3" variant="outline" disabled={Query.isFetchingNextPage} onClick={() => void Query.fetchNextPage()}>{Query.isFetchingNextPage ? '正在载入…' : '载入更多协议'}</Button>}
             </>} /></CardContent></Card>
@@ -83,7 +83,7 @@ export default function ProtocolsPage(): ReactNode {
 }
 
 function ProtocolTable(Input: Readonly<{ Rows: readonly ProtocolRecord[]; SelectedId: string; OnSelect: (Row: ProtocolRecord) => void }>): ReactNode {
-    return <Table className="min-w-[1120px]"><TableHeader><TableRow><TableHead>协议 / 配置</TableHead><TableHead>范围</TableHead><TableHead>绑定数</TableHead><TableHead>活动 Session</TableHead><TableHead>累计上行</TableHead><TableHead>累计下行</TableHead><TableHead>累计 P95</TableHead><TableHead>统计覆盖</TableHead></TableRow></TableHeader>
+    return <Table aria-label="协议类型运行明细表" className="min-w-[1120px]"><TableHeader><TableRow><TableHead>协议 / 配置</TableHead><TableHead>范围</TableHead><TableHead>绑定数</TableHead><TableHead>活动 Session</TableHead><TableHead>累计上行</TableHead><TableHead>累计下行</TableHead><TableHead>累计 P95</TableHead><TableHead>统计覆盖</TableHead></TableRow></TableHeader>
         <TableBody>{Input.Rows.map(Row => <TableRow key={Row.Id} data-state={Row.Id === Input.SelectedId ? 'selected' : undefined} className="cursor-pointer" onClick={() => Input.OnSelect(Row)}>
             <TableCell><button type="button" className="max-w-60 text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={Event => { Event.stopPropagation(); Input.OnSelect(Row); }}>
                 {Row.Name}<span className="block break-all font-mono text-xs font-normal text-muted-foreground">{Row.Id}</span></button></TableCell>

@@ -7,7 +7,7 @@ import { TimeLink } from '../TimeLink';
 /** @brief 将当前快照压成一条可横向比较的运行读数带。 */
 export function OverviewReadingsPanel(Input: Readonly<{ Snapshot: OverviewSnapshot }>): ReactNode {
     const Value = Input.Snapshot, Traffic = Value.Traffic;
-    return <section className="grid grid-cols-2 border-y sm:grid-cols-4" aria-label="当前运行读数">
+    return <section className="grid grid-cols-2 border-y sm:grid-cols-4" aria-label="运行指标">
         <Reading Icon={<ArrowDown />} Label="下行速率" Value={FormatRate(Traffic.Available ? Traffic.DownBytesPerSecond : null)}
             Detail={`累计 ${Traffic.Available ? FormatBytes(Traffic.DownBytes) : '未提供'}`} />
         <Reading Icon={<ArrowUp />} Label="上行速率" Value={FormatRate(Traffic.Available ? Traffic.UpBytesPerSecond : null)}

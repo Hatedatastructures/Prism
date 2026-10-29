@@ -13,33 +13,37 @@ test('首页保留趋势区并将连接活动放在入口之前', async ({ page 
 
 test('入口详情随选择更新，缺测连接不作为完整总数', async ({ page }) => {
     await page.goto('/ingresses?source=demo');
-    await expect(page.getByText('仅 1 / 3 个监听提供连接数')).toBeVisible();
-    await expect(page.locator('[data-slot=card-title]', { hasText: 'tcp-main' })).toBeVisible();
+    await expect(page.getByText('仅 1 / 3 个 listener 提供连接数')).toBeVisible();
+    await page.getByRole('button', { name: /tcp-main/ }).click();
+    await expect(page.getByRole('region', { name: 'tcp-main 入口详情', exact: true })).toBeVisible();
     await page.getByRole('button', { name: /UDP udp-main/ }).click();
-    await expect(page.locator('[data-slot=card-title]', { hasText: 'udp-main' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'udp-main 入口详情', exact: true })).toBeVisible();
     await expect(page).toHaveURL(/ingress=udp-main/);
 });
 
 test('协议清单的选择更新详情并保留数据源上下文', async ({ page }) => {
     await page.goto('/protocols?source=demo');
     await page.getByRole('button', { name: /VLESS vless/ }).click();
-    const Inspector = page.locator('[data-slot=card]').filter({ has: page.getByRole('link', { name: '查看关联 Session' }) });
-    await expect(Inspector.getByText('VLESS', { exact: true })).toBeVisible();
-    await expect(Inspector.getByText('TCP Session 可关联；QUIC admission 未关联')).toBeVisible();
-    await Inspector.getByRole('link', { name: '查看关联 Session' }).click();
+    const Inspector = page.getByRole('region', { name: 'VLESS 协议详情', exact: true });
+    await expect(Inspector).toContainText('TCP Session 可关联；QUIC admission 未关联');
+    await Inspector.getByRole('link', { name: '查看关联连接', exact: true }).click();
     await expect(page).toHaveURL(/sessions\?.*source=demo/);
-    await expect(page).toHaveURL(/protocol=VLESS/);
+    await expect(page).toHaveURL(/protocol=vless/);
 });
 
 test('账户与 Worker 详情提供关联会话入口', async ({ page }) => {
     await page.goto('/accounts?source=demo');
+    await page.getByRole('button', { name: /northstar/ }).click();
     await expect(page.getByText('已载入 2 条关联会话', { exact: true })).toBeVisible();
     await page.getByRole('link', { name: '查看会话', exact: true }).click();
     await expect(page).toHaveURL(/sessions\?.*account=acct-northstar/);
     await expect(page).toHaveURL(/source=demo/);
     await page.goto('/workers?source=demo');
-    await expect(page.getByText(/已载入 \d+ 条关联会话/)).toBeVisible();
-    await page.getByRole('link', { name: '查看会话', exact: true }).click();
+    await page.getByRole('button', { name: /worker-01/ }).click();
+    const WorkerDetail = page.getByRole('region', { name: 'Worker 详情', exact: true });
+    await WorkerDetail.getByRole('tab', { name: /关联连接/ }).click();
+    await expect(WorkerDetail.getByText(/已载入 \d+/)).toBeVisible();
+    await WorkerDetail.getByRole('link', { name: 'session-1001', exact: true }).click();
     await expect(page).toHaveURL(/sessions\?.*worker=worker-01/);
     await expect(page).toHaveURL(/source=demo/);
 });
@@ -60,16 +64,19 @@ test('配置长文档在编辑器内滚动并保持可编辑', async ({ page }) 
 
 test('Session 详情的连接路径随所选记录更新', async ({ page }) => {
     await page.goto('/sessions?source=demo');
+    await page.getByRole('button', { name: 'session-1001', exact: true }).click();
     const Path = page.getByRole('region', { name: '连接路径' });
     await expect(Path).toContainText('VLESS');
     await expect(Path).toContainText('203.0.113.18:443');
+    if ((page.viewportSize()?.width ?? 0) <= 767)
+        await page.getByRole('button', { name: '返回连接列表', exact: true }).click();
     await page.getByRole('button', { name: 'session-1002' }).click();
     await expect(Path).toContainText('Trojan');
     await expect(Path).toContainText('192.0.2.41:8443');
 });
 
 test('组内搜索只筛选当前组成员', async ({ page }) => {
-    await page.goto('/user-groups?source=demo');
+    await page.goto('/user-groups?source=demo&group=group-core&mobile_view=detail');
     const Search = page.getByRole('textbox', { name: '搜索组内账户' });
     await Search.fill('not-a-member');
     await expect(page.getByText('当前范围没有成员')).toBeVisible();
@@ -79,7 +86,7 @@ test('组内搜索只筛选当前组成员', async ({ page }) => {
 
 test('资源分配范围按 Worker 展开并保留说明', async ({ page }) => {
     await page.goto('/resources?source=demo');
-    const Range = page.getByText('查看范围', { exact: true }).first();
+    const Range = page.getByText('范围', { exact: true }).first();
     await Range.click();
     await expect(Range.locator('..')).toContainText('WorkerResources');
 });

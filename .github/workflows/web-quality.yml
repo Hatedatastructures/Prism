@@ -59,7 +59,7 @@ jobs:
             sleep 1
           done
           curl --silent --fail http://127.0.0.1:4173/ > /dev/null
-          npm run test:e2e -- --project=chromium-1440 --project=chromium-390 --forbid-only
+          npm run test:e2e -- --project=chromium-1440 --project=chromium-390 --workers=4 --forbid-only
       - name: 保留验证证据
         if: always()
         uses: actions/upload-artifact@v4
