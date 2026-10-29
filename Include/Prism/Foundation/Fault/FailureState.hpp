@@ -10,6 +10,8 @@ namespace Prism::Fault
     public:
         /** @brief 只允许一个失败发布者；成功值不占状态，不分配、不抛。 */
         [[nodiscard]] auto TrySet(Failure Value) noexcept -> bool;
+        /** @brief 尽力记录首个失败；已有首因或成功值时保留当前状态。 */
+        auto Record(Failure Value) noexcept -> void;
         /** @brief 获取完整不可变失败快照；尚未发布时为 Success，不代表资源已经退休。 */
         [[nodiscard]] auto Load() const noexcept -> Failure
         { if (!Ready_.load(std::memory_order_acquire)) return {}; return Value_; }

@@ -2,7 +2,7 @@
 #pragma once
 #include <Prism/Foundation/Fault/FailureState.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Contract/Ingress/DatagramSession.hpp>
+#include <Prism/Contract/Ingress/Datagram/Session.hpp>
 #include <Prism/Contract/Ingress/MuxSession.hpp>
 #include <Prism/Runtime/CarrierDomain.hpp>
 #include <Prism/Lifecycle/DrainBarrier.hpp>

@@ -1,6 +1,6 @@
 /** @file IngressFactory.cpp @brief VMess 入站数据面投影实现。 */
 #include <Prism/Protocols/Vmess/IngressFactory.hpp>
-#include <Prism/Protocols/Vmess/DatagramSession.hpp>
+#include <Prism/Protocols/Vmess/Datagram/Session.hpp>
 #include <Prism/Protocols/Vmess/Dgram.hpp>
 #include <Prism/Protocols/Vmess/Credentials.hpp>
 #include <Prism/Protocols/Mux/RootBinding.hpp>

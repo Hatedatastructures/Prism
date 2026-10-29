@@ -4,9 +4,9 @@
  */
 #pragma once
 
-#include <Test/Experiments/Prism/Runtime/Recognition/Probe/ProbeRecognition.hpp>
+#include <Test/Experiments/Prism/Runtime/Recognition/Probe/Recognition.hpp>
 #include <Experiments/Prism/Runtime/Recognition/Route/Route.hpp>
-#include <Experiments/Prism/Runtime/Recognition/Scheme/SchemeExecutor.hpp>
+#include <Experiments/Prism/Runtime/Recognition/Scheme/Executor.hpp>
 #include <Prism/Runtime/Recognition/Probe.hpp>
 #include <Prism/Runtime/Recognition/Protocol.hpp>
 #include <Prism/Transport/MemoryStream.hpp>

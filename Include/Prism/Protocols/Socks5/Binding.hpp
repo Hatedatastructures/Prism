@@ -11,7 +11,7 @@
 #include <Prism/Contract/Services/Authentication.hpp>
 #include <Prism/Contract/Services/Datagram.hpp>
 #include <Prism/Protocols/Common/BindingLifetime.hpp>
-#include <Prism/Protocols/Common/DatagramBinding.hpp>
+#include <Prism/Protocols/Common/Datagram/Binding.hpp>
 #include <Prism/Protocols/Mux/RootBinding.hpp>
 #include <Prism/Protocols/Socks5/Socks5.hpp>
 

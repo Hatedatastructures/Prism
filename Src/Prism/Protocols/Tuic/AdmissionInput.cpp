@@ -3,9 +3,9 @@
  * @brief TUIC admission 输入预约与事件分发实现。
  */
 #include <Prism/Protocols/Tuic/Admission.hpp>
-#include <Prism/Protocols/Tuic/AdmissionInput.hpp>
+#include <Prism/Protocols/Tuic/Detail/Admission.hpp>
 
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
 
 #include <boost/asio/post.hpp>

@@ -2,9 +2,9 @@
  * @file AdmissionInputDelivery.cpp
  * @brief TUIC 已接受输入的交付、重试与隔离状态实现。
  */
-#include <Prism/Protocols/Tuic/AdmissionInput.hpp>
+#include <Prism/Protocols/Tuic/Detail/Admission.hpp>
 
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
 
 #include <atomic>

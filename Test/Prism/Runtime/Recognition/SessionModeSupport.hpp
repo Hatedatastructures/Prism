@@ -61,7 +61,7 @@
 #include <Prism/Transport/MemoryStream.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 #include <TestSupport/Fixtures/StreamFactory.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 #include <TestSupport/Fixtures/RecognitionWire.hpp>
 

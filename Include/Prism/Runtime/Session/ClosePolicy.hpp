@@ -2,7 +2,7 @@
 #pragma once
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Runtime/ActiveTransports.hpp>
-#include <Prism/Runtime/SessionControl.hpp>
+#include <Prism/Runtime/Session/Control.hpp>
 #include <Prism/Runtime/Session/LogState.hpp>
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/experimental/channel.hpp>

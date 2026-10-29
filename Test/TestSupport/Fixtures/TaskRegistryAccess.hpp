@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <cstdint>
 
 namespace Prism::Lifecycle

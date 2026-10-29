@@ -7,12 +7,12 @@
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
 #include <Prism/Protocols/Xhttp/Detail/CarrierSessionSupport.hpp>
 #include <Prism/Protocols/Xhttp/Detail/ClientTls.hpp>
-#include <Prism/Protocols/Xhttp/Detail/SplitClient.hpp>
-#include <Prism/Protocols/Xhttp/Detail/SplitServerAccept.hpp>
-#include <Prism/Protocols/Xhttp/Detail/SplitTransport.hpp>
-#include <Prism/Protocols/Xhttp/Detail/StreamClient.hpp>
-#include <Prism/Protocols/Xhttp/Detail/StreamServer.hpp>
-#include <Prism/Protocols/Xhttp/Detail/StreamTransport.hpp>
+#include <Prism/Protocols/Xhttp/Detail/Split/Client.hpp>
+#include <Prism/Protocols/Xhttp/Detail/Split/ServerAccept.hpp>
+#include <Prism/Protocols/Xhttp/Detail/Split/Transport.hpp>
+#include <Prism/Protocols/Xhttp/Detail/Stream/Client.hpp>
+#include <Prism/Protocols/Xhttp/Detail/Stream/Server.hpp>
+#include <Prism/Protocols/Xhttp/Detail/Stream/Transport.hpp>
 
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/post.hpp>

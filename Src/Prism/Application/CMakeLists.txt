@@ -2,11 +2,15 @@ set(PrismApplicationPublicHeaders
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Account/IdentityRegistry.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/AccountCatalog.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Application.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/DnsAssembly.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/NetworkAssembly.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/ProtocolAssembly.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/Dns.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/Network.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/Protocol.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/Account.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/Capability.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/Provider.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Assembly/Worker/Session.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Definition.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/OperationsConfiguration.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Operations/Configuration.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Reload/RestartPolicy.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/RuntimeGenerationSnapshot.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Storage/CommandJournal.hpp"
@@ -15,57 +19,53 @@ set(PrismApplicationPublicHeaders
     "${PROJECT_SOURCE_DIR}/Include/Prism/Application/Storage/UsageLedger.hpp"
 )
 set(PrismApplicationPrivateHeaders
-    "${CMAKE_CURRENT_SOURCE_DIR}/Account/PublishedPolicySource.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Assembly/AccountAssembly.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Assembly/CapabilityAssembly.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Assembly/ProviderAssembly.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/BoundaryStartup.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ClosingFailure.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/CommandOperationOwner.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ConfigurationCommandOutcome.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ConfigurationStartup.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/DiagnoseRuntime.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsConfigurationQuery.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsEventProducer.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsDrain.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsSnapshotQueries.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsMetrics.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsConfigurationPersistence.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsManagementQueries.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsManagementQuerySupport.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsReload.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsStreamQuery.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsStartup.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/OperationsTask.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ProtocolAcceptors.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ProtocolProfile.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Reload/GenerationPreparation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Reload/PublicationTransaction.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ReloadGenerationPreparation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/RuntimeState.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/StorageLifecycle.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/BoundedOperation.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Coordinator.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/DrainStages.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Failure.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/GenerationRetirement.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/ProcessDns.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/RuntimeResources.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Types.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/BoundaryPhase.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/DatagramServices.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/GenerationPhase.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/OperationsPhase.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/ProcessServices.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/ProtocolServices.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/QuicServices.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/StartupErrors.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/StartupRuntime.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/StartupTransaction.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Account/Detail/PublishedPolicySource.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/BoundaryServices.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/ClosingFailure.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Detail/CommandOwner.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Configuration/Command/Detail/Outcome.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Configuration.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Diagnose.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Configuration/Detail/Query.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Events/Detail/Producer.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Drain/Detail/Drain.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Snapshot/Detail/Queries.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Metrics/Detail/Metrics.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Configuration/Detail/Persistence.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Management/Detail/Queries.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Management/Detail/QuerySupport.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Reload/Detail/Reload.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Stream/Detail/Query.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Startup/Detail/Startup.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Operations/Task/Detail/Task.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Acceptors.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Protocol/Detail/Profile.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Reload/Transaction/Detail/Generation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Reload/Transaction/Detail/Publication.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Reload/Candidate/Detail/Preparation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/RuntimeState.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Storage/Detail/Lifecycle.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/Shutdown.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/BoundedOperation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/Coordinator.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/DrainStages.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/Failure.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/GenerationRetirement.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/ProcessDns.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/RuntimeResources.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shutdown/Detail/Types.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Boundary.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Datagram.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Generation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Operations.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Process.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Protocol.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Quic.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Errors.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Runtime.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Startup/Detail/Transaction.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Storage/Detail/DirectoryLock.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Storage/SqliteUsagePersistence.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/WorkerSessionServices.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Storage/Sqlite/Detail/Usage.hpp"
 )
 
 add_subdirectory(Configuration)
@@ -73,36 +73,37 @@ add_subdirectory(Configuration)
 PrismAddStaticTarget(PrismApplication
     SOURCES
         Application.cpp
-        DiagnoseRuntime.cpp
+        Startup/Detail/Diagnose.cpp
         Account/IdentityRegistry.cpp
         Account/PublishedPolicySource.cpp
-        Assembly/DnsAssembly.cpp
-        Assembly/NetworkAssembly.cpp
-        Assembly/ProtocolAssembly.cpp
-        Assembly/CapabilityAssembly.cpp
-        Assembly/ProviderAssembly.cpp
-        ClosingFailure.cpp
-        OperationsConfiguration.cpp
-        OperationsConfigurationPersistence.cpp
-        OperationsReload.cpp
-        ConfigurationCommandOutcome.cpp
-        OperationsEventProducer.cpp
-        OperationsManagementQueries.cpp
-        OperationsMetrics.cpp
-        OperationsSnapshotQueries.cpp
-        OperationsStreamQuery.cpp
+        Assembly/Account.cpp
+        Assembly/Dns.cpp
+        Assembly/Network.cpp
+        Assembly/Protocol.cpp
+        Assembly/Capability.cpp
+        Assembly/Provider.cpp
+        Shutdown/ClosingFailure.cpp
+        Operations/Configuration.cpp
+        Operations/Configuration/Detail/Persistence.cpp
+        Operations/Reload/Detail/Reload.cpp
+        Configuration/Command/Outcome.cpp
+        Operations/Events/Detail/Producer.cpp
+        Operations/Management/Detail/Queries.cpp
+        Operations/Metrics/Detail/Metrics.cpp
+        Operations/Snapshot/Detail/Queries.cpp
+        Operations/Stream/Detail/Query.cpp
         Reload/RestartPolicy.cpp
         RuntimeGenerationSnapshot.cpp
-        Startup/OperationsPhase.cpp
+        Startup/Detail/Operations.cpp
         Startup/Start.cpp
-        Startup/StartupErrors.cpp
-        Startup/StartupTransaction.cpp
+        Startup/Detail/Errors.cpp
+        Startup/Detail/Transaction.cpp
         Storage/Detail/DirectoryLock.cpp
         Storage/CommandJournal.cpp
         Storage/HistoryStore.cpp
-        Storage/SqliteUsagePersistence.cpp
+        Storage/Sqlite/Usage.cpp
         Storage/StorageRuntime.cpp
         Storage/UsageLedger.cpp
-        WorkerSessionServices.cpp
+        Assembly/Worker/Session.cpp
     HEADERS ${PrismApplicationPublicHeaders}
     PRIVATE_HEADERS ${PrismApplicationPrivateHeaders})

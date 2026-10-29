@@ -22,9 +22,9 @@ PrismAddStaticTarget(PrismProtocolVless
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Vless.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vless/Xudp/VlessXudp.hpp
     PRIVATE_HEADERS
-        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Association.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/RootSession.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/State.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Writer.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Detail/Association.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Detail/Session.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Detail/State.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Xudp/Detail/Writer.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Detail/Target.hpp
 )

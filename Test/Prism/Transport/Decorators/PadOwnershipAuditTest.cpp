@@ -3,7 +3,7 @@
  * @brief Transport Pad 满区间所有权审计。
  */
 #include <gtest/gtest.h>
-#include "../Core/TransportResources.hpp"
+#include "../Core/Resources.hpp"
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>

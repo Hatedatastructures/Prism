@@ -36,7 +36,7 @@
 #include <Prism/Runtime/ActiveTransports.hpp>
 #include <Prism/Runtime/CarrierDomain.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 
 namespace Prism::Testing
 {

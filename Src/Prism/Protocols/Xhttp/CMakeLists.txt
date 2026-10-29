@@ -8,34 +8,34 @@ set(PrismProtocolXhttpPrivateHeaders
     "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/CarrierSessionSupport.hpp"
     "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/ClientTls.hpp"
     "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/FactoryRetirement.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Http2ReadCompletion.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitClient.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitClientState.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitPath.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServer.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServerAccept.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServerState.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitServerWireWriter.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/SplitTransport.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamClient.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamClientState.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamServer.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamTransport.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/StreamWriteQueue.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Http2/ReadCompletion.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/Client.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/ClientState.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/Path.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/Server.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/ServerAccept.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/ServerState.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/WireWriter.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Split/Transport.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Stream/Client.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Stream/ClientState.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Stream/Server.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Stream/Transport.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Stream/WriteQueue.hpp"
     "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Xhttp/Detail/Wire.hpp"
 )
 PrismAddStaticTarget(PrismProtocolXhttp
     SOURCES
         Xhttp.cpp
-        Detail/Http2ReadCompletion.cpp
-        SplitClient.cpp
-        SplitServer.cpp
-        SplitServerAccept.cpp
-        Detail/SplitTransport.cpp
-        StreamClient.cpp
-        StreamServer.cpp
-        Detail/StreamTransport.cpp
-        Detail/StreamWriteQueue.cpp
+        Detail/Http2/ReadCompletion.cpp
+        Split/Client.cpp
+        Split/Server.cpp
+        Split/ServerAccept.cpp
+        Detail/Split/Transport.cpp
+        Stream/Client.cpp
+        Stream/Server.cpp
+        Detail/Stream/Transport.cpp
+        Detail/Stream/WriteQueue.cpp
         Wire.cpp
     HEADERS ${PrismProtocolXhttpHeaders}
     PRIVATE_HEADERS ${PrismProtocolXhttpPrivateHeaders}

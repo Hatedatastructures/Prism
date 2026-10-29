@@ -4,7 +4,7 @@
  */
 
 #include <Prism/Protocols/Hysteria2/Hysteria2.hpp>
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Transport/Unreliable.hpp>
 
 #include <boost/asio/dispatch.hpp>

@@ -64,7 +64,6 @@ const InitialConfigurationFields = {
 };
 
 const InitialConfiguration = JSON.stringify(InitialConfigurationFields, null, 2);
-const EmptyTraffic = { Up: 0, Down: 0 } as const;
 
 function RelativeTimestamp(MinutesAgo: number): string {
     return new Date(Date.now() - MinutesAgo * 60_000).toISOString();
@@ -225,15 +224,15 @@ const InitialSessions: SessionRecord[] = [
 
 const InitialAccounts: AccountRecord[] = [
     { Id: 'acct-northstar', GenerationId: InitialGeneration, Label: 'northstar', GroupId: 'group-core', Revoked: false,
-        ActiveSessions: 2, Traffic: { Up: 33_900_000, Down: 61_400_000 } },
+        ActiveSessions: 2, Traffic: { Up: 33_900_000, Down: 61_400_000, Events: 824, Errors: 3 } },
     { Id: 'acct-blue-hour', GenerationId: InitialGeneration, Label: 'blue-hour', GroupId: 'group-standard', Revoked: false,
-        ActiveSessions: 1, Traffic: { Up: 20_200_000, Down: 44_000_000 } },
+        ActiveSessions: 1, Traffic: { Up: 20_200_000, Down: 44_000_000, Events: 512, Errors: 1 } },
     { Id: 'acct-quiet-line', GenerationId: InitialGeneration, Label: 'quiet-line', GroupId: 'group-standard', Revoked: false,
-        ActiveSessions: 1, Traffic: { Up: 4_200_000, Down: 7_600_000 } },
+        ActiveSessions: 1, Traffic: { Up: 4_200_000, Down: 7_600_000, Events: 142, Errors: 0 } },
     { Id: 'acct-paper-plane', GenerationId: InitialGeneration, Label: 'paper-plane', GroupId: null, Revoked: false,
-        ActiveSessions: 0, Traffic: EmptyTraffic },
+        ActiveSessions: 0, Traffic: { Up: 0, Down: 0, Events: 0, Errors: 0 } },
     { Id: 'acct-retired-key', GenerationId: InitialGeneration, Label: 'retired-key', GroupId: null, Revoked: true,
-        ActiveSessions: 0, Traffic: EmptyTraffic },
+        ActiveSessions: 0, Traffic: { Up: 0, Down: 0, Events: 0, Errors: 0 } },
 ];
 
 const InitialIngresses: IngressRecord[] = [
@@ -341,7 +340,7 @@ export class DemoAdminDataSource implements AdminDataSource {
     private Sessions = Clone(InitialSessions);
     private Accounts = Clone(InitialAccounts);
     private Groups: Array<{ Id: string; Name: string }> = GroupDefinitions.map(Value => ({ ...Value }));
-    private MemorySampleIndex = 0;
+    private readonly MemoryStartMs = Date.now();
     private Events: EventRecord[] = [
         MakeEvent({ Sequence: 618, MinutesAgo: 1, Severity: 'info', Kind: 'listener_ready', Scope: 'process',
             Message: 'TCP 入口已就绪', Detail: 'tcp-main 已绑定 127.0.0.1:1080，可接收代理连接' }),
@@ -374,7 +373,18 @@ export class DemoAdminDataSource implements AdminDataSource {
 
     public async GetBootstrap(_Options: BootstrapReadOptions = {}): Promise<BootstrapSnapshot> {
         return { ApiVersion: '2', InstanceKey: 'demo-instance', ProcessId, Incarnation: 'demo-incarnation',
-            Capabilities: ['history.read', 'accounts.usage.read', 'accounts.usage.adjust', 'search.read', 'workers.drain', 'accounts.revoke', 'sessions.cancel', 'streams.reset', 'tasks.cancel', 'configuration.read', 'configuration.reload.validate', 'configuration.reload.apply', 'configuration.reload.persist'] };
+            Capabilities: ['metrics.read', 'history.read', 'accounts.usage.read', 'accounts.usage.adjust', 'search.read', 'workers.drain', 'accounts.revoke', 'sessions.cancel', 'streams.reset', 'tasks.cancel', 'configuration.read', 'configuration.reload.validate', 'configuration.reload.apply', 'configuration.reload.persist'] };
+    }
+    public async GetMetrics() {
+        const Overview = await this.GetOverview();
+        return { ProcessId, GenerationId: Overview.Process.GenerationId, CheckedAt: Overview.SampledAt,
+            SampleIntervalMs: 5000, Traffic: { Up: 0, Down: 0, Events: 0, Errors: 0 }, History: [], HistoryReady: false,
+            Observations: { ...Overview.Observations, RecognitionLatencyQueueDrops: 1, RecognitionLatencyAggregationFailures: 0 },
+            RetirementFailures: { Sessions: 0, Streams: 0, Tasks: 0 },
+            RecognitionLatency: { Boundary: 'recognition_admission' as const, Unit: 'microseconds' as const,
+                GenerationId: Overview.Process.GenerationId, Ready: true, SampleCount: 2380, TracerWritten: 2370,
+                TracerDropped: 10, HistogramRangeExceeded: 0, RecentUs: [7900, 8300, 18100, 6400, 9200, 7500],
+                P50Us: 8192, P95Us: 16384, P99Us: 32768, MaxObservedUs: 121000 } };
     }
     public async GetHistory(Request: HistoryRequest) { return DemoHistory(Request); }
     public async GetProtocols(Page: PageRequest) { return PageOf((await this.GetOverview()).Protocols, Page); }
@@ -420,11 +430,12 @@ export class DemoAdminDataSource implements AdminDataSource {
         const TcpSessionCount = ActiveSessions.filter(Session => Session.Transport === 'tcp').length;
         const GenerationId = this.Configuration.Generation;
         const Now = new Date().toISOString();
-        this.MemorySampleIndex += 1;
-        const PmrAllocations = 882_410 + this.MemorySampleIndex * 1_800;
-        const PmrReleases = 880_993 + this.MemorySampleIndex * 1_760;
-        const PoolAllocations = 119_204 + this.MemorySampleIndex * 1_260;
-        const PoolReleases = 118_778 + this.MemorySampleIndex * 1_240;
+        const ElapsedMs = Math.max(0, Date.parse(Now) - this.MemoryStartMs);
+        const PmrAllocations = 882_410 + Math.floor(ElapsedMs * 360 / 1000);
+        const PmrReleases = 880_993 + Math.floor(ElapsedMs * 352 / 1000);
+        const PoolOperations = Math.floor(ElapsedMs * 252 / 1000);
+        const PoolAllocations = 119_204 + PoolOperations;
+        const PoolReleases = 108_900 + PoolOperations;
         return Clone({
             SampledAt: Now, SampleIntervalMs: 5000,
             Process: { Id: ProcessId, GenerationId, Phase: 'ready' },
@@ -439,19 +450,19 @@ export class DemoAdminDataSource implements AdminDataSource {
             Traffic: { Available: true, UpBytes: Traffic.Up, DownBytes: Traffic.Down, Events: 0, Errors: 0,
                 UpBytesPerSecond: LastSampleRate('Up'), DownBytesPerSecond: LastSampleRate('Down') },
             Latency: {
-                RecognitionAdmission: { Available: true, SampleCount: 24380, P50Ms: '8', P95Ms: '18',
-                    P99Ms: '61', MaxMs: '121' },
+                RecognitionAdmission: { Available: true, SampleCount: 2380, P50Ms: '8', P95Ms: '16',
+                    P99Ms: '32', MaxMs: '121' },
                 Stages: [],
             },
             Memory: {
                 ProcessAvailable: true, ProcessRssBytes: 642_252_800, ProcessPeakRssBytes: 711_983_104,
                 WorkingSetBytes: 642_252_800,
                 BytePool: { Available: true, UsedBytes: 168_820_736, CapacityBytes: 268_435_456,
-                    AvailableBlocks: 18240, BlockSize: 16384, PeakUsedBytes: 193_986_560,
+                    AvailableBlocks: 6080, BlockSize: 16384, PeakUsedBytes: 193_986_560,
                     AllocationCount: PoolAllocations, ReleaseCount: PoolReleases },
                 Allocations: { Available: true, CurrentBytes: 91_307_008, PeakBytes: 142_606_336,
                     AllocationCount: PmrAllocations, ReleaseCount: PmrReleases,
-                    Coverage: '仅计通过 Preview ProcessResources TrackingResource 的 PMR 请求；不含全局堆或第三方分配' },
+                    Coverage: '仅计通过 ProcessResources TrackingResource 的 PMR 请求；不含全局堆或第三方分配' },
                 WorkerAllocations: [
                     { WorkerId: 'worker-01', Allocation: { Available: true, CurrentBytes: 38_797_312,
                         PeakBytes: 52_428_800, AllocationCount: 31024, ReleaseCount: 30986,

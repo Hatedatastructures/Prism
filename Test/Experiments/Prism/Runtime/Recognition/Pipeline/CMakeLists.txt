@@ -1,5 +1,5 @@
 # Recognition 流水线实验测试。
-AddExperimentTest(RecognitionPipelineTest.cpp)
+AddExperimentTest(PipelineTest.cpp RecognitionPipelineTest)
 target_include_directories(ExperimentRecognitionPipelineTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(ExperimentRecognitionPipelineTest PRIVATE
     ExperimentalRecognitionSupport PrismFoundation PrismProtocolHttp PrismTransport PrismRuntime)

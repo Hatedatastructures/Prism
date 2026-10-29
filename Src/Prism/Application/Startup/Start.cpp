@@ -1,21 +1,21 @@
 /** @file Start.cpp @brief Prism 应用启动事务与就绪发布实现。 */
 
 #include <Prism/Application/Application.hpp>
-#include <Prism/Application/BoundaryStartup.hpp>
-#include <Prism/Application/ClosingFailure.hpp>
-#include <Prism/Application/Account/PublishedPolicySource.hpp>
-#include <Prism/Application/RuntimeState.hpp>
-#include <Prism/Application/Startup/BoundaryPhase.hpp>
-#include <Prism/Application/Startup/DatagramServices.hpp>
-#include <Prism/Application/Startup/GenerationPhase.hpp>
-#include <Prism/Application/Startup/OperationsPhase.hpp>
-#include <Prism/Application/Startup/ProcessServices.hpp>
-#include <Prism/Application/Startup/ProtocolServices.hpp>
-#include <Prism/Application/Startup/QuicServices.hpp>
-#include <Prism/Application/Startup/StartupErrors.hpp>
-#include <Prism/Application/StorageLifecycle.hpp>
-#include <Prism/Application/Startup/StartupRuntime.hpp>
-#include <Prism/Application/Startup/StartupTransaction.hpp>
+#include <Prism/Application/Startup/Detail/BoundaryServices.hpp>
+#include <Prism/Application/Shutdown/Detail/ClosingFailure.hpp>
+#include <Prism/Application/Account/Detail/PublishedPolicySource.hpp>
+#include <Prism/Application/Startup/Detail/RuntimeState.hpp>
+#include <Prism/Application/Startup/Detail/Boundary.hpp>
+#include <Prism/Application/Startup/Detail/Datagram.hpp>
+#include <Prism/Application/Startup/Detail/Generation.hpp>
+#include <Prism/Application/Startup/Detail/Operations.hpp>
+#include <Prism/Application/Startup/Detail/Process.hpp>
+#include <Prism/Application/Startup/Detail/Protocol.hpp>
+#include <Prism/Application/Startup/Detail/Quic.hpp>
+#include <Prism/Application/Startup/Detail/Errors.hpp>
+#include <Prism/Application/Storage/Detail/Lifecycle.hpp>
+#include <Prism/Application/Startup/Detail/Runtime.hpp>
+#include <Prism/Application/Startup/Detail/Transaction.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Facade.hpp>
 
 #include <chrono>

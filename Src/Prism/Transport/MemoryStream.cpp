@@ -1,6 +1,6 @@
 /** @file MemoryStream.cpp @brief 有界内存流的状态、通知与协程 I/O 实现。 */
 #include <Prism/Transport/MemoryStream.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/as_tuple.hpp>

@@ -56,7 +56,7 @@ namespace Prism::Transport::Detail
      *          不拥有 engine、不拥有 socket，也不接管任何 buffer。
      *          输出与错误：Bytes 先归零（:75）；错误只在终态分支写入（:88-:92），依次是原生 ERR_get_error、
      *          ZERO_RETURN→eof、SYSCALL→unspecified_system_error、其余 unexpected_result；
-     *          call_handler（:96-:97）只交付 error_code，与 async_write_shutdown 的单参数签名一致。
+     *          call_handler（:96-:97）只交付 error_code，与 AsyncWriteShutdown 的单参数签名一致。
      *          取消：本类型无取消入口；已发送过 close_notify 时直接 want_nothing（:77），故重复请求幂等。
      *          半关闭：本类型就是写半关闭的实现点——SSL_shutdown（:79）后要求 flush 本端输出（:80），
      *          WANT_WRITE 时重试输出（:82）；读方向不在本类型里关闭。

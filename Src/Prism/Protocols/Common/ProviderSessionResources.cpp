@@ -1,6 +1,6 @@
 /** @file ProviderSessionResources.cpp @brief Provider ticket carrier 与 root drain 实现。 */
 
-#include <Prism/Protocols/Common/ProviderSessionResources.hpp>
+#include <Prism/Protocols/Common/Provider/Session/Resources.hpp>
 
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
 

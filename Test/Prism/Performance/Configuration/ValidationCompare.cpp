@@ -7,7 +7,7 @@
 
 #include "ValidationCompare.hpp"
 
-#include "ValidationCompareMeasure.hpp"
+#include "ValidationMeasure.hpp"
 #include "ValidationCompareCase.hpp"
 
 #include <charconv>

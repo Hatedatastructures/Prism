@@ -3,8 +3,8 @@
  * @brief TUIC 互操作共享读写循环的 terminal 与 payload 顺序。
  */
 
-#include "InteropTuicTerminalIo.hpp"
-#include "InteropTuicLifecycle.hpp"
+#include "TuicTerminalIo.hpp"
+#include "TuicLifecycle.hpp"
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
@@ -20,8 +20,8 @@
 
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
-#include <Prism/Protocols/Tuic/Conn.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <Prism/Protocols/Tuic/Connection/Connection.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 #include <gtest/gtest.h>
 
 namespace

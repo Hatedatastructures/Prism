@@ -41,7 +41,7 @@
 #include <Prism/Protocols/Hysteria2/Io.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Hysteria2/Codec.hpp>
-#include <Prism/Protocols/Hysteria2/Detail/DatagramFragments.hpp>
+#include <Prism/Protocols/Hysteria2/Datagram/Fragments.hpp>
 #include <Prism/Protocols/Hysteria2/Types.hpp>
 
 namespace Prism::Hysteria2

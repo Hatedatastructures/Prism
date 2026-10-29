@@ -1,7 +1,7 @@
 /** @file TlsCarrierHelpers.cpp @brief TLS carrier 共用失败和输入退休实现。 */
 
 #include <Prism/Composition/Recognition/TlsCarrierHelpers.hpp>
-#include <Prism/Composition/Recognition/TlsCarrierFailure.hpp>
+#include <Prism/Composition/Recognition/Detail/CarrierFailure.hpp>
 
 #include <Prism/Contract/Ingress/InboundAdmission.hpp>
 

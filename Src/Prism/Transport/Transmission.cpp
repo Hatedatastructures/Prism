@@ -1,6 +1,6 @@
 /** @file Transmission.cpp @brief typed传输前门的非模板生命周期与操作实现。 */
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 #include <Prism/Transport/Detail/TransmissionControl.hpp>
 #include <boost/asio/post.hpp>
 

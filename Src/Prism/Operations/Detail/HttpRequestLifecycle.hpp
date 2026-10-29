@@ -6,13 +6,13 @@
 
 #pragma once
 
-#include <Prism/Operations/Detail/HttpConnectionLifecycle.hpp>
+#include <Prism/Operations/Http/Detail/Lifecycle.hpp>
 #include <Prism/Operations/Detail/RouteHttpDispatch.hpp>
 #include <Prism/Operations/Http/Limits.hpp>
-#include <Prism/Operations/Http/ReadCompletion.hpp>
-#include <Prism/Operations/Http/ReadDeadline.hpp>
-#include <Prism/Operations/Http/ReadDeadlineOwner.hpp>
-#include <Prism/Operations/Http/ReadRequestResult.hpp>
+#include <Prism/Operations/Http/Detail/ReadCompletion.hpp>
+#include <Prism/Operations/Http/Detail/ReadDeadline.hpp>
+#include <Prism/Operations/Http/Detail/ReadDeadlineOwner.hpp>
+#include <Prism/Operations/Http/Detail/ReadRequestResult.hpp>
 #include <Prism/Operations/HttpRequest.hpp>
 #include <Prism/Operations/HttpRequestBudget.hpp>
 #include <Prism/Operations/ResponseDeliveryReceipt.hpp>

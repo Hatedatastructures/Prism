@@ -11,10 +11,10 @@
  */
 
 #pragma once
-#include <Prism/Contract/Ingress/DatagramSession.hpp>
-#include <Prism/Protocols/Common/DatagramObservation.hpp>
+#include <Prism/Contract/Ingress/Datagram/Session.hpp>
+#include <Prism/Protocols/Common/Datagram/Observation.hpp>
 #include <Prism/Foundation/Fault/Handling.hpp>
-#include <Prism/Protocols/Common/DatagramDeadline.hpp>
+#include <Prism/Protocols/Common/Datagram/Deadline.hpp>
 #include <Prism/Protocols/Socks5/UdpAssocRetirement.hpp>
 #include <Prism/Protocols/Socks5/UdpAssocBindGate.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -48,7 +48,7 @@
 
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>
-#include <Prism/Lifecycle/TaskState.hpp>
+#include <Prism/Lifecycle/Task/State.hpp>
 #include <Prism/Protocols/Socks5/AddressCodec.hpp>
 #include <Prism/Protocols/Socks5/AuthCodec.hpp>
 #include <Prism/Protocols/Socks5/BeastCodec.hpp>

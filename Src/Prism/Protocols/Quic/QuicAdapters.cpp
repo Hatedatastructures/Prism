@@ -2,11 +2,11 @@
  * @file QuicAdapters.cpp
  * @brief QUIC stream/datagram Transmission 适配器实现。
  */
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
 #include <Prism/Transport/Transmission.hpp>
 
-#include <Prism/Protocols/Quic/Detail/StreamAdapterActivity.hpp>
+#include <Prism/Protocols/Quic/Native/Stream/Detail/AdapterActivity.hpp>
 
 #include <boost/asio/this_coro.hpp>
 

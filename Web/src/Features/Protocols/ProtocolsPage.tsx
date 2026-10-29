@@ -1,59 +1,133 @@
-import { TimeLink as Link } from '../TimeLink';
+/** @file 以协议清单、覆盖范围和选中对象历史组织协议分析页。 */
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { useSearchParams } from 'react-router';
-import { Layers } from 'lucide-react';
-import { EmptyState, FormatBytes, FormatCount, LoadMoreButton, PageHeader, Panel, ProgressBar, QueryState } from '../../Components/Ui';
-import { ProtocolDistribution } from '../../Api/Analysis';
-import type { ProtocolRecord, UInt64Value } from '../../Services/AdminDataSource';
-import { useAdminInfiniteQuery, useAdminQuery } from '../UseOperations';
+import { ArrowRight, Layers, Network, RefreshCw } from 'lucide-react';
+import { NavLink, useSearchParams } from 'react-router';
+import { Button } from '@/Components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Input } from '@/Components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
+import { Badge, EmptyState, FormatBytes, FormatCount, PageHeader, QueryState } from '../../Components/Ui';
+import type { ProtocolRecord } from '../../Services/AdminDataSource';
+import { ProtocolHistoryTypeKey } from '../../Api/ProtocolIdentity';
 import { HistoryPanel } from '../HistoryPanel';
 import { TimeRangeControl, WithTime } from '../TimeRange';
+import { useAdminInfiniteQuery, useAdminServices, useBootstrapIdentity } from '../UseOperations';
+import { SummarizeProtocols } from './ProtocolSummary';
+
+type ProtocolView = 'all' | 'types' | 'instances';
 
 export default function ProtocolsPage(): ReactNode {
     const [Params, SetParams] = useSearchParams();
-    const Overview = useAdminQuery('overview', Source => Source.GetOverview());
-    const Query = useAdminInfiniteQuery('protocols', (Source, Page) => Source.GetProtocols ? Source.GetProtocols(Page) :
-        Source.GetOverview().then(Value => ({ Items: Value.Protocols, NextCursor: '0', HasMore: false })));
+    const Services = useAdminServices();
+    const Bootstrap = useBootstrapIdentity();
+    const Query = useAdminInfiniteQuery('protocols', (Source, Page) => Source.GetProtocols
+        ? Source.GetProtocols(Page)
+        : Source.GetOverview().then(Value => ({ Items: Value.Protocols, NextCursor: '0', HasMore: false })));
     const Rows = Query.data?.pages.flatMap(Page => Page.Items) ?? [];
+    const Search = Params.get('protocol_q') ?? '';
     const SelectedId = Params.get('protocol') ?? '';
-    const ListedTarget = Query.isSuccess ? Rows.find(Row => Row.Id === SelectedId) ?? null : null;
-    const OverviewTarget = Overview.isSuccess ? Overview.data?.Protocols.find(Row => Row.Id === SelectedId) ?? null : null;
-    const Selected = SelectedId ? ListedTarget ?? OverviewTarget : Query.isSuccess ? Rows[0] ?? null : null;
-    return <><PageHeader Title="协议分析" Description="分别查看代理协议、配置实例与统计覆盖，传输和承载保持独立。" Actions={<TimeRangeControl />} />
-        <div className="analysis-split"><Panel Title="活动 TCP Session 协议分布" Subtitle="当前快照 · 同一类型只归集一次">
-            {Overview.data ? <ProtocolShare Rows={Overview.data.Protocols} Total={Overview.data.Counts.TcpSessions} /> : <QueryState Pending={Overview.isPending} Error={Overview.error} HasData={false} Label="协议分布" Children={null} />}
-        </Panel><Panel Title="统计口径"><div className="explanation-list">
-            <p><Layers size={16} />协议类型与配置实例分别定位。TCP、QUIC 连接、UDP 关联、Mux 子流不能作为一个分母相加。</p>
-            <p>当前占比使用活动 TCP Session；窗口流量使用相同方向与覆盖。未识别、未归属和缺测始终保留。</p>
-            <p>类型统计不能重复累计到多个实例；未提供实例归属时不计算实例流量占比。</p>
-        </div></Panel></div>
-        <Panel Title="协议与配置实例" Subtitle="标明类型共享统计，只有实际归属的实例数据才表示实例用量">
-            <QueryState Pending={Query.isPending} Error={Query.error} HasData={Query.data !== undefined} Label="协议实例" Children={Rows.length ? <>
-                <div className="table-scroll" tabIndex={0}><table className="data-table"><thead><tr><th>实例 / 协议</th><th>绑定</th><th>活动 Session</th><th>累计上行</th><th>累计下行</th><th>统计覆盖</th></tr></thead>
-                    <tbody>{Rows.map(Row => <tr key={Row.Id} className={Row.Id === Selected?.Id ? 'row-selected' : ''}>
-                        <td><button className="table-link" type="button" onClick={() => { const Next = new URLSearchParams(Params); Next.set('protocol', Row.Id); SetParams(Next); }}><strong>{Row.Name}</strong><small>{Row.Id}</small></button></td>
-                        <td>{FormatCount(Row.ConfiguredBindings)}</td><td>{Row.Kind === 'instance' ? FormatCount(Row.ActiveSessions) : `类型共享 ${FormatCount(Row.ActiveSessions)}`}</td><td>{Row.Kind === 'instance' ? FormatBytes(Row.Traffic?.Up) : `类型共享 ${FormatBytes(Row.Traffic?.Up)}`}</td><td>{Row.Kind === 'instance' ? FormatBytes(Row.Traffic?.Down) : `类型共享 ${FormatBytes(Row.Traffic?.Down)}`}</td><td className="coverage-cell">{Row.Kind === undefined ? '实例独立统计未提供；' : ''}{Row.Coverage}</td>
-                    </tr>)}</tbody></table></div><LoadMoreButton HasMore={Query.hasNextPage} Busy={Query.isFetchingNextPage} OnLoad={() => void Query.fetchNextPage()} />
-            </> : <EmptyState Title="没有配置协议实例" Detail="配置并发布协议绑定后显示在此。" />} />
-        </Panel>
-        {Selected ? <><div className="detail-links"><Link to={WithTime(`/sessions?protocol=${encodeURIComponent(Selected.Name)}`, Params)}>相关连接</Link><Link to={WithTime('/ingresses', Params)}>入口与承载</Link></div>
-            <div className="analysis-split"><HistoryPanel Scope="protocol_type" ResourceKey={Selected.Name} Title={`${Selected.Name} 类型流量`} />
-                <HistoryPanel Scope="protocol_instance" ResourceKey={Selected.Id} Title={`${Selected.Id} 实例流量`} /></div></>
-            : SelectedId ? <Panel Title="指定协议核验">
-                {Query.isPending || Overview.isPending ? <EmptyState Title="正在核对协议范围" Detail={`当前尚未确认 ${SelectedId} 是否存在。`} />
-                    : Query.error || Overview.error ? <EmptyState Title="无法确认指定协议" Detail={`当前查询失败；未将 ${SelectedId} 替换为其他协议。`} />
-                    : Query.hasNextPage ? <EmptyState Title="目标不在当前已载入页" Detail={`${SelectedId} 尚未在已载入记录中出现；继续载入后再确认。`} />
-                    : <EmptyState Title="当前协议快照未返回此 ID" Detail={`${SelectedId} 未出现在完整已载入清单或 Overview 快照中；未选择其他实例替代。`} />}
-            </Panel> : null}
-    </>;
+    const RequestedView = Params.get('protocol_view');
+    const View: ProtocolView = RequestedView === 'types' || RequestedView === 'instances' ? RequestedView : 'all';
+    const CanReadHistory = Services.Mode === 'demo' || Bootstrap.data?.Capabilities.includes('history.read') === true;
+    const Filtered = useMemo(() => {
+        const Needle = Search.trim().toLocaleLowerCase();
+        return Rows.filter(Row => {
+            const KindMatches = View === 'all' || View === 'instances' && Row.Kind === 'instance' || View === 'types' && Row.Kind !== 'instance';
+            const SearchMatches = !Needle || `${Row.Name} ${Row.Id} ${Row.TypeKey ?? ''} ${Row.Coverage}`.toLocaleLowerCase().includes(Needle);
+            return KindMatches && SearchMatches;
+        });
+    }, [Rows, Search, View]);
+    const Selected = Rows.find(Row => Row.Id === SelectedId) ?? null;
+    const Types = Rows.filter(Row => Row.Kind !== 'instance');
+    const Instances = Rows.filter(Row => Row.Kind === 'instance');
+    const Summary = SummarizeProtocols(Types, Query.hasNextPage ?? false);
+    const Set = (Key: string, Value: string): void => {
+        const Next = new URLSearchParams(Params);
+        if (Value) Next.set(Key, Value); else Next.delete(Key);
+        SetParams(Next, { replace: Key === 'protocol_q' });
+    };
+    const SelectProtocol = (Row: ProtocolRecord): void => {
+        const Next = new URLSearchParams(Params);
+        if (SelectedId === Row.Id) Next.delete('protocol'); else Next.set('protocol', Row.Id);
+        SetParams(Next);
+    };
+    const Refresh = async (): Promise<void> => { await Promise.all([Query.refetch(), Bootstrap.refetch()]); };
+
+    return <div className="space-y-4">
+        <PageHeader Title="协议" Description="并排比较类型、配置实例、活动 Session、累计流量和后端覆盖范围；选中一行查看它自己的历史。"
+            Actions={<><TimeRangeControl /><Button type="button" variant="outline" disabled={Query.isFetching} onClick={() => void Refresh()}><RefreshCw className={Query.isFetching ? 'animate-spin' : ''} aria-hidden="true" />刷新快照</Button></>} />
+        <dl className="grid grid-cols-2 gap-x-5 border-y py-2 sm:grid-cols-3" aria-label="协议汇总">
+            <Reading Label="已载入协议类型" Value={Query.data ? `${FormatCount(Summary.Types)}${Summary.Partial ? '+' : ''}` : '—'} Detail="同类型配置只计一次" Icon={<Layers aria-hidden="true" />} />
+            <Reading Label="配置实例" Value={Query.data ? `${FormatCount(Instances.length)}${Query.hasNextPage ? '+' : ''}` : '—'} Detail="服务端明确返回的实例行" Icon={<Network aria-hidden="true" />} />
+            <Reading Label="活动 TCP Session" Value={Summary.Active === null ? '未提供' : FormatCount(Summary.Active)} Detail={Summary.Partial ? '已知类型小计；可能仍有分页' : '按类型统计的可观测值'} Icon={<Network aria-hidden="true" />} />
+        </dl>
+
+        <Card className="min-w-0"><CardHeader className="gap-3 pb-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle>协议与配置</CardTitle><CardDescription>每行保留自己的统计范围；类型值不可与配置实例重复相加。</CardDescription></div><span className="text-xs text-muted-foreground">显示 {Filtered.length} / 已载入 {Rows.length}{Query.hasNextPage ? '+' : ''}</span></div>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <Input aria-label="搜索协议" value={Search} onChange={Event => Set('protocol_q', Event.target.value)} placeholder="搜索名称、配置 ID 或统计覆盖" className="lg:max-w-sm" />
+                <div className="flex flex-wrap gap-2" role="group" aria-label="协议范围筛选">{(['all', 'types', 'instances'] as const).map(Value => <Button key={Value} type="button" size="sm" variant={View === Value ? 'default' : 'outline'} onClick={() => Set('protocol_view', Value === 'all' ? '' : Value)}>
+                    {Value === 'all' ? '全部' : Value === 'types' ? '类型统计' : '配置实例'}
+                </Button>)}</div>
+            </div>
+        </CardHeader><CardContent className="pt-0"><QueryState Pending={Query.isPending} Error={Query.error} Label="协议记录" HasData={Query.data !== undefined} Retry={() => void Query.refetch()} Retrying={Query.isFetching}
+            Children={Filtered.length === 0 ? <EmptyState Title="当前范围没有协议" Detail="调整搜索或范围筛选，也可以载入更多分页记录。" /> : <>
+                <div role="region" aria-label="协议类型运行明细表，可横向滚动查看覆盖范围" className="min-w-0 overflow-x-auto"><ProtocolTable Rows={Filtered} SelectedId={SelectedId} OnSelect={SelectProtocol} /></div>
+                <p className="mt-2 text-xs text-muted-foreground">流量为累计字节；延迟摘要为服务端返回的累计分位桶下界。窗口趋势会显示独立的采样范围。</p>
+                {Query.hasNextPage && <Button className="mt-3" variant="outline" disabled={Query.isFetchingNextPage} onClick={() => void Query.fetchNextPage()}>{Query.isFetchingNextPage ? '正在载入…' : '载入更多协议'}</Button>}
+            </>} /></CardContent></Card>
+
+        {Selected && <ProtocolDetails Row={Selected} CanReadHistory={CanReadHistory} Params={Params} />}
+    </div>;
 }
-export function ProtocolShare(Input: Readonly<{ Rows: readonly ProtocolRecord[]; Total: UInt64Value }>): ReactNode {
-    const Distribution = ProtocolDistribution(Input.Rows, Input.Total);
-    if (!Distribution.Available) return <EmptyState Title="类型分布尚未提供" Detail="当前只返回实例记录，不将实例统计冒充类型占比。" />;
-    if (BigInt(Input.Total) === 0n) return <EmptyState Title="当前没有活动 TCP Session" Detail="接入后按实际协议统计，零连接不显示虚构占比。" />;
-    if (!Distribution.Complete) return <div className="notice notice-warning">协议分项超过当前总量，快照范围不一致，暂不计算占比。</div>;
-    return <><div className="protocol-share">{Distribution.Rows.map(Row => <div className="protocol-share-row" key={Row.Id} data-protocol={Row.Name.toLowerCase()}>
-        <span><strong>{Row.Name}</strong><small>{FormatCount(Row.Count)} 条</small></span>
-        <ProgressBar Value={Row.Percent ?? 0} Tone="mint" Label={`${Row.Name} 占比`} /><b>{Row.Percent === null ? '—' : `${Row.Percent.toFixed(1)}%`}</b>
-    </div>)}</div><p className="field-hint">分母 {FormatCount(Input.Total)} 个活动 TCP Session{Distribution.DuplicateTypes ? ' · 已合并共享类型统计，实例归属需独立采集' : ''}</p></>;
+
+function ProtocolTable(Input: Readonly<{ Rows: readonly ProtocolRecord[]; SelectedId: string; OnSelect: (Row: ProtocolRecord) => void }>): ReactNode {
+    return <Table aria-label="协议类型运行明细表" className="min-w-[1120px]"><TableHeader><TableRow><TableHead>协议 / 配置</TableHead><TableHead>范围</TableHead><TableHead>绑定数</TableHead><TableHead>活动 Session</TableHead><TableHead>累计上行</TableHead><TableHead>累计下行</TableHead><TableHead>累计 P95</TableHead><TableHead>统计覆盖</TableHead></TableRow></TableHeader>
+        <TableBody>{Input.Rows.map(Row => <TableRow key={Row.Id} data-state={Row.Id === Input.SelectedId ? 'selected' : undefined} className="cursor-pointer" onClick={() => Input.OnSelect(Row)}>
+            <TableCell><button type="button" className="max-w-60 text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={Event => { Event.stopPropagation(); Input.OnSelect(Row); }}>
+                {Row.Name}<span className="block break-all font-mono text-xs font-normal text-muted-foreground">{Row.Id}</span></button></TableCell>
+            <TableCell><Badge Tone={Row.Kind === 'instance' ? 'info' : 'neutral'}>{Row.Kind === 'instance' ? '配置实例' : '类型统计'}</Badge></TableCell>
+            <TableCell>{FormatCount(Row.ConfiguredBindings)}</TableCell><TableCell>{Row.ActiveSessions === null ? '未提供' : FormatCount(Row.ActiveSessions)}</TableCell>
+            <TableCell>{Row.Traffic === null ? '未提供' : FormatBytes(Row.Traffic.Up)}</TableCell><TableCell>{Row.Traffic === null ? '未提供' : FormatBytes(Row.Traffic.Down)}</TableCell>
+            <TableCell>{Row.Latency?.Available && Row.Latency.P95Ms !== null ? `${FormatCount(Row.Latency.P95Ms)} ms` : '未提供'}</TableCell>
+            <TableCell className="max-w-80 whitespace-normal text-muted-foreground">{Row.Coverage || '未提供'}</TableCell>
+        </TableRow>)}</TableBody></Table>;
 }
+
+function ProtocolDetails(Input: Readonly<{ Row: ProtocolRecord; CanReadHistory: boolean; Params: URLSearchParams }>): ReactNode {
+    const Row = Input.Row;
+    const IsInstance = Row.Kind === 'instance';
+    const Scope = IsInstance ? 'protocol_instance' : 'protocol_type';
+    const Key = IsInstance ? Row.Id : Row.TypeKey ?? ProtocolHistoryTypeKey(Row.Name);
+    const SessionProtocol = ProtocolHistoryTypeKey(Row.Name) === null ? Row.Name : Row.Name.toLowerCase();
+    const SessionPath = WithTime(`/sessions?protocol=${encodeURIComponent(SessionProtocol)}`, Input.Params);
+    return <section className="space-y-3" aria-label={`${Row.Name} 协议详情`}>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold">{Row.Name}</h2><Badge Tone={IsInstance ? 'info' : 'neutral'}>{IsInstance ? '配置实例' : '类型统计'}</Badge></div><p className="font-mono text-xs text-muted-foreground">{Row.Id}{!IsInstance && Key ? ` · 历史键 ${Key}` : ''}</p></div>
+            <NavLink className="inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted" to={SessionPath}>查看关联连接<ArrowRight className="ml-1 size-4" aria-hidden="true" /></NavLink>
+        </div>
+        <Card><CardHeader className="pb-2"><CardTitle>当前统计与归属范围</CardTitle><CardDescription>{Row.Coverage || '服务端未提供统计范围'}</CardDescription></CardHeader>
+            <CardContent><dl className="grid grid-cols-2 border-t sm:grid-cols-3 xl:grid-cols-6 [&>div]:border-b [&>div]:py-3">
+                <Fact Label="配置绑定" Value={FormatCount(Row.ConfiguredBindings)} /><Fact Label="活动 Session" Value={Row.ActiveSessions === null ? '未提供' : FormatCount(Row.ActiveSessions)} />
+                <Fact Label="累计上行" Value={Row.Traffic ? FormatBytes(Row.Traffic.Up) : '未提供'} /><Fact Label="累计下行" Value={Row.Traffic ? FormatBytes(Row.Traffic.Down) : '未提供'} />
+                <Fact Label="累计 P50" Value={LatencyValue(Row.Latency?.P50Ms ?? null)} /><Fact Label="累计 P95" Value={LatencyValue(Row.Latency?.P95Ms ?? null)} />
+            </dl></CardContent>
+        </Card>
+        {Input.CanReadHistory && Key ? <section className="grid min-w-0 gap-3 xl:grid-cols-2" aria-label="协议窗口趋势">
+            <HistoryPanel Scope={Scope} ResourceKey={Key} Title={`${Row.Name} 上下行速率`} Kind="traffic" />
+            <HistoryPanel Scope={Scope} ResourceKey={Key} Title={`${Row.Name} 识别准入延迟`} Kind="latency" Metric="recognition_admission" />
+        </section> : <div className="rounded-lg border px-4 py-3 text-sm text-muted-foreground" role="status">
+            {!Input.CanReadHistory ? '当前实例未开放窗口历史，累计统计不会被画成趋势。' : '协议记录缺少可核对的历史身份键，因此没有发送趋势查询。'}
+        </div>}
+    </section>;
+}
+
+function Reading(Input: Readonly<{ Label: string; Value: string; Detail: string; Icon: ReactNode }>): ReactNode {
+    return <div className="py-1.5"><dt className="flex items-center gap-1.5 text-xs text-muted-foreground">{Input.Icon}{Input.Label}</dt><dd className="mt-0.5 text-sm font-semibold tabular-nums">{Input.Value}</dd><dd className="mt-0.5 text-xs text-muted-foreground">{Input.Detail}</dd></div>;
+}
+
+function Fact(Input: Readonly<{ Label: string; Value: string }>): ReactNode {
+    return <div className="min-w-0 px-3 first:pl-0"><dt className="text-xs text-muted-foreground">{Input.Label}</dt><dd className="mt-1 text-sm font-semibold tabular-nums">{Input.Value}</dd></div>;
+}
+
+function LatencyValue(Value: string | null): string { return Value === null ? '未提供' : `${FormatCount(Value)} ms`; }

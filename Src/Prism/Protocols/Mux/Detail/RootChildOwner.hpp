@@ -3,7 +3,7 @@
 
 #include <Prism/Contract/Ingress/StreamCatalog.hpp>
 #include <Prism/Foundation/Fault/FailureState.hpp>
-#include <Prism/Lifecycle/TaskState.hpp>
+#include <Prism/Lifecycle/Task/State.hpp>
 
 #include <memory>
 

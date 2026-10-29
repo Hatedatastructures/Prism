@@ -1,6 +1,6 @@
 /** @file Ss2022Gateway.hpp @brief SS2022 raw UDP peer、账户租约、在途 I/O 及真实 drain owner。 */
 #pragma once
-#include <Prism/Contract/Ingress/RawDatagramIngress.hpp>
+#include <Prism/Contract/Ingress/Datagram/Raw.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>
 #include <Prism/Protocols/Shadowsocks2022/GatewayState.hpp>
 #include <Prism/Protocols/Shadowsocks2022/Prepared.hpp>

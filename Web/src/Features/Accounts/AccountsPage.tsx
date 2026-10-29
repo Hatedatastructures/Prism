@@ -1,139 +1,150 @@
-import { TimeLink as Link } from '../TimeLink';
-import * as Tabs from '@radix-ui/react-tabs';
-import { FilterScopeNotice } from '../FilterScopeNotice';
+/** @file Shadcn UI 代理账户管理页。 */
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowRight, Search } from 'lucide-react';
-import { useSearchParams } from 'react-router';
-import { ConfirmAction } from '../../Components/ConfirmAction';
-import { SelectField } from '../../Components/SelectField';
-import {
-    Badge, EmptyState, FormatBytes, FormatCount, LoadMoreButton, PageHeader, Panel, QueryState,
-    StatusBadge, ToneForState,
-} from '../../Components/Ui';
-import type { AccountRecord, GroupRecord, SessionRecord } from '../../Services/AdminDataSource';
+import { ArrowRight, CircleAlert, RefreshCw, ShieldBan } from 'lucide-react';
+import { NavLink, useSearchParams } from 'react-router';
+import { Alert, AlertDescription, AlertTitle } from '@/Components/ui/alert';
+import { Button } from '@/Components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/Components/ui/dialog';
+import { Input } from '@/Components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
+import { Switch } from '@/Components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
+import { Badge, EmptyState, FormatBytes, FormatCount, FormatRate, MobileMasterBack, PageHeader, QueryState, StatusBadge, useMobileMasterFocus } from '../../Components/Ui';
+import type { AccountRecord, SessionRecord } from '../../Services/AdminDataSource';
+import { WithTime } from '../TimeRange';
 import { useAdminInfiniteQuery, useAdminMutation, useAdminQuery } from '../UseOperations';
-import { TimeRangeControl } from '../TimeRange';
-import { HistoryPanel } from '../HistoryPanel';
 import { AccountUsagePanel } from './AccountUsagePanel';
-import { PolicyEditor } from '../PolicyEditor';
-import { ActionFeedback } from '../ActionFeedback';
+
+type AccountFilter = 'all' | 'active' | 'revoked';
 
 export default function AccountsPage(): ReactNode {
     const [Params, SetParams] = useSearchParams();
+    const [MobileView, SetMobileView] = useState<'list' | 'detail'>(() => Params.has('account') || Params.get('mobile_view') === 'detail' ? 'detail' : 'list');
+    useMobileMasterFocus(MobileView);
+    const [RevokeOpen, SetRevokeOpen] = useState(false);
+    const [CloseSessions, SetCloseSessions] = useState(true);
     const AccountsQuery = useAdminInfiniteQuery('accounts', (Source, Page) => Source.GetAccounts(Page));
     const GroupsQuery = useAdminInfiniteQuery('groups', (Source, Page) => Source.GetGroups(Page));
     const SessionsQuery = useAdminInfiniteQuery('sessions', (Source, Page) => Source.GetSessions(Page));
-    const Revoke = useAdminMutation((Source, Input: Readonly<{ Id: string; CloseSessions: boolean }>) =>
-        Source.RevokeAccount(Input.Id, Input.CloseSessions));
+    const Revoke = useAdminMutation((Source, Input: Readonly<{ Id: string; CloseSessions: boolean }>) => Source.RevokeAccount(Input.Id, Input.CloseSessions));
     const Accounts = AccountsQuery.data?.pages.flatMap(Page => Page.Items) ?? [];
     const Groups = GroupsQuery.data?.pages.flatMap(Page => Page.Items) ?? [];
     const Sessions = SessionsQuery.data?.pages.flatMap(Page => Page.Items) ?? [];
-    const SearchText = Params.get('q') ?? '';
+    const Search = Params.get('q') ?? '';
+    const CandidateFilter = Params.get('state') ?? 'all';
+    const Filter: AccountFilter = CandidateFilter === 'active' || CandidateFilter === 'revoked' ? CandidateFilter : 'all';
     const SelectedId = Params.get('account') ?? '';
-    const StateFilter = Params.get('state') ?? 'all';
-    const [CloseSessions, SetCloseSessions] = useState(true);
+    const Filtered = useMemo(() => Accounts.filter(Account => {
+        const Matches = !Search || `${Account.Id} ${Account.Label} ${Account.GroupId ?? ''}`.toLocaleLowerCase().includes(Search.toLocaleLowerCase());
+        return Matches && (Filter === 'all' || Filter === 'active' && !Account.Revoked || Filter === 'revoked' && Account.Revoked);
+    }), [Accounts, Filter, Search]);
+    const Exact = useAdminQuery('account-target', Source => Source.GetAccounts({ Cursor: '0', Limit: 1, Id: SelectedId }), { Enabled: !!SelectedId, Scope: [SelectedId] });
+    const Selected = SelectedId ? Accounts.find(Account => Account.Id === SelectedId) ?? Exact.data?.Items.find(Account => Account.Id === SelectedId) ?? null : Filtered[0] ?? null;
     const Update = (Key: string, Value: string): void => {
         const Next = new URLSearchParams(Params);
         if (Value && Value !== 'all') Next.set(Key, Value); else Next.delete(Key);
         SetParams(Next, { replace: Key === 'q' });
     };
-    const Filtered = useMemo(() => Accounts.filter(Account => {
-        const Match = !SearchText || `${Account.Id} ${Account.Label} ${Account.GroupId ?? ''}`.toLowerCase().includes(SearchText.toLowerCase());
-        return Match && (StateFilter === 'all' || StateFilter === 'revoked' && Account.Revoked ||
-            StateFilter === 'active' && !Account.Revoked && Number(Account.ActiveSessions) > 0);
-    }), [Accounts, SearchText, StateFilter]);
-    const Exact = useAdminQuery('account-target', Source => Source.GetAccounts({ Cursor: '0', Limit: 1, Id: SelectedId }), { Enabled: !!SelectedId, Scope: [SelectedId] });
-    const Selected = SelectedId ? Accounts.find(Account => Account.Id === SelectedId) ?? Exact.data?.Items.find(Account => Account.Id === SelectedId) ?? null : Filtered[0] ?? null;
+    const Select = (Account: AccountRecord): void => { Update('account', Account.Id); SetMobileView('detail'); };
+    const Refresh = async (): Promise<void> => { await Promise.all([AccountsQuery.refetch(), GroupsQuery.refetch(), SessionsQuery.refetch(), SelectedId ? Exact.refetch() : Promise.resolve()]); };
+    const ExecuteRevoke = async (): Promise<void> => {
+        if (!Selected) return;
+        await Revoke.mutateAsync({ Id: Selected.Id, CloseSessions });
+        SetRevokeOpen(false);
+    };
     const Active = Accounts.filter(Account => !Account.Revoked).length;
-    const Connected = Accounts.filter(Account => !Account.Revoked && Number(Account.ActiveSessions) > 0).length;
-    const SelectedSessions = Sessions.filter(Session => Session.AccountId === Selected?.Id);
-    const Group = Groups.find(Value => Value.Id === Selected?.GroupId) ?? null;
+    const InUse = Accounts.filter(Account => !Account.Revoked && BigInt(Account.ActiveSessions) > 0n).length;
+    const Revoked = Accounts.filter(Account => Account.Revoked).length;
 
-    return <>
-        <PageHeader Title="代理账户"
-            Description="认证身份、活动连接与流量，一处管理"
-            Actions={<><TimeRangeControl /><Badge Tone="accent" Dot>{Accounts.length}{AccountsQuery.hasNextPage ? '+' : ''} 个已载入账户</Badge></>} />
-        <div className="page-metric-strip" aria-label="账户状态汇总">
-            <AccountMetric Label="有效账户" Value={FormatCount(Active)} Hint="不含已撤销账户" />
-            <AccountMetric Label="有根连接租约" Value={FormatCount(Connected)} Hint="当前已载入账户" />
-            <AccountMetric Label="已撤销" Value={FormatCount(Accounts.filter(Account => Account.Revoked).length)} Hint="当前已载入范围" />
-            <AccountMetric Label="用户组" Value={FormatCount(Groups.length)} Hint="默认策略由账户逐项覆盖" />
-        </div>
-        <section className="account-layout">
-            <div className="account-directory-column"><Panel Title="账户目录">
-                <div className="toolbar">
-                    <label className="search-field"><Search size={17} aria-hidden="true" /><input aria-label="搜索账户" placeholder="搜索账户 ID、名称或组…"
-                        value={SearchText} onChange={Event => Update('q', Event.target.value)} /></label>
-                    <SelectField Label="按账户状态筛选" Value={StateFilter} OnChange={Value => Update('state', Value)}
-                        Options={[{ Value: 'all', Label: '全部状态' }, { Value: 'active', Label: '活动账户' }, { Value: 'revoked', Label: '已撤销' }]} />
-                </div>
-                <FilterScopeNotice Collection="accounts" />
-                <QueryState Pending={AccountsQuery.isPending} Error={AccountsQuery.error} Label="账户目录" HasData={AccountsQuery.data !== undefined}
-                    Children={Filtered.length === 0 ? <EmptyState Title="没有匹配账户" Detail="更改搜索或状态筛选后重试。" /> : <>
-                        <div className="account-table-wrap table-scroll"><table className="data-table account-table">
-                            <thead><tr><th scope="col">账户</th><th scope="col">用户组</th><th scope="col">根连接租约</th><th scope="col">流量 ↑ / ↓</th><th scope="col">状态</th></tr></thead>
-                            <tbody>{Filtered.map(Account => <AccountRow key={Account.Id} Value={Account} Group={Groups.find(Item => Item.Id === Account.GroupId) ?? null}
-                                Selected={Account.Id === Selected?.Id} OnSelect={() => Update('account', Account.Id)} />)}</tbody>
-                        </table></div>
-                        <LoadMoreButton HasMore={AccountsQuery.hasNextPage ?? false} Busy={AccountsQuery.isFetchingNextPage}
-                            OnLoad={() => void AccountsQuery.fetchNextPage()} />
-                        <p className="table-footnote">已显示 {Filtered.length} 条{AccountsQuery.hasNextPage ? '，可继续载入' : '记录'}</p>
-                    </>} />
-            </Panel>
-            </div>
-            {Selected && <Panel ClassName="detail-panel account-inspector" Title="账户详情"
-                Action={<StatusBadge Label={Selected.Revoked ? '已撤销' : '有效'} Tone={ToneForState(Selected.Revoked ? 'revoked' : 'active')} />}>
-                <div className="account-profile"><span className="account-profile-copy"><strong>{Selected.Label}</strong><small>{Selected.Id}</small></span></div>
-                <div className="account-context"><span>{Group?.Name ?? '未分组'}</span><span>Generation {Selected.GenerationId}</span><span>{FormatCount(Selected.ActiveSessions)} 根连接租约</span></div>
-                <Tabs.Root defaultValue="usage" key={Selected.Id} className="account-detail-tabs">
-                    <Tabs.List className="detail-tabs" aria-label="账户详情视图"><Tabs.Trigger value="usage">用量</Tabs.Trigger><Tabs.Trigger value="policy">策略</Tabs.Trigger><Tabs.Trigger value="connections">连接</Tabs.Trigger><Tabs.Trigger value="history">趋势</Tabs.Trigger></Tabs.List>
-                    <Tabs.Content value="usage"><AccountUsagePanel Account={Selected} /></Tabs.Content>
-                    <Tabs.Content value="policy"><PolicyEditor Kind="account-policy" Id={Selected.AccountKey ?? Selected.Label} Title="有效策略与来源" Effective={Selected.EffectivePolicy ?? null} Sources={Selected.PolicySources ?? {}} /></Tabs.Content>
-                    <Tabs.Content value="connections"><dl className="detail-kv"><div><dt>根连接租约</dt><dd>{FormatCount(Selected.ActiveSessions)}</dd></div>
-                        {Selected.ActiveStreams !== null && Selected.ActiveStreams !== undefined && <div><dt>子流租约</dt><dd>{FormatCount(Selected.ActiveStreams)}</dd></div>}
-                        <div><dt>累计上行</dt><dd>{FormatBytes(Selected.Traffic?.Up)}</dd></div><div><dt>累计下行</dt><dd>{FormatBytes(Selected.Traffic?.Down)}</dd></div></dl>
-                        <div className="account-session-block"><div className="section-heading"><h2>已载入 Session</h2><Link className="text-link" to={'/sessions?account=' + encodeURIComponent(Selected.Id)}>查看追踪 <ArrowRight size={13} /></Link></div><AccountSessionList Sessions={SelectedSessions} /></div>
-                    </Tabs.Content>
-                    <Tabs.Content value="history"><p className="field-hint">时间范围只影响此历史图；用量视图显示的本周期账本快照不会随时间范围变化。</p>
-                        <HistoryPanel Scope="account" ResourceKey={Selected.AccountKey ?? Selected.Id}
-                            Title={`${Selected.Label} · ${Selected.Id} 流量历史`} />
-                    </Tabs.Content>
-                </Tabs.Root>
-                {!Selected.Revoked && <div className="account-access-actions"><label className="check-row"><input type="checkbox" checked={CloseSessions} onChange={Event => SetCloseSessions(Event.target.checked)} /><span>撤销时关闭活动连接</span></label>
-                    <ConfirmAction Label="撤销账户" Title={'撤销 ' + Selected.Label + '？'} Description={CloseSessions ? '阻止后续认证，并请求关闭关联 Session；已受理后继续核对实际结果。' : '阻止后续认证与新增子流，现有 Session 按当前生命周期运行。'} ConfirmLabel="确认撤销" Tone="danger" Busy={Revoke.isPending} OnConfirm={() => Revoke.mutateAsync({ Id: Selected.Id, CloseSessions })} />
-                </div>}
-                <ActionFeedback Result={Revoke.data} />
-            </Panel>}
+    return <div className="space-y-6">
+        <PageHeader Title="代理账户" Description="认证身份、权限来源、活动连接与累计流量。"
+            Actions={<Button type="button" variant="outline" onClick={() => void Refresh()} disabled={AccountsQuery.isFetching || GroupsQuery.isFetching || SessionsQuery.isFetching}><RefreshCw className={AccountsQuery.isFetching ? 'animate-spin' : ''} aria-hidden="true" />刷新快照</Button>} />
+        <section className="rounded-xl border bg-card px-3 py-2" role="group" aria-label="账户状态汇总">
+            <dl className="grid grid-cols-2 gap-y-2 sm:grid-cols-4">
+                <AccountSummaryItem Label="有效账户" Value={FormatCount(Active)} Detail={`不含已撤销账户 · 有活动连接 ${FormatCount(InUse)} · 已撤销 ${FormatCount(Revoked)}`} />
+                <AccountSummaryItem Label="当前已载入账户" Value={`${FormatCount(Accounts.length)}${AccountsQuery.hasNextPage ? '+' : ''}`} Detail="服务端已返回的账户记录" />
+                <AccountSummaryItem Label="当前已载入范围" Value={FormatCount(Filtered.length)} Detail={Search || Filter !== 'all' ? '符合当前搜索和状态筛选' : '当前列表筛选结果'} />
+                <AccountSummaryItem Label="用户组" Value={GroupsQuery.data ? FormatCount(Groups.length) : '—'} Detail="当前已载入范围" />
+            </dl>
         </section>
-        {SelectedId && !Selected && <QueryState Pending={Exact.isPending} Error={Exact.error} HasData={Exact.data !== undefined} Label="指定账户" Children={<EmptyState Title="指定账户已不在当前快照" Detail="保留原始目标，没有用其他账户替代；请核对实例或刷新。" />} />}
-    </>;
-}
+        <div className="grid min-w-0 overflow-hidden rounded-xl border bg-card md:items-start md:grid-cols-[minmax(17rem,20rem)_minmax(0,1fr)]">
+            <div role="region" aria-label="账户目录" className={MobileView === 'detail' ? 'hidden md:block' : ''} data-mobile-master-list tabIndex={-1}><Card className="rounded-none border-r py-4 ring-0"><CardHeader className="gap-4"><div className="flex items-start justify-between gap-3"><div><CardTitle>账户目录</CardTitle><CardDescription>选择账户查看详情。</CardDescription></div><Badge Tone="neutral">{Accounts.length}{AccountsQuery.hasNextPage ? '+' : ''}</Badge></div>
+                <div className="flex flex-col gap-3"><Input type="search" value={Search} onChange={Event => Update('q', Event.target.value)} aria-label="搜索账户" placeholder="搜索账户 ID、名称或用户组" />
+                    <div className="flex shrink-0 flex-wrap gap-2" role="group" aria-label="账户状态筛选">{(['all', 'active', 'revoked'] as const).map(Value => <Button key={Value} type="button" size="sm" variant={Filter === Value ? 'default' : 'outline'} onClick={() => Update('state', Value)}>{AccountFilterLabel(Value)}</Button>)}</div>
+                </div></CardHeader>
+                <CardContent><QueryState Pending={AccountsQuery.isPending} Error={AccountsQuery.error} Label="账户目录" HasData={AccountsQuery.data !== undefined} Retry={() => void AccountsQuery.refetch()} Retrying={AccountsQuery.isFetching}
+                    Children={Filtered.length === 0 ? <EmptyState Title="没有匹配账户" Detail="调整搜索词或状态筛选，或者载入更多账户。" /> : <><AccountTable Rows={Filtered} Selected={Selected} Groups={Groups} OnSelect={Select} />
 
-function AccountMetric(Input: Readonly<{ Label: string; Value: string; Hint: string }>): ReactNode {
-    return <div className="page-metric"><span>{Input.Label}</span><strong>{Input.Value}</strong><small>{Input.Hint}</small></div>;
-}
-
-function AccountRow(Input: Readonly<{ Value: AccountRecord; Group: GroupRecord | null; Selected: boolean; OnSelect: () => void }>): ReactNode {
-    const Account = Input.Value;
-    return <tr className={Input.Selected ? 'row-selected' : ''}>
-        <td data-label="账户"><button type="button" className="table-link account-name" onClick={Input.OnSelect} aria-pressed={Input.Selected}>
-            <strong>{Account.Label}</strong><small>{Account.Id}</small></button></td>
-        <td data-label="用户组">{Input.Group?.Name ?? '未分组'}</td>
-        <td data-label="根连接租约">{FormatCount(Account.ActiveSessions)}</td>
-        <td data-label="流量 ↑ / ↓"><span className="account-traffic"><span>↑ {Account.Traffic ? FormatBytes(Account.Traffic.Up) : '—'}</span>
-            <span>↓ {Account.Traffic ? FormatBytes(Account.Traffic.Down) : '—'}</span></span></td>
-        <td data-label="状态"><StatusBadge Label={Account.Revoked ? '已撤销' : Number(Account.ActiveSessions) > 0 ? '使用中' : '未连接'}
-            Tone={Account.Revoked ? 'danger' : Number(Account.ActiveSessions) > 0 ? 'good' : 'neutral'} /></td>
-    </tr>;
-}
-
-function AccountSessionList(Input: Readonly<{ Sessions: readonly SessionRecord[] }>): ReactNode {
-    if (Input.Sessions.length === 0) return <p className="field-hint">当前已载入 Session 样本中没有关联记录。</p>;
-    return <div className="related-list">
-        {Input.Sessions.slice(0, 5).map(Session => <Link className="related-row" key={`${Session.ProcessId}-${Session.Id}`}
-            to={`/sessions?session=${encodeURIComponent(Session.Id)}&process=${encodeURIComponent(Session.ProcessId)}&identity_worker=${encodeURIComponent(Session.WorkerId)}&identity_account=${encodeURIComponent(Session.AccountId)}&generation=${encodeURIComponent(Session.GenerationId)}`}>
-            <strong>{Session.Id}</strong><small>{Session.SourceAddress || '来源未提供'} → {Session.Target}</small>
-        </Link>)}
+                        {AccountsQuery.hasNextPage && <div className="mt-4 flex justify-center"><Button variant="outline" disabled={AccountsQuery.isFetchingNextPage} onClick={() => void AccountsQuery.fetchNextPage()}>{AccountsQuery.isFetchingNextPage ? '正在载入…' : '载入更多账户'}</Button></div>}</>} />
+                </CardContent>
+            </Card></div>
+            <div role="region" aria-label="账户详情" className={MobileView === 'list' ? 'hidden md:block' : ''}><div className="px-4 pt-4 md:hidden"><MobileMasterBack Label="返回账户目录" OnClick={() => SetMobileView('list')} /></div>
+            <AccountInspector Account={Selected} ExactPending={!!SelectedId && Exact.isPending} Sessions={Sessions} SessionsPending={SessionsQuery.isPending} SessionsError={SessionsQuery.error} SessionsHasMore={SessionsQuery.hasNextPage ?? false} Params={Params} GroupName={Groups.find(Group => Group.Id === Selected?.GroupId)?.Name}
+                RevokeOpen={RevokeOpen} SetRevokeOpen={SetRevokeOpen} CloseSessions={CloseSessions} SetCloseSessions={SetCloseSessions} Busy={Revoke.isPending} OnRevoke={ExecuteRevoke} ResultMessage={Revoke.data?.Message ?? null} ResultError={Revoke.error?.message} /></div>
+        </div>
+        {SelectedId && !Selected && !Exact.isPending && <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertTitle>指定账户不在当前快照</AlertTitle><AlertDescription>{Exact.error ? Exact.error.message : '精确读取没有返回该账户；系统没有用其他账户替代所选目标。'}</AlertDescription></Alert>}
     </div>;
 }
+
+function AccountTable(Input: Readonly<{ Rows: readonly AccountRecord[]; Selected: AccountRecord | null; Groups: readonly Readonly<{ Id: string; Name: string }>[]; OnSelect: (Account: AccountRecord) => void }>): ReactNode {
+    return <ul className="space-y-0.5" aria-label="账户列表">{Input.Rows.map(Account => {
+        const Group = Account.GroupId === null ? '未分组' : Input.Groups.find(Value => Value.Id === Account.GroupId)?.Name ?? Account.GroupId ?? '未提供';
+        const Usage = FormatCount(Account.ActiveSessions);
+        const Status = Account.Revoked ? '已撤销' : BigInt(Account.ActiveSessions) > 0n ? '使用中' : '未使用';
+        return <li key={Account.Id}><button type="button" aria-label={`${Account.Label} ${Account.Id}`} aria-description={`${Group} · ${Usage} 根连接租约 ${Status}`} aria-pressed={Account.Id === Input.Selected?.Id} onClick={() => Input.OnSelect(Account)} className="w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-pressed:bg-muted">
+        <span className="flex items-center justify-between gap-2"><span className="truncate font-medium">{Account.Label}</span><span className="shrink-0 text-xs text-muted-foreground">{Account.Revoked ? '已撤销' : BigInt(Account.ActiveSessions) > 0n ? '活动中' : '有效'}</span></span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{Group} · {Usage} 个根连接</span>
+    </button></li>;
+    })}</ul>;
+}
+
+function AccountSummaryItem(Input: Readonly<{ Label: string; Value: string; Detail: string }>): ReactNode {
+    return <div className="min-w-0 px-2 first:pl-0"><dt className="text-xs text-muted-foreground">{Input.Label}</dt><dd className="mt-0.5 font-semibold tabular-nums">{Input.Value}</dd><dd className="mt-0.5 text-xs text-muted-foreground">{Input.Detail}</dd></div>;
+}
+
+function AccountInspector(Input: Readonly<{
+    Account: AccountRecord | null; ExactPending: boolean; Sessions: readonly SessionRecord[]; SessionsPending: boolean; SessionsError: Error | null; SessionsHasMore: boolean; Params: URLSearchParams; GroupName: string | undefined;
+    RevokeOpen: boolean; SetRevokeOpen: (Open: boolean) => void; CloseSessions: boolean; SetCloseSessions: (Value: boolean) => void; Busy: boolean; OnRevoke: () => Promise<void>; ResultMessage: string | null; ResultError: string | undefined;
+}>): ReactNode {
+    if (Input.ExactPending) return <Card><CardContent className="py-12 text-center text-sm text-muted-foreground">正在精确核验账户目标…</CardContent></Card>;
+    if (!Input.Account) return <Card><CardContent className="py-12"><EmptyState Title="选择一个账户" Detail="从账户目录选择身份，查看其策略来源与当前连接。" /></CardContent></Card>;
+    const Account = Input.Account;
+    const AccountSessions = Input.Sessions.filter(Session => Session.AccountId === Account.Id);
+    const Policy = Account.EffectivePolicy;
+    return <Card className="rounded-none ring-0"><CardHeader><div className="flex items-start justify-between gap-3"><div><h2 className="font-heading text-base font-semibold leading-none">{Account.Label}</h2><CardDescription className="mt-1 font-mono">{Account.Id} · Generation {Account.GenerationId}</CardDescription></div><div className="flex flex-wrap items-center justify-end gap-2"><StatusBadge Label={Account.Revoked ? '已撤销' : '有效'} Tone={Account.Revoked ? 'danger' : 'good'} />{!Account.Revoked && <Dialog open={Input.RevokeOpen} onOpenChange={Input.SetRevokeOpen}><DialogTrigger asChild><Button variant="destructive" type="button"><ShieldBan aria-hidden="true" />撤销账户</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>撤销 {Account.Label}？</DialogTitle><DialogDescription>此请求会拒绝账户后续认证。可选择同时关闭当前活动连接。</DialogDescription></DialogHeader><label className="flex items-center justify-between gap-4 rounded-lg border p-3 text-sm"><span><strong className="block">关闭活动连接</strong><span className="text-muted-foreground">要求关联 Session 进入关闭流程。</span></span><Switch checked={Input.CloseSessions} onCheckedChange={Input.SetCloseSessions} aria-label="撤销时关闭活动连接" /></label><DialogFooter><Button variant="outline" onClick={() => Input.SetRevokeOpen(false)}>取消</Button><Button variant="destructive" disabled={Input.Busy} onClick={() => void Input.OnRevoke()}>{Input.Busy ? '正在提交…' : '确认撤销'}</Button></DialogFooter></DialogContent></Dialog>}</div></div></CardHeader>
+        <CardContent className="space-y-5"><Tabs defaultValue="overview"><TabsList variant="line" className="max-w-full overflow-x-auto"><TabsTrigger value="overview">身份与流量</TabsTrigger><TabsTrigger value="usage">周期额度</TabsTrigger><TabsTrigger value="sessions">关联 Session</TabsTrigger><TabsTrigger value="policy">策略来源</TabsTrigger></TabsList>
+            <TabsContent value="overview" className="mt-5 space-y-5">
+                <dl aria-label="账户维度流量计数" className="grid grid-cols-2 gap-x-5 gap-y-4 border-b pb-5 sm:grid-cols-4">
+                    <Fact Label="用户组" Value={Account.GroupId === null ? '未分组' : Input.GroupName ?? Account.GroupId ?? '未提供'} />
+                    <Fact Label="根连接" Value={FormatCount(Account.ActiveSessions)} />
+                    <Fact Label="累计上行" Value={FormatBytes(Account.Traffic?.Up)} />
+                    <Fact Label="累计下行" Value={FormatBytes(Account.Traffic?.Down)} />
+                    {Account.Traffic?.Events != null && <Fact Label="完成传输事件" Value={FormatCount(Account.Traffic.Events)} />}
+                    {Account.Traffic?.Errors != null && <Fact Label="失败传输事件" Value={FormatCount(Account.Traffic.Errors)} />}
+                    {Account.ActiveStreams != null && <Fact Label="活动子流" Value={FormatCount(Account.ActiveStreams)} />}
+                    {Account.ActiveConnections != null && <Fact Label="活动连接" Value={FormatCount(Account.ActiveConnections)} />}
+                    {Account.UploadBytesPerSecond != null && <Fact Label="上行速率" Value={FormatRate(Account.UploadBytesPerSecond)} />}
+                    {Account.DownloadBytesPerSecond != null && <Fact Label="下行速率" Value={FormatRate(Account.DownloadBytesPerSecond)} />}
+                </dl>
+                <p className="text-xs text-muted-foreground">周期账本中的已结算量分开计算。</p>
+                <section role="region" aria-label="账户当前关联 Session"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">关联 Session</h3><NavLink className="inline-flex items-center gap-1 text-sm font-medium hover:underline" to={WithTime(`/sessions?account=${encodeURIComponent(Account.Id)}`, Input.Params)}>查看会话<ArrowRight className="size-3" aria-hidden="true" /></NavLink></div>
+                    <p className="mt-1 text-xs text-muted-foreground">{Input.SessionsPending ? '正在读取会话' : Input.SessionsError ? `会话读取失败：${Input.SessionsError.message}` : `已载入 ${AccountSessions.length} 条关联会话${Input.SessionsHasMore ? '，列表仍有更多分页' : ''}`}</p>
+                    {!Input.SessionsPending && !Input.SessionsError && AccountSessions.length > 0 && <Table aria-label="账户关联 Session 摘要" className="min-w-[760px]"><TableHeader><TableRow><TableHead>Session / 协议</TableHead><TableHead>Worker / 任务</TableHead><TableHead>来源 / 目标</TableHead><TableHead>累计流量</TableHead><TableHead>状态</TableHead></TableRow></TableHeader><TableBody>{AccountSessions.slice(0, 3).map(Session => <TableRow key={`${Session.ProcessId}-${Session.Id}`}><TableCell className="whitespace-normal"><span className="block font-mono">{Session.Id}</span><span className="text-xs text-muted-foreground">{Session.Transport.toUpperCase()} / {Session.Protocol}</span></TableCell><TableCell className="whitespace-normal"><span className="block font-mono">{Session.WorkerId}</span><span className="text-xs text-muted-foreground">活动任务 {FormatCount(Session.ActiveTasks)}</span></TableCell><TableCell className="max-w-56 whitespace-normal"><span className="block font-mono">{Session.SourceAddress || '来源未提供'}</span><span className="block truncate font-mono" title={Session.Target}>→ {Session.Target || '目标未提供'}</span></TableCell><TableCell className="whitespace-normal"><span className="block">↑ {FormatBytes(Session.Traffic?.Up)}</span><span className="block">↓ {FormatBytes(Session.Traffic?.Down)}</span></TableCell><TableCell><StatusBadge Label={Session.Draining ? '排空中' : Session.Active ? '活动中' : '已结束'} /></TableCell></TableRow>)}</TableBody></Table>}
+                </section>
+                {Input.ResultError && <Alert variant="destructive"><CircleAlert aria-hidden="true" /><AlertTitle>撤销结果尚未确认</AlertTitle><AlertDescription>{Input.ResultError}</AlertDescription></Alert>}
+                {Input.ResultMessage && <Alert><ShieldBan aria-hidden="true" /><AlertTitle>撤销请求已提交</AlertTitle><AlertDescription>{Input.ResultMessage} 请刷新快照确认最终状态。</AlertDescription></Alert>}
+            </TabsContent>
+            <TabsContent value="usage" className="mt-5"><AccountUsagePanel key={Account.AccountKey ?? Account.Id} Account={Account} /></TabsContent>
+            <TabsContent value="sessions" className="mt-5"><QueryState Pending={Input.SessionsPending} Error={Input.SessionsError} Label="账户关联 Session" HasData={!Input.SessionsPending && !Input.SessionsError}
+                Children={AccountSessions.length === 0 ? <EmptyState Title="当前已载入范围没有关联 Session" Detail="这不代表该账户没有更早的连接或其他分页中的记录。" /> : <div className="divide-y rounded-lg border">{AccountSessions.slice(0, 8).map(Session => <NavLink key={`${Session.ProcessId}-${Session.Id}`} to={`/sessions?session=${encodeURIComponent(Session.Id)}&process=${encodeURIComponent(Session.ProcessId)}&identity_worker=${encodeURIComponent(Session.WorkerId)}&identity_account=${encodeURIComponent(Session.AccountId)}&generation=${encodeURIComponent(Session.GenerationId)}`} className="block p-3 transition-colors hover:bg-muted/50"><div className="flex items-center justify-between gap-3"><code className="font-mono text-xs">{Session.Id}</code><StatusBadge Label={Session.Draining ? '排空中' : Session.Active ? '活动中' : '已结束'} /></div><p className="mt-1 text-sm text-muted-foreground">{Session.Transport.toUpperCase()} · {Session.Protocol} · {Session.Target}</p></NavLink>)}</div>} />
+            </TabsContent>
+            <TabsContent value="policy" className="mt-5 space-y-3">{Policy ? <><dl className="grid grid-cols-2 gap-2 text-sm min-[1920px]:grid-cols-3">{Object.entries(Policy).map(([Name, Value]) => <Fact key={Name} Label={Name} Value={PolicyValue(Value)} />)}</dl><div className="divide-y rounded-lg border">{Object.entries(Account.PolicySources ?? {}).map(([Name, Source]) => <div key={Name} className="flex items-center justify-between gap-3 p-3 text-sm"><span className="text-muted-foreground">{Name}</span><code className="font-mono text-xs">{Source}</code></div>)}</div></> : <EmptyState Title="没有可呈现的有效策略" Detail="当前快照没有提供账户策略；不会以用户组猜测或补造策略。" />}</TabsContent>
+        </Tabs></CardContent>
+    </Card>;
+}
+
+function AccountFilterLabel(Value: AccountFilter): string { return Value === 'active' ? '有效' : Value === 'revoked' ? '已撤销' : '全部'; }
+function Fact(Input: Readonly<{ Label: string; Value: string }>): ReactNode { return <div className="min-w-0 py-1"><dt className="text-sm text-muted-foreground">{Input.Label}</dt><dd className="mt-1 break-words font-medium">{Input.Value}</dd></div>; }
+function PolicyValue(Value: unknown): string { return Value === null ? '未限制' : typeof Value === 'string' || typeof Value === 'number' || typeof Value === 'boolean' ? String(Value) : JSON.stringify(Value); }

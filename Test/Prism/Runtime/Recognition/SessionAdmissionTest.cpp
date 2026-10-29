@@ -1,4 +1,4 @@
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 /**
  * @file SessionAdmissionTest.cpp

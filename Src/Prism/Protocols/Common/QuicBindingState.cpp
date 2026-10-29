@@ -76,7 +76,7 @@ namespace Prism::Protocols
     auto QuicBindingState::Failed(Prism::Fault::Failure Reason) noexcept -> void
     {
         if (Reason.Succeeded()) Reason = {Prism::Fault::Code::Blocked};
-        Failure_.TrySet(Reason);
+        if (!Failure_.TrySet(Reason)) Reason = Failure_.Load();
         DispatchFailed_.store(Reason.Code == Prism::Fault::Code::Blocked);
         Closed_.store(true);
         Barrier_.Seal();

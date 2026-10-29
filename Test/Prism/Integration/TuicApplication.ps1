@@ -517,7 +517,7 @@ try {
 
     $GoSource = Join-Path $RepoRoot 'Test\Prism\Integration\Go\tuic\main.go'
     $GoModule = Join-Path $RepoRoot 'Test\Prism\Integration\Go\go.mod'
-    $StandaloneHarness = Join-Path $RepoRoot 'Test\Prism\Integration\InteropTuic.cpp'
+    $StandaloneHarness = Join-Path $RepoRoot 'Test\Prism\Integration\Tuic.cpp'
     $ExeHash = (Get-FileHash -LiteralPath $PrismPath -Algorithm SHA256).Hash
     $ConfigHash = (Get-FileHash -LiteralPath $ConfigurationPath -Algorithm SHA256).Hash
     $GoHash = (Get-FileHash -LiteralPath $GoSource -Algorithm SHA256).Hash

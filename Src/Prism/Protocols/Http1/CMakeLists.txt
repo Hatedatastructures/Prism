@@ -2,27 +2,27 @@ PrismAddStaticTarget(PrismProtocolHttp
     SOURCES
         Conn.cpp
         IngressFactory.cpp
-        ForwardRequest.cpp
-        ForwardRequestTransport.cpp
-        ForwardRequestSource.cpp
-        ForwardRequestState.cpp
-        ForwardRequestFraming.cpp
-        ForwardRequestUpgrade.cpp
-        ForwardResponseTransport.cpp
+        Forward/Request.cpp
+        Forward/Request/Transport.cpp
+        Forward/Request/Source.cpp
+        Forward/Request/State.cpp
+        Forward/Request/Framing.cpp
+        Forward/Request/Upgrade.cpp
+        Forward/Response/Transport.cpp
         Parser.cpp
     HEADERS
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Binding.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Conn.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/ForwardRequest.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/ForwardRequestTransport.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/ForwardResponseTransport.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Forward/Request.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Forward/Request/Transport.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Forward/Response/Transport.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/IngressFactory.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Http1/Parser.hpp
     PRIVATE_HEADERS
         ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/BasicAuthentication.hpp
-        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestFraming.hpp
-        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestSource.hpp
-        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestState.hpp
-        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ForwardRequestUpgrade.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Forward/Request/Detail/Framing.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Forward/Request/Detail/Source.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Forward/Request/Detail/State.hpp
+        ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Forward/Request/Detail/Upgrade.hpp
         ${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Http1/Detail/ParserSupport.hpp
 )

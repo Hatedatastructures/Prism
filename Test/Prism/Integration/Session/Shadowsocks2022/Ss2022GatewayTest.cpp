@@ -5,9 +5,9 @@
 #include <span>
 #include <thread>
 #include <TestSupport/Prism/ProviderBindings.hpp>
-#include <TestSupport/Prism/AccountAdmissionAuthority.hpp>
-#include <Prism/Boundary/Datagram/DatagramListener.hpp>
-#include <Prism/Boundary/Datagram/DatagramClassifier.hpp>
+#include <TestSupport/Prism/Account/Admission.hpp>
+#include <Prism/Boundary/Datagram/Listener.hpp>
+#include <Prism/Boundary/Datagram/Classifier.hpp>
 #include <Prism/Net/Datagram/Egress.hpp>
 #include <Prism/Net/Dns/Resolver.hpp>
 #include <boost/asio/io_context.hpp>

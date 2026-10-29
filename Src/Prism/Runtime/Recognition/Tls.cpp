@@ -3,11 +3,26 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
 #include <utility>
 #include <vector>
 
 namespace Prism::Recognition::detail
 {
+    namespace
+    {
+        auto AppendHandshake(
+            std::vector<std::uint8_t>& Handshake,
+            const std::span<const std::uint8_t> Bytes) -> void
+        {
+            Handshake.reserve(Handshake.size() + Bytes.size());
+            for (const auto Byte : Bytes)
+            {
+                Handshake.push_back(Byte);
+            }
+        }
+    }
+
     auto ReadU16(const std::span<const std::uint8_t> Data,
                  const std::size_t Offset,
                  std::uint16_t& Value) noexcept -> bool
@@ -229,8 +244,7 @@ namespace Prism::Recognition::detail
             if (Result.Handshake.size() < 4 && Available > 0)
             {
                 const auto CopyCount = (std::min)(Available, 4 - Result.Handshake.size());
-                Result.Handshake.insert(Result.Handshake.end(), Data.begin() + PayloadStart,
-                    Data.begin() + PayloadStart + CopyCount);
+                AppendHandshake(Result.Handshake, Data.subspan(PayloadStart, CopyCount));
                 Copied += CopyCount;
             }
             if (!Result.Handshake.empty() && Result.Handshake.front() != 0x01)
@@ -256,9 +270,8 @@ namespace Prism::Recognition::detail
             {
                 const auto CopyCount = (std::min)(Available - Copied,
                     Result.MessageSize - Result.Handshake.size());
-                Result.Handshake.insert(Result.Handshake.end(),
-                    Data.begin() + PayloadStart + Copied,
-                    Data.begin() + PayloadStart + Copied + CopyCount);
+                AppendHandshake(Result.Handshake,
+                    Data.subspan(PayloadStart + Copied, CopyCount));
             }
             if (HeaderKnown && Result.Handshake.size() >= Result.MessageSize)
             {

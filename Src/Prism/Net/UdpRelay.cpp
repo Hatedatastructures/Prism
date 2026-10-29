@@ -1,6 +1,6 @@
 /** @file UdpRelay.cpp @brief UDP 双向中继与关联回收实现。 */
 #include <Prism/Net/UdpRelay.hpp>
-#include <Prism/Net/Udp/EndpointRetirement.hpp>
+#include <Prism/Net/Udp/Detail/EndpointRetirement.hpp>
 #include <Prism/Transport/Unreliable.hpp>
 
 #include <boost/asio/error.hpp>

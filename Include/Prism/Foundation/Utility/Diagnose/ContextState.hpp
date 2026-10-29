@@ -2,9 +2,9 @@
  * @brief 无分配派生的不可变观察上下文与四槽 per-call 借用。
  */
 #pragma once
-#include <Prism/Foundation/Utility/Diagnose/Detail/ContextStorage.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Context/Storage.hpp>
 #include <Prism/Foundation/Utility/Diagnose/FieldCodec.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/RenderEpoch.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Context/Epoch.hpp>
 #include <array>
 #include <cstddef>
 #include <cstdint>

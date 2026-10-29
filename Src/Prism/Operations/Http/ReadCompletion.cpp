@@ -1,6 +1,6 @@
 /** @file ReadCompletion.cpp @brief Operations HTTP read completion 解析与终态决策。 */
 
-#include <Prism/Operations/Http/ReadCompletion.hpp>
+#include <Prism/Operations/Http/Detail/ReadCompletion.hpp>
 
 #include <algorithm>
 #include <utility>

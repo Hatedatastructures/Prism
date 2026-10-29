@@ -1,28 +1,28 @@
 set(PrismBoundaryPublicHeaders
     "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Contract/BoundaryDispatcher.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Datagram/DatagramAssociation.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Datagram/DatagramClassifier.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Datagram/DatagramListener.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Datagram/Association.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Datagram/Classifier.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Datagram/Listener.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Quic/QuicAdmissionBudget.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Quic/QuicConnectionRegistry.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Quic/QuicConnectionRegistryTypes.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Quic/Connection/Registry.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Quic/Connection/Types.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Boundary/Quic/QuicPacketGateway.hpp"
 )
 set(PrismBoundaryPrivateHeaders
-    "${CMAKE_CURRENT_SOURCE_DIR}/Quic/Detail/QuicConnectionRegistryCloseOwner.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Quic/Detail/QuicConnectionRegistryState.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Quic/Connection/Detail/CloseOwner.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Quic/Connection/Detail/State.hpp"
 )
 
 PrismAddStaticTarget(PrismBoundary
     SOURCES
-        Datagram/DatagramAssociation.cpp
-        Datagram/DatagramListener.cpp
-        Datagram/DatagramClassifier.cpp
+        Datagram/Association.cpp
+        Datagram/Listener.cpp
+        Datagram/Classifier.cpp
         Contract/BoundaryDispatcher.cpp
         Quic/QuicPacketGateway.cpp
         Quic/QuicAdmissionBudget.cpp
-        Quic/QuicConnectionRegistryCloseOwner.cpp
-        Quic/QuicConnectionRegistryAdmission.cpp
-        Quic/QuicConnectionRegistry.cpp
+        Quic/Connection/CloseOwner.cpp
+        Quic/Connection/Admission.cpp
+        Quic/Connection/Registry.cpp
     HEADERS ${PrismBoundaryPublicHeaders}
     PRIVATE_HEADERS ${PrismBoundaryPrivateHeaders})

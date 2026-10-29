@@ -5,11 +5,11 @@
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <boost/asio/experimental/channel.hpp>
-#include <Prism/Protocols/Trojan/DatagramSession.hpp>
+#include <Prism/Protocols/Trojan/Datagram/Session.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include "TrojanDatagramTestSupport.hpp"
+#include "DatagramTestSupport.hpp"
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>

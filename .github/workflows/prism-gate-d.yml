@@ -108,7 +108,7 @@ jobs:
             } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath build/prism-runner/summary.json -Encoding UTF8
             Write-Host 'Prism evidence blocked: executable/config variables were not supplied.'
           } else {
-            pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/Run-Prism.ps1 `
+            pwsh -NoProfile -ExecutionPolicy Bypass -File Scripts/Interop/RunPrism.ps1 `
               -PrismExe $env:PRISM_EXE `
               -Config $env:PRISM_CONFIG `
               -OutputDirectory build/prism-runner
@@ -117,11 +117,11 @@ jobs:
 
       - name: Run Interop Classifier Tests
         shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/InteropRunner.Tests.ps1
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File Scripts/Interop/InteropRunner.Tests.ps1
 
       - name: Run External Interop Matrix
         shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/Run-Matrix.ps1 -RepoRoot $pwd -OutputDirectory build/interop-results -Platform '${{ runner.os }}-${{ runner.arch }}' -PrismExe '${{ steps.prism.outputs.path }}' -AllowBlocked
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File Scripts/Interop/RunMatrix.ps1 -RepoRoot $pwd -OutputDirectory build/interop-results -Platform '${{ runner.os }}-${{ runner.arch }}' -PrismExe '${{ steps.prism.outputs.path }}' -AllowBlocked
 
       - name: Fail on protocol or implementation mismatch
         shell: pwsh

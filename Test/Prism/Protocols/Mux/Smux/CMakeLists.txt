@@ -1,5 +1,5 @@
-AddPrismTest(SmuxFrameError.cpp)
+AddPrismTest(FrameError.cpp SmuxFrameError)
 target_link_libraries(SmuxFrameError PRIVATE PrismProtocolMux PrismTestSupport)
 
-AddPrismTest(SmuxFrameTest.cpp)
+AddPrismTest(FrameTest.cpp SmuxFrameTest)
 target_link_libraries(SmuxFrameTest PRIVATE PrismProtocolMux)

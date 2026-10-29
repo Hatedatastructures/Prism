@@ -3,7 +3,7 @@
  * @brief 验证取消只中断活动操作，最终 Close/Drain 仍拥有物理退休。
  */
 
-#include "CanceledRetireTestSupport.hpp"
+#include "RetireSupport.hpp"
 
 #include <gtest/gtest.h>
 

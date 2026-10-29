@@ -1,8 +1,9 @@
 # 跨协议 fuzz/mutation 测试；由根 Integration CMake 统一登记。
-AddPrismTest(ProtocolMutationFuzzTest.cpp)
+AddPrismTest(MutationTest.cpp ProtocolMutationFuzzTest)
+target_include_directories(ProtocolMutationFuzzTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 target_link_libraries(ProtocolMutationFuzzTest PRIVATE PrismFoundation PrismProtocolHttp2 PrismProtocolHttp3Core
     PrismProtocolHttp3 PrismProtocolHysteria2 PrismProtocolShadowsocks2022 PrismProtocolSocks5
     PrismProtocolTrojan PrismProtocolTuic PrismProtocolVless PrismProtocolVmess PrismTestSupport)
-AddPrismTest(AddressCrossProtocolTest.cpp)
+AddPrismTest(AddressMatrixTest.cpp AddressCrossProtocolTest)
 target_link_libraries(AddressCrossProtocolTest PRIVATE PrismFoundation PrismProtocolsCommon PrismProtocolHysteria2 PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismProtocolTrojan PrismProtocolTuic PrismTestSupport)
 target_compile_options(AddressCrossProtocolTest PRIVATE -O0 -fno-inline)

@@ -3,8 +3,8 @@
  * @file HttpCarrierErrorTest.cpp
  * @brief TrustTunnel、Gun 与 WebSocket Conn 错误测试。
  */
-#include "../../Protocols/Ws/Admission/WsFactorySupport.hpp"
-#include "CarrierErrorFixture.hpp"
+#include "../../Protocols/Ws/Admission/FactorySupport.hpp"
+#include "ErrorFixture.hpp"
 
 namespace Ws = Prism::Ws;
 

@@ -21,13 +21,21 @@ description: 编写或修改 Prism C++ 代码时，按项目当前迁移阶段�
 
 ## 必查清单
 
-- 函数参数通常不超过 3 个，更多参数收敛为 options 结构体。
+- 函数参数通常不超过 3 个，出现第 4 个参数时收敛为 options 结构体，而不是继续折行。
 - 函数体不超过 120 行；复杂 lambda 提取为命名函数。
-- 返回类型使用项目约定的尾随返回类型；有意义的返回值加 `[[nodiscard]]`。
+- 返回类型用尾随形式且 `-> T` 一律独立成行，`const` / `noexcept` 紧跟参数表留在上一行，`-> void` 保留；有意义的返回值加 `[[nodiscard]]`。
+- 参数排版按宽度 bin-pack，以 `clang-format --style=file` 结果为准，不手工凑对齐、不要求每参数独占一行。
+- `if` / `while` 条件含 ≥2 个子表达式或跨 owner 状态读取时，提取为 `[[nodiscard]]` 命名谓词（`Is` / `Has` / `Can` / `Should` / `Requires` / `Within`）；单一原子判断可直接写；禁止前置 `&&` / `||` 续行。
+- 谓词判自身状态用类私有成员函数，跨类判定放本模块 `Detail/` 头；谓词自身同样受函数体与参数个数约束。
+- 签名里不新增类型别名；只用命名空间别名缩短 owner 段，长返回类型要起短名须先在 `AGENTS.md` 登记唯一 owner 头。
 - 资源所有权使用 RAII；非拥有指针不得承担释放责任。
 - 热路径容器使用项目已有的 PMR 别名和资源，不自行引入新的全局池。
 - 不在协程中使用阻塞 I/O、互斥锁、同步 DNS、线程睡眠或忙等待。
 - 不使用 `using namespace`；使用显式限定或 namespace 别名。
+- 短写只用 namespace 别名（`namespace Fault = Prism::Fault;` → `Fault::Failure`），不新增类型别名 `using Failure = Prism::Fault::Failure;`。
+- 新增短名前先在 `Include/Prism` 与 `Src/Prism` 全仓搜同名别名；该短名已指向其他类型就是 ODR 冲突，改用完整限定或换名，不就地重复声明。
+- 成员名与项目类型名同名处必须完整限定：`Include/Prism/Foundation/Fault/Failure.hpp` 的成员叫 `Code`，成员函数体内裸 `Code` 解析为成员而非 `Fault::Code`。
+- 别名短名保持 PascalCase 且 `=` 两侧留空格；`boost::asio` 只用已登记的 `Net`。
 - 固定宽度整数、`nullptr`、`enum class`、`constexpr` 和 `override` 按语义使用。
 - 头文件使用 `#pragma once`；新增公共头同步聚合头和 CMake source list。
 - `.hpp` 的公共声明使用中文 Doxygen；`.cpp` 只添加必要的中文 `//` 说明。
@@ -36,6 +44,8 @@ description: 编写或修改 Prism C++ 代码时，按项目当前迁移阶段�
 ## 命名迁移
 
 仓库当前处于 PascalCase 迁移期。生产代码、preview 代码和测试代码可能处于不同阶段；先观察同一目录的现状，再决定是否迁移。纯大小写改名必须检查 Linux CI 或 WSL，不能只依赖 Windows 的大小写不敏感行为。
+
+限定深度同样是迁移维度：同一文件内禁止混用 `Prism::Fault::Code`、`Fault::Code` 与裸 `Code::` 两种以上深度。收敛按模块批次走，禁止全仓一次性替换前缀；`namespace X = Y;` 与 `using X = Y;` 两种写法的取舍规则以根目录 `AGENTS.md`「命名空间限定与别名」小节为准，未闭合的证据与待办登记在 `logs/issues.md` 的 N-1、N-2。
 
 ## 验证
 

@@ -1,13 +1,13 @@
 # 跨协议 admission/adapter 与统一 reply 错误场景
 AddPrismTest(AdapterAdmissionTest.cpp)
-AddPrismTest(AdapterErrorMappingTest.cpp)
+AddPrismTest(AdapterErrorTest.cpp AdapterErrorMappingTest)
 target_link_libraries(AdapterAdmissionTest PRIVATE
     PrismFoundation PrismTransport PrismRuntime PrismComposition PrismAccount
     PrismProtocolAnytls PrismProtocolHttp PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess
     PrismProtocolShadowsocks2022
     PrismIngressContract PrismTestSupport)
 target_sources(AdapterAdmissionTest PRIVATE AdapterTestSupport.hpp)
-target_sources(AdapterAdmissionTest PRIVATE AccountLeaseAdmissionTest.cpp)
+target_sources(AdapterAdmissionTest PRIVATE LeaseAdmissionTest.cpp)
 target_link_libraries(AdapterErrorMappingTest PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition
     PrismAccount PrismIngressContract PrismProtocolAnytls PrismProtocolHttp PrismProtocolShadowsocks2022
     PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess PrismTestSupport)
@@ -17,17 +17,17 @@ target_link_libraries(AdapterMuxLeaseTest PRIVATE
     PrismFoundation PrismTransport PrismRuntime PrismComposition PrismAccount PrismProtocolMux
     PrismProtocolAnytls PrismProtocolTrojan PrismProtocolVless PrismProtocolVmess PrismTestSupport)
 
-AddPrismTest(PostDialReplyFailureTest.cpp)
+AddPrismTest(ReplyFailureTest.cpp PostDialReplyFailureTest)
 target_link_libraries(PostDialReplyFailureTest PRIVATE
     PrismFoundation PrismTransport PrismRuntime PrismComposition PrismAccount
     PrismProtocolHttp PrismProtocolSocks5 PrismTestSupport)
 
-AddPrismTest(ProviderAcceptPathTest.cpp)
+AddPrismTest(AcceptPathTest.cpp ProviderAcceptPathTest)
 target_link_libraries(ProviderAcceptPathTest PRIVATE
     PrismApplication PrismComposition PrismFoundation PrismRuntime PrismTransport)
 target_sources(ProviderAcceptPathTest PRIVATE
-    ProviderDrainOwnershipTest.cpp)
-AddPrismTest(ProviderClosingOwnerTest.cpp)
+    DrainOwnerTest.cpp)
+AddPrismTest(ClosingOwnerTest.cpp ProviderClosingOwnerTest)
 target_link_libraries(ProviderClosingOwnerTest PRIVATE PrismApplication PrismComposition PrismFoundation
     PrismProtocolsCommon PrismRuntime PrismTransport PrismTestSupport)
 target_include_directories(ProviderAcceptPathTest PRIVATE

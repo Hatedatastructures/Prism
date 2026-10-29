@@ -4,7 +4,7 @@ target_include_directories(ExperimentSessionIdErrorTest PRIVATE ${PROJECT_SOURCE
 target_link_libraries(ExperimentSessionIdErrorTest PRIVATE
     PrismTransport PrismProtocolReality ExperimentalRealitySessionSupport)
 
-AddExperimentTest(SessionIdDecoratorTest.cpp)
+AddExperimentTest(IdDecoratorTest.cpp SessionIdDecoratorTest)
 target_include_directories(ExperimentSessionIdDecoratorTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(ExperimentSessionIdDecoratorTest PRIVATE
     PrismTransport PrismProtocolReality ExperimentalRealitySessionSupport)

@@ -1,9 +1,14 @@
 {
   "compilerOptions": {
+    "paths": {
+      "@/Components/*": ["./src/Components/*"],
+      "@/*": ["./src/*"]
+    },
     "target": "ES2023",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,

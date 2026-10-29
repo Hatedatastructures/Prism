@@ -3,7 +3,7 @@
  * @brief DNS benchmark cache、message、loopback 与 CLI 编排。
  */
 
-#include "DnsPerfRuntime.hpp"
+#include "PerfRuntime.hpp"
 
 namespace Net = boost::asio;
 using Prism::Network::Dns::Cache;

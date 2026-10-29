@@ -6,9 +6,9 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 ## 当前主线：Prism（下一代实现）
 
-`Include/Prism/` 与 `Src/Prism/`、`Test/Prism/` 和 `Prism` 是当前唯一正式实现。公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`；`Src/Prism/Application/Startup/StartupTransaction.hpp` 是私有启动回滚实现。默认沿此启动路径和 `Include/Prism/Runtime/Session.hpp`、`Include/Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
+`Include/Prism/` 与 `Src/Prism/`、`Test/Prism/` 和 `Prism` 是当前唯一正式实现。公开的 `Application::Start()` 声明位于 `Include/Prism/Application/Definition.hpp`，实现位于 `Src/Prism/Application/Startup/Start.cpp`；`Src/Prism/Application/Startup/Detail/Transaction.hpp` 是私有启动回滚实现。默认沿此启动路径和 `Include/Prism/Runtime/Session.hpp`、`Include/Prism/Boundary/` 的真实请求路径分析。本次迁移退役并删除 `include/prism/`、`src/prism/` 和旧测试实现；旧版目录只在历史文档中出现，不是兼容层或可构建源码。
 
-Prism 的当前文档入口见 [docs/index.md](docs/index.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/prism/README.md](docs/prism/README.md)。文档只描述当前实现与可复核的验收边界；不保留旧任务报告作为当前执行状态。
+Prism 的当前文档入口见 [Docs/Index.md](Docs/Index.md)、[Docs/Architecture.md](Docs/Architecture.md) 和 [Docs/Prism/Readme.md](Docs/Prism/Readme.md)。文档只描述当前实现与可复核的验收边界；不保留旧任务报告作为当前执行状态。
 
 ### Prism 模块所有权
 
@@ -228,9 +228,12 @@ scheme_executor::execute → {transport, detected, preread}
 
 ### 错误处理
 
-双轨策略:
-- **热路径**: `fault::code` 枚举，不抛异常
-- **启动/致命**: 异常层次 `exception::deviant` → `network` / `protocol` / `security`
+主通道是返回值；异常只用于启动与致命阶段：
+
+- **数据面与热路径**：`std::expected<T, Prism::Fault::Failure>` 或 `Prism::Fault::Code`（`Include/Prism/Foundation/Fault/Code.hpp`），不抛异常。
+- **协议编解码错误**：`Prism::Error`（`Include/Prism/Foundation/Error.hpp`）在边界经 `Fault::FromNative()` 单次映射为领域 `Code`，映射表在 `Include/Prism/Foundation/Fault/Handling.hpp`。
+- **启动与致命阶段**：基类为 `Prism::Exception::Deviant`（`Include/Prism/Foundation/Exception/Deviant.hpp`）。当前真实子类只有 `BytePoolError`、`RuleConfigurationError`、`QueryIdConfigurationError`、`CounterCapacityError`；分类中间类 `Network` / `Protocol` / `Security` 无任何调用点，`SqliteError` 绕过基类直接继承 `std::runtime_error`。缺口与处置见 `logs/issues.md` 的 E-48。
+- 旧版小写名 `fault::code`、`exception::deviant` 属退役命名，不再作为当前接口。
 
 ## 命名与编码规范
 
@@ -240,8 +243,8 @@ scheme_executor::execute → {transport, detected, preread}
 > 存量代码按批次迁移（见下方「大驼峰迁移计划」），未迁移文件暂循旧风格，同一文件内禁止新旧混用。
 
 - **命名空间**: PascalCase，`Psm::` 前缀（迁移后）；存量 `psm::` 未迁移前继续使用
-- **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Net/Transport/Reliable.hpp`）；
-  工程根级目录（`src/`、`include/`、`Test/`、`docs/`、`scripts/`、`build/`）保持生态惯例不动
+- **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Include/Prism/Transport/Reliable.hpp`）；
+  工程根级目录按当前实际大小写写作 `Include/`、`Src/`、`Test/`、`Docs/`、`Scripts/`、`build/`，本小节旧版 `src/`、`include/` 写法不再适用
 - **生产代码**: 类/结构体/枚举/枚举值/类型别名/模板参数 PascalCase
   （如 `PendingEntry`、`StreamType::Tcp`、`SharedTransmission`；模板参数已有先例 `typename Memory`）
 - **函数/方法**: PascalCase（`ActivateStream()`、`SendData()`）
@@ -251,12 +254,55 @@ scheme_executor::execute → {transport, detected, preread}
 - **头文件保护**: `#pragma once`
 - **返回类型**: 尾随返回类型 (`auto func() -> return_type`)
 - **[[nodiscard]]**: 有意义的返回值
-- **Boost.Asio 别名**: `namespace net = boost::asio;`（Asio 自身 API 保持官方小写风格，不改造）
+- **Boost.Asio 别名**: `namespace Net = boost::asio;`（全仓 226 处事实标准；Asio 自身 API 保持官方小写风格，不改造。旧版 `net` 写法与 `Asio` 别名不再新增）
 - **注释**: Doxygen 风格中文 (`@file`, `@brief`, `@details`, `@return`, `@note`)，禁止英文注释
-- **注释参考**: `net/transport/reliable.hpp`
+- **注释参考**: `Include/Prism/Foundation/Fault/Failure.hpp`（紧凑中文 Doxygen）与 `Include/Prism/Transport/Reliable.hpp`
 - **编码规范详细**: `.claude/skills/enforce-coding/SKILL.md`（完整规范清单）
 - **标识符命名**: 简洁清晰，避免过长的多词组合
-- **函数参数** (Rule 1): Prism 通常不超过 2 个，复杂边界最多 3 个；旧版存量规则为最多 3 个。先拆责任，再考虑有明确语义的参数类型，不用大参数包掩盖耦合。
+- **函数参数**: Prism 通常不超过 2 个，复杂边界最多 3 个；旧版存量规则为最多 3 个。先拆责任，再考虑有明确语义的参数类型，不用大参数包掩盖耦合。
+- **函数体**: 不超过 120 行。
+- **Lambda**: 不超过 10 行，超长提取为命名函数。
+- **`using namespace`**: 全仓禁止（2026-10-29 实测 0 处）；旧版 `using namespace psm::diagnose;` 豁免随 `psm::` 退役一并作废。需要短写时使用 namespace 别名，并遵守下一小节。
+
+### 命名空间限定与别名（2026-10-29 规范 v3）
+
+短写靠别名，不靠各自省略前缀。规则只认一个事实：**同一个短名在全仓只能有一个定义点**。
+
+- **命名空间别名允许**：`namespace Fault = Prism::Fault;`，使 `Prism::Fault::Failure` 短写为 `Fault::Failure`。短写保留 owner 段，读者能读出去处。
+- **类型别名禁止新增**：不再写 `using Failure = Prism::Fault::Failure;`。全仓 `namespace X = Y;` 286 处与 `using X = Y;` 331 处并存，而 `Code`、`Failure`、`Completion`、`Signal`、`Result` 的同名异目标全部出自类型别名——它抹掉 owner 信息，且同一命名空间内两处指向不同类型即 ODR 违规。
+- **唯一 owner**：每个短名在一个命名空间内只允许一处声明，其余文件 `#include` owner 头取得短名，不就地重复声明。
+- **一个目标只允许一个短名**：`boost::asio` 统一写作 `Net`；`Include/Prism/Protocols/Common/Provider/Session/Resources.hpp:20` 的 `Asio` 别名并入 `Net`。
+- **短名必须 PascalCase**：`Include/Prism/Protocols/Shadowsocks2022/Connection/Connection.hpp:43` 与同目录 `Datagram.hpp:36`、`Handshake.hpp:43`、`Record.hpp:37` 的 `namespace ss = Prism::Shadowsocks2022;` 待改。
+- **第三方别名白名单**：当前只有 `Net = boost::asio`。新增第三方短名先在此登记；未登记的第三方前缀一律展开书写。
+- **必须展开的例外**：成员名与项目类型名同名处。`Include/Prism/Foundation/Fault/Failure.hpp:23` 的成员就叫 `Code`，其成员函数体内裸 `Code` 解析为成员而不是 `Fault::Code`；这类位置必须完整限定，别名不能替代。
+- **格式**：`=` 两侧各一个空格；`Include/Prism/Application/Reload/RestartPolicy.hpp:8` 现缺空格。
+- **限定深度**：同一文件内禁止混用两种深度（2026-10-29 实测 36 个文件混用）。存量按模块批次收敛，不做全仓一次性替换，也不单独为消除可省略的 `Prism::` 前缀（实测约 1.5 万处）开批——收益只是字符数，代价是无法审查的 diff。
+- **异常基类的限定深度**：`Exception::Deviant`（3 处）与 `Prism::Exception::Deviant`（1 处）并存，按上文统一到保留 owner 段的写法。
+
+### 函数签名与条件排版（2026-10-29 规范 v3，项目所有者选定）
+
+- **参数排版按宽度 bin-pack**：一行装得下就不折，装不下按 `ContinuationIndentWidth: 4` 续行（namespace 内视觉 8 格），不要求每参数独占一行，也不手工凑对齐。判据以 `clang-format --style=file` 的输出为准——**手工排版不作为验收依据**；`.clang-format` 的 `BinPackParameters: true`、`AlignAfterOpenBracket: DontAlign`、`ColumnLimit: 110` 正是本条配置，需开始实际执行（现状：抽样 40 个未改动文件有 36 个不符合，存量 3442 行竖排属待迁移）。
+- **参数个数**：沿用通常 ≤2、复杂边界 ≤3；第 4 个参数出现时改 options struct，而不是继续换行。
+- **`-> T` 一律独立一行**，不受长度豁免：
+
+  ```cpp
+  [[nodiscard]] auto Failed() const noexcept
+      -> bool;
+
+  auto Retire(Fault::Failure Cause) noexcept
+      -> void;
+  ```
+
+  `const`、`noexcept` 紧跟参数表留在上一行，不下移到 `->` 之后；`-> void` 保留并同样独立成行（现状 2882 处显式 `-> void`）。lambda 的显式尾置返回类型同规则；函数指针与成员指针的类型定义没有 `->` 位置可言，不受本条约束。存量约 8969 处同行短签名按模块批次迁移，**禁止全仓一次性机械改写**，每批以构建与 ctest 验收。
+- **复合条件一律提取命名谓词**（项目所有者选定，比现状更严）：
+  - 触发判据：`if` / `while` 条件含 **≥2 个子表达式**（按 `&&`、`||` 计），或含一次及以上跨 owner 状态读取。
+  - 单一原子判断可直接写：`if (Failed())`、`if (!Ptr)`、`if (Code == Fault::Code::Eof)`。
+  - 谓词形状：`[[nodiscard]]`、尽量 `noexcept`、前缀取 `Is` / `Has` / `Can` / `Should` / `Requires` / `Within`、带中文 `@brief` 说明判的是什么。
+  - 谓词归属：判自身状态用类的私有成员函数；跨类判定放所属模块的 `Detail/` 头。不建全局万能谓词库。
+  - 谓词同样受函数体 ≤120 行、参数 ≤3 约束，不得借「提取谓词」变相塞参数包。
+  - 禁止前置 `&&` / `||` 续行（全仓仅 2 处，随迁移清零）。
+  - 与既有「嵌套 >4 层需早返回」配合：guard clause 的复合条件同样走谓词。
+- **类型别名不开新口子（默认维持上文 v3，项目所有者未选此项）**：签名里写真实类型名，只允许命名空间别名缩短 owner 段。若某个长返回类型在多处重复，须先在此节登记「唯一 owner 头 + 短名」才可用结果别名，未经登记的就地别名按违规处理。
 
 ## 旧版 PascalCase 迁移记录（历史，不代表当前迁移顺序）
 
@@ -264,7 +310,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 1. 阶段 1：`Test/common/`（preview 库，下一代架构验证场，约 206 文件）——命名空间 `preview` → `Preview`，目录/文件/类型 PascalCase
 2. 阶段 2：`include/prism/`（生产头文件，约 235 文件）——`psm::` → `Psm::`，目录/文件/类型 PascalCase
-3. 阶段 3：`src/prism/`（生产源文件，约 124 文件）+ 全部 CMakeLists/scripts 同步
+3. 阶段 3：`src/prism/`（生产源文件，约 124 文件）+ 全部 CMakeLists/Scripts 同步
 4. 阶段 4：函数/方法/变量/常量升级 PascalCase（项目所有者已确认，2026-08-22）——
    可与阶段 1-3 同批执行（同文件一次到位，避免二次触碰）；涉及数万调用点，编译器可查绝大多数
 
@@ -277,10 +323,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 ### 门禁同步义务
 
-每批迁移必须同步更新：引用文件路径的 CMakeLists（共 108 个）、`scripts/check_common_headers.ps1`（磁盘↔target_sources 双向校验）、`scripts/audit_detached.sh`（按路径审计）、docs 中引用的示例路径。
-- **函数体** (Rule 3): 不超过 120 行
-- **Lambda** (Rule 13): 不超过 10 行，超长提取为命名函数
-- **`using namespace`** (Rule 4.3): 仅允许 `using namespace psm::diagnose;`，其余用显式限定或 namespace 别名
+每批迁移必须同步更新：引用文件路径的 CMakeLists、`Scripts/CheckCommonHeaders.ps1`（磁盘↔target_sources 双向校验）、`Scripts/AuditDetached.sh`（按路径审计）、`Docs/` 中引用的示例路径。别名与限定深度的改动还需同步 `Scripts/CheckPrismNamespaceStyle.mjs`（待建，见 `logs/issues.md` N-2）。
 
 ## 测试
 
@@ -359,8 +402,8 @@ C:/msys64/ucrt64/bin/clang-tidy.exe -p build <file.cpp> --config-file=.clang-tid
 Prism 结构与风格门禁默认检查 `Include/Prism` 与 `Src/Prism`；可用 `--scope <目录>` 指定测试或单个模块目录。生产 `.hpp` 不超过 600 行，测试 `.cpp/.hpp` 不超过 800 行；生产 `.cpp` 没有文件长度上限，但函数体、lambda 和参数仍按上方规范检查：
 
 ```bash
-node scripts/check_prism_style.mjs
-node scripts/check_prism_style.mjs --scope Test/Prism
+node Scripts/CheckPrismStyle.mjs
+node Scripts/CheckPrismStyle.mjs --scope Test/Prism
 ```
 
 ## 行尾
@@ -369,13 +412,13 @@ node scripts/check_prism_style.mjs --scope Test/Prism
 
 ## 资源所有权模型
 
-旧版 `include/prism/`、`src/prism/` 的四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached）与 PMR 规则见 [docs/legacy/prism-architecture.md](docs/legacy/prism-architecture.md)；Prism 的 typed owner、executor、取消、关闭与 drain 规则见 [docs/prism/ownership-and-lifecycle.md](docs/prism/ownership-and-lifecycle.md)。不要把旧版 resource 层级直接当作 Prism 模块所有权表。
+旧版 `include/prism/`、`src/prism/` 的四层所有权模型（L1 全局 / L2 worker / L3 session / L4 detached）和 PMR 规则仅作历史背景；Prism 当前的 owner、executor、取消、关闭与 drain 规则见 [Docs/Prism/Ownership.md](Docs/Prism/Ownership.md)。不要把旧版 resource 层级直接当作 Prism 模块所有权表。
 
-新增 detached 协程（`net::co_spawn + net::detached`）或修改 PMR allocator 时，必须对照该文档审查资源所有权，并运行 `scripts/audit_detached.sh` 静态审计。
+新增 detached 协程（`net::co_spawn + net::detached`）或修改 PMR allocator 时，必须对照该文档审查资源所有权，并运行 `Scripts/AuditDetached.sh` 静态审计。
 
 ## 旧版任务记录
 
-旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Include/Prism/`、`Src/Prism/`、`Test/Prism/` 及 [docs/index.md](docs/index.md)。
+旧版生产实现和测试树已退役；旧 TODO、Gate 状态和验收数字不作为当前 Prism 任务或通过证据。当前实现、构建与测试边界见 `Include/Prism/`、`Src/Prism/`、`Test/Prism/` 及 [Docs/Index.md](Docs/Index.md)。
 
 ## 已知问题
 

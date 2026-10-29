@@ -2,7 +2,7 @@
  * @file CarrierMemoryTtTest.cpp
  * @brief CarrierMemory 中 TrustTunnel 独立握手关闭场景。
  */
-#include "CarrierMemoryTestSupport.hpp"
+#include "MemorySupport.hpp"
 #include <gtest/gtest.h>
 
 #include <boost/asio/co_spawn.hpp>

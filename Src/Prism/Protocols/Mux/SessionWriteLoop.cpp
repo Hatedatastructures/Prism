@@ -2,7 +2,7 @@
  * @file SessionWriteLoop.cpp
  * @brief Mux 会话 writer 的非模板帧缓冲写入实现。
  */
-#include <Prism/Protocols/Mux/Detail/Session/SessionWriteLoop.hpp>
+#include <Prism/Protocols/Mux/Session/WriteLoop.hpp>
 
 #include <Prism/Foundation/ByteSpan.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>

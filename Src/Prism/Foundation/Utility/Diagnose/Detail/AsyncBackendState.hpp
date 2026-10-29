@@ -4,9 +4,9 @@
 #pragma once
 
 #include <Prism/Foundation/Utility/Diagnose/Detail/ContextSnapshot.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/DeferredMessage.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Message.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/PathSinkOwner.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/RenderEpoch.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Context/Epoch.hpp>
 #include <Prism/Foundation/Utility/Diagnose/Detail/SinkSet.hpp>
 #include <Prism/Foundation/Utility/Text/TraceSelection.hpp>
 

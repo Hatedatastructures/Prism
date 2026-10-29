@@ -1,6 +1,6 @@
 /** @file IngressFactory.cpp @brief VLESS ingress 与数据报工厂实现。 */
 #include <Prism/Protocols/Vless/IngressFactory.hpp>
-#include <Prism/Protocols/Vless/Xudp/RootSession.hpp>
+#include <Prism/Protocols/Vless/Xudp/Detail/Session.hpp>
 #include <Prism/Protocols/Vless/UdpTunnel.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 

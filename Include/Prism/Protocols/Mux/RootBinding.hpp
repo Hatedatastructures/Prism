@@ -3,7 +3,7 @@
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 #include <Prism/Contract/Ingress/MuxSession.hpp>
 #include <Prism/Protocols/Mux/RootOptions.hpp>
-#include <Prism/Protocols/Mux/Detail/Root/RootRegistry.hpp>
+#include <Prism/Protocols/Mux/Root/Registry.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <atomic>
 #include <expected>

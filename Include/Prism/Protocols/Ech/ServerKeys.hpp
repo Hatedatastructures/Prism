@@ -8,8 +8,8 @@
 #pragma once
 
 #include <Prism/Foundation/Fault/Failure.hpp>
-#include <Prism/Protocols/Ech/Detail/Key.hpp>
-#include <Prism/Protocols/Ech/Detail/ServerKeyMaterial.hpp>
+#include <Prism/Protocols/Ech/Key.hpp>
+#include <Prism/Protocols/Ech/Keys/ServerMaterial.hpp>
 
 #include <openssl/ssl.h>
 

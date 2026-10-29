@@ -7,4 +7,6 @@ test('非法时间范围有可修正原因，不保持永久pending', () => {
     assert.match(ResolveTimeRange({ ...Base, From: '2026-10-17', To: '2026-10-16' }).InvalidReason ?? '', /必须晚于/);
     assert.match(ResolveTimeRange({ ...Base, From: '2026-09-01', To: '2026-10-16' }).InvalidReason ?? '', /超过 30 天/);
     assert.equal(ResolveTimeRange({ ...Base, From: '2026-10-16T00:00:00Z', To: '2026-10-16T01:00:00Z' }).Valid, true);
+    assert.match(ResolveTimeRange({ ...Base, From: '', To: '2026-10-16T01:00:00Z' }).InvalidReason ?? '', /完整/);
+    assert.match(ResolveTimeRange({ ...Base, From: '2026-10-16T00:00:00Z', To: '' }).InvalidReason ?? '', /完整/);
 });

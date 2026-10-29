@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <Prism/Protocols/Common/ProviderSessionRetirement.hpp>
+#include <Prism/Protocols/Common/Provider/Session/Retirement.hpp>
 #include <Prism/Protocols/Common/ProtocolActivity.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Fault/FailureState.hpp>

@@ -5,8 +5,8 @@
 #pragma once
 
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionRequest.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionSlot.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Request.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Slot.hpp>
 #include <Prism/Foundation/Utility/Diagnose/RuntimeOptions.hpp>
 #include <Prism/Foundation/Utility/Diagnose/SubmissionReceipt.hpp>
 

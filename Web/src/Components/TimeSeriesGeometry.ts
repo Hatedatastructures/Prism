@@ -50,6 +50,13 @@ export function LinearTicks(Max: number, TargetCount = 4): readonly number[] {
     return Ticks;
 }
 
+/** @brief 数量轴使用等距整数刻度，低计数时不产生被舍入为同名的标签。 */
+export function IntegerTicks(Max: number): readonly number[] {
+    const SafeMax = Number.isFinite(Max) && Max > 0 ? Math.ceil(Max) : 1;
+    const Step = Math.max(1, Math.ceil(LinearTicks(SafeMax)[1] ?? 1));
+    return Array.from({ length: Math.ceil(SafeMax / Step) + 1 }, (_, Index) => Index * Step);
+}
+
 /** @brief X 轴刻度对齐真实采样，避免日期标签与悬浮读数错位。 */
 export function TimeTickIndices(Points: readonly TimeSeriesPoint[], TargetCount = 5): readonly number[] {
     if (Points.length === 0) return [];

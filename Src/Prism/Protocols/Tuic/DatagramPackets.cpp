@@ -2,7 +2,7 @@
  * @file DatagramPackets.cpp
  * @brief TUIC 数据报分片与有界重组实现。
  */
-#include <Prism/Protocols/Tuic/Detail/DatagramPackets.hpp>
+#include <Prism/Protocols/Tuic/Datagram/Packets.hpp>
 
 #include <algorithm>
 #include <chrono>

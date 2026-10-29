@@ -8,7 +8,7 @@ set(PrismCompositionPublicHeaders
     "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Protocol/ProtocolCatalog.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/BoundCatalog.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/MuxProvider.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProtocolCredentialPreparation.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/Credential/Preparation.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProviderBindingVariants.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProviderCatalog.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Composition/Provider/ProviderCatalogInputs.hpp"
@@ -31,24 +31,24 @@ set(PrismCompositionPublicHeaders
 
 set(PrismCompositionPrivateHeaders
     "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/BoundCatalogOwnerClosure.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/CandidateProviderProjection.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/TlsCarrierCatalogInvocation.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Provider/Candidate/Detail/Projection.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/CarrierCatalog.hpp"
     "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Detail/TlsCarrierMaterialBinding.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Provider/ProviderInstancePreparation.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TlsCarrierFailure.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TrusttunnelCandidateFailure.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/CandidateFactoryHelpers.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Provider/Instance/Detail/Preparation.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/CarrierFailure.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/TrusttunnelFailure.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/CandidateFactory.hpp"
     "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/InnerProtocolDispatch.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TlsRecognitionHelpers.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/TlsCarrierRunners.hpp")
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/Helpers.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Composition/Recognition/Detail/CarrierRunners.hpp")
 
 PrismAddStaticTarget(PrismComposition
     SOURCES
         Provider/BoundCatalog.cpp
         Provider/MuxProvider.cpp
         Provider/ProviderCatalog.cpp
-        Provider/ProtocolCredentialPreparation.cpp
-        Provider/ProviderInstancePreparation.cpp
+        Provider/Credential/Preparation.cpp
+        Provider/Instance/Preparation.cpp
         Provider/TlsCarrierCatalogOwner.cpp
         Provider/TlsCarrierProvider.cpp
         Builtin/Registry.cpp

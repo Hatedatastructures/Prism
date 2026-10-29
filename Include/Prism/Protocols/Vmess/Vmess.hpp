@@ -34,7 +34,7 @@
 #include <Prism/Protocols/Vmess/RequestCodec.hpp>
 #include <Prism/Protocols/Vmess/ResponseCodec.hpp>
 #include <Prism/Protocols/Vmess/Types.hpp>
-#include <Prism/Protocols/Vmess/Conn.hpp>
+#include <Prism/Protocols/Vmess/Connection/Connection.hpp>
 #include <Prism/Protocols/Vmess/Dgram.hpp>
 
 namespace Prism::Vmess

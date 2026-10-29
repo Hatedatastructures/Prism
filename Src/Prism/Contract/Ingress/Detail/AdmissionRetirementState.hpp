@@ -3,7 +3,7 @@
 
 #include <Prism/Contract/Ingress/DataPlane.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
-#include <Prism/Contract/Ingress/AdmissionTransportRetirement.hpp>
+#include <Prism/Contract/Ingress/Admission/Transport/Retirement.hpp>
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Executor/ExecutorReclaimer.hpp>

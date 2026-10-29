@@ -1,4 +1,4 @@
-AddPrismTest(ProviderCatalogTest.cpp)
+AddPrismTest(CatalogTest.cpp ProviderCatalogTest)
 AddPrismTest(AnytlsRetirementTest.cpp)
 AddPrismTest(QuicProviderTest.cpp)
 target_sources(AnytlsRetirementTest PRIVATE CatalogFixture.hpp)

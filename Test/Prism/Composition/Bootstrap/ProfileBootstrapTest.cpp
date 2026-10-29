@@ -28,7 +28,7 @@
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <TestSupport/Fixtures/StreamFactory.hpp>
 #include <Prism/Runtime/Session.hpp>
-#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
+#include <Test/Prism/Runtime/Session/AdmissionSupport.hpp>
 #include <Prism/Runtime/Listener.hpp>
 #include <Prism/Runtime/Recognition/ProbeBuffer.hpp>
 #include <Prism/Runtime/Recognition/Tls.hpp>

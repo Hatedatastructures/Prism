@@ -5,7 +5,7 @@
 #include <Prism/Protocols/Tuic/Admission.hpp>
 
 #include <Prism/Contract/Io/CarrierActivity.hpp>
-#include <Prism/Protocols/Tuic/Conn.hpp>
+#include <Prism/Protocols/Tuic/Connection/Connection.hpp>
 #include <Prism/Protocols/Tuic/Dgram.hpp>
 
 #include <boost/asio/bind_cancellation_slot.hpp>

@@ -2,7 +2,7 @@
 #pragma once
 
 #include <Prism/Foundation/Fault/Code.hpp>
-#include <Prism/Runtime/SessionTraceRing.hpp>
+#include <Prism/Runtime/Session/Trace/Ring.hpp>
 #include <Prism/Runtime/Worker.hpp>
 
 #include <chrono>

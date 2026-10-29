@@ -24,12 +24,12 @@
 #include <Prism/Foundation/Error.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Foundation/Memory/Pointer.hpp>
-#include <Prism/Protocols/Ws/Detail/ConnClose.hpp>
-#include <Prism/Protocols/Ws/Detail/ConnFrame.hpp>
-#include <Prism/Protocols/Ws/Detail/ConnHandshake.hpp>
-#include <Prism/Protocols/Ws/Detail/ConnSession.hpp>
-#include <Prism/Protocols/Ws/Detail/ConnStream.hpp>
-#include <Prism/Protocols/Ws/Detail/ConnTransport.hpp>
+#include <Prism/Protocols/Ws/Detail/Connection/Close.hpp>
+#include <Prism/Protocols/Ws/Detail/Connection/Frame.hpp>
+#include <Prism/Protocols/Ws/Detail/Connection/Handshake.hpp>
+#include <Prism/Protocols/Ws/Detail/Connection/Session.hpp>
+#include <Prism/Protocols/Ws/Detail/Connection/Stream.hpp>
+#include <Prism/Protocols/Ws/Detail/Connection/Transport.hpp>
 #include <Prism/Transport/ActivityGroupFactory.hpp>
 #include <Prism/Transport/Transmission.hpp>
 

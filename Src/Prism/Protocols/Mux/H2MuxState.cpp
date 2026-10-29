@@ -1,9 +1,9 @@
 /** @file H2MuxState.cpp @brief H2Mux 连接分发、排空与关闭实现。 */
-#include <Prism/Protocols/Mux/H2Mux/Http2Dispatch.hpp>
-#include <Prism/Protocols/Mux/H2Mux/Http2State.hpp>
+#include <Prism/Protocols/Mux/H2Mux/Dispatch.hpp>
+#include <Prism/Protocols/Mux/H2Mux/State.hpp>
 
-#include <Prism/Protocols/Mux/H2Mux/Http2Stream.hpp>
-#include <Prism/Protocols/Mux/H2Mux/Http2StreamControl.hpp>
+#include <Prism/Protocols/Mux/H2Mux/Stream.hpp>
+#include <Prism/Protocols/Mux/H2Mux/StreamControl.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/system/error_code.hpp>

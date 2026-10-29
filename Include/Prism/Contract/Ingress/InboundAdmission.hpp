@@ -5,7 +5,7 @@
 #pragma once
 
 #include <Prism/Contract/Ingress/DataPlane.hpp>
-#include <Prism/Contract/Ingress/AdmissionTransportRetirement.hpp>
+#include <Prism/Contract/Ingress/Admission/Transport/Retirement.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <boost/asio/awaitable.hpp>

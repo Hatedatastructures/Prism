@@ -1,6 +1,6 @@
 /** @file IngressFactory.cpp @brief Trojan ingress 发布与目标转换实现。 */
 #include <Prism/Protocols/Trojan/IngressFactory.hpp>
-#include <Prism/Protocols/Trojan/DatagramSession.hpp>
+#include <Prism/Protocols/Trojan/Datagram/Session.hpp>
 #include <Prism/Protocols/Trojan/Dgram.hpp>
 #include <Prism/Contract/Ingress/MuxRootCreateRequest.hpp>
 

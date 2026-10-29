@@ -64,13 +64,13 @@ set_tests_properties(Perf_MultiConnLinear PROPERTIES LABELS perf TIMEOUT ${_PERF
 add_executable(ProtocolTransferBench
         Transfer/ProtocolTransferBench.cpp
         Transfer/ProtocolBenchAlloc.cpp
-        Transfer/ProtocolTransferBenchChunk.cpp
-        Transfer/ProtocolBenchPreflight.cpp
+        Transfer/ChunkBench.cpp
+        Transfer/Preflight.cpp
         Transfer/ProtocolBenchReport.cpp
-        Transfer/ProtocolTransferBenchRound.cpp
-        Transfer/ProtocolTransferBenchSocks.cpp
+        Transfer/RoundBench.cpp
+        Transfer/SocksBench.cpp
         Transfer/ProtocolBenchSupport.cpp
-        Transfer/ProtocolTransferBenchVmess.cpp
+        Transfer/VmessBench.cpp
         Transfer/ProtocolTransferBench.hpp)
 target_compile_options(ProtocolTransferBench PRIVATE ${_perf_compile_options})
 target_link_libraries(ProtocolTransferBench PRIVATE PrismTransport PrismProtocolSocks5 PrismProtocolVmess PrismTestSupport)
@@ -79,12 +79,12 @@ set_tests_properties(Perf_ProtocolTransferBench PROPERTIES LABELS perf TIMEOUT $
 
 add_executable(TransferPerf
         Transfer/TransferPerf.cpp
-        Transfer/TransferPerfAllocation.cpp
-        Transfer/TransferPerfTcpBaseline.cpp
-        Transfer/TransferPerfReport.cpp
-        Transfer/TransferPerfRound.cpp
-        Transfer/TransferPerfSupport.cpp
-        Transfer/TransferPerfTransport.cpp
+        Transfer/PerfAllocation.cpp
+        Transfer/PerfTcpBaseline.cpp
+        Transfer/PerfReport.cpp
+        Transfer/PerfRound.cpp
+        Transfer/PerfSupport.cpp
+        Transfer/PerfTransport.cpp
         Transfer/TransferPerf.hpp)
 target_compile_options(TransferPerf PRIVATE ${_perf_compile_options})
 target_link_libraries(TransferPerf PRIVATE PrismTransport PrismProtocolSocks5 PrismTestSupport)
@@ -93,7 +93,7 @@ set_tests_properties(Perf_TransferPerf PROPERTIES LABELS perf TIMEOUT ${_PERF_TI
 
 # 独立真实 Mux child lane：保留 TCP transport 对照的类型边界，单独验证
 # Mux::Client/Server、StreamTransmission、确定性碎片和 FIN/EOF/drain。
-add_executable(TransferPerfMux Transfer/TransferPerfMux.cpp Transfer/TransferPerfMuxMain.cpp Transfer/TransferPerfMux.hpp)
+add_executable(TransferPerfMux Transfer/PerfMux.cpp Transfer/PerfMuxMain.cpp Transfer/PerfMux.hpp)
 target_compile_options(TransferPerfMux PRIVATE ${_perf_compile_options})
 target_link_libraries(TransferPerfMux PRIVATE PrismTransport PrismProtocolMux)
 add_test(NAME Perf_TransferPerfMux COMMAND TransferPerfMux)
@@ -114,14 +114,14 @@ set_tests_properties(Perf_VmessMultiThread PROPERTIES LABELS perf TIMEOUT ${_PER
 # DNS 解析子系统对标基准（对标 benchmarks/ DnsCacheBench/DnsMessageBench/ResolveBench）
 add_executable(DnsPerf
         Dns/DnsPerf.cpp
-        Dns/DnsPerfAllocation.cpp
-        Dns/DnsPerfCoalescerMetrics.cpp
-        Dns/DnsPerfCoalescerOwner.cpp
-        Dns/DnsPerfCoalescerRun.cpp
-        Dns/DnsPerfRuntime.cpp
-        Dns/DnsPerfCoalescer.hpp
+        Dns/PerfAllocation.cpp
+        Dns/PerfCoalescerMetrics.cpp
+        Dns/PerfCoalescerOwner.cpp
+        Dns/PerfCoalescerRun.cpp
+        Dns/PerfRuntime.cpp
+        Dns/PerfCoalescer.hpp
         Dns/DnsPerf.hpp
-        Dns/DnsPerfRuntime.hpp)
+        Dns/PerfRuntime.hpp)
 target_compile_options(DnsPerf PRIVATE ${_perf_compile_options})
 target_link_libraries(DnsPerf PRIVATE PrismNet PrismTestSupport)
 add_test(NAME Perf_Dns COMMAND DnsPerf)
@@ -131,13 +131,13 @@ set_tests_properties(Perf_Dns PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
 add_executable(ValidationCompare
         Configuration/ValidationCompare.cpp
         Configuration/ValidationCompare.hpp
-        Configuration/ValidationCompareAlloc.cpp
-        Configuration/ValidationCompareAlloc.hpp
+        Configuration/ValidationAlloc.cpp
+        Configuration/ValidationAlloc.hpp
         Configuration/ValidationCompareCase.cpp
         Configuration/ValidationCompareCase.hpp
-        Configuration/ValidationCompareMeasure.cpp
-        Configuration/ValidationCompareMeasure.hpp
-        Configuration/ValidationCompareReport.cpp)
+        Configuration/ValidationMeasure.cpp
+        Configuration/ValidationMeasure.hpp
+        Configuration/ValidationReport.cpp)
 target_compile_options(ValidationCompare PRIVATE ${_perf_compile_options})
 target_link_libraries(ValidationCompare PRIVATE PrismConfiguration PrismComposition)
 if(WIN32)
@@ -150,13 +150,13 @@ set_tests_properties(Perf_ValidationCompareValidation
 
 # Same-trace DNS cache structure comparison; A/B/C are selected per process.
 add_executable(DnsCacheCompare
-        Dns/DnsCacheCompare.cpp
-        Dns/DnsCacheCompareAllocation.cpp
-        Dns/DnsCacheCompareMeasure.cpp
-        Dns/DnsCacheMeasure.hpp
-        Dns/DnsCacheScenario.cpp
-        Dns/DnsCacheScenario.hpp
-        Dns/DnsCacheVariants.hpp)
+        Dns/CacheCompare.cpp
+        Dns/CacheAlloc.cpp
+        Dns/CacheCompareMeasure.cpp
+        Dns/CacheMeasure.hpp
+        Dns/CacheScenario.cpp
+        Dns/CacheScenario.hpp
+        Dns/CacheVariants.hpp)
 target_compile_options(DnsCacheCompare PRIVATE ${_perf_compile_options})
 target_link_libraries(DnsCacheCompare PRIVATE PrismNet)
 if(WIN32)
@@ -170,23 +170,23 @@ add_test(NAME Perf_DnsCacheCompareSmoke
 set_tests_properties(Perf_DnsCacheCompareSmoke PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
 
 # SessionRegistry A/B/C same-trace comparison.  This is an experiment harness;
-# it does not replace Prism/Runtime/SessionRegistry.hpp.
+# it does not replace Prism/Runtime/Session/Registry.hpp.
 add_executable(SessionRegistryCompare
-        Registry/SessionRegistryCompare.cpp
-        Registry/SessionRegistryCompare.hpp
-        Registry/RegistryCompareCorrect.cpp
-        Registry/RegistryCompareCorrect.hpp
-        Registry/RegistryCompareMeasure.cpp
-        Registry/RegistryModelATest.cpp
-        Registry/RegistryModelBTest.cpp
-        Registry/RegistryModelCTest.cpp
-        Registry/RegistryCompareModels.cpp
-        Registry/RegistryCompareModels.hpp
-        Registry/RegistryCompareReport.cpp
-        Registry/RegistryCompareSampling.cpp
-        Registry/RegistryCompareSampling.hpp
-        Registry/RegistryCompareTrace.cpp
-        Registry/RegistryCompareTrace.hpp)
+        Registry/Compare.cpp
+        Registry/Compare.hpp
+        Registry/CompareCorrect.cpp
+        Registry/CompareCorrect.hpp
+        Registry/CompareMeasure.cpp
+        Registry/ModelATest.cpp
+        Registry/ModelBTest.cpp
+        Registry/ModelCTest.cpp
+        Registry/CompareModels.cpp
+        Registry/CompareModels.hpp
+        Registry/CompareReport.cpp
+        Registry/CompareSampling.cpp
+        Registry/CompareSampling.hpp
+        Registry/CompareTrace.cpp
+        Registry/CompareTrace.hpp)
 target_compile_options(SessionRegistryCompare PRIVATE ${_perf_compile_options})
 target_link_libraries(SessionRegistryCompare PRIVATE PrismRuntime)
 if(WIN32)
@@ -199,11 +199,11 @@ set_tests_properties(Perf_SessionRegistryCompareValidation
 
 # Mailbox 旧实现同 trace 基线；1/2/4 producer 由 CLI 分别运行。
 add_executable(MailboxCompare
-        Mailbox/MailboxCompare.cpp
-        Mailbox/MailboxCompare.hpp
-        Mailbox/MailboxCompareMeasure.cpp
-        Mailbox/MailboxCompareTrace.cpp
-        Mailbox/MailboxCompareTrace.hpp)
+        Mailbox/Compare.cpp
+        Mailbox/Compare.hpp
+        Mailbox/CompareMeasure.cpp
+        Mailbox/CompareTrace.cpp
+        Mailbox/CompareTrace.hpp)
 target_include_directories(MailboxCompare PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_compile_options(MailboxCompare PRIVATE ${_perf_compile_options})
 target_link_libraries(MailboxCompare PRIVATE PrismRuntime)
@@ -229,12 +229,12 @@ set_tests_properties(Perf_TokenBucketCompareValidation
 
 add_executable(RecognitionPerf
         Recognition/RecognitionPerf.cpp
-        Recognition/RecognitionPerfAllocation.cpp
-        Recognition/RecognitionOwnerMeasure.cpp
-        Recognition/RecognitionOwnerMeasure.hpp
-        Recognition/RecognitionPerfOwnerTrace.cpp
-        Recognition/RecognitionOwnerWorkers.cpp
-        Recognition/RecognitionPerfPipeline.cpp
+        Recognition/PerfAllocation.cpp
+        Recognition/OwnerMeasure.cpp
+        Recognition/OwnerMeasure.hpp
+        Recognition/PerfOwnerTrace.cpp
+        Recognition/OwnerWorkers.cpp
+        Recognition/PerfPipeline.cpp
         Recognition/RecognitionPerf.hpp)
 target_compile_options(RecognitionPerf PRIVATE ${_perf_compile_options})
 target_link_libraries(RecognitionPerf PRIVATE PrismFoundation PrismTransport PrismRuntime PrismComposition PrismBoundary PrismProtocolHttp PrismProtocolVless PrismProtocolVmess PrismTestSupport)
@@ -243,7 +243,7 @@ add_test(NAME Perf_Recognition COMMAND RecognitionPerf)
 # extra wall time for slower or contended CI hosts without relaxing other perf tests.
 set_tests_properties(Perf_Recognition PROPERTIES LABELS perf TIMEOUT ${_RECOGNITION_PERF_TIMEOUT})
 
-add_executable(CompactPathBenchmark Diagnose/DiagnosePathBenchmark.cpp)
+add_executable(CompactPathBenchmark Diagnose/PathBenchmark.cpp)
 target_compile_definitions(CompactPathBenchmark PRIVATE PRISM_DIAGNOSE_COMPACT_BENCHMARK=1)
 target_compile_options(CompactPathBenchmark PRIVATE ${_perf_compile_options})
 target_link_libraries(CompactPathBenchmark PRIVATE
@@ -253,7 +253,7 @@ add_test(NAME Perf_CompactPathBenchmark
         COMMAND CompactPathBenchmark "${CMAKE_BINARY_DIR}/preview-diagnose-compact.json")
 set_tests_properties(Perf_CompactPathBenchmark PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
 
-add_executable(ExtendedPathBenchmark Diagnose/DiagnosePathBenchmark.cpp)
+add_executable(ExtendedPathBenchmark Diagnose/PathBenchmark.cpp)
 target_compile_definitions(ExtendedPathBenchmark PRIVATE PRISM_DIAGNOSE_EXTENDED_BENCHMARK=1)
 target_compile_options(ExtendedPathBenchmark PRIVATE ${_perf_compile_options})
 target_link_libraries(ExtendedPathBenchmark PRIVATE
@@ -279,9 +279,9 @@ add_custom_target(PreviewDnsBench DEPENDS DnsPerf DnsCacheCompare)
 
 # 任务身份快照同输入五轮对照；原集合仅作为实验基线，未进入正式生产接口。
 add_executable(TaskIdSetCompare
-        Task/TaskIdSetCompare.cpp
-        Task/TaskIdSetMeasurement.cpp
-        Task/TaskIdSetMeasurement.hpp)
+        Task/IdSetCompare.cpp
+        Task/IdSetMeasurement.cpp
+        Task/IdSetMeasurement.hpp)
 target_compile_options(TaskIdSetCompare PRIVATE ${_perf_compile_options})
 target_link_libraries(TaskIdSetCompare PRIVATE PrismLifecycle)
 add_test(NAME Perf_TaskIdSetCompare COMMAND TaskIdSetCompare)

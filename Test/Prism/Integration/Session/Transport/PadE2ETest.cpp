@@ -7,7 +7,7 @@
  */
 
 #include <gtest/gtest.h>
-#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
+#include <Test/Prism/Runtime/Session/AdmissionSupport.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/channel.hpp>

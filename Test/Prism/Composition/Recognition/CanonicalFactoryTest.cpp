@@ -3,7 +3,7 @@
 #include <Prism/Composition/Recognition/LayeredCandidateFactory.hpp>
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 #include <Prism/Foundation/Memory/BytePool.hpp>
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 #include <Prism/Protocols/Vless/IngressFactory.hpp>
 #include <Prism/Protocols/Vmess/IngressFactory.hpp>
 #include <Prism/Transport/MemoryStream.hpp>

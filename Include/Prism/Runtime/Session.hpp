@@ -9,9 +9,9 @@
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>
-#include <Prism/Runtime/SessionRegistry.hpp>
-#include <Prism/Runtime/SessionServices.hpp>
-#include <Prism/Runtime/SessionTraceRing.hpp>
+#include <Prism/Runtime/Session/Registry.hpp>
+#include <Prism/Runtime/Session/Services.hpp>
+#include <Prism/Runtime/Session/Trace/Ring.hpp>
 #include <Prism/Transport/Transmission.hpp>
 
 #include <boost/asio/awaitable.hpp>

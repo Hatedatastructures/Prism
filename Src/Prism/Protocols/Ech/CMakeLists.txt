@@ -1,6 +1,6 @@
 set(PrismProtocolEchHeaders
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Ech/Detail/Key.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Ech/Detail/ServerKeyMaterial.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Ech/Key.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Ech/Keys/ServerMaterial.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Ech/ServerKeys.hpp"
 )
 set(PrismProtocolEchPrivateHeaders

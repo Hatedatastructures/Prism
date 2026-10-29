@@ -1,7 +1,7 @@
 /** @file Prepared.hpp @brief SS2022 实例材料准备；全部 PSK 必须属于原 generation 的账户记录。 */
 #pragma once
 #include <Prism/Contract/Services/Authentication.hpp>
-#include <Prism/Contract/Services/DatagramEgress.hpp>
+#include <Prism/Contract/Services/Datagram/Egress.hpp>
 #include <Prism/Contract/Ingress/ProviderFailure.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>

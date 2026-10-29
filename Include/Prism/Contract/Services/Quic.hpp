@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <Prism/Contract/Services/DatagramEgress.hpp>
+#include <Prism/Contract/Services/Datagram/Egress.hpp>
 #include <Prism/Contract/Services/Stream.hpp>
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <boost/asio/any_io_executor.hpp>

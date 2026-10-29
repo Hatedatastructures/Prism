@@ -13,7 +13,7 @@
 #include <Prism/Contract/Io/CarrierActivity.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <Prism/Protocols/Trusttunnel/Codec.hpp>
-#include <Prism/Protocols/Trusttunnel/Detail/ForwardedActivity.hpp>
+#include <Prism/Protocols/Trusttunnel/Transport/Activity.hpp>
 #include <Prism/Protocols/Trusttunnel/Types.hpp>
 
 #include <boost/asio/any_io_executor.hpp>

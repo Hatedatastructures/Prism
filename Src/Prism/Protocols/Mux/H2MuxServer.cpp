@@ -1,5 +1,5 @@
 /** @file H2MuxServer.cpp @brief H2Mux 连接根会话所有者实现。 */
-#include <Prism/Protocols/Mux/H2Mux/Http2Server.hpp>
+#include <Prism/Protocols/Mux/H2Mux/Server.hpp>
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/redirect_error.hpp>

@@ -1,8 +1,8 @@
 /** @file Application.cpp @brief Prism 应用控制线程的启动、运行与停机实现。 */
 
 #include <Prism/Application/Application.hpp>
-#include <Prism/Application/RuntimeState.hpp>
-#include <Prism/Application/Shutdown.hpp>
+#include <Prism/Application/Startup/Detail/RuntimeState.hpp>
+#include <Prism/Application/Shutdown/Detail/Shutdown.hpp>
 #include <Prism/Foundation/Executor/FatalState.hpp>
 #include <Prism/Foundation/Executor/RunContext.hpp>
 #include <Prism/Foundation/Memory/Container.hpp>

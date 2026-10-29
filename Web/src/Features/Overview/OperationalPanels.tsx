@@ -27,7 +27,7 @@ export function OperationalMetrics(Input: Readonly<{ Snapshot: OverviewSnapshot 
 
 export function OperationalSignals(Input: Readonly<{ Snapshot: OverviewSnapshot }>): ReactNode {
     const Value = Input.Snapshot;
-    return <div className="operational-signals" aria-label="关键服务信号">
+    return <div className="operational-signals" role="group" aria-label="关键服务信号">
         <Link to="/workers"><span>接收中 Worker</span><strong>{FormatCount(Value.Counts.WorkersAccepting)} / {FormatCount(Value.Counts.WorkersTotal)}</strong><ArrowRight size={12} /></Link>
         <Link to="/events?severity=error"><span>累计数据面错误</span><strong className={Nonzero(Value.Traffic.Errors) ? 'counter-warning' : ''}>
             {Value.Traffic.Available ? FormatCount(Value.Traffic.Errors) : '未提供'}</strong></Link>
@@ -98,7 +98,7 @@ export function IngressStatusPanel(Input: Readonly<{
             <Link to="/?view=resources"><span>进程 RSS</span><strong>{Input.Snapshot.Memory.ProcessAvailable ? FormatBytes(Input.Snapshot.Memory.ProcessRssBytes) : '未提供'}</strong></Link>
         </div>
         <details className="readiness-details"><summary><span>{QuicStage}</span><span>接入能力详情</span></summary>
-        <div className="readiness-chain" aria-label="进程接入能力就绪状态">
+        <div className="readiness-chain" role="group" aria-label="进程接入能力就绪状态">
             <span>UDP socket <Readiness Ready={Health.UdpSocketReady} /></span>
             <span>QUIC socket <Readiness Ready={Health.QuicSocketReady} /></span>
             <span>QUIC 握手 <Readiness Ready={Health.QuicHandshakeReady} /></span>
@@ -130,7 +130,7 @@ export function ResourcePressurePanel(Input: Readonly<{ Snapshot: OverviewSnapsh
                 {PoolPercent !== null && <small>{PoolPercent.toFixed(1)}%</small>}</dd></div>
         </dl>
         {PoolPercent !== null && <ProgressBar Value={PoolPercent} Tone={PoolPercent >= 80 ? 'warning' : 'mint'} Label="BytePool 使用率" />}
-        <div className="observation-facts" aria-label="观测管线计数">
+        <div className="observation-facts" role="group" aria-label="观测管线计数">
             <div><span>队列待消费</span><strong>{Backlog >= 0n ? FormatCount(Backlog.toString()) : '跨采样不可比'}</strong></div>
             <div><span>入队丢弃</span><strong className={Nonzero(Observation.Dropped) ? 'counter-warning' : ''}>{FormatCount(Observation.Dropped)}</strong></div>
             <div><span>聚合失败</span><strong className={Nonzero(Observation.AggregationFailures) ? 'counter-warning' : ''}>{FormatCount(Observation.AggregationFailures)}</strong></div>

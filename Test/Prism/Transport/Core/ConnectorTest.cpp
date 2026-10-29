@@ -3,8 +3,8 @@
  * @brief 按功能拆分的 GoogleTest 行为契约。
  */
 
-#include "TransportDecoratorSupport.hpp"
-#include "TransportResources.hpp"
+#include "DecoratorSupport.hpp"
+#include "Resources.hpp"
 
 namespace
 {

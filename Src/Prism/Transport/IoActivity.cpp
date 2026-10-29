@@ -1,7 +1,7 @@
 /** @file IoActivity.cpp @brief typed I/O预约、completion回收与Drain状态实现。 */
 #include <Prism/Lifecycle/DrainBarrier.hpp>
-#include <Prism/Transport/Detail/IoActivity.hpp>
-#include <Prism/Transport/Detail/TrackedCompletion.hpp>
+#include <Prism/Transport/Activity/Io.hpp>
+#include <Prism/Transport/Activity/TrackedCompletion.hpp>
 
 #include <atomic>
 #include <system_error>

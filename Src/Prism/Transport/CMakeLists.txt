@@ -21,10 +21,10 @@ PrismAddStaticTarget(PrismTransport
     HEADERS
         ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/ActivityGroupFactory.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Connector.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/IoActivity.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/IoCompletion.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/PadDriver.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Detail/TrackedCompletion.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Activity/Io.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Io/Completion.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Pad/Driver.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Activity/TrackedCompletion.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/Encrypted.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/MemoryStream.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Transport/NativeTls.hpp

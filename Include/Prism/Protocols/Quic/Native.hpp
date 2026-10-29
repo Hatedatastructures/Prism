@@ -23,7 +23,7 @@
 #include <string_view>
 
 
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
@@ -406,4 +406,4 @@ namespace Prism::Quic
 } // namespace Prism::Quic
 
 // 公共 QUIC 门面、provider 和 Native connection 契约聚合。
-#include <Prism/Protocols/Quic/Detail/NativeConnection.hpp>
+#include <Prism/Protocols/Quic/Native/Connection.hpp>

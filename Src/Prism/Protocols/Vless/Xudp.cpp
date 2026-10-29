@@ -1,9 +1,9 @@
 /** @file Xudp.cpp @brief VLESS XUDP 生命周期与数据面状态机实现。 */
-#include <Prism/Protocols/Vless/Xudp/State.hpp>
-#include <Prism/Protocols/Vless/Xudp/Association.hpp>
-#include <Prism/Protocols/Vless/Xudp/RootSession.hpp>
+#include <Prism/Protocols/Vless/Xudp/Detail/State.hpp>
+#include <Prism/Protocols/Vless/Xudp/Detail/Association.hpp>
+#include <Prism/Protocols/Vless/Xudp/Detail/Session.hpp>
 #include <Prism/Protocols/Vless/Xudp/VlessXudp.hpp>
-#include <Prism/Protocols/Vless/Xudp/Writer.hpp>
+#include <Prism/Protocols/Vless/Xudp/Detail/Writer.hpp>
 
 #include <boost/asio/bind_cancellation_slot.hpp>
 #include <boost/asio/buffer.hpp>

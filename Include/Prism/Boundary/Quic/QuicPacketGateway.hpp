@@ -6,7 +6,7 @@
  */
 #pragma once
 
-#include <Prism/Boundary/Datagram/DatagramClassifier.hpp>
+#include <Prism/Boundary/Datagram/Classifier.hpp>
 #include <Prism/Boundary/Quic/QuicAdmissionBudget.hpp>
 
 #include <cstddef>

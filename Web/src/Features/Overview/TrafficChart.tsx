@@ -33,7 +33,9 @@ function CounterRate(Previous: string | number, Current: string | number, Second
     } catch { return null; }
 }
 
-export function TrafficPanel(Input: Readonly<{ Snapshot: OverviewSnapshot }>): ReactNode {
+export function TrafficPanel(Input: Readonly<{
+    Snapshot: OverviewSnapshot; ClassName?: string; Variant?: 'open' | 'banded';
+}>): ReactNode {
     const [Range, SetRange] = useState('60');
     const [Selection, SetSelection] = useState<SampleSelection | null>(null);
     const [RangeOpen, SetRangeOpen] = useState(false);
@@ -45,7 +47,8 @@ export function TrafficPanel(Input: Readonly<{ Snapshot: OverviewSnapshot }>): R
     const ChartPoints = Visible.slice(Selected.Start, Selected.End + 1);
     function ChangeRange(Value: string): void { SetRange(Value); SetSelection(null); }
     const Interval = FormatCount(Input.Snapshot.SampleIntervalMs);
-    return <Panel ClassName="traffic-panel" Title="流量趋势"
+    return <Panel ClassName={`traffic-panel ${Input.ClassName ?? ''}`} Variant={Input.Variant ?? 'open'}
+        Title="流量趋势" Subtitle={`概览快照保留 ${FormatCount(Input.Snapshot.History.length)} 个流量样本 · 相邻计数差换算速率 · 采样间隔 ${Interval} ms`}
         Action={<div className="traffic-controls" title={`采样间隔 ${Interval} ms`}>
             <div className="chart-legend"><span><i className="legend-dot legend-down" />下行</span><span><i className="legend-dot legend-up" />上行</span></div>
             <SelectField Label="流量图时间范围" Value={Range} Options={Ranges} OnChange={ChangeRange} />
@@ -56,7 +59,8 @@ export function TrafficPanel(Input: Readonly<{ Snapshot: OverviewSnapshot }>): R
                     <small>已选 {ChartPoints.length} 个采样点</small></div>}
             </details>}
         </div>}>
-        {Visible.length < 2 ? <EmptyState Title="流量样本不足" Detail="至少需要两个有效采样点才能计算速率。" /> : <>
+        {Visible.length < 2 ? <EmptyState Title="流量样本不足" Detail="至少需要两个有效采样点才能计算速率。" />
+            : Visible.length < 5 ? <SparseTrafficSamples Points={ChartPoints} /> : <>
             <div className="traffic-chart" role="group" aria-label="流量趋势。聚焦图表后可使用左右方向键查看采样点。">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <AreaChart data={ChartPoints} margin={{ top: 12, right: 8, bottom: 0, left: 0 }} accessibilityLayer>
@@ -79,7 +83,7 @@ export function TrafficPanel(Input: Readonly<{ Snapshot: OverviewSnapshot }>): R
                 </ResponsiveContainer>
             </div>
         </>}
-        <div className="dashboard-protocols" aria-label="协议会话与绑定"><span>协议会话</span>
+        <div className="dashboard-protocols" role="group" aria-label="协议会话与绑定"><span>协议会话</span>
             {Input.Snapshot.Protocols.map(Protocol => <Link key={Protocol.Id}
                 to={'/sessions?protocol=' + encodeURIComponent(Protocol.Name)}
                 title={`${Protocol.Coverage} · ${FormatCount(Protocol.ConfiguredBindings)} 个绑定`}>
@@ -88,6 +92,19 @@ export function TrafficPanel(Input: Readonly<{ Snapshot: OverviewSnapshot }>): R
         </div>
     </Panel>;
 }
+
+function SparseTrafficSamples(Input: Readonly<{ Points: readonly SamplePoint[] }>): ReactNode {
+    return <div className="traffic-sample-ledger" role="group" aria-label="流量离散采样点；只显示真实采样值，不在点间插值">
+        <p>当前保留样本较少，列出可计算的相邻计数差速率。</p>
+        <table><thead><tr><th scope="col">采样时间</th><th scope="col">下行速率</th><th scope="col">上行速率</th></tr></thead>
+            <tbody>{Input.Points.map((Point, Index) => <tr key={`${Point.Time}-${Index}`}>
+                <td>{FormatTime(Point.Time, true)}</td><td>{RateCell(Point.Down)}</td><td>{RateCell(Point.Up)}</td>
+            </tr>)}</tbody>
+        </table>
+    </div>;
+}
+
+function RateCell(Value: number | null): string { return Value === null ? '未提供' : FormatRate(Math.round(Value)); }
 
 function AxisRate(Value: number): string { return Value === 0 ? '0' : `${FormatBytes(Math.round(Value)).replace(' ', '')}/s`; }
 
@@ -109,7 +126,7 @@ function RangeChart(Input: Readonly<{
     const Selection = Input.Selection;
     return <div className="range-chart"><p>{FormatTime(Input.Points[Selection.Start]?.Time)} — {FormatTime(Input.Points[Selection.End]?.Time)}</p>
         <ResponsiveContainer width="100%" height={76} minWidth={0}><AreaChart data={Input.Points}>
-            <Area dataKey="Down" stroke="var(--chart-down)" fill="var(--mint-soft)" isAnimationActive={false} />
+            <Area dataKey="Down" stroke="var(--chart-down)" fill="var(--plot-area)" fillOpacity={0.12} isAnimationActive={false} />
             <Brush dataKey="Time" tickFormatter={Value => FormatTime(String(Value))} height={26} stroke="var(--chart-down)" fill="var(--surface)"
                 startIndex={Selection.Start} endIndex={Selection.End} onChange={Range => {
                     if (Range.startIndex !== undefined && Range.endIndex !== undefined) Input.OnChange({ Start: Range.startIndex, End: Range.endIndex });

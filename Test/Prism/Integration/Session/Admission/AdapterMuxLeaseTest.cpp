@@ -33,9 +33,9 @@
 #include <Prism/Runtime/Middleware/Context.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <Test/Prism/Transport/Core/TransportResources.hpp>
+#include <Test/Prism/Transport/Core/Resources.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 #include <TestSupport/Prism/ProviderBindings.hpp>
 
 namespace

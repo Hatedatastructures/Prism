@@ -448,10 +448,6 @@ namespace
         {
             EXPECT_NE(*ReceiveError, Error::None);
         }
-        else
-        {
-            SUCCEED();
-        }
     }
 
     TEST(Ss2022DgramSession, ClientToServerDatagram)

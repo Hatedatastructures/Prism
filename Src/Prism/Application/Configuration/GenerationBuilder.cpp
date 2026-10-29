@@ -1,6 +1,6 @@
 /** @file GenerationBuilder.cpp @brief Prism 配置 generation 构造实现。 */
 #include <Prism/Application/Configuration/GenerationBuilder.hpp>
-#include <Prism/Application/Configuration/Detail/PreparedConfigurationSecrets.hpp>
+#include <Prism/Application/Configuration/Detail/Secrets.hpp>
 
 #include <memory>
 #include <utility>

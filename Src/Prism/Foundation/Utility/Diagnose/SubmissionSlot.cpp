@@ -2,7 +2,7 @@
  * @file SubmissionSlot.cpp
  * @brief 诊断 facade backend 单槽准入与生命周期实现。
  */
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionSlot.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Slot.hpp>
 
 #include <utility>
 

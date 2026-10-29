@@ -1,6 +1,6 @@
 /** @file PreparedConfiguration.cpp @brief 配置 secret 解析、清理和结果移交实现。 */
 #include <Prism/Application/Configuration/PreparedConfiguration.hpp>
-#include <Prism/Application/Configuration/Detail/PreparedConfigurationSecrets.hpp>
+#include <Prism/Application/Configuration/Detail/Secrets.hpp>
 
 #include <cstddef>
 #include <map>

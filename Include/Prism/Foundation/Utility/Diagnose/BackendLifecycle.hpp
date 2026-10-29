@@ -4,8 +4,8 @@
  */
 #pragma once
 
-#include <Prism/Foundation/Utility/Diagnose/Detail/RenderEpoch.hpp>
-#include <Prism/Foundation/Utility/Diagnose/Detail/SubmissionRequest.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Context/Epoch.hpp>
+#include <Prism/Foundation/Utility/Diagnose/Submission/Request.hpp>
 #include <Prism/Foundation/Utility/Diagnose/SubmissionReceipt.hpp>
 
 #include <chrono>

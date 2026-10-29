@@ -1,7 +1,7 @@
 /**
  * @file ListenerTestSupport.hpp
  * @brief TcpListener 测试共用的 worker、身份和 admission 辅助。
- * @details 供 ListenerAdmissionTest.cpp 与 ListenerLifecycleTest.cpp 共用，
+ * @details 供 AdmissionTest.cpp 与 LifecycleTest.cpp 共用，
  *          保持测试 fixture 的所有权和异步收尾逻辑集中在 Runtime 模块。
  */
 #pragma once
@@ -39,7 +39,7 @@
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Net/Dialer/Dialer.hpp>
 #include <Prism/Runtime/Listener.hpp>
-#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
+#include <Test/Prism/Runtime/Session/AdmissionSupport.hpp>
 #include <Prism/Runtime/Process.hpp>
 #include <Prism/Runtime/Session.hpp>
 #include <Prism/Runtime/WorkerGroup.hpp>

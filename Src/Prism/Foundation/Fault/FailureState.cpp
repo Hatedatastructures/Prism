@@ -15,4 +15,9 @@ namespace Prism::Fault
         Ready_.store(true, std::memory_order_release);
         return true;
     }
+
+    auto FailureState::Record(Failure Value) noexcept -> void
+    {
+        if (TrySet(Value)) return;
+    }
 }

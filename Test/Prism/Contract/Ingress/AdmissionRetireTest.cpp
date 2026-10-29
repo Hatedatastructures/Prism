@@ -3,7 +3,7 @@
  * @brief 入站传输关闭提交错误、首因与 drain 重试状态测试。
  */
 #include <Prism/Contract/Io/CarrierActivity.hpp>
-#include <Prism/Contract/Ingress/AdmissionTransportRetirement.hpp>
+#include <Prism/Contract/Ingress/Admission/Transport/Retirement.hpp>
 #include <Prism/Foundation/Fault/Code.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Transport/Transmission.hpp>

@@ -1,26 +1,26 @@
 # http 子模块测试
-AddPrismTest(Admission/Http11BasicAuthTest.cpp)
+AddPrismTest(Admission/BasicAuthTest.cpp Http11BasicAuthTest)
 target_include_directories(Http11BasicAuthTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 target_link_libraries(Http11BasicAuthTest PRIVATE PrismAccount PrismRuntime PrismProtocolHttp
     PrismProtocolShadowsocks2022 PrismProtocolSocks5)
-AddPrismTest(Connection/Http11ConnectTest.cpp)
-target_sources(Http11ConnectTest PRIVATE Connection/Http11ConnectParsingTest.cpp)
+AddPrismTest(Connection/ConnectTest.cpp Http11ConnectTest)
+target_sources(Http11ConnectTest PRIVATE Connection/ConnectParsingTest.cpp)
 target_link_libraries(Http11ConnectTest PRIVATE PrismFoundation PrismAccount PrismTransport PrismNet
     PrismProtocolHttp PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismRuntime)
-AddPrismTest(Core/Http11ForwardRequestTest.cpp)
-target_sources(Http11ForwardRequestTest PRIVATE Core/Http11RequestFramingTest.cpp)
-target_sources(Http11ForwardRequestTest PRIVATE Core/Http11IoResultOrderingTest.cpp)
+AddPrismTest(Core/ForwardRequestTest.cpp Http11ForwardRequestTest)
+target_sources(Http11ForwardRequestTest PRIVATE Core/RequestFramingTest.cpp)
+target_sources(Http11ForwardRequestTest PRIVATE Core/IoResultOrderingTest.cpp)
 target_link_libraries(Http11ForwardRequestTest PRIVATE PrismFoundation PrismAccount PrismTransport PrismNet PrismProtocolHttp)
-AddPrismTest(Connection/Http11ForwardResponseTest.cpp)
+AddPrismTest(Connection/ConnectResponseTest.cpp Http11ForwardResponseTest)
 target_link_libraries(Http11ForwardResponseTest PRIVATE PrismFoundation PrismAccount PrismTransport PrismNet
     PrismProtocolHttp PrismProtocolShadowsocks2022 PrismProtocolSocks5 PrismRuntime)
-AddPrismTest(Connection/HttpForwardResponseTest.cpp)
+AddPrismTest(Connection/ResponseFramingTest.cpp HttpForwardResponseTest)
 target_link_libraries(HttpForwardResponseTest PRIVATE PrismFoundation PrismTransport PrismNet PrismProtocolHttp)
-AddPrismTest(Core/HttpForwardSecurityTest.cpp)
+AddPrismTest(Core/ForwardSecurityTest.cpp HttpForwardSecurityTest)
 target_link_libraries(HttpForwardSecurityTest PRIVATE PrismFoundation PrismAccount PrismTransport PrismNet
     PrismRuntime PrismComposition PrismProtocolHttp PrismProtocolShadowsocks2022 PrismProtocolSocks5)
 
 # 同一 owner 的正式职责头与行为场景，复用既有 target。
 target_sources(Http11ForwardResponseTest PRIVATE
-    Admission/Http11BindingRetireTest.cpp
+    Admission/BindingRetireTest.cpp
 )

@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <Prism/Contract/Services/DatagramEgress.hpp>
+#include <Prism/Contract/Services/Datagram/Egress.hpp>
 
 #include <boost/asio/awaitable.hpp>
 

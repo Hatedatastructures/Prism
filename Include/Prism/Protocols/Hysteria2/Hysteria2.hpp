@@ -33,10 +33,10 @@
 #include <Prism/Protocols/Hysteria2/Dgram.hpp>
 #include <Prism/Protocols/Hysteria2/Admission.hpp>
 #include <Prism/Protocols/Hysteria2/StreamSession.hpp>
-#include <Prism/Protocols/Hysteria2/DatagramSession.hpp>
+#include <Prism/Protocols/Hysteria2/Datagram/Session.hpp>
 #include <Prism/Protocols/Hysteria2/Http3Auth.hpp>
 #include <Prism/Protocols/Hysteria2/Types.hpp>
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 
 namespace Prism::Hysteria2
 {

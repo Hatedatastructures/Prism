@@ -1,11 +1,16 @@
 # 多协议套接分别验证内存数据一致性、真实 TCP 完整性与吞吐对照。
 if(PRISM_ENABLE_BENCHMARK)
     foreach(_case IN ITEMS CarrierMemoryBenchmark CarrierIntegrityTest CarrierThroughputTest)
-        AddPrismTest(${_case}.cpp)
+        if(_case STREQUAL "CarrierMemoryBenchmark")
+            set(_source_file MemoryBenchmark.cpp)
+        else()
+            set(_source_file ${_case}.cpp)
+        endif()
+        AddPrismTest(${_source_file} ${_case})
         target_include_directories(${_case} PRIVATE ${PROJECT_SOURCE_DIR}/Src)
-        target_sources(${_case} PRIVATE CarrierBenchmarkWsFactory.cpp
-            CarrierBenchmarkWsFactory.hpp CarrierBenchResult.hpp
-            ../../Protocols/Ws/Admission/WsFactorySupport.hpp)
+        target_sources(${_case} PRIVATE WsFactory.cpp
+            WsFactory.hpp CarrierBenchResult.hpp
+            ../../Protocols/Ws/Admission/FactorySupport.hpp)
         target_link_libraries(${_case} PRIVATE PrismFoundation PrismTransport PrismProtocolAnytls
             PrismProtocolGun PrismProtocolReality PrismProtocolRestls PrismProtocolShadowtls
             PrismProtocolSocks5 PrismProtocolTrojan PrismProtocolTrusttunnel PrismProtocolVless

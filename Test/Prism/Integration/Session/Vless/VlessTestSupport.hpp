@@ -8,7 +8,7 @@
 #pragma once
 
 #include <gtest/gtest.h>
-#include <Test/Prism/Runtime/Session/SessionAdmissionSupport.hpp>
+#include <Test/Prism/Runtime/Session/AdmissionSupport.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/channel.hpp>
@@ -35,7 +35,7 @@
 #include <Prism/Runtime/Session.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 
 namespace Prism::Testing::VlessE2E
 {

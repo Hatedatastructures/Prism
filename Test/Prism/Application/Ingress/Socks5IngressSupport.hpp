@@ -12,9 +12,9 @@
 
 #include <glaze/glaze.hpp>
 
-#include "Socks5AccountIngressCore.hpp"
-#include "Socks5AccountIngressClient.hpp"
-#include "Socks5IngressOperations.hpp"
+#include "SocksCore.hpp"
+#include "SocksClient.hpp"
+#include "SocksOps.hpp"
 
 #include <charconv>
 #include <chrono>

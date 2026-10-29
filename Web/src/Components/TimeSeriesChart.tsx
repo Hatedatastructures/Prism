@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
-import { FiniteTimeSegments, LinearTicks, NearestTimeIndex, TimeTickIndices } from './TimeSeriesGeometry';
+import { FiniteTimeSegments, IntegerTicks, LinearTicks, NearestTimeIndex, TimeTickIndices } from './TimeSeriesGeometry';
 import type { TimeSeriesPoint } from './TimeSeriesGeometry';
 
 export type TimeSeriesSeries<Point extends TimeSeriesPoint> = Readonly<{
@@ -10,6 +10,7 @@ export type TimeSeriesSeries<Point extends TimeSeriesPoint> = Readonly<{
     Value: (Point: Point) => number | null;
     Format: (Value: number) => string;
     Area?: boolean;
+    Dash?: string;
 }>;
 
 type TimeSeriesChartProps<Point extends TimeSeriesPoint> = Readonly<{
@@ -19,9 +20,10 @@ type TimeSeriesChartProps<Point extends TimeSeriesPoint> = Readonly<{
     FormatTime: (Time: number) => string;
     FormatAxis: (Value: number) => string;
     ActiveSeries?: string | null;
+    IntegerAxis?: boolean;
 }>;
 
-const Margin = { Top: 14, Right: 14, Bottom: 30, Left: 46 } as const;
+const Margin = { Top: 14, Right: 14, Bottom: 30, Left: 80 } as const;
 
 export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeriesChartProps<Point>): ReactNode {
     const UniqueId = useId().replace(/:/g, '');
@@ -29,6 +31,7 @@ export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeries
     const [Size, SetSize] = useState({ Width: 0, Height: 0 });
     const [HoverIndex, SetHoverIndex] = useState<number | null>(null);
     const [Pinned, SetPinned] = useState(false);
+    const [Announcement, SetAnnouncement] = useState('');
     const DragRef = useRef<Readonly<{ StartIndex: number; Moved: boolean }> | null>(null);
     const Times = useMemo(() => Input.Points.map(Point => Point.Time), [Input.Points]);
     useEffect(() => {
@@ -50,14 +53,28 @@ export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeries
         .map(Point => Series.Value(Point))
         .filter((Value): Value is number => Value !== null && Number.isFinite(Value))), [Input.Points, Input.Series]);
     const MaxValue = Values.length > 0 ? Math.max(...Values) : 1;
-    const Ticks = useMemo(() => LinearTicks(MaxValue, 4), [MaxValue]);
+    const Ticks = useMemo(() => Input.IntegerAxis ? IntegerTicks(MaxValue) : LinearTicks(MaxValue, 4), [MaxValue, Input.IntegerAxis]);
     const YMax = Ticks[Ticks.length - 1] ?? 1;
-    const TickIndices = useMemo(() => TimeTickIndices(Input.Points, 5), [Input.Points]);
+    const TimeTickCount = Math.max(2, Math.min(5, Math.floor(InnerWidth / 90) + 1));
+    const TickIndices = useMemo(() => TimeTickIndices(Input.Points, TimeTickCount), [Input.Points, TimeTickCount]);
     const X = (Time: number): number => Margin.Left + ((Time - TimeMin) / TimeSpan) * InnerWidth;
     const Y = (Value: number): number => Margin.Top + InnerHeight - Math.max(0, Math.min(1, Value / YMax)) * InnerHeight;
     const Hovered = HoverIndex === null ? null : Input.Points[HoverIndex] ?? null;
     const HoverX = Hovered ? X(Hovered.Time) : null;
     const ActiveKey = Input.ActiveSeries ?? null;
+    function DescribeReading(Series: TimeSeriesSeries<Point>, Sample: Point): string {
+        const Value = Series.Value(Sample);
+        return `${Series.Label}：${Value === null || !Number.isFinite(Value) ? '未采集' : Series.Format(Value)}`;
+    }
+    function AnnouncePoint(Index: number, Status?: string): void {
+        const Point = Input.Points[Index];
+        if (!Point) {
+            SetAnnouncement(Status ? `${Status}。未采集。` : '未采集。');
+            return;
+        }
+        const Readings = Input.Series.map(Series => DescribeReading(Series, Point)).join('，');
+        SetAnnouncement([Status, `采样时间 ${Input.FormatTime(Point.Time)}`, Readings || '未采集'].filter(Boolean).join('。'));
+    }
     function ResolveIndex(ClientX: number): number {
         const Node = ContainerRef.current;
         if (!Node || Times.length === 0) return -1;
@@ -95,23 +112,41 @@ export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeries
         if (!Pinned) SetHoverIndex(null);
     }
     function HandleKeyDown(Event: KeyboardEvent<HTMLDivElement>): void {
-        if (Times.length === 0) return;
         if (Event.key === 'Escape') {
             SetPinned(false);
             SetHoverIndex(null);
+            SetAnnouncement('已清除读数。');
             return;
         }
         if (Event.key === 'Enter' || Event.key === ' ') {
             Event.preventDefault();
-            SetPinned(Value => !Value);
+            if (Times.length === 0) {
+                if (Pinned) {
+                    SetPinned(false);
+                    SetAnnouncement('已解除固定读数。未采集。');
+                } else {
+                    SetAnnouncement('未采集，无法固定读数。');
+                }
+                return;
+            }
+            const NextPinned = !Pinned;
+            const NextIndex = HoverIndex ?? Times.length - 1;
+            SetHoverIndex(NextIndex);
+            SetPinned(NextPinned);
+            AnnouncePoint(NextIndex, NextPinned ? '已固定读数' : '已解除固定');
             return;
         }
         if (Event.key !== 'ArrowLeft' && Event.key !== 'ArrowRight') return;
         Event.preventDefault();
-        const Current = HoverIndex ?? (Event.key === 'ArrowLeft' ? Times.length - 1 : 0);
+        if (Times.length === 0) {
+            SetAnnouncement('未采集。');
+            return;
+        }
+        const Current = HoverIndex ?? (Event.key === 'ArrowLeft' ? Times.length : -1);
         const Step = Event.key === 'ArrowLeft' ? -1 : 1;
         const Next = Math.max(0, Math.min(Times.length - 1, Current + Step));
         SetHoverIndex(Next);
+        AnnouncePoint(Next);
     }
     if (Size.Width <= 0 || Size.Height <= 0) return <div ref={ContainerRef} className="time-series-chart" aria-hidden="true" />;
     return <div ref={ContainerRef} className="time-series-chart" role="group" tabIndex={0}
@@ -150,7 +185,7 @@ export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeries
                     const Opacity = Distance < 28 ? 0 : Distance < 54 ? (Distance - 28) / 26 : 1;
                     return <text key={Point.Time} x={TickX} y={Size.Height - 9}
                         textAnchor={Index === 0 ? 'start' : Index === Input.Points.length - 1 ? 'end' : 'middle'}
-                        style={{ opacity: Opacity, transition: 'opacity 160ms ease' }}>{Input.FormatTime(Point.Time)}</text>;
+                        style={{ opacity: Opacity }}>{Input.FormatTime(Point.Time)}</text>;
                 })}
             </g>
             <g className="time-series-chart__series">
@@ -164,7 +199,7 @@ export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeries
                             : null)}
                         {Segments.map((Segment, Index) => Segment.length > 1
                             ? <path key={`line-${Index}`} className="time-series-chart__line" stroke={Series.Color}
-                                d={LinePath(Segment, Series.Value, X, Y)} />
+                                strokeDasharray={Series.Dash} d={LinePath(Segment, Series.Value, X, Y)} />
                             : <circle key={`dot-${Index}`} cx={X(Segment[0]?.Time ?? TimeMin)} cy={Y(Series.Value(Segment[0] as Point) ?? 0)} r={2.25} fill={Series.Color} />)}
                     </g>;
                 })}
@@ -172,7 +207,7 @@ export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeries
             {HoverX !== null && <g className="time-series-chart__hover" clipPath={`url(#${UniqueId}-band)`}>
                 {Input.Series.map(Series => FiniteTimeSegments(Input.Points, Series.Value).map((Segment, Index) =>
                     Segment.length > 1 ? <path key={`${Series.Key}-bright-${Index}`} className="time-series-chart__highlight"
-                        stroke={Series.Color} d={LinePath(Segment, Series.Value, X, Y)} /> : null))}
+                        stroke={Series.Color} strokeDasharray={Series.Dash} d={LinePath(Segment, Series.Value, X, Y)} /> : null))}
             </g>}
             {HoverX !== null && <g className="time-series-chart__crosshair">
                 <rect x={HoverX - .5} y={Margin.Top} width={1} height={InnerHeight} fill={`url(#${UniqueId}-crosshair)`} />
@@ -186,14 +221,16 @@ export function TimeSeriesChart<Point extends TimeSeriesPoint>(Input: TimeSeries
                 })}
             </g>}
         </svg>
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{Announcement}</div>
         {Hovered && HoverX !== null && <div className={`chart-tooltip time-series-chart__tooltip${Pinned ? ' is-pinned' : ''}`}
             style={{ left: Math.max(94, Math.min(Size.Width - 94, HoverX)) }}>
             <span className="chart-tooltip__time">{Input.FormatTime(Hovered.Time)}{Pinned ? ' · 已固定' : ''}</span>
             {Input.Series.map(Series => {
                 const Value = Series.Value(Hovered);
-                return Value === null || !Number.isFinite(Value) ? null : <div className="chart-tooltip__row" key={Series.Key}>
+                const Reading = Value === null || !Number.isFinite(Value) ? '未采集' : Series.Format(Value);
+                return <div className="chart-tooltip__row" key={Series.Key}>
                     <span><i style={{ background: Series.Color }} />{Series.Label}</span>
-                    <strong>{Series.Format(Value)}</strong>
+                    <strong>{Reading}</strong>
                 </div>;
             })}
         </div>}

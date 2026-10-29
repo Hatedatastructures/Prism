@@ -35,8 +35,8 @@
 
 #include <gtest/gtest.h>
 
-#include "../Core/TransportDecoratorSupport.hpp"
-#include "../Core/TransportResources.hpp"
+#include "../Core/DecoratorSupport.hpp"
+#include "../Core/Resources.hpp"
 
 namespace
 {

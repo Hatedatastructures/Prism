@@ -7,7 +7,9 @@ export type OperationStatus = 'accepted' | 'running' | 'completed' | 'rejected' 
 
 /** @brief 真实 Operations 数值按十进制文本保真；number 仅供保留的旧演示样本使用。 */
 export type UInt64Value = string | number;
-export type TrafficValue = Readonly<{ Up: UInt64Value; Down: UInt64Value }>;
+export type TrafficValue = Readonly<{
+    Up: UInt64Value; Down: UInt64Value; Events?: UInt64Value; Errors?: UInt64Value;
+}>;
 export type MetricsTraffic = TrafficValue & Readonly<{ Events: UInt64Value; Errors: UInt64Value }>;
 export type TrafficSample = Readonly<{ Time: string; Traffic: MetricsTraffic }>;
 export type TcpSessionSample = Readonly<{ Time: string; Count: UInt64Value }>;
@@ -42,7 +44,8 @@ export type RecognitionLatency = Readonly<{
     P50Us: UInt64Value | null; P95Us: UInt64Value | null; P99Us: UInt64Value | null; MaxObservedUs: UInt64Value | null;
 }>;
 export type MetricsSnapshot = Readonly<{
-    CheckedAt: string; GenerationId: string; Traffic: MetricsTraffic; Observations: ObservationCounts;
+    ProcessId: string; CheckedAt: string; GenerationId: string; Traffic: MetricsTraffic;
+    Observations: ObservationCounts & Readonly<{ RecognitionLatencyQueueDrops: UInt64Value; RecognitionLatencyAggregationFailures: UInt64Value }>;
     RecognitionLatency: RecognitionLatency; SampleIntervalMs: UInt64Value;
     History: readonly TrafficSample[]; HistoryReady: boolean; RetirementFailures: FailureCounts;
 }>;
@@ -170,7 +173,8 @@ export type AccountUsage = Readonly<{ AccountKey: string; Revision: string; Cycl
     UncertainBytes: string; RemainingBytes: string | null; OverageBytes: string; Available: boolean; Failure: string | null }>;
 export type UsageAdjustment = Readonly<{ AccountKey: string; Revision: string; Kind: 'add_allowance' | 'release_uncertain'; Bytes: string; Reason: string }>;
 export type HistoryScope = 'process' | 'worker' | 'account' | 'group' | 'ingress' | 'protocol_type' | 'protocol_instance';
-export type HistoryRequest = Readonly<{ Scope: HistoryScope; Key: string; From: string; To: string; MaxPoints?: number; Metric?: 'traffic' | 'recognition_admission' | 'active' }>;
+export type HistoryMetric = 'traffic' | 'recognition_admission' | 'dns_resolution' | 'tcp_connect';
+export type HistoryRequest = Readonly<{ Scope: HistoryScope; Key: string; From: string; To: string; MaxPoints?: number; Metric?: HistoryMetric }>;
 export type HistoryPoint = Readonly<{ Time: string; UpBytes: string | null; DownBytes: string | null;
     Active: string | null; P50Us: string | null; P95Us: string | null; P99Us: string | null; SampleCount: string;
     Quality: string }>;
@@ -239,6 +243,7 @@ export interface AdminDataSource {
     AdjustUsage?(Adjustment: UsageAdjustment): Promise<AdminActionResult>;
     Search?(Query: string, Signal?: AbortSignal): Promise<readonly SearchResult[]>;
     GetOverview(): Promise<OverviewSnapshot>;
+    GetMetrics(): Promise<MetricsSnapshot>;
     GetIngresses(Page: PageRequest): Promise<CursorPage<IngressRecord>>;
     GetWorkers(Page: PageRequest): Promise<CursorPage<WorkerRecord>>;
     GetAccounts(Page: PageRequest): Promise<CursorPage<AccountRecord>>;

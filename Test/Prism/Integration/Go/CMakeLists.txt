@@ -45,7 +45,7 @@ foreach(_Index RANGE 0 ${_GoCmpLast})
     endif()
 endforeach()
 
-# 外部客户端与服务端由 scripts/interop/Run-Matrix.ps1 驱动。
+# 外部客户端与服务端由 Scripts/Interop/RunMatrix.ps1 驱动。
 AddPrismGoTool(GoTestHysteria2 hysteria2 hysteria2 ${PRISM_ENABLE_INTEROP})
 AddPrismGoTool(GoTestTuic tuic tuic ${PRISM_ENABLE_INTEROP})
 AddPrismGoTool(GoTestShadowtls shadowtls shadowtls ${PRISM_ENABLE_INTEROP})

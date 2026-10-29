@@ -141,7 +141,7 @@ namespace Prism::Protocols
         const std::shared_ptr<ClosingSlot>& Slot) noexcept -> void
     {
         if (Reason.Succeeded()) Reason = {Prism::Fault::Code::Blocked};
-        State_->Failure.TrySet(Reason);
+        State_->Failure.Record(Reason);
         if (!Slot)
         {
             State_->Barrier.Block();
@@ -353,7 +353,7 @@ namespace Prism::Protocols
         Close();
         if (State_->Context && !State_->Context->CanDispatch())
         {
-            State_->Failure.TrySet({Prism::Fault::Code::Blocked});
+            State_->Failure.Record({Prism::Fault::Code::Blocked});
             State_->Barrier.Block();
         }
         const auto Drained = co_await State_->Barrier.Drain();

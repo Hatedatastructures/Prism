@@ -1,7 +1,7 @@
 /** @file Writer.hpp @brief 64请求及4MiB自有分段缓冲writer，真实完成后归还租约。 */
 #pragma once
 #include <Prism/Transport/Transmission.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 #include <Prism/Transport/WriteDriver.hpp>
 #include <Prism/Foundation/Fault/FailureState.hpp>
 #include <Prism/Foundation/Executor/FatalState.hpp>

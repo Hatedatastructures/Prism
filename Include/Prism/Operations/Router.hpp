@@ -6,7 +6,7 @@
  */
 
 #pragma once
-#include <Prism/Operations/OperationPublicationReceipt.hpp>
+#include <Prism/Operations/Publication/Receipt.hpp>
 
 #include <Prism/Operations/Models.hpp>
 #include <Prism/Operations/Redaction.hpp>

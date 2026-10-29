@@ -16,13 +16,13 @@ PrismAddStaticTarget(PrismProtocolVmess
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Binding.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ChunkCodec.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ChunkMask.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Conn.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnChunk.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnHandshake.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnIo.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/ConnSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Connection/Connection.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Connection/Chunk.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Connection/Handshake.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Connection/Io.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Connection/Session.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Credentials.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/DatagramSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Datagram/Session.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/Dgram.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/IngressFactory.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Vmess/RequestCodec.hpp

@@ -2,7 +2,7 @@ PrismAddStaticTarget(PrismProtocolTrojan
     SOURCES
         Codec.cpp
         Binding.cpp
-        DatagramSession.cpp
+        Datagram/Session.cpp
         Trojan.cpp
         Detail/Target.cpp
         IngressFactory.cpp
@@ -12,7 +12,7 @@ PrismAddStaticTarget(PrismProtocolTrojan
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Binding.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Conn.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/CredentialCodec.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/DatagramSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Datagram/Session.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/Dgram.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/IngressFactory.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trojan/RequestCodec.hpp

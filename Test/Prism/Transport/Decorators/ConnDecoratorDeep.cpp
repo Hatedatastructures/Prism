@@ -8,7 +8,7 @@
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include "../Core/TransportResources.hpp"
+#include "../Core/Resources.hpp"
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 
@@ -19,10 +19,10 @@
 
 #include <Prism/Transport/MemoryStream.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 #include <Prism/Protocols/Mux/Smux/Smux.hpp>
 #include <Prism/Protocols/Mux/Stream.hpp>
-#include <Prism/Protocols/Tuic/Conn.hpp>
+#include <Prism/Protocols/Tuic/Connection/Connection.hpp>
 #include <Prism/Protocols/Anytls/Conn.hpp>
 #include <Prism/Protocols/Gun/Conn.hpp>
 #include <gtest/gtest.h>

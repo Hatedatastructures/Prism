@@ -13,13 +13,13 @@
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Identifier/Id.hpp>
 #include <Prism/Lifecycle/DrainBarrier.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <Prism/Net/Dns/Config.hpp>
 #include <Prism/Resource/WorkerResources.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
 #include <Prism/Runtime/WorkerAdmissionReceipt.hpp>
 #include <Prism/Runtime/WorkerDispatchResult.hpp>
-#include <Prism/Runtime/SessionTraceRing.hpp>
+#include <Prism/Runtime/Session/Trace/Ring.hpp>
 #include <Prism/Runtime/WorkerTaskSnapshotGate.hpp>
 
 #include <boost/asio/any_io_executor.hpp>

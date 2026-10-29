@@ -6,13 +6,13 @@
 #include <gtest/gtest.h>
 
 #include <Prism/Application/Configuration/ConfigurationValidator.hpp>
-#include <Prism/Application/Configuration/Validation/CapabilityValidation.hpp>
-#include <Prism/Application/Configuration/Validation/CarrierValidation.hpp>
-#include <Prism/Application/Configuration/Validation/ConfigurationValidation.hpp>
-#include <Prism/Application/Configuration/Validation/ProtocolIndependentValidation.hpp>
-#include <Prism/Application/Configuration/Validation/ReferenceValidation.hpp>
-#include <Prism/Application/Configuration/Validation/SchemaValidation.hpp>
-#include <Prism/Application/Configuration/Validation/SecretValidation.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Capability.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Carrier.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Configuration.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Protocol.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Reference.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Schema.hpp>
+#include <Prism/Application/Configuration/Validation/Detail/Secret.hpp>
 
 #include <optional>
 

@@ -1,9 +1,9 @@
 /** @file TrusttunnelCandidate.cpp @brief TLS 与 TrustTunnel 分层候选适配实现。 */
 
 #include <Prism/Composition/Recognition/TrusttunnelCandidate.hpp>
-#include <Prism/Composition/Recognition/TrusttunnelCandidateFailure.hpp>
+#include <Prism/Composition/Recognition/Detail/TrusttunnelFailure.hpp>
 #include <Prism/Composition/Recognition/TlsCandidateFactory.hpp>
-#include <Prism/Protocols/Trusttunnel/Http2Server.hpp>
+#include <Prism/Protocols/Trusttunnel/Http2/Server.hpp>
 
 #include <memory>
 #include <system_error>

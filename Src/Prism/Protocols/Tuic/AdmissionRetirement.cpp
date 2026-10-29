@@ -3,10 +3,10 @@
  * @brief TUIC 关闭、排空、拒绝输入与 owner 退休实现。
  */
 #include <Prism/Protocols/Tuic/Admission.hpp>
-#include <Prism/Protocols/Tuic/AdmissionInput.hpp>
+#include <Prism/Protocols/Tuic/Detail/Admission.hpp>
 
 #include <Prism/Contract/Io/CarrierActivity.hpp>
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
 
 #include <boost/asio/bind_cancellation_slot.hpp>

@@ -1,7 +1,7 @@
 /** @file RequestMetadata.hpp @brief 接入与正式根运行共用的唯一请求观察快照。 */
 #pragma once
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
-#include <Prism/Lifecycle/TaskState.hpp>
+#include <Prism/Lifecycle/Task/State.hpp>
 #include <string>
 
 namespace Prism::Contract

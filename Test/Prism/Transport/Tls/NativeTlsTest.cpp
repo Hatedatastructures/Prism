@@ -6,7 +6,7 @@
  */
 
 #include <gtest/gtest.h>
-#include "../Core/TransportResources.hpp"
+#include "../Core/Resources.hpp"
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -35,7 +35,7 @@
 #include <Prism/Foundation/Fault/Code.hpp>
 #include <Prism/Transport/NativeTls.hpp>
 #include <Prism/Transport/Transmission.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 
 namespace
 {

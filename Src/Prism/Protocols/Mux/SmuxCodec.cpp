@@ -1,5 +1,5 @@
 /** @file SmuxCodec.cpp @brief Smux wire 帧编解码实现。 */
-#include <Prism/Protocols/Mux/Smux/Detail/Wire/Codec.hpp>
+#include <Prism/Protocols/Mux/Smux/Wire/Codec.hpp>
 
 #include <cstring>
 

@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include "XhttpNgxE2ESupport.hpp"
+#include "StreamOneSupport.hpp"
 
 namespace
 {

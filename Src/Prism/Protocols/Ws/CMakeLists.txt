@@ -3,12 +3,12 @@ set(PrismProtocolWsHeaders
 )
 set(PrismProtocolWsPrivateHeaders
     "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/Codec.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/ConnClose.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/ConnFrame.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/ConnHandshake.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/ConnSession.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/ConnStream.hpp"
-    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/ConnTransport.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/Connection/Close.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/Connection/Frame.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/Connection/Handshake.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/Connection/Session.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/Connection/Stream.hpp"
+    "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/Connection/Transport.hpp"
     "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/FrameWriteGate.hpp"
     "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Ws/Detail/StreamOwner.hpp"
 )

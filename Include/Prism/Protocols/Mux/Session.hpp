@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include <Prism/Protocols/Mux/Detail/Session/SessionContract.hpp>
-#include <Prism/Protocols/Mux/Detail/Session/SessionState.hpp>
-#include <Prism/Protocols/Mux/Detail/Session/SessionFlowControl.hpp>
-#include <Prism/Protocols/Mux/Detail/Session/SessionWriter.hpp>
-#include <Prism/Protocols/Mux/Detail/Session/SessionFrames.hpp>
-#include <Prism/Protocols/Mux/Detail/Session/SessionTeardown.hpp>
+#include <Prism/Protocols/Mux/Session/Contract.hpp>
+#include <Prism/Protocols/Mux/Session/State.hpp>
+#include <Prism/Protocols/Mux/Session/FlowControl.hpp>
+#include <Prism/Protocols/Mux/Session/Writer.hpp>
+#include <Prism/Protocols/Mux/Session/Frames.hpp>
+#include <Prism/Protocols/Mux/Session/Teardown.hpp>

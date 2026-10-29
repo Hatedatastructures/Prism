@@ -1,8 +1,8 @@
 /** @file TlsStream.cpp @brief 公开 TLS facade 与私有 engine 的 owning 转发。 */
 #include <Prism/Transport/TlsStream.hpp>
 
-#include <Prism/Transport/Detail/IoActivity.hpp>
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Activity/Io.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 #include <Prism/Transport/Detail/TlsEngine.hpp>
 
 #include <boost/asio/buffer.hpp>

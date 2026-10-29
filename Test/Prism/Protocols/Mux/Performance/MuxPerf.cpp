@@ -51,7 +51,7 @@
 #include <Prism/Protocols/Mux/Smux/Smux.hpp>
 #include <Prism/Protocols/Mux/Yamux/Yamux.hpp>
 #include <gtest/gtest.h>
-#include "MuxPerfAllocation.hpp"
+#include "PerfAllocation.hpp"
 
 namespace
 {

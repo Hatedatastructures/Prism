@@ -23,10 +23,10 @@
 #include <Prism/Runtime/Middleware/Builtin/Dial.hpp>
 #include <Prism/Runtime/Middleware/Context.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
-#include <Prism/Runtime/SessionControl.hpp>
-#include <Prism/Runtime/SessionRegistry.hpp>
-#include <Prism/Runtime/SessionServices.hpp>
-#include <Prism/Runtime/SessionTraceRing.hpp>
+#include <Prism/Runtime/Session/Control.hpp>
+#include <Prism/Runtime/Session/Registry.hpp>
+#include <Prism/Runtime/Session/Services.hpp>
+#include <Prism/Runtime/Session/Trace/Ring.hpp>
 #include <Prism/Runtime/Session/RecognitionLogging.hpp>
 #include <Prism/Transport/Transmission.hpp>
 

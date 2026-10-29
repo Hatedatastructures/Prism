@@ -3,7 +3,7 @@
  * @brief Reality SessionId 实验通道的认证与底层 I/O 错误边界。
  */
 
-#include "../Session/SessionIdSupport.hpp"
+#include "../Session/IdSupport.hpp"
 #include "SessionIdChannel.hpp"
 
 #include <Prism/Protocols/Reality/Detail/KeyMaterial.hpp>

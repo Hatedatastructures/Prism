@@ -1,15 +1,15 @@
 /** @file RootChild.cpp @brief Mux root 子流拨号、中继和退休 owner 实现。 */
 
-#include <Prism/Protocols/Mux/Detail/Root/RootChild.hpp>
+#include <Prism/Protocols/Mux/Root/Child.hpp>
 
 #include <Prism/Contract/Ingress/StreamCatalog.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Fault/FailureState.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 #include <Prism/Protocols/Mux/Detail/RootChildOwner.hpp>
 #include <Prism/Net/Relay/Relay.hpp>
-#include <Prism/Protocols/Mux/Detail/Root/RootState.hpp>
+#include <Prism/Protocols/Mux/Root/State.hpp>
 #include "Detail/SingMux/SingMux.hpp"
 #include <Prism/Protocols/Mux/SingMux/Stream.hpp>
 #include <boost/asio/bind_cancellation_slot.hpp>

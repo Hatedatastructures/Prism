@@ -15,11 +15,11 @@ PrismAddInterfaceTarget(PrismIngressModel HEADERS
 
 PrismAddStaticTarget(PrismDatagramContract
     SOURCES
-        Ingress/RawDatagramIngress.cpp
+        Ingress/Datagram/Raw.cpp
     HEADERS
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/RawDatagramIngress.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/Datagram/Raw.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Services/Datagram.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Services/DatagramEgress.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Services/Datagram/Egress.hpp"
 )
 
 PrismAddInterfaceTarget(PrismStreamContract HEADERS
@@ -29,17 +29,17 @@ PrismAddInterfaceTarget(PrismStreamContract HEADERS
 
 PrismAddStaticTarget(PrismIngressContract
     SOURCES
-        Ingress/AdmissionTransportRetirement.cpp
+        Ingress/Admission/Transport/Retirement.cpp
         Ingress/AdmissionRetirement.cpp
         Ingress/InboundAdmission.cpp
         Ingress/MuxRootCreateRequest.cpp
         Ingress/QuicConnection.cpp
         Ingress/StreamCatalog.cpp
     HEADERS
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/AdmissionTransportRetirement.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/Admission/Transport/Retirement.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/CarrierCatalogOwner.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/DatagramIngressSelection.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/DatagramSession.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/Datagram/Selection.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/Datagram/Session.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/DataPlane.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/InboundAdmission.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Contract/Ingress/MuxRootCreateRequest.hpp"

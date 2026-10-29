@@ -4,10 +4,10 @@
  */
 
 #include "TransmissionSupport.hpp"
-#include "TransportResources.hpp"
+#include "Resources.hpp"
 #include <Prism/Foundation/Executor/ClosingStorage.hpp>
 #include <Prism/Foundation/Executor/ContextOwner.hpp>
-#include <Prism/Transport/Detail/IoActivity.hpp>
+#include <Prism/Transport/Activity/Io.hpp>
 #include <Prism/Transport/Transmission.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/executor_work_guard.hpp>

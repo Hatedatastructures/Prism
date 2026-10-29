@@ -8,16 +8,16 @@ target_sources(PrismTestSupport INTERFACE
         Fixtures/RecognitionWire.hpp
         Fixtures/StreamFactory.hpp
         Fixtures/MuxRoot.hpp
-        Prism/AccountAdmissionAuthority.hpp
-        Prism/PrismMockTransport.hpp
+        Prism/Account/Admission.hpp
+        Prism/MockTransport.hpp
         Prism/ProviderBindings.hpp
         Prism/GenerationPublication.hpp
-        Prism/ProtocolIngressBindings.hpp
+        Prism/Protocol/Ingress.hpp
         Prism/TuicFactoryFixture.hpp
-        Prism/Quic/MemoryDatagramProvider.hpp
+        Prism/Quic/MemoryProvider.hpp
         Prism/QuicFactory.hpp
-        Prism/QuicStreamProviderActivity.hpp
-        Prism/DiagnoseTestEnvironment.hpp
+        Prism/Quic/StreamActivity.hpp
+        Prism/Diagnose/Environment.hpp
         Tls/MockTlsServer.hpp
         Benchmark/Bench.hpp
         Stress/StressHelper.hpp)

@@ -5,7 +5,7 @@
 #pragma once
 
 #include <Prism/Foundation/Utility/Diagnose/Facade.hpp>
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 
 #include <chrono>
 #include <cstddef>

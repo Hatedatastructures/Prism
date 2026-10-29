@@ -17,7 +17,7 @@
 #include <memory>
 #include <utility>
 
-#include <Prism/Lifecycle/TaskRegistry.hpp>
+#include <Prism/Lifecycle/Task/Registry.hpp>
 
 namespace Prism::Runtime::Detail
 {

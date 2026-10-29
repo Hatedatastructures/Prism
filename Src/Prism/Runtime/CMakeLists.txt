@@ -13,18 +13,18 @@ PrismAddStaticTarget(PrismRuntime
         Middleware/Builtin/Throttle.cpp
         Middleware/Pipeline.cpp
         Process.cpp
-        Session.cpp
-        SessionCarrierInstallation.cpp
-        SessionClosePolicy.cpp
-        SessionDataPlaneRelay.cpp
-        SessionDelivery.cpp
-        SessionRecognitionLogging.cpp
-        SessionLogState.cpp
-        SessionControl.cpp
-        SessionRecognitionAdmission.cpp
-        SessionRegistry.cpp
-        SessionRegistryMetadata.cpp
-        SessionTraceRing.cpp
+        Session/Session.cpp
+        Session/Carrier/Installation.cpp
+        Session/Close/Policy.cpp
+        Session/DataPlane/Relay.cpp
+        Session/Delivery.cpp
+        Session/Recognition/Logging.cpp
+        Session/Trace/State.cpp
+        Session/Control.cpp
+        Session/Recognition/Admission.cpp
+        Session/Registry/Registry.cpp
+        Session/Registry/Metadata.cpp
+        Session/Trace/Ring.cpp
         Statistics.cpp
         Worker.cpp
         WorkerGroup.cpp
@@ -51,7 +51,6 @@ PrismAddStaticTarget(PrismRuntime
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/ListenerAdmissionOwner.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/ListenerConnectionDrain.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/ListenerConnectionGate.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Detail/ListenerAcceptRecovery.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Middleware/Builtin/Dial.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Middleware/Builtin/Pad.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Middleware/Builtin/Relay.hpp"
@@ -94,16 +93,15 @@ PrismAddStaticTarget(PrismRuntime
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/RecognitionAdmission.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/RecognitionLogging.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/RunContext.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionControl.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionRegistry.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionRegistryAccountRetirement.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionRegistryModel.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionRegistryRetirement.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionRegistryStorage.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionRegistryStreamCatalog.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionServices.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionTraceModel.hpp"
-        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/SessionTraceRing.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Control.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Registry.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Registry/Model.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Registry/Retirement.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Registry/Storage.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Registry/Stream/Catalog.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Services.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Trace/Model.hpp"
+        "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Session/Trace/Ring.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Statistics.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Statistics/HistoryCollector.hpp"
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/Statistics/RecognitionLatency.hpp"
@@ -114,7 +112,9 @@ PrismAddStaticTarget(PrismRuntime
         "${PROJECT_SOURCE_DIR}/Include/Prism/Runtime/WorkerTaskSnapshotGate.hpp"
     PRIVATE_HEADERS
         "${PROJECT_SOURCE_DIR}/Src/Prism/Runtime/Detail/Mailbox.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Runtime/Detail/ListenerAcceptRecovery.hpp"
         "${PROJECT_SOURCE_DIR}/Src/Prism/Runtime/Detail/ListenerCompletion.hpp"
         "${PROJECT_SOURCE_DIR}/Src/Prism/Runtime/Detail/ListenerTrace.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Runtime/Session/Registry/Detail/AccountRetirement.hpp"
         "${PROJECT_SOURCE_DIR}/Src/Prism/Runtime/Recognition/Detail/RecognitionConfig.hpp"
 )

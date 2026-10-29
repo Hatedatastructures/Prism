@@ -1,6 +1,6 @@
 /** @file PublishedPolicySource.cpp @brief 按原子发布快照读取账户策略。 */
 
-#include <Prism/Application/Account/PublishedPolicySource.hpp>
+#include <Prism/Application/Account/Detail/PublishedPolicySource.hpp>
 #include <Prism/Application/RuntimeGenerationSnapshot.hpp>
 #include <Prism/Runtime/GenerationPublication.hpp>
 

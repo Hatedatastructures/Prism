@@ -1,11 +1,11 @@
 set(PrismProtocolQuicHeaders
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/DatagramAdapter.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Detail/DatagramInbox.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Detail/NativeConnection.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Detail/NativeConnectionProviders.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Detail/NativeConnectionState.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Detail/NativeFacades.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Detail/NativeStreamActivity.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Datagram/Adapter.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Native/Datagram/Inbox.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Native/Connection.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Native/Connection/Providers.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Native/Connection/State.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Native/Facades.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Native/Stream/Activity.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/Native.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/StreamAdapter.hpp"
 )
@@ -16,28 +16,28 @@ PrismAddStaticTarget(PrismProtocolQuic
     HEADERS
         ${PrismProtocolQuicHeaders}
     PRIVATE_HEADERS
-        Detail/StreamAdapterActivity.hpp
+        Native/Stream/Detail/AdapterActivity.hpp
 )
 
 PrismAddStaticTarget(PrismProtocolQuicNative
     SOURCES
-        DatagramInbox.cpp
-        NativeConnectionCallbacks.cpp
-        NativeConnectionDatagrams.cpp
-        NativeConnectionLifecycle.cpp
-        NativeConnectionOperationReservation.cpp
-        NativeConnectionProviders.cpp
-        NativeConnectionShutdown.cpp
-        NativeConnectionSocketRegistry.cpp
-        NativeConnectionStreamAdmission.cpp
-        NativeConnectionStreams.cpp
-        NativeConnectionTransport.cpp
-        NativeFacades.cpp
-        NativeStreamActivity.cpp
+        Native/Datagram/Inbox.cpp
+        Native/Connection/Callbacks.cpp
+        Native/Connection/Datagrams.cpp
+        Native/Connection/Lifecycle.cpp
+        Native/Connection/Operation/Reservation.cpp
+        Native/Connection/Providers.cpp
+        Native/Connection/Shutdown.cpp
+        Native/Socket/Registry.cpp
+        Native/Stream/Admission.cpp
+        Native/Stream/Connection.cpp
+        Native/Connection/Transport.cpp
+        Native/Facades.cpp
+        Native/Stream/Activity.cpp
         QuicConnectionLifecycle.cpp
     HEADERS
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Quic/QuicConnectionLifecycle.hpp"
     PRIVATE_HEADERS
-        "Detail/NativeConnectionStreamAdmission.hpp"
-        Detail/NativeConnectionSocketRegistry.hpp
+        "Native/Stream/Detail/Admission.hpp"
+        Native/Socket/Detail/Registry.hpp
 )

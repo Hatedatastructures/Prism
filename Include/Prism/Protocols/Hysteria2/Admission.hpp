@@ -35,7 +35,7 @@
 #include <Prism/Protocols/Hysteria2/Types.hpp>
 #include <Prism/Protocols/Hysteria2/Http3Auth.hpp>
 #include <Prism/Protocols/Http3/Auth.hpp>
-#include <Prism/Protocols/Quic/DatagramAdapter.hpp>
+#include <Prism/Protocols/Quic/Datagram/Adapter.hpp>
 #include <Prism/Protocols/Quic/StreamAdapter.hpp>
 #include <Prism/Net/Target.hpp>
 #include <Prism/Transport/Transmission.hpp>

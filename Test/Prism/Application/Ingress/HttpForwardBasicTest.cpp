@@ -2,7 +2,7 @@
  * @file HttpForwardBasicTest.cpp
  * @brief HTTP 正向代理基本请求与响应生命周期测试。
  */
-#include "HttpForwardTestSupport.hpp"
+#include "ForwardSupport.hpp"
 TEST(HttpForwardIngress, ForwardsAuthenticatedAbsoluteFormAndCoalescedBody)
 {
     LoopbackOrigin Origin;

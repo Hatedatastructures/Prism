@@ -3,7 +3,7 @@
 #include <Prism/Foundation/Memory/BytePool.hpp>
 #include <Prism/Transport/PadPolicy.hpp>
 #include <Prism/Transport/Writer.hpp>
-#include <Prism/Transport/Detail/PadDriver.hpp>
+#include <Prism/Transport/Pad/Driver.hpp>
 #include <cstddef>
 #include <memory>
 #include <span>

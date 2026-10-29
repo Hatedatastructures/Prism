@@ -6,13 +6,13 @@
  */
 #pragma once
 
-#include <Prism/Contract/Ingress/DatagramSession.hpp>
+#include <Prism/Contract/Ingress/Datagram/Session.hpp>
 #include <Prism/Foundation/Fault/FailureState.hpp>
 #include <Prism/Foundation/Utility/TrafficSink.hpp>
-#include <Prism/Lifecycle/TaskState.hpp>
-#include <Prism/Protocols/Common/DatagramObservation.hpp>
+#include <Prism/Lifecycle/Task/State.hpp>
+#include <Prism/Protocols/Common/Datagram/Observation.hpp>
 #include <Prism/Protocols/Common/ProtocolActivity.hpp>
-#include <Prism/Protocols/Common/DatagramBinding.hpp>
+#include <Prism/Protocols/Common/Datagram/Binding.hpp>
 #include <Prism/Protocols/Vless/Conn.hpp>
 #include <Prism/Protocols/Vless/Types.hpp>
 #include <Prism/Protocols/Vless/UdpTunnelFrames.hpp>

@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <Prism/Foundation/Utility/Diagnose/ContextState.hpp>
-#include <TestSupport/Prism/DiagnoseTestEnvironment.hpp>
+#include <TestSupport/Prism/Diagnose/Environment.hpp>
 
 #include <chrono>
 #include <filesystem>

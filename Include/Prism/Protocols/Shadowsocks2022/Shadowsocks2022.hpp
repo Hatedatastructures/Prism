@@ -15,7 +15,7 @@
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Protocols/Shadowsocks2022/ChunkCodec.hpp>
-#include <Prism/Protocols/Shadowsocks2022/Conn.hpp>
+#include <Prism/Protocols/Shadowsocks2022/Connection/Connection.hpp>
 #include <Prism/Protocols/Shadowsocks2022/Dgram.hpp>
 #include <Prism/Protocols/Shadowsocks2022/KeyDerivation.hpp>
 #include <Prism/Protocols/Shadowsocks2022/RequestState.hpp>

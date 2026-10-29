@@ -48,7 +48,7 @@ namespace Prism::Transport
      *          TLS error 的领域码转换由调用方既有边界决定。
      *          取消：handler 的 associated executor、allocator、cancellation slot 经 completion 适配器保留；
      *          engine 在 strand 上预约完成，排队前取消交付 Canceled，真实 I/O 取消仍由 Asio 操作完成。
-     *          半关闭：WriteShutdown/async_write_shutdown 只发本端 close_notify，读方向继续可用；
+     *          半关闭：WriteShutdown/AsyncWriteShutdown 只发本端 close_notify，读方向继续可用；
      *          async_shutdown 执行完整双向 TLS shutdown。
      *          最终关闭者：本类只拥有 TLS engine，不关闭底层 socket；描述符最终由 lowest_layer 的
      *          Transmission 关闭。executor：engine 使用 Connector 的 executor 建立 strand，结果按 handler
@@ -130,7 +130,7 @@ namespace Prism::Transport
          *          同时可接收单参和双参的泛型 handler 仍优先收到 (error_code, 0)。
          */
         template<class Token>
-        auto async_write_shutdown(Token&& Handler)
+        auto AsyncWriteShutdown(Token&& Handler)
         {
             return InitiateAsio<false, true>(std::forward<Token>(Handler),
                 [](std::shared_ptr<TlsStream> Owner, Prism::Transmission::Completion Completion)

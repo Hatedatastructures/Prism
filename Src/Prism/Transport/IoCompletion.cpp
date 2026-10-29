@@ -1,5 +1,5 @@
 /** @file IoCompletion.cpp @brief 类型擦除完成结果的交付实现。 */
-#include <Prism/Transport/Detail/IoCompletion.hpp>
+#include <Prism/Transport/Io/Completion.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/post.hpp>
 #include <system_error>

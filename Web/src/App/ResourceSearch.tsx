@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+/** @file 基于 Shadcn CommandDialog 的 Prism 全局资源搜索。 */
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import * as Dialog from '@radix-ui/react-dialog';
-import { Command } from 'cmdk';
-import { ArrowUpRight, Cpu, LayoutDashboard, Network, Search, Users, X } from 'lucide-react';
+import { ArrowUpRight, Cpu, LayoutDashboard, Network, Search, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router';
+import { Button } from '@/Components/ui/button';
+import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, CommandShortcut } from '@/Components/ui/command';
 import type { AdminServices } from './AdminServices';
 import { WithTime } from '../Features/TimeRange';
 
@@ -24,58 +25,71 @@ const Pages: readonly SearchEntry[] = [
     { Id: 'operations', Label: '操作中心', Detail: '查看实际操作结果', Path: '/operations', Icon: LayoutDashboard },
 ];
 
-/** @brief 明确全局搜索能力，防抖与取消过时请求；不把局部库存冒充全局结果。 */
+/** @brief 支持页面搜索与可用时的服务端资源搜索；未开放能力时不伪造全局结果。 */
 export function ResourceSearch(Input: Readonly<{ Services: AdminServices }>): ReactNode {
-    const [Open, SetOpen] = useState(false), [Text, SetText] = useState(''), [Debounced, SetDebounced] = useState('');
-    const Navigate = useNavigate(), [Params] = useSearchParams();
-    useEffect(() => { const Timer = setTimeout(() => SetDebounced(Text.trim()), 300); return () => clearTimeout(Timer); }, [Text]);
-    const Query = useQuery({ queryKey: ['operations', 'resource-search', Debounced], enabled: Open && Debounced.length > 0, staleTime: 5000, retry: false,
+    const [Open, SetOpen] = useState(false);
+    const [Text, SetText] = useState('');
+    const [Debounced, SetDebounced] = useState('');
+    const Trigger = useRef<HTMLButtonElement>(null);
+    const FocusRestore = useRef<HTMLElement | null>(null);
+    const Navigate = useNavigate();
+    const [Params] = useSearchParams();
+    const CaptureFocus = (): void => {
+        const Active = document.activeElement;
+        FocusRestore.current = Active instanceof HTMLElement && Active !== document.body ? Active : Trigger.current;
+    };
+    const SetDialogOpen = (Value: boolean): void => {
+        if (Value) CaptureFocus();
+        SetOpen(Value);
+    };
+    useEffect(() => { const Timer = window.setTimeout(() => SetDebounced(Text.trim()), 250); return () => window.clearTimeout(Timer); }, [Text]);
+    useEffect(() => {
+        const Shortcut = (Event: KeyboardEvent): void => {
+            if (Event.key.toLowerCase() !== 'k' || !(Event.ctrlKey || Event.metaKey)) return;
+            Event.preventDefault();
+            SetOpen(Value => {
+                if (!Value) CaptureFocus();
+                return !Value;
+            });
+        };
+        document.addEventListener('keydown', Shortcut);
+        return () => document.removeEventListener('keydown', Shortcut);
+    }, []);
+    const Bootstrap = useQuery({ queryKey: ['operations', 'bootstrap-identity', Input.Services.Mode], queryFn: () => Input.Services.Data.GetBootstrap({ Fresh: true }), retry: false, staleTime: 0,
+        refetchInterval: Input.Services.Mode === 'live' ? 5_000 : false, refetchIntervalInBackground: false, refetchOnWindowFocus: true });
+    const SearchAvailable = Bootstrap.data?.Capabilities.includes('search.read') === true && !Bootstrap.error;
+    const Query = useQuery({ queryKey: ['operations', 'resource-search', Debounced], enabled: Open && Debounced.length > 0 && SearchAvailable, staleTime: 5_000, retry: false,
         queryFn: ({ signal }) => {
             if (!Input.Services.Data.Search) throw new Error('当前实例尚未提供全局资源搜索，请进入对应清单筛选');
             return Input.Services.Data.Search(Debounced, signal);
         } });
-    function Select(Path: string): void { SetOpen(false); Navigate(WithTime(Path, Params)); }
-    useEffect(() => {
-        function Shortcut(Event: KeyboardEvent): void {
-            if (Event.key.toLowerCase() !== 'k' || !(Event.ctrlKey || Event.metaKey)) return;
-            Event.preventDefault(); SetOpen(Value => !Value);
-        }
-        document.addEventListener('keydown', Shortcut);
-        return () => document.removeEventListener('keydown', Shortcut);
-    }, []);
+    const Select = (Path: string): void => { SetOpen(false); Navigate(WithTime(Path, Params)); };
     const PageMatches = Pages.filter(Entry => `${Entry.Label} ${Entry.Detail}`.toLowerCase().includes(Text.toLowerCase()));
     const Resources: readonly SearchEntry[] = Query.data?.map(Entry => ({ ...Entry, Id: `${Entry.Kind}:${Entry.Id}`,
-        Detail: Entry.Kind === 'worker' ? `${Entry.Detail} · 当前 Worker 槽位；操作前核对进程与 Generation`
-            : Entry.Kind === 'account' ? `${Entry.Detail} · 查看当前账户` : Entry.Detail,
+        Detail: Entry.Kind === 'worker' ? `${Entry.Detail} · 当前 Worker 槽位` : Entry.Kind === 'account' ? `${Entry.Detail} · 查看当前账户` : Entry.Detail,
         Icon: Entry.Kind === 'worker' ? Cpu : Entry.Kind === 'account' ? Users : Network })) ?? [];
-    return <Dialog.Root open={Open} onOpenChange={SetOpen}>
-        <Dialog.Trigger asChild><button className="resource-search-trigger" type="button" aria-label="搜索资源">
-            <Search size={15} aria-hidden="true" /><span>搜索资源…</span><kbd>Ctrl K</kbd>
-        </button></Dialog.Trigger>
-        <Dialog.Portal><Dialog.Overlay className="dialog-overlay" />
-            <Dialog.Content className="resource-search-dialog" aria-describedby="resource-search-description">
-                <Dialog.Title className="sr-only">搜索资源</Dialog.Title>
-                <Dialog.Description id="resource-search-description" className="sr-only">搜索页面以及服务端资源。使用方向键选择，回车打开。</Dialog.Description>
-                <Command loop label="资源搜索关键字" shouldFilter={false}>
-                    <div className="resource-search-input"><Search size={19} aria-hidden="true" />
-                        <Command.Input value={Text} onValueChange={SetText} placeholder="搜索账户、Worker、Session 或页面…" aria-label="资源搜索关键字" />
-                        <Dialog.Close className="icon-button" aria-label="关闭资源搜索"><X size={17} aria-hidden="true" /></Dialog.Close>
-                    </div>
-                    <Command.List><Command.Empty>没有匹配资源，尝试名称、ID、来源或目标地址。</Command.Empty>
-                        {PageMatches.length > 0 && <Command.Group heading="页面">{PageMatches.map(Entry => <SearchItem key={Entry.Id} Value={Entry} OnSelect={Select} />)}</Command.Group>}
-                        {Resources.length > 0 && <Command.Group heading="服务端资源">{Resources.map(Entry => <SearchItem key={Entry.Id} Value={Entry} OnSelect={Select} />)}</Command.Group>}
-                    </Command.List>
-                    <div className="resource-search-footer" role="status"><span>{!Debounced ? '输入关键字搜索服务端资源' : Query.isError ? Query.error.message : Query.isFetching ? '正在搜索资源…' : `${Resources.length} 条服务端结果 · 最多 20 条`}</span>
-                        <span>↑ ↓ 选择 <kbd>Enter</kbd> 打开</span></div>
-                </Command>
-            </Dialog.Content>
-        </Dialog.Portal>
-    </Dialog.Root>;
+    const Status = !Debounced ? '输入关键字搜索页面和资源' : Bootstrap.error ? '无法确认服务端搜索能力；仍可搜索页面' : !SearchAvailable ? '当前实例未开放全局资源搜索；仍可搜索页面' : Query.isError ? Query.error.message : Query.isFetching ? '正在搜索服务端资源…' : `${Resources.length} 条服务端结果`;
+    return <><Button ref={Trigger} type="button" variant="outline" className="w-full justify-center px-0 text-muted-foreground xl:justify-between xl:px-3" onClick={() => SetDialogOpen(true)} aria-label="搜索资源">
+        <span className="flex items-center gap-2"><Search aria-hidden="true" /><span className="hidden xl:inline">搜索资源…</span></span><CommandShortcut className="hidden xl:inline">Ctrl K</CommandShortcut>
+    </Button>
+        <CommandDialog open={Open} onOpenChange={SetDialogOpen} onCloseAutoFocus={Event => {
+            Event.preventDefault();
+            FocusRestore.current?.focus();
+            FocusRestore.current = null;
+        }} title="搜索资源" description="搜索 Prism 页面和服务端资源。">
+            <Command loop label="资源搜索关键字" shouldFilter={false}><CommandInput value={Text} onValueChange={SetText} placeholder="搜索账户、Worker、Session 或页面…" aria-label="资源搜索关键字" />
+                <CommandList><CommandEmpty>{Debounced && !SearchAvailable ? '服务端未开放全局搜索；请尝试页面名称。' : '没有匹配资源，尝试名称、ID、来源或目标地址。'}</CommandEmpty>
+                    {PageMatches.length > 0 && <CommandGroup heading="页面">{PageMatches.map(Entry => <SearchItem Value={Entry} OnSelect={Select} key={Entry.Id} />)}</CommandGroup>}
+                    {PageMatches.length > 0 && Resources.length > 0 && <CommandSeparator />}
+                    {Resources.length > 0 && <CommandGroup heading="服务端资源">{Resources.map(Entry => <SearchItem Value={Entry} OnSelect={Select} key={Entry.Id} />)}</CommandGroup>}
+                </CommandList>
+                <div className="border-t px-3 py-2 text-xs text-muted-foreground" role="status">{Status}</div>
+            </Command>
+        </CommandDialog>
+    </>;
 }
+
 function SearchItem(Input: Readonly<{ Value: SearchEntry; OnSelect: (Path: string) => void }>): ReactNode {
     const Entry = Input.Value;
-    return <Command.Item value={Entry.Id} onSelect={() => Input.OnSelect(Entry.Path)}>
-        <Entry.Icon size={17} aria-hidden="true" /><span><strong>{Entry.Label}</strong><small>{Entry.Detail}</small></span>
-        <ArrowUpRight size={14} aria-hidden="true" />
-    </Command.Item>;
+    return <CommandItem value={Entry.Id} onSelect={() => Input.OnSelect(Entry.Path)}><Entry.Icon aria-hidden="true" /><span className="min-w-0 flex-1"><strong className="block truncate font-medium">{Entry.Label}</strong><small className="block truncate text-muted-foreground">{Entry.Detail}</small></span><ArrowUpRight aria-hidden="true" /></CommandItem>;
 }

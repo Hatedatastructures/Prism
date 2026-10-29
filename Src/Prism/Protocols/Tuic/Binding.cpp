@@ -4,7 +4,7 @@
  */
 #include <Prism/Protocols/Tuic/Binding.hpp>
 
-#include <Prism/Protocols/Tuic/NativeSession.hpp>
+#include <Prism/Protocols/Tuic/Detail/Session.hpp>
 
 #include <openssl/ssl.h>
 

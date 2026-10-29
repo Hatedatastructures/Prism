@@ -73,7 +73,7 @@ namespace Prism::Protocols
         // Reservation 只记录活动事实；协议资源仍由当前 Run/caller 的
         // 原有 owner 持有，不把它伪装成这里的关闭 owner。
         if (!State_) return;
-        State_->Failure.TrySet({Prism::Fault::Code::Blocked});
+        State_->Failure.Record({Prism::Fault::Code::Blocked});
         State_->Barrier.Block();
         State_->Barrier.Leave();
         State_.reset();
@@ -127,7 +127,7 @@ namespace Prism::Protocols
 
     auto ProtocolActivity::Block() noexcept -> void
     {
-        State_->Failure.TrySet({Prism::Fault::Code::Blocked});
+        State_->Failure.Record({Prism::Fault::Code::Blocked});
         State_->Barrier.Block();
     }
 } // namespace Prism::Protocols

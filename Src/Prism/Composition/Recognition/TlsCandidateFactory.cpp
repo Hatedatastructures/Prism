@@ -2,7 +2,7 @@
 
 #include <Prism/Composition/Recognition/TlsCandidateFactory.hpp>
 #include <Prism/Composition/Recognition/TlsCarrierHelpers.hpp>
-#include <Prism/Composition/Recognition/TlsRecognitionHelpers.hpp>
+#include <Prism/Composition/Recognition/Detail/Helpers.hpp>
 
 #include <memory>
 #include <string>

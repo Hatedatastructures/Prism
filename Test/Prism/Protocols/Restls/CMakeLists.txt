@@ -1,29 +1,29 @@
 # restls 子模块
-AddPrismTest(Codec/RestlsCodecTest.cpp)
+AddPrismTest(Codec/CodecTest.cpp RestlsCodecTest)
 target_include_directories(RestlsCodecTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(RestlsCodecTest PRIVATE PrismFoundation PrismProtocolRestls)
-AddPrismTest(Connection/RestlsConnSession.cpp)
-target_sources(RestlsConnSession PRIVATE Connection/RestlsRecordTerminalTest.cpp)
+AddPrismTest(Connection/Session.cpp RestlsConnSession)
+target_sources(RestlsConnSession PRIVATE Connection/RecordTerminalTest.cpp)
 target_include_directories(RestlsConnSession PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(RestlsConnSession PRIVATE
     PrismFoundation PrismIoContracts PrismTransport PrismProtocolRestls)
 
-AddPrismTest(Codec/RestlsCodecDeep.cpp)
+AddPrismTest(Codec/Deep.cpp RestlsCodecDeep)
 target_include_directories(RestlsCodecDeep PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(RestlsCodecDeep PRIVATE PrismProtocolRestls)
 
-AddPrismTest(Connection/RestlsServerHandshakeTest.cpp)
+AddPrismTest(Connection/ServerHandshakeTest.cpp RestlsServerHandshakeTest)
 target_include_directories(RestlsServerHandshakeTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(RestlsServerHandshakeTest PRIVATE PrismProtocolRestls)
 
-AddPrismTest(Connection/RestlsServerRelayTest.cpp)
+AddPrismTest(Connection/ServerRelayTest.cpp RestlsServerRelayTest)
 target_include_directories(RestlsServerRelayTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(RestlsServerRelayTest PRIVATE PrismFoundation PrismTransport PrismProtocolRestls)
 
-AddPrismTest(Core/RestlsCarrierTest.cpp)
+AddPrismTest(Core/CarrierTest.cpp RestlsCarrierTest)
 target_include_directories(RestlsCarrierTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(RestlsCarrierTest PRIVATE PrismTransport PrismProtocolRestls)
 
-AddPrismTest(Codec/RestlsAuthKeyTest.cpp)
+AddPrismTest(Codec/AuthKeyTest.cpp RestlsAuthKeyTest)
 target_include_directories(RestlsAuthKeyTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(RestlsAuthKeyTest PRIVATE PrismFoundation PrismProtocolRestls)

@@ -20,11 +20,11 @@ export function useBootstrapIdentity(): UseQueryResult<BootstrapSnapshot, Error>
 export function useAdminQuery<Value>(
     Name: string,
     Load: (Source: AdminDataSource) => Promise<Value>,
-    Options: Readonly<{ Enabled?: boolean; Scope?: readonly unknown[] }> = {},
+    Options: Readonly<{ Enabled?: boolean; Scope?: readonly unknown[]; StaleTime?: number }> = {},
 ): UseQueryResult<Value, Error> {
     const Services = useAdminServices();
     return useQuery({ queryKey: ['operations', Name, ...(Options.Scope ?? [])], queryFn: () => Load(Services.Data),
-        enabled: Options.Enabled ?? true, retry: false, staleTime: 2_000,
+        enabled: Options.Enabled ?? true, retry: false, staleTime: Options.StaleTime ?? 2_000,
         refetchInterval: Services.Mode === 'live' ? 5_000 : false, refetchIntervalInBackground: false,
         refetchOnWindowFocus: true });
 }
@@ -40,6 +40,7 @@ export function useAdminInfiniteQuery<Page extends CursorPage<unknown>>(
     const FilteredCollection = ['accounts', 'workers', 'sessions', 'groups', 'ingresses', 'protocols'].includes(Name);
     const Filter = FilteredCollection ? { Query: Params.get('q') ?? '', State: Params.get('state') ?? '',
         WorkerId: Name === 'sessions' ? Params.get('worker') ?? '' : '', AccountId: Name === 'sessions' ? Params.get('account') ?? '' : '',
+        ProcessId: Name === 'sessions' ? Params.get('process') ?? '' : '', GenerationId: Name === 'sessions' ? Params.get('generation') ?? '' : '',
         Protocol: Name === 'sessions' ? Params.get('protocol') ?? '' : '', Sort: Params.get('sort') ?? '',
         GroupId: Name === 'accounts' ? Params.get('group') ?? '' : '' } : {};
     return useInfiniteQuery({

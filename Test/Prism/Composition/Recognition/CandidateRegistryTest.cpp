@@ -1,5 +1,5 @@
 #include <TestSupport/Prism/ProviderBindings.hpp>
-#include <TestSupport/Prism/ProtocolIngressBindings.hpp>
+#include <TestSupport/Prism/Protocol/Ingress.hpp>
 /**
  * @file CandidateRegistryTest.cpp
  * @brief Settings candidate registry behavior tests.
@@ -33,7 +33,7 @@
 #include <Prism/Composition/Recognition/CandidateFactory.hpp>
 #include <Prism/Composition/Recognition/CandidateRegistry.hpp>
 #include <Prism/Composition/Recognition/TrusttunnelCandidate.hpp>
-#include <Prism/Composition/Recognition/TrusttunnelCandidateFailure.hpp>
+#include <Prism/Composition/Recognition/Detail/TrusttunnelFailure.hpp>
 #include <Prism/Account/Authenticator.hpp>
 #include <Prism/Protocols/Trojan/RequestCodec.hpp>
 #include <Prism/Protocols/Vless/RequestCodec.hpp>

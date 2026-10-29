@@ -1,7 +1,7 @@
 /** @file QuicFactory.hpp @brief QUIC registry 测试的 Native owner 与 UDP 发送端口。 */
 #pragma once
 #include <Prism/Contract/Ingress/QuicConnection.hpp>
-#include <Prism/Contract/Ingress/DatagramIngressSelection.hpp>
+#include <Prism/Contract/Ingress/Datagram/Selection.hpp>
 #include <Prism/Contract/Services/Quic.hpp>
 #include <Prism/Foundation/Identifier/SessionIdAllocator.hpp>
 #include <Prism/Protocols/Quic/Native.hpp>

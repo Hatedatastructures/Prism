@@ -11,12 +11,12 @@ PrismAddStaticTarget(PrismProtocolShadowsocks2022
     HEADERS
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Binding.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ChunkCodec.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Conn.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnDatagram.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnHandshake.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnOptions.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnRecord.hpp
-        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/ConnSession.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Connection/Connection.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Connection/Datagram.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Connection/Handshake.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Connection/Options.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Connection/Record.hpp
+        ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Connection/Session.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/Dgram.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/GatewayState.hpp
         ${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Shadowsocks2022/KeyDerivation.hpp

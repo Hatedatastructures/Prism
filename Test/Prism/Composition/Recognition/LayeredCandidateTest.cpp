@@ -31,7 +31,7 @@
 #include <Prism/Protocols/Http1/Binding.hpp>
 #include <Prism/Runtime/Recognition/Recognition.hpp>
 #include <Prism/Transport/MemoryStream.hpp>
-#include <TestSupport/Prism/PrismMockTransport.hpp>
+#include <TestSupport/Prism/MockTransport.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 #include <TestSupport/Fixtures/RecognitionWire.hpp>

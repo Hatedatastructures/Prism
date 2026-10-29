@@ -1,12 +1,12 @@
 set(PrismProtocolTrusttunnelHeaders
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Binding.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Codec.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Detail/ForwardedActivity.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2Client.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2ClientTypes.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2Server.hpp"
-    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2ServerTypes.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Transport/Activity.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2/Protocol.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2/Client.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2/Client/Types.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2/Server.hpp"
+    "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Http2/Server/Types.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/IngressFactory.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/TransportTypes.hpp"
     "${PROJECT_SOURCE_DIR}/Include/Prism/Protocols/Trusttunnel/Trusttunnel.hpp"
@@ -14,26 +14,26 @@ set(PrismProtocolTrusttunnelHeaders
 )
 PrismAddStaticTarget(PrismProtocolTrusttunnel
     SOURCES
-        Http2Accept.cpp
-        Detail/Http2ReadCompletion.cpp
+        Http2/Accept.cpp
+        Detail/Http2/ReadCompletion.cpp
         Dgram.cpp
-        Http2Transport.cpp
-        Http2WireWriter.cpp
+        Http2/Transport.cpp
+        Http2/WireWriter.cpp
         IngressFactory.cpp
         Trusttunnel.cpp
-        TrusttunnelHttp2Client.cpp
-        Detail/Http2Client.cpp
+        Http2/Client.cpp
+        Detail/Http2/Client.cpp
     HEADERS ${PrismProtocolTrusttunnelHeaders}
     PRIVATE_HEADERS
         "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/AcceptedCarrierActivity.hpp"
         "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/AcceptedClientTransport.hpp"
         "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/CarrierOwner.hpp"
-        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2Accept.hpp"
-        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2ClientDriver.hpp"
-        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2DataSubmitter.hpp"
-        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2Transport.hpp"
-        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2WireWriter.hpp"
-        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2Client.hpp"
-        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2ReadCompletion.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2/Accept.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2/ClientDriver.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2/DataSubmitter.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2/Transport.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2/WireWriter.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2/Client.hpp"
+        "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/Http2/ReadCompletion.hpp"
         "${PROJECT_SOURCE_DIR}/Src/Prism/Protocols/Trusttunnel/Detail/WireAuthBinding.hpp"
 )
