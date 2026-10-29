@@ -1,5 +1,50 @@
 # 构建与测试
 
+## 第一次编译和运行测试
+
+如果你只想构建 Prism 服务端并试用 SOCKS5 示例，请按[快速开始](Tutorial/GettingStarted.md)操作。本页讲的是开发者如何编译功能测试并运行 CTest。
+
+下面几个名词的区别是：
+
+- **配置（configure）**：CMake 读取项目，检查编译器和依赖，并生成本机的构建文件。
+- **构建（build）**：编译源码并生成可执行文件。指定 `--target Prism` 只构建服务端，不会因此生成全部测试程序。
+- **发现测试（discovery）**：CTest 从构建目录收集当前可运行的测试名称；发现出来不代表测试已经运行。
+- **运行测试**：CTest 启动已构建的测试程序并检查退出结果。
+
+在仓库根目录配置项目：
+
+```powershell
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+```
+
+要构建服务端和默认启用的功能测试目标，构建默认目标，不要只指定 `Prism`：
+
+```powershell
+Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
+# 上海时间 08:00–22:00：
+cmake --build build --config Release -j 16
+# 上海时间 22:00–08:00：将线程数改成 -j 1。
+```
+
+`-j` 是并行编译线程数。项目要求每次构建前检查当前时间：白天最多使用 16 个线程，夜间只能用 1 个线程。首次构建可能需要 CMake 下载依赖，耗时会比后续构建长。
+
+构建完成后先看 CTest 当前发现了什么，再选择运行范围：
+
+```powershell
+ctest --test-dir build -N
+ctest --test-dir build -R 'Configuration|Socks5' --output-on-failure -j 1 --timeout 30
+```
+
+第一条只列出测试，不执行测试。第二条中的 `-R` 按测试名称的正则表达式筛选；`--output-on-failure` 只在失败时打印详细输出；`--timeout 30` 限制单个用例的最长运行时间为 30 秒。筛选名称需要以 `ctest -N` 的当前输出为准。
+
+确认改动相关用例通过后，按项目验收要求再运行全量功能测试：
+
+```powershell
+ctest --test-dir build --output-on-failure -j 1 --timeout 30
+```
+
+如果 CTest 报告找不到测试程序，先确认你构建的是默认目标、而不是只构建了 `Prism`，并确认 `build/` 是当前源码配置生成的构建目录。不要把旧构建目录里的测试结果当成本次源码的结果。
+
 ## 构建
 
 项目使用 CMake 3.23+ 和 C++23。依赖由 CMake FetchContent 管理。首次配置示例：
@@ -51,7 +96,7 @@ ctest --test-dir build --output-on-failure -j 1 --timeout 30
 
 `perf` 与 `stress` 标签按测试源文件名规则设置，不是可选 benchmark/stress 目标的完整清单；要确认实际注册目标，请以当前构建树的 CTest discovery 结果为准。
 
-`Test/Prism/Integration/Matrix/RunCurrentMihomoCase.ps1`、`MihomoUdp.ps1` 和 `MihomoQuic.ps1` 是手动本机入口，目前没有注册为 CTest 用例，也不由 `RunMatrix.ps1` 调用。它们要求 PowerShell 7.4 或更新版本；Windows PowerShell 5.1 和 PowerShell 7.0–7.3 不支持这些脚本使用的 `Start-Process -Environment` 参数。
+`Test/Prism/Integration/Matrix/RunCurrentMihomoCase.ps1`、`MihomoUdp.ps1` 和 `MihomoQuic.ps1` 是手动本机入口，目前没有注册为 CTest 用例，也不由 `RunMatrix.ps1` 调用。它们要求 Windows 上的 PowerShell 7.4 或更新版本；Windows PowerShell 5.1 和 PowerShell 7.0–7.3 不支持这些脚本使用的 `Start-Process -Environment` 参数。
 
 实跑前可先执行 `Test/Prism/Integration/Matrix/RunnerContractTest.ps1 -StaticOnly` 与
 `Test/Prism/Integration/Matrix/QuicRunnerTest.ps1`。前者校验 runner
@@ -59,7 +104,7 @@ ctest --test-dir build --output-on-failure -j 1 --timeout 30
 QUIC 契约正反例；两者都不启动 Mihomo、Prism 或网络服务。
 
 混合矩阵的独立实跑入口为
-`Test/Prism/Integration/Matrix/RunCurrentMixedCase.ps1`。使用仓库根目录的
+`Test/Prism/Integration/Matrix/RunCurrentMixedCase.ps1`。它读取仓库根目录的
 `PrismConfigurationMatrix.json` 和 `PrismClient.yaml`，并通过 `-MihomoExecutable`
 指定本机 Mihomo 程序。运行前确认脚本帮助中的参数，并将 `-CaseDirectory` 设为短标签：
 
@@ -72,7 +117,9 @@ pwsh -File .\Test\Prism\Integration\Matrix\RunCurrentMixedCase.ps1 `
     -MihomoExecutable $env:PRISM_MIHOMO
 ```
 
-runner 会在 `H:\` 根目录创建 `PrismInteropResults-<token>-<label>`，
+runner 固定在 `H:\` 根目录创建 `PrismInteropResults-<token>-<label>`；当前脚本没有结果根目录参数。没有本地 H 盘的贡献者不能按下面命令直接运行，需要先准备该目录或另行修改 runner 实现。
+
+每次运行会创建唯一的 `PrismInteropResults-<token>-<label>` 目录，
 使用 `127.0.0.1`、随机端口和独立 controller。TCP、UDP、QUIC 专项入口仍分别使用三个
 `RunCurrentMihomo*Case.ps1`，QUIC 入口只接受两个已固定的仓库内协议模板。
 四个入口的端口参数均可用 `0`（默认值）请求自动分配；显式传入的正整数保持调用者选择。
