@@ -51,12 +51,9 @@ const RULES = [
 const files = PROD.flatMap((directory) => walk(directory));
 const findings = { includeDirection: [], forwardDeclCoupling: [], compatLayer: [], duplicateErrorShapes: [], nonPascalIdentifiers: [], missingChineseDoxygen: [], ternaryFiles: 0, ternaryCount: 0 };
 const includeRe = /#\s*include\s*[<"]([^">]+)[>"]/g;
-// 第三方/标准库规定的回调 ABI 名，必须保留小写；每一项都是显式例外，不是启发式放过。
-const ABI_HOOKS = new Set(["shutdown", "close", "send", "receive", "assign", "cancel", "wait",
-  "read_some", "write_some", "connect", "accept", "resolve", "set_option", "io_control", "release"]);
 const NS_ALIASES = new Set(["std", "glz", "net", "asio", "posix", "nghttp3", "ngtcp2", "ssl", "bio", "evp", "json", "asio_ssl"]);
 // 标准库/第三方 C ABI 强制名称：小写是规定，不是违规。每一项都是显式例外。
-const STD_ABI_NAMES = /^(?:is_error_code_enum|is_error_condition_enum|is_system_error|hash|equal_to|less|value_type|variant_size|variant_alternative|tuple_size|error_code|error_condition|.*_st|.*_type|difference_type|iterator_category|iterator_concept|reference|pointer|const_iterator|iterator|begin|end|is_transparent|alignas|async_[a-z_]+|size|empty|data)$/;
+const STD_ABI_NAMES = /^(?:is_error_code_enum|is_error_condition_enum|is_system_error|hash|equal_to|less|value_type|variant_size|variant_alternative|tuple_size|error_code|error_condition|.*_st|.*_type|difference_type|iterator_category|iterator_concept|reference|pointer|const_iterator|iterator|begin|end|is_transparent|alignas|size|empty|data)$/;
 const identRe = /\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_][A-Za-z0-9_]*)|\busing\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g;
 // 注意：必须允许 `[[nodiscard]]` 等属性前缀，否则本仓库大量带属性的声明会被整条漏掉（曾因此得出 nonPascal=0 的伪绿）。
 const fnRe = /^\s*(?:template\s*<[^>]*>\s*)?(?:(?:inline|constexpr|consteval|static|virtual|explicit|friend|\[\[[a-z_]+\]\])[ \t]+)*auto[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(/gm;
@@ -64,6 +61,26 @@ const fnRe = /^\s*(?:template\s*<[^>]*>\s*)?(?:(?:inline|constexpr|consteval|sta
 // 标准库/第三方规定的**小写函数名**：按 file + name 精确登记，不做全局放过（全局放过会让任何同名函数免检）。
 // 每项必须写清它对应哪条上游签名，评审时才能核对"是不是真的 ABI"。
 const MandatedFnAbi = new Map([
+  ["Prism/Foundation/Error.hpp", new Map([
+    ["name", "boost::system::error_category::name() 的覆写"],
+    ["message", "boost::system::error_category::message(int) 的覆写"],
+    ["make_error_code", "Boost.System error enum 的 ADL 定制点"]])],
+  ["Prism/Foundation/Fault/Compatible.hpp", new Map([
+    ["name", "std::error_category::name() 的覆写"],
+    ["message", "std::error_category::message(int) 的覆写"],
+    ["make_error_code", "std::error_code 与 Boost.System 的 error enum ADL 定制点"]])],
+  ["Prism/Foundation/Executor/ContextOwner.hpp", new Map([
+    ["shutdown", "Boost.Asio execution_context::service 的生命周期覆写"]])],
+  ["Prism/Foundation/Executor/FatalState.hpp", new Map([
+    ["shutdown", "Boost.Asio execution_context::service 的生命周期覆写"]])],
+  ["Prism/Foundation/Executor/PreparedAction.hpp", new Map([
+    ["shutdown", "Boost.Asio execution_context::service 的生命周期覆写"]])],
+  ["Prism/Foundation/Storage/Sqlite.hpp", new Map([
+    ["name", "std::error_category::name() 的覆写"],
+    ["message", "std::error_category::message(int) 的覆写"]])],
+  ["Prism/Foundation/Utility/Crypto/Operation.hpp", new Map([
+    ["name", "std::error_category::name() 的覆写"],
+    ["message", "std::error_category::message(int) 的覆写"]])],
   ["Prism/Foundation/Utility/Diagnose/Detail/AsyncBackendState.hpp", new Map([
     ["lock", "std::lock_guard<Diagnose::Detail::EpochGate> 的 BasicLockable 规定成员名"],
     ["unlock", "std::lock_guard<Diagnose::Detail::EpochGate> 的 BasicLockable 规定成员名"]])],
@@ -75,9 +92,62 @@ const MandatedFnAbi = new Map([
   ["Prism/Transport/Detail/TlsOperations.hpp", new Map([
     ["call_handler", "Asio completion handler invoker 要求的 call_handler() 名字"],
     ["tracking_name", "boost/asio/ssl/detail/io.hpp 规定的 Operation::tracking_name() 钩子"]])],
+  ["Prism/Net/Dns/AddressList.hpp", new Map([
+    ["begin", "std::ranges::range 要求的 begin() 范围入口"],
+    ["end", "std::ranges::range 要求的 end() 范围入口"]])],
+  ["Prism/Transport/Activity/TrackedCompletion.hpp", new Map([
+    ["get_executor", "Asio associated executor completion token 定制点"],
+    ["get_allocator", "Asio associated allocator completion token 定制点"],
+    ["get_cancellation_slot", "Asio associated cancellation slot completion token 定制点"]])],
+  ["Prism/Transport/Connector.hpp", new Map([
+    ["async_read_some", "Boost.Asio AsyncReadStream facade 的规定操作名"],
+    ["async_write_some", "Boost.Asio AsyncWriteStream facade 的规定操作名"],
+    ["get_executor", "Asio execution object 的 get_executor() 定制点"],
+    ["lowest_layer", "Asio 分层 transport 的 lowest_layer() 访问器"]])],
+  ["Prism/Protocols/Quic/Native/Stream/Admission.cpp", new Map([
+    ["name", "boost::system::error_category::name() 的覆写"],
+    ["message", "boost::system::error_category::message(int) 的覆写"]])],
+  ["Prism/Lifecycle/Detail/DrainNotification.hpp", new Map([
+    ["shutdown", "Boost.Asio execution_context::service 的生命周期覆写"]])],
+  ["Prism/Resource/WorkerMemory/Detail/Service.hpp", new Map([
+    ["shutdown", "Boost.Asio execution_context::service 的生命周期覆写"]])],
+  ["Prism/Runtime/Session/Delivery.cpp", new Map([
+    ["shutdown", "Boost.Asio execution_context::service 的生命周期覆写"]])],
+  ["Prism/Transport/Transmission.hpp", new Map([
+    ["get_executor", "Asio execution object 的 get_executor() 定制点"],
+    ["lowest_layer", "Asio 分层 transport 的 lowest_layer() 访问器"]])],
+  ["Prism/Transport/Writer.hpp", new Map([
+    ["get_executor", "Asio associated executor completion token 定制点"],
+    ["get_allocator", "Asio associated allocator completion token 定制点"],
+    ["get_cancellation_slot", "Asio associated cancellation slot completion token 定制点"]])],
+  ["Prism/Transport/Detail/TlsEngine.hpp", new Map([
+    ["get_executor", "Asio execution object 的 get_executor() 定制点"],
+    ["next_layer", "Asio SSL stream-compatible next_layer() 访问器"],
+    ["lowest_layer", "Asio 分层 transport 的 lowest_layer() 访问器"],
+    ["native_handle", "Boost.Asio SSL stream 的 native_handle() 访问器"]])],
+  ["Prism/Transport/Replay.cpp", new Map([
+    ["get_executor", "Asio associated executor completion token 定制点"]])],
+  ["Prism/Transport/TlsStream.hpp", new Map([
+    ["async_read_some", "Boost.Asio AsyncReadStream facade 的规定操作名"],
+    ["async_write_some", "Boost.Asio AsyncWriteStream facade 的规定操作名"],
+    ["async_handshake", "Boost.Asio SSL stream-compatible 握手操作名"],
+    ["async_shutdown", "Boost.Asio SSL stream-compatible 双向关闭操作名"],
+    ["get_executor", "Asio execution object 的 get_executor() 定制点"],
+    ["next_layer", "Asio SSL stream-compatible next_layer() 访问器"],
+    ["lowest_layer", "Asio 分层 transport 的 lowest_layer() 访问器"],
+    ["native_handle", "Boost.Asio SSL stream 的 native_handle() 访问器"],
+    ["get_allocator", "Asio associated allocator completion token 定制点"],
+    ["get_cancellation_slot", "Asio associated cancellation slot completion token 定制点"]])],
   ["Prism/Transport/Io/Completion.hpp", new Map([
+    ["get_executor", "Asio associated executor completion token 定制点"],
+    ["get_allocator", "Asio associated allocator completion token 定制点"],
+    ["get_cancellation_slot", "Asio associated cancellation slot completion token 定制点"],
     ["allocate", "std::allocator_traits<CompletionAllocator>::allocate 的规定成员名"],
     ["deallocate", "std::allocator_traits<CompletionAllocator>::deallocate 的规定成员名"]])],
+  ["Prism/Foundation/Memory/TrackingResource.hpp", new Map([
+    ["do_allocate", "std::pmr::memory_resource::do_allocate 虚覆写"],
+    ["do_deallocate", "std::pmr::memory_resource::do_deallocate 虚覆写"],
+    ["do_is_equal", "std::pmr::memory_resource::do_is_equal 虚覆写"]])],
 ]);
 const MandatedTypeAbi = new Map([
   ["Prism/Operations/Web/Loader.hpp", new Map([
@@ -86,6 +156,8 @@ const MandatedTypeAbi = new Map([
     ["is_always_equal", "std::allocator_traits 的规定类型名"],
     ["rebind", "std::allocator_traits 的 allocator::rebind<U> 类型定制点"],
     ["other", "allocator::rebind<U>::other 的规定类型名"]])],
+  ["Prism/Transport/TlsStream.hpp", new Map([
+    ["context", "Boost.Asio SSL context 的外部类型前置声明"]])],
 ]);
 const AbiExemptedTypes = [];
 // 「兼容层命名」的显式例外：由外部协议/线格式规定的名字，不是项目自建的旧接口通道。
@@ -94,22 +166,6 @@ const CompatNamingExceptions = new Map([
     ["Legacy", "VMess 安全类型字节 0x01 的协议既定名称（wire 值由协议规定）；改名属命名优化，不是兼容层违规"]])],
 ]);
 const abiExemptedFns = [];
-// Asio/标准库的**定制点名称**（customization point / 概念要求）：小写是规定，不是项目命名违规。
-// 这里按名字全局豁免，但每一次命中仍写入 findings.abiExemptedFunctions，保持逐条可审。
-const StdAsioCptNames = new Map([
-  ["get_executor", "Asio execution_context / async_result 要求的定制点"],
-  ["get_allocator", "Asio async_alloc_result 要求的定制点"],
-  ["get_cancellation_slot", "Asio async_result 要求的定制点"],
-  ["lowest_layer", "Asio 分层 transport 协议要求"],
-  ["next_layer", "Asio 分层 transport 协议要求"],
-  ["native_handle", "Asio/标准句柄访问器约定"],
-  ["make_error_code", "std::error_code 枚举 ADL 定制点（名字由标准规定）"],
-  ["name", "std::error_category::name() 覆写"],
-  ["message", "std::error_category::message(int) 覆写"],
-  ["call_handler", "Asio completion handler invoker 要求"],
-  ["require", "Asio execution::require/prefer 定制点"],
-  ["prefer", "Asio execution::prefer 定制点"],
-]);
 const compatExempted = [];
 
 // 前向声明耦合：include 图与 CMake target 都看不见 `namespace Prism::Quic { class Server; }` 这类名字级依赖。
@@ -242,8 +298,7 @@ for (const p of files) {
     const name = fn[1];
     const mandated = MandatedFnAbi.get(r);
     if (mandated && mandated.has(name)) { abiExemptedFns.push(`${r}: ${name}() —— ${mandated.get(name)}`); continue; }
-    if (StdAsioCptNames.has(name)) { abiExemptedFns.push(`${r}: ${name}() —— ${StdAsioCptNames.get(name)}`); continue; }
-    if (/^(operator|main|test)$/.test(name) || ABI_HOOKS.has(name) || /^async_[a-z_]+$/.test(name) || name === "begin" || name === "end") continue;
+    if (/^(operator|main)$/.test(name)) continue;
     if (!/^[A-Z]/.test(name)) offenders.push(`函数 ${name}`);
   }
   if (offenders.length) findings.nonPascalIdentifiers.push(`${r}: ${[...new Set(offenders)].join(", ")}`);

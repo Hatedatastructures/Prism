@@ -228,9 +228,12 @@ scheme_executor::execute → {transport, detected, preread}
 
 ### 错误处理
 
-双轨策略:
-- **热路径**: `fault::code` 枚举，不抛异常
-- **启动/致命**: 异常层次 `exception::deviant` → `network` / `protocol` / `security`
+主通道是返回值；异常只用于启动与致命阶段：
+
+- **数据面与热路径**：`std::expected<T, Prism::Fault::Failure>` 或 `Prism::Fault::Code`（`Include/Prism/Foundation/Fault/Code.hpp`），不抛异常。
+- **协议编解码错误**：`Prism::Error`（`Include/Prism/Foundation/Error.hpp`）在边界经 `Fault::FromNative()` 单次映射为领域 `Code`，映射表在 `Include/Prism/Foundation/Fault/Handling.hpp`。
+- **启动与致命阶段**：基类为 `Prism::Exception::Deviant`（`Include/Prism/Foundation/Exception/Deviant.hpp`）。当前真实子类只有 `BytePoolError`、`RuleConfigurationError`、`QueryIdConfigurationError`、`CounterCapacityError`；分类中间类 `Network` / `Protocol` / `Security` 无任何调用点，`SqliteError` 绕过基类直接继承 `std::runtime_error`。缺口与处置见 `logs/issues.md` 的 E-1。
+- 旧版小写名 `fault::code`、`exception::deviant` 属退役命名，不再作为当前接口。
 
 ## 命名与编码规范
 
@@ -240,8 +243,8 @@ scheme_executor::execute → {transport, detected, preread}
 > 存量代码按批次迁移（见下方「大驼峰迁移计划」），未迁移文件暂循旧风格，同一文件内禁止新旧混用。
 
 - **命名空间**: PascalCase，`Psm::` 前缀（迁移后）；存量 `psm::` 未迁移前继续使用
-- **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Net/Transport/Reliable.hpp`）；
-  工程根级目录（`src/`、`include/`、`Test/`、`Docs/`、`Scripts/`、`build/`）保持生态惯例不动
+- **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Include/Prism/Transport/Reliable.hpp`）；
+  工程根级目录按当前实际大小写写作 `Include/`、`Src/`、`Test/`、`Docs/`、`Scripts/`、`build/`，本小节旧版 `src/`、`include/` 写法不再适用
 - **生产代码**: 类/结构体/枚举/枚举值/类型别名/模板参数 PascalCase
   （如 `PendingEntry`、`StreamType::Tcp`、`SharedTransmission`；模板参数已有先例 `typename Memory`）
 - **函数/方法**: PascalCase（`ActivateStream()`、`SendData()`）
@@ -251,12 +254,30 @@ scheme_executor::execute → {transport, detected, preread}
 - **头文件保护**: `#pragma once`
 - **返回类型**: 尾随返回类型 (`auto func() -> return_type`)
 - **[[nodiscard]]**: 有意义的返回值
-- **Boost.Asio 别名**: `namespace net = boost::asio;`（Asio 自身 API 保持官方小写风格，不改造）
+- **Boost.Asio 别名**: `namespace Net = boost::asio;`（全仓 226 处事实标准；Asio 自身 API 保持官方小写风格，不改造。旧版 `net` 写法与 `Asio` 别名不再新增）
 - **注释**: Doxygen 风格中文 (`@file`, `@brief`, `@details`, `@return`, `@note`)，禁止英文注释
-- **注释参考**: `net/transport/reliable.hpp`
+- **注释参考**: `Include/Prism/Foundation/Fault/Failure.hpp`（紧凑中文 Doxygen）与 `Include/Prism/Transport/Reliable.hpp`
 - **编码规范详细**: `.claude/skills/enforce-coding/SKILL.md`（完整规范清单）
 - **标识符命名**: 简洁清晰，避免过长的多词组合
-- **函数参数** (Rule 1): Prism 通常不超过 2 个，复杂边界最多 3 个；旧版存量规则为最多 3 个。先拆责任，再考虑有明确语义的参数类型，不用大参数包掩盖耦合。
+- **函数参数**: Prism 通常不超过 2 个，复杂边界最多 3 个；旧版存量规则为最多 3 个。先拆责任，再考虑有明确语义的参数类型，不用大参数包掩盖耦合。
+- **函数体**: 不超过 120 行。
+- **Lambda**: 不超过 10 行，超长提取为命名函数。
+- **`using namespace`**: 全仓禁止（2026-10-29 实测 0 处）；旧版 `using namespace psm::diagnose;` 豁免随 `psm::` 退役一并作废。需要短写时使用 namespace 别名，并遵守下一小节。
+
+### 命名空间限定与别名（2026-10-29 规范 v3）
+
+短写靠别名，不靠各自省略前缀。规则只认一个事实：**同一个短名在全仓只能有一个定义点**。
+
+- **命名空间别名允许**：`namespace Fault = Prism::Fault;`，使 `Prism::Fault::Failure` 短写为 `Fault::Failure`。短写保留 owner 段，读者能读出去处。
+- **类型别名禁止新增**：不再写 `using Failure = Prism::Fault::Failure;`。全仓 `namespace X = Y;` 286 处与 `using X = Y;` 331 处并存，而 `Code`、`Failure`、`Completion`、`Signal`、`Result` 的同名异目标全部出自类型别名——它抹掉 owner 信息，且同一命名空间内两处指向不同类型即 ODR 违规。
+- **唯一 owner**：每个短名在一个命名空间内只允许一处声明，其余文件 `#include` owner 头取得短名，不就地重复声明。
+- **一个目标只允许一个短名**：`boost::asio` 统一写作 `Net`；`Include/Prism/Protocols/Common/Provider/Session/Resources.hpp:20` 的 `Asio` 别名并入 `Net`。
+- **短名必须 PascalCase**：`Include/Prism/Protocols/Shadowsocks2022/Connection/Connection.hpp:43` 与同目录 `Datagram.hpp:36`、`Handshake.hpp:43`、`Record.hpp:37` 的 `namespace ss = Prism::Shadowsocks2022;` 待改。
+- **第三方别名白名单**：当前只有 `Net = boost::asio`。新增第三方短名先在此登记；未登记的第三方前缀一律展开书写。
+- **必须展开的例外**：成员名与项目类型名同名处。`Include/Prism/Foundation/Fault/Failure.hpp:23` 的成员就叫 `Code`，其成员函数体内裸 `Code` 解析为成员而不是 `Fault::Code`；这类位置必须完整限定，别名不能替代。
+- **格式**：`=` 两侧各一个空格；`Include/Prism/Application/Reload/RestartPolicy.hpp:8` 现缺空格。
+- **限定深度**：同一文件内禁止混用两种深度（2026-10-29 实测 36 个文件混用）。存量按模块批次收敛，不做全仓一次性替换，也不单独为消除可省略的 `Prism::` 前缀（实测约 1.5 万处）开批——收益只是字符数，代价是无法审查的 diff。
+- **异常基类的限定深度**：`Exception::Deviant`（3 处）与 `Prism::Exception::Deviant`（1 处）并存，按上文统一到保留 owner 段的写法。
 
 ## 旧版 PascalCase 迁移记录（历史，不代表当前迁移顺序）
 
@@ -277,10 +298,7 @@ scheme_executor::execute → {transport, detected, preread}
 
 ### 门禁同步义务
 
-每批迁移必须同步更新：引用文件路径的 CMakeLists、`Scripts/CheckCommonHeaders.ps1`（磁盘↔target_sources 双向校验）、`Scripts/AuditDetached.sh`（按路径审计）、`Docs/` 中引用的示例路径。
-- **函数体** (Rule 3): 不超过 120 行
-- **Lambda** (Rule 13): 不超过 10 行，超长提取为命名函数
-- **`using namespace`** (Rule 4.3): 仅允许 `using namespace psm::diagnose;`，其余用显式限定或 namespace 别名
+每批迁移必须同步更新：引用文件路径的 CMakeLists、`Scripts/CheckCommonHeaders.ps1`（磁盘↔target_sources 双向校验）、`Scripts/AuditDetached.sh`（按路径审计）、`Docs/` 中引用的示例路径。别名与限定深度的改动还需同步 `Scripts/CheckPrismNamespaceStyle.mjs`（待建，见 `logs/issues.md` N-2）。
 
 ## 测试
 

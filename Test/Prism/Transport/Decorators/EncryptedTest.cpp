@@ -167,7 +167,7 @@ namespace
         Stream.async_write_some(Output, std::move(Handler));
         Stream.async_handshake(Ssl::stream_base::client, std::move(Handler));
         Stream.async_shutdown(std::move(Handler));
-        Stream.async_write_shutdown(std::move(Handler));
+        Stream.AsyncWriteShutdown(std::move(Handler));
     });
 
     /**
@@ -340,7 +340,7 @@ namespace
             Request.Result.RecordResult(Error);
             static_cast<void>(CompletionSignal.cancel());
         };
-        ClientStream->async_write_shutdown(
+        ClientStream->AsyncWriteShutdown(
             Net::bind_executor(UserStrand, std::move(Handler)));
         boost::system::error_code WaitError;
         co_await CompletionSignal.async_wait(
@@ -525,7 +525,7 @@ TEST(PrismEncryptedDecorator, WriteShutdownPreservesMoveOnlyCompletionHandler)
 
         std::size_t CompletionCount = 0;
         boost::system::error_code CompletionError;
-        Stream->async_write_shutdown([&](boost::system::error_code Error)
+        Stream->AsyncWriteShutdown([&](boost::system::error_code Error)
         {
             ++CompletionCount;
             CompletionError = Error;
@@ -688,7 +688,7 @@ TEST(PrismEncryptedDecorator, ControlReservationRejectionUsesAssociatedExecutor)
 
     for (std::size_t Index = 0; Index < AcceptedControlCount; ++Index)
     {
-        Stream->async_write_shutdown(
+        Stream->AsyncWriteShutdown(
             Net::bind_cancellation_slot(Cancellations[Index].slot(),
                 Net::bind_executor(UserStrand, [&](auto Error)
                 {
@@ -699,7 +699,7 @@ TEST(PrismEncryptedDecorator, ControlReservationRejectionUsesAssociatedExecutor)
                         ++InvalidCanceledResultCount;
                 })));
     }
-    Stream->async_write_shutdown(Net::bind_executor(UserStrand,
+    Stream->AsyncWriteShutdown(Net::bind_executor(UserStrand,
         [&](auto Error)
         {
             ++RejectedCount;
