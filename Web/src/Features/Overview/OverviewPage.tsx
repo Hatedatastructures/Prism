@@ -90,7 +90,7 @@ function IngressTable(Input: Readonly<{ Rows: readonly IngressRecord[]; Pending:
             const Presentation = DecideIngressRowPresentation(Row, HasRuntimeState);
             return <TableRow key={Row.Id}><TableCell><NavLink className="font-medium hover:underline" to={WithTime(`/ingresses?ingress=${encodeURIComponent(Row.Id)}`, Input.Params)}>{Row.Transport.toUpperCase()}<span className="block font-mono text-xs font-normal text-muted-foreground">{Row.Id}</span></NavLink></TableCell>
                 <TableCell><code className="whitespace-nowrap font-mono text-xs">{Row.ConfiguredAddress}</code></TableCell><TableCell><code className="whitespace-nowrap font-mono text-xs">{Row.BoundAddress ?? '未提供'}</code></TableCell>
-                <TableCell>{HasRuntimeState && Row.ActiveConnections !== null ? FormatCount(Row.ActiveConnections) : '未提供'}</TableCell><TableCell className="max-w-48 truncate text-xs">{Row.Protocols.join(' · ') || '未提供'}</TableCell>
+                <TableCell>{HasRuntimeState && Row.ActiveConnections !== null ? FormatCount(Row.ActiveConnections) : '未提供'}</TableCell><TableCell className="max-w-48 truncate">{Row.Protocols.join(' · ') || '未提供'}</TableCell>
                 <TableCell><StatusBadge Label={Presentation.Label} Tone={Presentation.Tone} /></TableCell></TableRow>;
         })}</TableBody></Table></div>;
 }

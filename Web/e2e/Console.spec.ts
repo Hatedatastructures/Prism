@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-const Pages = [ ['/', '运行概览'], ['/workers', 'Worker'], ['/accounts', '代理账户'], ['/user-groups', '用户组'],
-    ['/sessions', 'Session 追踪'], ['/events', '事件流'], ['/ingresses', '代理入口'], ['/protocols', '协议分析'],
-    ['/resources', '资源与数据质量'], ['/configuration', '配置'], ['/operations', '操作中心'] ] as const;
+const Pages = [ ['/', '运行概览'], ['/workers', '工作线程'], ['/accounts', '代理账户'], ['/user-groups', '用户组'],
+    ['/sessions', '连接'], ['/events', '事件流'], ['/ingresses', '代理入口'], ['/protocols', '协议'],
+    ['/resources', '资源分析'], ['/configuration', '配置'], ['/operations', '操作中心'] ] as const;
 test('所有工作区可渲染，字号与滚动范围符合合同', async ({ page }, TestInfo) => {
     const Errors: string[] = [];
     const ConsoleErrors: string[] = [];
@@ -26,8 +26,8 @@ test('所有工作区可渲染，字号与滚动范围符合合同', async ({ pa
         })));
         expect(CellSizes.every(Cell => Cell.Size >= 15), `${Path} table cell computed sizes: ${JSON.stringify(CellSizes)}`).toBe(true);
         if (Path === '/ingresses') {
-            expect(CellSizes, 'Ingress fixture must expose all 18 body cells to verify the shared table size.').toHaveLength(18);
-            expect(CellSizes.map(Cell => Cell.Size), 'Ingress table body cells must use the shared 15px text size.').toEqual(Array(18).fill(15));
+            expect(CellSizes, 'Ingress fixture must expose all 21 body cells to verify the shared table size.').toHaveLength(21);
+            expect(CellSizes.map(Cell => Cell.Size), 'Ingress table body cells must use the shared 15px text size.').toEqual(Array(21).fill(15));
         }
         TableMeasurements.push({ Page: Path, Cells: CellSizes });
         if (Path === '/ingresses' && TestInfo.project.name === 'chromium-2265')

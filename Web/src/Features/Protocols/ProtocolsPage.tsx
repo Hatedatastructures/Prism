@@ -91,7 +91,7 @@ function ProtocolTable(Input: Readonly<{ Rows: readonly ProtocolRecord[]; Select
             <TableCell>{FormatCount(Row.ConfiguredBindings)}</TableCell><TableCell>{Row.ActiveSessions === null ? '未提供' : FormatCount(Row.ActiveSessions)}</TableCell>
             <TableCell>{Row.Traffic === null ? '未提供' : FormatBytes(Row.Traffic.Up)}</TableCell><TableCell>{Row.Traffic === null ? '未提供' : FormatBytes(Row.Traffic.Down)}</TableCell>
             <TableCell>{Row.Latency?.Available && Row.Latency.P95Ms !== null ? `${FormatCount(Row.Latency.P95Ms)} ms` : '未提供'}</TableCell>
-            <TableCell className="max-w-80 whitespace-normal text-xs text-muted-foreground">{Row.Coverage || '未提供'}</TableCell>
+            <TableCell className="max-w-80 whitespace-normal text-muted-foreground">{Row.Coverage || '未提供'}</TableCell>
         </TableRow>)}</TableBody></Table>;
 }
 

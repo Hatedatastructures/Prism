@@ -281,8 +281,8 @@ function SessionTable(Input: Readonly<{ Rows: readonly SessionRecord[]; Params: 
             return <TableRow key={`${Session.ProcessId}:${Session.GenerationId}:${Session.WorkerId}:${Session.AccountId}:${Session.Id}`}>
                 <TableCell><NavLink className="font-mono text-sm font-medium hover:underline" to={WithTime(`/sessions?${Params}`, Input.Params)}>{Session.Id}</NavLink><span className="block font-mono text-xs text-muted-foreground">Account {Session.AccountId}</span></TableCell>
                 <TableCell>{Session.Protocol}</TableCell><TableCell>{Session.Transport.toUpperCase()}</TableCell>
-                <TableCell className="max-w-44 truncate font-mono text-xs" title={Session.SourceAddress}>{Session.SourceAddress || '未提供'}</TableCell>
-                <TableCell className="max-w-52 truncate font-mono text-xs" title={Session.Target}>{Session.Target || '未提供'}</TableCell>
+                <TableCell className="max-w-44 truncate font-mono" title={Session.SourceAddress}>{Session.SourceAddress || '未提供'}</TableCell>
+                <TableCell className="max-w-52 truncate font-mono" title={Session.Target}>{Session.Target || '未提供'}</TableCell>
                 <TableCell>{FormatCount(Session.ActiveTasks)}</TableCell><TableCell>{FormatBytes(Session.Traffic?.Up)}</TableCell><TableCell>{FormatBytes(Session.Traffic?.Down)}</TableCell>
                 <TableCell><StatusBadge Label={Session.Draining ? '排空中' : '活动中'} Tone={Session.Draining ? 'warning' : 'good'} /></TableCell>
             </TableRow>;

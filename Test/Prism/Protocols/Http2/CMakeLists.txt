@@ -7,6 +7,8 @@ target_sources(H2SessionTest PRIVATE Connection/H2BackpressureTest.cpp Core/Rece
 target_include_directories(H2SessionTest PRIVATE ${PROJECT_SOURCE_DIR}/Src)
 target_link_libraries(H2SessionTest PRIVATE PrismProtocolHttp2)
 AddPrismTest(Codec/H2FrameValidationTest.cpp)
+target_include_directories(H2FrameValidationTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 target_link_libraries(H2FrameValidationTest PRIVATE PrismProtocolHttp2 PrismFoundation)
 AddPrismTest(Codec/Http2FuzzTest.cpp)
+target_include_directories(Http2FuzzTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 target_link_libraries(Http2FuzzTest PRIVATE PrismProtocolHttp2)

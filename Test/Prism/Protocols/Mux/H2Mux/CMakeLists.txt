@@ -7,6 +7,7 @@ AddPrismTest(ReadTerminalTest.cpp H2MuxReadTerminalTest)
 target_link_libraries(H2MuxReadTerminalTest PRIVATE PrismFoundation PrismTransport
     PrismProtocolHttp2 PrismProtocolMux)
 AddPrismTest(WriteShutdownTest.cpp H2MuxWriteShutdownTest)
+target_include_directories(H2MuxWriteShutdownTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
 target_link_libraries(H2MuxWriteShutdownTest PRIVATE PrismFoundation PrismTransport
     PrismProtocolHttp2 PrismProtocolMux)
 AddPrismTest(EngineRetirementTest.cpp H2MuxEngineRetirementTest)
@@ -21,3 +22,4 @@ foreach(_case IN ITEMS H2MuxReadLifetimeTest H2MuxWriteLifetimeTest
     target_link_libraries(${_case} PRIVATE PrismFoundation PrismTransport PrismRuntime
         PrismComposition PrismProtocolHttp2)
 endforeach()
+target_include_directories(H2MuxReadLifetimeTest PRIVATE "${PROJECT_SOURCE_DIR}/Src")
