@@ -41,11 +41,11 @@ namespace
         const auto Root = FindRepositoryRoot();
         ASSERT_FALSE(Root.empty());
         constexpr std::array<std::string_view, 5> Headers{
-            "Conn.hpp",
-            "ConnSession.hpp",
-            "ConnRecord.hpp",
-            "ConnHandshake.hpp",
-            "ConnDatagram.hpp"};
+            "Connection/Connection.hpp",
+            "Connection/Session.hpp",
+            "Connection/Record.hpp",
+            "Connection/Handshake.hpp",
+            "Connection/Datagram.hpp"};
         for (const auto Header : Headers)
         {
             const auto Path = Root / "Include" / "Prism" / "Protocols" / "Shadowsocks2022" / Header;
