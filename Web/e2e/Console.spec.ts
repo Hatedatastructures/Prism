@@ -84,7 +84,7 @@ test('默认真实模式无法连接时不会显示演示数值', async ({ page 
     await page.route('**/Operations/**', Route => Route.abort('connectionrefused'));
     await page.goto('/?source=live');
     await expect(page.getByRole('link', { name: '打开演示预览' })).toBeVisible();
-    await expect(page.locator('header')).not.toContainText('演示夹具');
+    await expect(page.getByText('演示夹具')).toHaveCount(0);
     await expect(page.locator('.runtime-summary')).toHaveCount(0);
 });
 test('概览资源跳转保留时间并在刷新后保持演示与原目标', async ({ page }) => {

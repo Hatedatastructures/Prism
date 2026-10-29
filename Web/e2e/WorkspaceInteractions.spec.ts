@@ -104,7 +104,16 @@ test('自定义时间输入清空后保留无效状态并能直接修复', async
     await expect(page.locator('#time-range-error')).toHaveText('请选择完整的开始与结束时间。');
     await expect(Start).toHaveAttribute('aria-invalid', 'true');
 
-    await Start.fill('2026-10-22T18:00');
+    const ValidStart = await End.evaluate(Element => {
+        const Value = new Date((Element as HTMLInputElement).value);
+        Value.setMinutes(Value.getMinutes() - 30);
+        const Pad = (Part: number) => String(Part).padStart(2, '0');
+        return [
+            `${Value.getFullYear()}-${Pad(Value.getMonth() + 1)}-${Pad(Value.getDate())}`,
+            `${Pad(Value.getHours())}:${Pad(Value.getMinutes())}`,
+        ].join('T');
+    });
+    await Start.fill(ValidStart);
     await expect(Start).not.toHaveAttribute('aria-invalid');
     await expect(page.locator('#time-range-error')).toHaveCount(0);
     expect(new URL(page.url()).searchParams.get('from')).not.toBeNull();
