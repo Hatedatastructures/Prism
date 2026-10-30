@@ -64,6 +64,12 @@ namespace Prism::Application::Reload::RestartPolicy
         if (Current.Runtime.WorkerCount!=Candidate.Runtime.WorkerCount) Fields.emplace_back("Runtime.WorkerCount");
         if(Current.Runtime.MaxConnections!=Candidate.Runtime.MaxConnections)
             Fields.emplace_back("Runtime.MaxConnections");
+        if(Current.Runtime.BytePool.InitialBytes!=Candidate.Runtime.BytePool.InitialBytes)
+            Fields.emplace_back("Runtime.BytePool.InitialBytes");
+        if(Current.Runtime.BytePool.GrowthBytes!=Candidate.Runtime.BytePool.GrowthBytes)
+            Fields.emplace_back("Runtime.BytePool.GrowthBytes");
+        if(Current.Runtime.BytePool.LimitBytes!=Candidate.Runtime.BytePool.LimitBytes)
+            Fields.emplace_back("Runtime.BytePool.LimitBytes");
         if(!SameListenerShape(Current.Listeners.Tcp,Candidate.Listeners.Tcp)) Fields.emplace_back("Listeners.Tcp");
         if(!SameListenerShape(Current.Listeners.Udp,Candidate.Listeners.Udp)) Fields.emplace_back("Listeners.Udp");
         if(!SameListenerShape(Current.Listeners.Quic,Candidate.Listeners.Quic)) Fields.emplace_back("Listeners.Quic");

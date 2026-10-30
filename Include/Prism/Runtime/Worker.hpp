@@ -12,6 +12,7 @@
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Identifier/Id.hpp>
+#include <Prism/Foundation/Memory/BytePoolModels.hpp>
 #include <Prism/Lifecycle/DrainBarrier.hpp>
 #include <Prism/Lifecycle/Task/Registry.hpp>
 #include <Prism/Net/Dns/Config.hpp>
@@ -142,6 +143,7 @@ namespace Prism::Runtime
             std::size_t MailboxCapacity{64};
             Prism::Network::Dns::Config Dns{};
             std::shared_ptr<GenerationPublication> Publication;
+            Prism::Memory::BytePoolOptions Bytes{};
         };
 
         Worker();

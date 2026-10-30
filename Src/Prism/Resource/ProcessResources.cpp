@@ -10,7 +10,8 @@ namespace Prism::Resource
 
     ProcessResources::ProcessResources(Options Value)
         : Id(Value.Id), Generation(Value.Generation), AllocationMetrics(Value.MemoryResource),
-          MemoryResource(&AllocationMetrics), Bytes(std::make_shared<Prism::Memory::BytePool>()) {}
+          MemoryResource(&AllocationMetrics),
+          Bytes(std::make_shared<Prism::Memory::BytePool>(Value.Bytes)) {}
 
     auto ProcessResources::BeginStop() noexcept -> bool
     {

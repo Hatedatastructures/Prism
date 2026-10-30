@@ -23,7 +23,7 @@
 
 | 区域 | 用途 | 初学者需要记住 |
 | --- | --- |
-| `Runtime` | worker 数量、session 超时和 TCP 活动连接上限。 | `MaxConnections: 0` 表示不限制。一般先保留默认值。 |
+| `Runtime` | worker 数量、session 超时、TCP 活动连接上限和内存池分段增长参数。 | `MaxConnections: 0` 表示不限制。进程池和每个 worker 池都独立使用 `BytePool`：默认从 4 MiB 起步，每次增长 4 MiB，单个池最多 128 MiB，上限最大可配到 16 GiB；三项都必须是非零且是 64 KiB 的整数倍，初始值和增长步长不能超过上限。 |
 | `Listeners` | TCP、UDP、QUIC 的监听地址和端口。 | 当前必须配置恰好一个 TCP listener；UDP 和 QUIC 各最多一个。不要把只监听本机的 `127.0.0.1` 当成公网地址。 |
 | `Protocols` | 声明要使用的协议实例和内建类型。 | 例如 `Builtin: "socks5"` 表示 SOCKS5 实例；还要由 `ProtocolBindings` 启用它。 |
 | `Carriers` | 配置 Native TLS、Reality、ShadowTLS 等承载及证书、密钥和识别条件。 | 只有选择相应承载的 binding 才会使用它。证书路径必须在运行 Prism 的主机上存在且可读。 |

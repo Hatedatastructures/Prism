@@ -13,6 +13,7 @@
 #include <Prism/Runtime/GenerationPublication.hpp>
 #include <Prism/Runtime/Session/Trace/Model.hpp>
 #include <Prism/Foundation/Fault/Failure.hpp>
+#include <Prism/Foundation/Memory/BytePoolModels.hpp>
 #include <Prism/Net/Dns/Config.hpp>
 
 #include <boost/asio/awaitable.hpp>
@@ -40,6 +41,7 @@ namespace Prism::Runtime
             std::size_t MailboxCapacity{64};
             Prism::Network::Dns::Config Dns{};
             std::shared_ptr<GenerationPublication> Publication;
+            Prism::Memory::BytePoolOptions Bytes{};
         };
 
         Process();

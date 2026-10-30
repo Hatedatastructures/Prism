@@ -17,10 +17,10 @@ namespace Prism::Runtime
 
     Process::Process(Options Value)
         : Resources_(Prism::Resource::ProcessResources::Options{
-              Value.Id, Value.Generation, Prism::Memory::CurrentResource()}),
+              Value.Id, Value.Generation, Prism::Memory::CurrentResource(), Value.Bytes}),
           WorkerGroup_(std::make_unique<WorkerGroup>(WorkerGroup::Options{
               Value.Id, Value.Generation, Value.WorkerCount, Value.MailboxCapacity,
-              Value.Dns, Value.Publication}))
+              Value.Dns, Value.Publication, Value.Bytes}))
     {
     }
 

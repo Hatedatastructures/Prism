@@ -97,6 +97,14 @@ namespace Prism::Application
     /** @brief 持有 Prism 进程级资源、listener、worker 和停机状态。 */
     struct Application::RuntimeState final : std::enable_shared_from_this<Application::RuntimeState>
     {
+        struct Options final
+        {
+            std::size_t WorkerCount{1};
+            Prism::GenerationId Generation{};
+            Prism::Network::Dns::Config Dns{};
+            Prism::Memory::BytePoolOptions BytePool{};
+        };
+
         /** @brief 保留失败关闭所需的执行域；在真实资源退休后释放可安全分离的运行时。 */
         struct FailedShutdownOwner final : Prism::Executor::ClosingResource
         {
@@ -189,9 +197,8 @@ namespace Prism::Application
             bool Retired{false};
         };
 
-        explicit RuntimeState(const std::size_t WorkerCount, const Prism::GenerationId GenerationValue,
-            Prism::Network::Dns::Config DnsConfig)
-            : FailedOwner(std::make_shared<FailedShutdownOwner>(WorkerCount)),
+        explicit RuntimeState(Options Value)
+            : FailedOwner(std::make_shared<FailedShutdownOwner>(Value.WorkerCount)),
               Signals(Io), DiagnoseFlushTimer(Io), StatisticsFlushTimer(Io),
               GenerationReaperSignal(Io),
               ShutdownCoordinator(Net::make_strand(Io.get_executor())),
@@ -203,8 +210,8 @@ namespace Prism::Application
             ShutdownObserversRetiredTimer.expires_at(Net::steady_timer::time_point::max());
             GenerationReaperSignal.expires_at(Net::steady_timer::time_point::max());
             Process = std::make_unique<Prism::Runtime::Process>(Prism::Runtime::Process::Options{
-                Prism::ProcessId{1}, GenerationValue, WorkerCount, 64, std::move(DnsConfig),
-                GenerationPublisher});
+                Prism::ProcessId{1}, Value.Generation, Value.WorkerCount, 64, std::move(Value.Dns),
+                GenerationPublisher, Value.BytePool});
             Events = std::make_shared<Prism::Statistics::EventRing>();
         }
 

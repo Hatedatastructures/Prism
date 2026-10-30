@@ -27,6 +27,7 @@ namespace Prism::Resource
             Prism::GenerationId Generation{};
             Prism::Memory::ResourcePointer MemoryResource{
                 Prism::Memory::CurrentResource()};
+            Prism::Memory::BytePoolOptions Bytes{};
         };
 
         ProcessResources();

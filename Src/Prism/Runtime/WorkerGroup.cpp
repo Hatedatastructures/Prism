@@ -31,7 +31,8 @@ namespace Prism::Runtime
                 Value.Generation,
                 Value.MailboxCapacity,
                 Value.Dns,
-                Publication_}));
+                Publication_,
+                Value.Bytes}));
         }
     }
 

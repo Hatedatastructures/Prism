@@ -33,7 +33,7 @@ namespace Prism::Resource
             Prism::ProcessId Process{};
             Prism::WorkerId Id{};
             Prism::GenerationId Generation{};
-            Prism::Memory::BytePoolOptions Bytes{}; ///< 冷路径创建的固定字节容量。
+            Prism::Memory::BytePoolOptions Bytes{}; ///< 冷路径创建的有界可增长字节池。
         };
 
         WorkerResources();
@@ -58,7 +58,7 @@ namespace Prism::Resource
 
     public:
         Prism::Memory::ResourcePointer MemoryResource{nullptr};
-        std::shared_ptr<Prism::Memory::BytePool> Bytes; ///< 唯一 worker 块池 owner；服务和在途租约共享总容量。
+        std::shared_ptr<Prism::Memory::BytePool> Bytes; ///< 唯一 worker 块池 owner；按请求增长并受上限约束。
         /** @brief 由 Runtime::Worker 在建立 scheduler 后转移的 root task registry。 */
         std::unique_ptr<Prism::Lifecycle::TaskRegistry> Tasks;
 

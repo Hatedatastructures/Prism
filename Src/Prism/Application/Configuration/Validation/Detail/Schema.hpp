@@ -48,6 +48,44 @@ namespace Prism::Application::Configuration::Validation
                            "Runtime.MaxConnections",
                            "MaxConnections must not exceed 1048576");
         }
+        const auto &BytePool = Configuration.Runtime.BytePool;
+        if (BytePool.InitialBytes == 0U || BytePool.InitialBytes % BytePoolBlockBytes != 0U)
+        {
+            return Failure(ConfigurationErrorCode::InvalidValue,
+                           "Runtime.BytePool.InitialBytes",
+                           "InitialBytes must be a positive multiple of 65536");
+        }
+        if (BytePool.GrowthBytes == 0U || BytePool.GrowthBytes % BytePoolBlockBytes != 0U)
+        {
+            return Failure(ConfigurationErrorCode::InvalidValue,
+                           "Runtime.BytePool.GrowthBytes",
+                           "GrowthBytes must be a positive multiple of 65536");
+        }
+        if (BytePool.LimitBytes == 0U || BytePool.LimitBytes % BytePoolBlockBytes != 0U)
+        {
+            return Failure(ConfigurationErrorCode::InvalidValue,
+                           "Runtime.BytePool.LimitBytes",
+                           "LimitBytes must be a positive multiple of 65536");
+        }
+        if (BytePool.InitialBytes > BytePool.LimitBytes)
+        {
+            return Failure(ConfigurationErrorCode::InvalidValue,
+                           "Runtime.BytePool.InitialBytes",
+                           "InitialBytes must not exceed LimitBytes");
+        }
+        if (BytePool.GrowthBytes > BytePool.LimitBytes)
+        {
+            return Failure(ConfigurationErrorCode::InvalidValue,
+                           "Runtime.BytePool.GrowthBytes",
+                           "GrowthBytes must not exceed LimitBytes");
+        }
+        if (BytePool.LimitBytes > MaxBytePoolLimitBytes ||
+            !MakeBytePoolOptions(BytePool))
+        {
+            return Failure(ConfigurationErrorCode::InvalidValue,
+                           "Runtime.BytePool.LimitBytes",
+                           "LimitBytes must not exceed 16 GiB");
+        }
 
         const auto &Recognition = Configuration.Recognition;
         const bool ConfiguredMode = Recognition.Mode == "Configured";

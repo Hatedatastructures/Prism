@@ -3,11 +3,14 @@
  * @brief Prism 的严格 PascalCase 配置模型。
  */
 #pragma once
+#include <Prism/Foundation/Memory/BytePoolModels.hpp>
 #include <Prism/Contract/Ingress/ProtocolConfiguration.hpp>
 #include <Prism/Contract/Ingress/CarrierConfiguration.hpp>
 #include <Prism/Account/PolicyConfiguration.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -46,6 +49,52 @@ namespace Prism::Application::Configuration
         } Ech;
     };
 
+    inline constexpr std::uint64_t BytePoolBlockBytes{64ULL * 1024ULL};
+    inline constexpr std::uint64_t MaxBytePoolLimitBytes{16ULL * 1024ULL * 1024ULL * 1024ULL};
+
+    /** @brief 进程和全部 worker 共用的按需增长内存池边界。 */
+    struct BytePoolConfiguration final
+    {
+        std::uint64_t InitialBytes{4ULL * 1024ULL * 1024ULL};
+        std::uint64_t GrowthBytes{4ULL * 1024ULL * 1024ULL};
+        std::uint64_t LimitBytes{128ULL * 1024ULL * 1024ULL};
+    };
+
+    /** @brief 将已校验的字节配置转换为按固定块尺寸表达的运行时选项。 */
+    [[nodiscard]] inline auto MakeBytePoolOptions(const BytePoolConfiguration &Configured) noexcept
+        -> std::optional<Prism::Memory::BytePoolOptions>
+    {
+        constexpr auto BlockSize = Prism::Memory::BytePoolOptions{}.BlockSize;
+        if (BlockSize == 0 || Configured.InitialBytes == 0 || Configured.GrowthBytes == 0 ||
+            Configured.LimitBytes == 0 ||
+            Configured.InitialBytes % BytePoolBlockBytes != 0 ||
+            Configured.GrowthBytes % BytePoolBlockBytes != 0 ||
+            Configured.LimitBytes % BytePoolBlockBytes != 0 ||
+            Configured.InitialBytes > Configured.LimitBytes ||
+            Configured.GrowthBytes > Configured.LimitBytes ||
+            Configured.LimitBytes > MaxBytePoolLimitBytes ||
+            Configured.LimitBytes > std::numeric_limits<std::size_t>::max())
+        {
+            return std::nullopt;
+        }
+        if (BytePoolBlockBytes != BlockSize)
+        {
+            return std::nullopt;
+        }
+        const auto LimitBlocks = Configured.LimitBytes / BytePoolBlockBytes;
+        if (LimitBlocks > std::numeric_limits<std::size_t>::max())
+        {
+            return std::nullopt;
+        }
+        return Prism::Memory::BytePoolOptions{
+            .BlockSize = BlockSize,
+            .BlockCount = static_cast<std::size_t>(LimitBlocks),
+            .InitialBlockCount =
+                static_cast<std::size_t>(Configured.InitialBytes / BytePoolBlockBytes),
+            .GrowthBlockCount =
+                static_cast<std::size_t>(Configured.GrowthBytes / BytePoolBlockBytes)};
+    }
+
     struct RuntimeConfiguration final
     {
         std::uint32_t WorkerCount{1};
@@ -53,6 +102,7 @@ namespace Prism::Application::Configuration
         std::uint32_t SessionTimeout{30000};
         /** @brief 进程级活动 TCP 会话上限；0 表示不限制。 */
         std::uint32_t MaxConnections{0};
+        BytePoolConfiguration BytePool{};
     };
 
     struct BuiltinConfiguration final

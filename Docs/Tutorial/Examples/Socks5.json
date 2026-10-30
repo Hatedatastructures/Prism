@@ -4,7 +4,12 @@
     "WorkerCount": 2,
     "RequiredCapabilities": [],
     "SessionTimeout": 30000,
-    "MaxConnections": 0
+    "MaxConnections": 0,
+    "BytePool": {
+      "InitialBytes": 4194304,
+      "GrowthBytes": 4194304,
+      "LimitBytes": 134217728
+    }
   },
   "Listeners": {
     "Tcp": [

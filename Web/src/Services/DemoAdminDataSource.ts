@@ -13,7 +13,10 @@ const ProcessId = 'PRISM-DEMO-01';
 const InitialGeneration = '42';
 const InitialConfigurationFields = {
     SchemaVersion: 1,
-    Runtime: { WorkerCount: 4, RequiredCapabilities: [], SessionTimeout: 30000 },
+    Runtime: {
+        WorkerCount: 4, RequiredCapabilities: [], SessionTimeout: 30000,
+        BytePool: { InitialBytes: 4194304, GrowthBytes: 4194304, LimitBytes: 134217728 },
+    },
     Listeners: {
         Tcp: [{ Id: 'tcp-main', Address: '127.0.0.1', Port: 1080, Timeout: 5000 }],
         Udp: [{ Id: 'udp-main', Address: '127.0.0.1', Port: 1080, Timeout: 5000 }],

@@ -14,6 +14,7 @@
 #include <Prism/Foundation/Fault/Failure.hpp>
 #include <Prism/Foundation/Generation/Lifetime.hpp>
 #include <Prism/Foundation/Identifier/Id.hpp>
+#include <Prism/Foundation/Memory/BytePoolModels.hpp>
 #include <Prism/Net/Dns/Config.hpp>
 
 #include <boost/asio/awaitable.hpp>
@@ -41,6 +42,7 @@ namespace Prism::Runtime
             Prism::Network::Dns::Config Dns{};
             /** @brief 构造时共享给各 Worker 的进程级发布 owner。 */
             std::shared_ptr<GenerationPublication> Publication;
+            Prism::Memory::BytePoolOptions Bytes{};
         };
 
         WorkerGroup();

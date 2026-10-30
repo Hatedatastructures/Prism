@@ -187,6 +187,16 @@ struct glz::meta<Prism::Contract::CarrierMatchOptions>
 };
 
 template <>
+struct glz::meta<Prism::Application::Configuration::BytePoolConfiguration>
+{
+    using T = Prism::Application::Configuration::BytePoolConfiguration;
+    static constexpr auto value = glz::object(
+        "InitialBytes", &T::InitialBytes,
+        "GrowthBytes", &T::GrowthBytes,
+        "LimitBytes", &T::LimitBytes);
+};
+
+template <>
 struct glz::meta<Prism::Application::Configuration::RuntimeConfiguration>
 {
     using T = Prism::Application::Configuration::RuntimeConfiguration;
@@ -194,7 +204,8 @@ struct glz::meta<Prism::Application::Configuration::RuntimeConfiguration>
         "WorkerCount", &T::WorkerCount,
         "RequiredCapabilities", &T::RequiredCapabilities,
         "SessionTimeout", &T::SessionTimeout,
-        "MaxConnections", &T::MaxConnections);
+        "MaxConnections", &T::MaxConnections,
+        "BytePool", &T::BytePool);
 };
 
 template <>

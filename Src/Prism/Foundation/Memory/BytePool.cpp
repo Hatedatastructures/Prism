@@ -1,9 +1,8 @@
 /**
  * @file BytePool.cpp
- * @brief 固定容量字节池的准入实现。
+ * @brief 分段增长字节池的准入实现。
  */
 #include <Prism/Foundation/Memory/BytePool.hpp>
-
 #include <Prism/Foundation/Memory/BytePool/State.hpp>
 
 #include <memory>
@@ -60,14 +59,12 @@ namespace Prism::Memory
         Size_ = 0;
     }
 
-    OwnedBytes::OwnedBytes(std::shared_ptr<Detail::BytePoolState> State,
-        const std::size_t Index) noexcept
+    OwnedBytes::OwnedBytes(std::shared_ptr<Detail::BytePoolState> State, const std::size_t Index) noexcept
         : State_(std::move(State)), Index_(Index)
     {
     }
 
-    auto BytePool::TryAcquire(const std::size_t Size) noexcept
-        -> std::expected<OwnedBytes, Fault::Failure>
+    auto BytePool::TryAcquire(const std::size_t Size) noexcept -> std::expected<OwnedBytes, Fault::Failure>
     {
         if (Size > BlockSize())
         {

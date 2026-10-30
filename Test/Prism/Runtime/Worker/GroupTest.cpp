@@ -469,6 +469,32 @@ namespace
         EXPECT_TRUE(OnExecutor);
     }
 
+    TEST(WorkerGroup, PropagatesBytePoolOptionsToProcessAndAllWorkers)
+    {
+        Process::Options Options;
+        Options.Id = ProcessId{31};
+        Options.Generation = GenerationId{51};
+        Options.WorkerCount = 2;
+        Options.Bytes = Prism::Memory::BytePoolOptions{
+            .BlockSize = 64U,
+            .BlockCount = 8U,
+            .InitialBlockCount = 2U,
+            .GrowthBlockCount = 2U};
+        Process ProcessValue(Options);
+
+        const auto ProcessSnapshot = ProcessValue.Resources().Bytes->Snapshot();
+        EXPECT_EQ(ProcessSnapshot.CapacityBytes, 128U);
+        EXPECT_EQ(ProcessSnapshot.LimitBytes, 512U);
+        for (std::uint64_t Index = 1; Index <= Options.WorkerCount; ++Index)
+        {
+            auto *WorkerValue = ProcessValue.Workers().Find(WorkerId{Index});
+            ASSERT_NE(WorkerValue, nullptr);
+            const auto WorkerSnapshot = WorkerValue->Resources().Bytes->Snapshot();
+            EXPECT_EQ(WorkerSnapshot.CapacityBytes, 128U);
+            EXPECT_EQ(WorkerSnapshot.LimitBytes, 512U);
+        }
+    }
+
     TEST(WorkerGroup, DrainsOneWorkerWhileAnotherWorkerContinuesEchoing)
     {
         Net::io_context Io;

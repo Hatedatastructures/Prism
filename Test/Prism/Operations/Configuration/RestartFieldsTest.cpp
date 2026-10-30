@@ -44,3 +44,16 @@ TEST(ConfigurationRestartFields, LoggingEpochAndTimerIntervalRemainHotChanges)
         {Current,Candidate});
     EXPECT_TRUE(Fields.empty());
 }
+
+TEST(ConfigurationRestartFields, BytePoolCapacityChangesRequireProcessRestart)
+{
+    Prism::Application::Configuration::PrismConfiguration Current;
+    auto Candidate=Current;
+    Candidate.Runtime.BytePool.InitialBytes*=2U;
+    Candidate.Runtime.BytePool.GrowthBytes*=2U;
+    Candidate.Runtime.BytePool.LimitBytes*=2U;
+    const auto Fields=Prism::Application::Reload::RestartPolicy::RestartRequiredFields(
+        {Current,Candidate});
+    EXPECT_EQ(Fields,(std::vector<std::string>{"Runtime.BytePool.InitialBytes",
+        "Runtime.BytePool.GrowthBytes","Runtime.BytePool.LimitBytes"}));
+}

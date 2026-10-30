@@ -158,8 +158,19 @@ namespace Prism::Application
                 return std::unexpected(*LastError_);
             }
             const auto &Config = Phase->Generation->Configuration();
-            auto Runtime = std::make_shared<RuntimeState>(Config.Runtime.WorkerCount,
-                Phase->Generation->Id(), Assembly::MakeDnsConfig(Config.Dns));
+            const auto BytePool = Prism::Application::Configuration::MakeBytePoolOptions(
+                Config.Runtime.BytePool);
+            if (!BytePool)
+            {
+                LastError_ = Startup::MakeStartupError(StartupErrorCode::InvalidConfiguration,
+                    "Runtime.BytePool", "byte pool configuration cannot be represented as runtime options");
+                return std::unexpected(*LastError_);
+            }
+            auto Runtime = std::make_shared<RuntimeState>(RuntimeState::Options{
+                .WorkerCount = Config.Runtime.WorkerCount,
+                .Generation = Phase->Generation->Id(),
+                .Dns = Assembly::MakeDnsConfig(Config.Dns),
+                .BytePool = *BytePool});
             const auto AdmissionAuthority = Phase->Accounts.Identities
                 ? Phase->Accounts.Identities->RuntimeRegistry()->AttachAdmissionAuthority(
                     Runtime->GenerationPublisher)

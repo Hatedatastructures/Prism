@@ -146,7 +146,7 @@ namespace Prism::Runtime
     Worker::Worker(Options Value)
         : WorkerSessionTraceOwner(Value.Process, Value.Id),
           Resources_(Prism::Resource::WorkerResources::Options{
-              Value.Process, Value.Id, Value.Generation}),
+              Value.Process, Value.Id, Value.Generation, Value.Bytes}),
           Scheduler_(Net::make_strand(Net::any_io_executor(Resources_.Execution->Io.get_executor()))),
           Work_(Net::any_io_executor(Scheduler_)),
           Publication_(std::move(Value.Publication)),

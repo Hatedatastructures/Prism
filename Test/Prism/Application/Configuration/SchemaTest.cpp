@@ -5,6 +5,23 @@
 
 #include "ConfigSupport.hpp"
 
+#include <cstdint>
+
+namespace
+{
+    auto WithBytePool(
+        const std::uint64_t InitialBytes,
+        const std::uint64_t GrowthBytes,
+        const std::uint64_t LimitBytes) -> std::string
+    {
+        const auto Replacement = "\"SessionTimeout\": 30000,\n    \"BytePool\": {" +
+            std::string{"\"InitialBytes\": "} + std::to_string(InitialBytes) +
+            ", \"GrowthBytes\": " + std::to_string(GrowthBytes) +
+            ", \"LimitBytes\": " + std::to_string(LimitBytes) + "}";
+        return ReplaceFirst(std::string(ValidJson), "\"SessionTimeout\": 30000", Replacement);
+    }
+} // namespace
+
 TEST(PrismTask3Configuration, ParsesTheAuthoritativePascalCaseSchema)
     {
         const auto Parsed = ConfigurationParser::ParseJson(ValidJson);
@@ -197,7 +214,101 @@ TEST(PrismTask3Configuration, AppliesSchemaDefaultsDuringDecode)
         EXPECT_EQ(Result->Recognition.Mode, "MixedTrial");
         EXPECT_FALSE(Result->NativeTls.Enabled);
         EXPECT_EQ(Result->Runtime.SessionTimeout, 30000U);
+        EXPECT_EQ(Result->Runtime.BytePool.InitialBytes, 4U * 1024U * 1024U);
+        EXPECT_EQ(Result->Runtime.BytePool.GrowthBytes, 4U * 1024U * 1024U);
+        EXPECT_EQ(Result->Runtime.BytePool.LimitBytes, 128U * 1024U * 1024U);
     }
+
+TEST(PrismTask3Configuration, MapsConfiguredBytePoolBytesToRuntimeOptions)
+{
+    const auto Parsed = ConfigurationParser::ParseJson(
+        WithBytePool(2U * 1024U * 1024U, 1024U * 1024U, 8U * 1024U * 1024U));
+
+    ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
+    const auto Options =
+        Prism::Application::Configuration::MakeBytePoolOptions(Parsed->Runtime.BytePool);
+    ASSERT_TRUE(Options.has_value());
+    EXPECT_EQ(Options->BlockSize, 64U * 1024U);
+    EXPECT_EQ(Options->BlockCount, 128U);
+    EXPECT_EQ(Options->InitialBlockCount, 32U);
+    EXPECT_EQ(Options->GrowthBlockCount, 16U);
+}
+
+TEST(PrismTask3Configuration, RejectsInvalidBytePoolBoundsAndAlignment)
+{
+    constexpr auto MiB = 1024U * 1024U;
+    constexpr auto Block = 64U * 1024U;
+    const auto ExpectRejected = [](const auto &Result, const std::string_view Path)
+    {
+        ASSERT_FALSE(Result.has_value());
+        EXPECT_EQ(Result.error().Path, Path);
+    };
+
+    ExpectRejected(ConfigurationParser::ParseJson(WithBytePool(0U, 4U * MiB, 128U * MiB)),
+        "Runtime.BytePool.InitialBytes");
+    ExpectRejected(ConfigurationParser::ParseJson(WithBytePool(4U * MiB, 0U, 128U * MiB)),
+        "Runtime.BytePool.GrowthBytes");
+    ExpectRejected(ConfigurationParser::ParseJson(WithBytePool(4U * MiB, 4U * MiB, 0U)),
+        "Runtime.BytePool.LimitBytes");
+    ExpectRejected(ConfigurationParser::ParseJson(WithBytePool(Block + 1U, 4U * MiB, 128U * MiB)),
+        "Runtime.BytePool.InitialBytes");
+    ExpectRejected(
+        ConfigurationParser::ParseJson(WithBytePool(4U * MiB, Block + 1U, 128U * MiB)),
+        "Runtime.BytePool.GrowthBytes");
+    ExpectRejected(
+        ConfigurationParser::ParseJson(WithBytePool(4U * MiB, 4U * MiB, Block + 1U)),
+        "Runtime.BytePool.LimitBytes");
+    ExpectRejected(
+        ConfigurationParser::ParseJson(WithBytePool(8U * MiB, 4U * MiB, 4U * MiB)),
+        "Runtime.BytePool.InitialBytes");
+    ExpectRejected(
+        ConfigurationParser::ParseJson(WithBytePool(4U * MiB, 8U * MiB, 4U * MiB)),
+        "Runtime.BytePool.GrowthBytes");
+    ExpectRejected(ConfigurationParser::ParseJson(WithBytePool(4U * MiB, 4U * MiB,
+                      Prism::Application::Configuration::MaxBytePoolLimitBytes + Block)),
+        "Runtime.BytePool.LimitBytes");
+}
+
+TEST(PrismTask3Configuration, AcceptsTheMaximumBytePoolLimit)
+{
+    constexpr auto MiB = 1024U * 1024U;
+    const auto Parsed = ConfigurationParser::ParseJson(WithBytePool(
+        4U * MiB, 4U * MiB, Prism::Application::Configuration::MaxBytePoolLimitBytes));
+
+    ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
+    const auto Options =
+        Prism::Application::Configuration::MakeBytePoolOptions(Parsed->Runtime.BytePool);
+    ASSERT_TRUE(Options.has_value());
+    EXPECT_EQ(Options->BlockCount,
+        Prism::Application::Configuration::MaxBytePoolLimitBytes /
+            Prism::Application::Configuration::BytePoolBlockBytes);
+}
+
+TEST(PrismTask3Configuration, SerializesBytePoolConfigurationRoundTrip)
+{
+    constexpr auto MiB = 1024U * 1024U;
+    const auto Parsed = ConfigurationParser::ParseJson(WithBytePool(2U * MiB, MiB, 8U * MiB));
+    ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
+
+    const auto Serialized = ConfigurationParser::SerializeJson(*Parsed);
+    ASSERT_TRUE(Serialized.has_value()) << Serialized.error().Message;
+    const auto RoundTrip = ConfigurationParser::ParseJson(*Serialized);
+    ASSERT_TRUE(RoundTrip.has_value()) << RoundTrip.error().Message;
+    EXPECT_EQ(RoundTrip->Runtime.BytePool.InitialBytes, 2U * MiB);
+    EXPECT_EQ(RoundTrip->Runtime.BytePool.GrowthBytes, MiB);
+    EXPECT_EQ(RoundTrip->Runtime.BytePool.LimitBytes, 8U * MiB);
+}
+
+TEST(PrismTask3Configuration, RejectsUnknownBytePoolFields)
+{
+    const auto Json = ReplaceFirst(WithBytePool(4U * 1024U * 1024U, 4U * 1024U * 1024U,
+                                     128U * 1024U * 1024U),
+        "\"InitialBytes\": 4194304,", "\"InitialBytes\": 4194304, \"Unknown\": true,");
+    const auto Result = ConfigurationParser::ParseJson(Json);
+
+    ASSERT_FALSE(Result.has_value());
+    EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::UnknownField);
+}
 
 TEST(PrismTask3Configuration, RejectsInvalidNumericTypesAndBounds)
     {

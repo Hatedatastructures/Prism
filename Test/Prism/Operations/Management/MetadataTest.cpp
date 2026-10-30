@@ -471,7 +471,10 @@ TEST(OperationsMetadataEvents, AcceptedAndTerminalKeepOneTypedTargetIdentity)
     }
 
     auto Runtime = std::make_shared<Prism::Application::Application::RuntimeState>(
-        1, Prism::GenerationId{5}, Prism::Network::Dns::Config{});
+        Prism::Application::Application::RuntimeState::Options{
+            .WorkerCount = 1,
+            .Generation = Prism::GenerationId{5},
+            .Dns = Prism::Network::Dns::Config{}});
     const Prism::Application::OperationsEventProducer::ProcessDrainIdentityInput Request{
         Prism::Operations::OperationId{37}, Prism::RequestId{41},
         Prism::Operations::CommandTargetScope{

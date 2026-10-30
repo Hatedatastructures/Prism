@@ -304,10 +304,11 @@ TEST(PrismApplicationStorage, FailedPersistenceAttachmentClosesStorageAndLeavesR
     ASSERT_TRUE(Identities->RuntimeRegistry()->AttachPolicySource(MakePolicySource(std::nullopt)));
 
     auto Runtime = std::make_shared<Prism::Application::Application::RuntimeState>(
-        Phase->Generation->Configuration().Runtime.WorkerCount,
-        Phase->Generation->Id(),
-        Prism::Application::Assembly::MakeDnsConfig(
-            Phase->Generation->Configuration().Dns));
+        Prism::Application::Application::RuntimeState::Options{
+            .WorkerCount = Phase->Generation->Configuration().Runtime.WorkerCount,
+            .Generation = Phase->Generation->Id(),
+            .Dns = Prism::Application::Assembly::MakeDnsConfig(
+                Phase->Generation->Configuration().Dns)});
     Runtime->Generation = Phase->Generation;
     Runtime->Accounts.Identities = Identities;
     Runtime->Accounts.Store = Store;
@@ -377,10 +378,11 @@ TEST(PrismApplicationStorage, FinalSettlementFailureRejectsShutdownReceiptAndJoi
     ASSERT_TRUE(Transfer);
 
     auto Runtime = std::make_shared<Prism::Application::Application::RuntimeState>(
-        Phase->Generation->Configuration().Runtime.WorkerCount,
-        Phase->Generation->Id(),
-        Prism::Application::Assembly::MakeDnsConfig(
-            Phase->Generation->Configuration().Dns));
+        Prism::Application::Application::RuntimeState::Options{
+            .WorkerCount = Phase->Generation->Configuration().Runtime.WorkerCount,
+            .Generation = Phase->Generation->Id(),
+            .Dns = Prism::Application::Assembly::MakeDnsConfig(
+                Phase->Generation->Configuration().Dns)});
     Runtime->Generation = Phase->Generation;
     Runtime->Accounts.Identities = Identities;
     Runtime->Accounts.Store = Store;

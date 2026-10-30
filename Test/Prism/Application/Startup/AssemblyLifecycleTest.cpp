@@ -262,8 +262,12 @@ TEST(PrismApplicationMux, ProductionAssemblyReleasesRootAndMuxServiceAfterRollba
     std::weak_ptr<Prism::Network::Dns::Resolver> WeakResolver;
     {
         auto Runtime =
-            std::make_shared<Prism::Application::Application::RuntimeState>(2, Phase->Generation->Id(),
-                Prism::Application::Assembly::MakeDnsConfig(Phase->Generation->Configuration().Dns));
+            std::make_shared<Prism::Application::Application::RuntimeState>(
+                Prism::Application::Application::RuntimeState::Options{
+                    .WorkerCount = 2,
+                    .Generation = Phase->Generation->Id(),
+                    .Dns = Prism::Application::Assembly::MakeDnsConfig(
+                        Phase->Generation->Configuration().Dns)});
         Prism::Application::Startup::StartupTransaction Transaction(Runtime);
         Runtime->Generation = Phase->Generation;
         Runtime->Accounts = Phase->Accounts;
@@ -289,7 +293,10 @@ TEST(PrismApplicationStatistics, DisabledConfigurationInstallsNoObserverOrTimer)
     const auto Phase = Prism::Application::Startup::GenerationPhase::Build({Config.Path(), {}});
     ASSERT_TRUE(Phase);
     auto Runtime = std::make_shared<Prism::Application::Application::RuntimeState>(
-        2, Phase->Generation->Id(), Prism::Network::Dns::Config{});
+        Prism::Application::Application::RuntimeState::Options{
+            .WorkerCount = 2,
+            .Generation = Phase->Generation->Id(),
+            .Dns = Prism::Network::Dns::Config{}});
     Prism::Application::Startup::StartupTransaction Transaction(Runtime);
     Runtime->Generation = Phase->Generation;
     Runtime->Accounts = Phase->Accounts;
@@ -311,8 +318,10 @@ TEST(PrismApplicationStatistics, ConfiguredIntervalFlushesTheSameOperationsCount
     ASSERT_TRUE(Phase->Accounts.Identities);
     const auto& Configuration = Phase->Generation->Configuration();
     auto Runtime = std::make_shared<Prism::Application::Application::RuntimeState>(
-        Configuration.Runtime.WorkerCount, Phase->Generation->Id(),
-        Prism::Application::Assembly::MakeDnsConfig(Configuration.Dns));
+        Prism::Application::Application::RuntimeState::Options{
+            .WorkerCount = Configuration.Runtime.WorkerCount,
+            .Generation = Phase->Generation->Id(),
+            .Dns = Prism::Application::Assembly::MakeDnsConfig(Configuration.Dns)});
     const auto AdmissionAuthority = Phase->Accounts.Identities->RuntimeRegistry()->AttachAdmissionAuthority(
         Runtime->GenerationPublisher);
     ASSERT_TRUE(AdmissionAuthority);
@@ -364,8 +373,10 @@ TEST(PrismApplicationStatistics, ShutdownConsumesPendingBytesBeforeReleasingGene
     ASSERT_TRUE(Phase->Accounts.Identities);
     const auto& Configuration = Phase->Generation->Configuration();
     auto Runtime = std::make_shared<Prism::Application::Application::RuntimeState>(
-        Configuration.Runtime.WorkerCount, Phase->Generation->Id(),
-        Prism::Application::Assembly::MakeDnsConfig(Configuration.Dns));
+        Prism::Application::Application::RuntimeState::Options{
+            .WorkerCount = Configuration.Runtime.WorkerCount,
+            .Generation = Phase->Generation->Id(),
+            .Dns = Prism::Application::Assembly::MakeDnsConfig(Configuration.Dns)});
     const auto AdmissionAuthority = Phase->Accounts.Identities->RuntimeRegistry()->AttachAdmissionAuthority(
         Runtime->GenerationPublisher);
     ASSERT_TRUE(AdmissionAuthority);
@@ -617,7 +628,10 @@ TEST(PrismApplicationReload, RuntimePublishFailurePreservesGenerationBeforeCas)
     const auto Id = Prism::AccountId{324U};
 
     auto State = std::make_shared<Prism::Application::Application::RuntimeState>(
-        1, Prism::GenerationId{1}, Prism::Network::Dns::Config{});
+        Prism::Application::Application::RuntimeState::Options{
+            .WorkerCount = 1,
+            .Generation = Prism::GenerationId{1},
+            .Dns = Prism::Network::Dns::Config{}});
     State->Phase.store(Prism::Application::RuntimePhase::Ready);
     const auto CurrentGeneration = Phase->Generation;
     Prism::Application::Configuration::GenerationBuildOptions CandidateOptions;
